@@ -6,8 +6,12 @@ import {inviteTeamMember,revokeInvitation} from "./team/actions";
 export default async function Workspace({params,searchParams}:{params:Promise<{businessSlug:string}>,searchParams:Promise<Record<string,string|undefined>>}){
  const {businessSlug}=await params,q=await searchParams,s=await createSupabaseServerClient();
  const {data:{user}}=await s.auth.getUser();if(!user)redirect(`/login?next=/app/${businessSlug}`);
- const {data:business}=await s.from("businesses").select("id,name,slug,business_model,email,enabled_modules").eq("slug",businessSlug).maybeSingle();if(!business)notFound();
- const {data:membership}=await s.from("business_members").select("role").eq("business_id",business.id).eq("user_id",user.id).maybeSingle();if(!membership)notFound();
+ const {data:business,error:businessError}=await s.from("businesses").select("id,name,slug,business_model,email,enabled_modules").eq("slug",businessSlug).maybeSingle();
+ if(businessError) throw new Error(`Unable to load workspace: ${businessError.message}`);
+ if(!business)notFound();
+ const {data:membership,error:membershipError}=await s.from("business_members").select("role").eq("business_id",business.id).eq("user_id",user.id).maybeSingle();
+ if(membershipError) throw new Error(`Unable to verify workspace access: ${membershipError.message}`);
+ if(!membership)notFound();
  const canManage=["owner","admin"].includes(membership.role);
  const [{data:members},{data:invites}]=await Promise.all([
   s.from("business_members").select("user_id,role,created_at,profiles(email,full_name)").eq("business_id",business.id).order("created_at"),
