@@ -6,10 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "lint": "next lint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -26,9 +23,7 @@
     "@types/react-dom": "^19.0.4",
     "eslint": "^9.22.0",
     "eslint-config-next": "^15.2.3",
-    "typescript": "^5.8.2",
-    "vitest": "^3.2.4",
-    "@playwright/test": "^1.54.1"
+    "typescript": "^5.8.2"
   },
   "engines": {
     "node": "24.x"
