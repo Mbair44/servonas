@@ -1,0 +1,2 @@
+import OnboardingWizard from "@/components/OnboardingWizard";
+export default function Onboarding(){return <main><section className="sv-page-hero sv-compact"><div className="sv-container"><span className="sv-kicker">Create your business</span><h1>Configure your first Servonas workspace.</h1><p>No credit card required. This Phase 1 flow creates a working configuration preview.</p></div></section><section className="sv-section"><div className="sv-container"><OnboardingWizard/></div></section></main>}

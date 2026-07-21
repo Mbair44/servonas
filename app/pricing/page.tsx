@@ -1,0 +1,7 @@
+import Link from "next/link";
+const plans=[
+{name:"Starter",price:"49",desc:"For owner-operators launching online.",features:["1 location","Online booking","Payments and deposits","Inventory or service catalog","Email confirmations"]},
+{name:"Growth",price:"99",desc:"For businesses building a repeatable operation.",features:["Everything in Starter","Up to 5 team members","SMS workflows","Coupons and refunds","Advanced availability"]},
+{name:"Business",price:"199",desc:"For established teams with complex workflows.",features:["Everything in Growth","Unlimited team members","Multi-location foundation","Advanced reporting","Priority onboarding"]}
+];
+export default function Pricing(){return <main><section className="sv-page-hero"><div className="sv-container"><span className="sv-kicker">Pricing</span><h1>Transparent plans without enterprise complexity.</h1><p>Pricing is initial launch positioning and can be changed before accepting paid customers.</p></div></section><section className="sv-section"><div className="sv-container sv-price-grid">{plans.map((p,i)=><article className={i===1?"featured":""} key={p.name}>{i===1&&<span className="sv-badge">Most popular</span>}<h2>{p.name}</h2><strong>${p.price}<small>/month</small></strong><p>{p.desc}</p><ul>{p.features.map(x=><li key={x}>✓ {x}</li>)}</ul><Link className="sv-button sv-full" href="/onboarding">Start Free</Link></article>)}</div><p className="sv-center-note">No payment is collected by this Phase 1 build. Stripe subscriptions are the next billing milestone.</p></section></main>}

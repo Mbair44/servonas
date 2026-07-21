@@ -1,0 +1,19 @@
+"use client";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+
+type Model = "rentals"|"services"|"appointments"|"hybrid";
+export default function OnboardingWizard(){
+ const [step,setStep]=useState(1); const [done,setDone]=useState(false);
+ const [data,setData]=useState({name:"",slug:"",email:"",model:"rentals" as Model,inventory:true,staff:false,deposits:true,color:"#2563eb"});
+ const clean=(v:string)=>v.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+ const modules=useMemo(()=>["Booking","Payments",data.inventory?"Inventory":"Service catalog",data.staff?"Team scheduling":"Owner calendar","Customer communication"],[data]);
+ function submit(){localStorage.setItem("servonas_workspace",JSON.stringify({...data,modules,createdAt:new Date().toISOString()}));setDone(true)}
+ if(done)return <div className="sv-onboard-success"><span>✓</span><h2>Your Servonas workspace blueprint is ready.</h2><p><strong>{data.name}</strong> will use <code>/{data.slug}</code> with the {modules.join(", ")} modules enabled.</p><p>This Phase 1 preview stores the blueprint in your browser. Run the included Supabase migration and connect Auth to persist real customer workspaces.</p><div className="sv-actions"><Link className="sv-button" href={`/app/${data.slug}`}>View Workspace Preview</Link><Link className="sv-button sv-secondary" href="/">Back Home</Link></div></div>;
+ return <div className="sv-wizard"><div className="sv-progress"><span style={{width:`${step*33.333}%`}}/></div><small>Step {step} of 3</small>
+ {step===1&&<div><h2>Create your business</h2><p>Start with the identity customers will see.</p><label>Business name<input value={data.name} onChange={e=>setData({...data,name:e.target.value,slug:clean(e.target.value)})} placeholder="NRS Party Rentals"/></label><label>Workspace URL<div className="sv-input-prefix"><span>servonas.com/</span><input value={data.slug} onChange={e=>setData({...data,slug:clean(e.target.value)})} placeholder="nrs-party-rentals"/></div></label><label>Business email<input type="email" value={data.email} onChange={e=>setData({...data,email:e.target.value})} placeholder="owner@company.com"/></label></div>}
+ {step===2&&<div><h2>What do you sell?</h2><p>Servonas will configure the first set of workflows.</p><div className="sv-choice-grid">{([['rentals','Rentals','Reserve physical inventory'],['services','Services','Request or schedule jobs'],['appointments','Appointments','Book time or classes'],['hybrid','A mix','Combine time, work, and inventory']] as const).map(([v,t,d])=><button type="button" className={data.model===v?"active":""} onClick={()=>setData({...data,model:v})} key={v}><strong>{t}</strong><span>{d}</span></button>)}</div></div>}
+ {step===3&&<div><h2>Choose your starting modules</h2><p>You can change these later.</p><label className="sv-check"><input type="checkbox" checked={data.inventory} onChange={e=>setData({...data,inventory:e.target.checked})}/><span><strong>Inventory or catalog</strong><small>Products, services, images, quantities, and availability</small></span></label><label className="sv-check"><input type="checkbox" checked={data.staff} onChange={e=>setData({...data,staff:e.target.checked})}/><span><strong>Team scheduling</strong><small>Assign work and coordinate calendars</small></span></label><label className="sv-check"><input type="checkbox" checked={data.deposits} onChange={e=>setData({...data,deposits:e.target.checked})}/><span><strong>Payments and deposits</strong><small>Take secure payment during booking</small></span></label></div>}
+ <div className="sv-wizard-actions">{step>1&&<button className="sv-button sv-secondary" onClick={()=>setStep(step-1)}>Back</button>}<button className="sv-button" disabled={step===1&&(!data.name||!data.slug||!data.email)} onClick={()=>step<3?setStep(step+1):submit()}>{step<3?"Continue":"Create Workspace"}</button></div>
+ </div>
+}
