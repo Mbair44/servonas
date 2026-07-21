@@ -1,1 +1,0 @@
-export default async function Page({searchParams}:{searchParams:Promise<{email?:string}>}){const {email}=await searchParams; return <main className="auth-shell"><section className="auth-card"><h1>Verify your email</h1><p>We sent a confirmation link to <strong>{email||"your email address"}</strong>. Open it to activate your account and continue to Servonas.</p></section></main>}

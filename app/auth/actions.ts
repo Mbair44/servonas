@@ -7,14 +7,14 @@ function value(formData: FormData, key: string) { return String(formData.get(key
 function fail(path: string, message: string): never { redirect(`${path}?error=${encodeURIComponent(message)}`); }
 
 export async function signUp(formData: FormData) {
-  const email=value(formData,"email"), password=value(formData,"password"), confirm=value(formData,"confirmPassword");
-  if (!email || password.length < 8) fail("/signup","Use a valid email and a password with at least 8 characters.");
-  if (password !== confirm) fail("/signup","Passwords do not match.");
+  const email=value(formData,"email"), password=value(formData,"password"), confirm=value(formData,"confirmPassword"), next=value(formData,"next") || "/app";
+  if (!email || password.length < 8) fail(`/signup?next=${encodeURIComponent(next)}&email=${encodeURIComponent(email)}`,"Use a valid email and a password with at least 8 characters.");
+  if (password !== confirm) fail(`/signup?next=${encodeURIComponent(next)}&email=${encodeURIComponent(email)}`,"Passwords do not match.");
   const origin=(await headers()).get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
   const supabase=await createSupabaseServerClient();
-  const { data, error }=await supabase.auth.signUp({email,password,options:{emailRedirectTo:`${origin}/auth/callback?next=/app`}});
-  if(error) fail("/signup",error.message);
-  if(data.session) redirect("/app");
+  const { data, error }=await supabase.auth.signUp({email,password,options:{emailRedirectTo:`${origin}/auth/callback?next=${encodeURIComponent(next.startsWith("/") ? next : "/app")}`}});
+  if(error) fail(`/signup?next=${encodeURIComponent(next)}&email=${encodeURIComponent(email)}`,error.message);
+  if(data.session) redirect(next.startsWith("/") ? next : "/app");
   redirect(`/auth/confirm?email=${encodeURIComponent(email)}`);
 }
 
