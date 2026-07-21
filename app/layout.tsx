@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return <html lang="en"><body>
     <header className="sv-header"><div className="sv-container sv-nav">
       <Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
-      <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link className="sv-button sv-small" href="/onboarding">Start Free</Link></nav>
+      <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link href="/login">Log in</Link><Link className="sv-button sv-small" href="/signup">Start Free</Link></nav>
     </div></header>
     {children}
     <footer className="sv-footer"><div className="sv-container sv-footer-grid">
