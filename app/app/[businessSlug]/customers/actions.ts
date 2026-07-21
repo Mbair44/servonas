@@ -9,7 +9,12 @@ export async function createCustomer(slug:string,formData:FormData){
  const first=text(formData,"firstName"),last=text(formData,"lastName"),email=text(formData,"email").toLowerCase(),phone=text(formData,"phone"),notes=text(formData,"notes");
  if(!first) redirect(`/app/${slug}/customers?error=First+name+is+required`);
  const {error}=await supabase.from("customers").insert({business_id:business.id,first_name:first,last_name:last,email:email||null,phone:phone||null,notes:notes||null,created_by:user.id,updated_by:user.id});
- if(error) redirect(`/app/${slug}/customers?error=${encodeURIComponent(error.message)}`);
+ if(error){
+  const duplicateEmail = error.code === "23505" && (error.message.includes("customers_business_email_unique") || error.message.includes("customers_email_unique"));
+  const message = duplicateEmail ? "A customer with this email address already exists in this workspace." : "We couldn’t add the customer. Please try again.";
+  console.error("Customer creation failed", { code:error.code, message:error.message });
+  redirect(`/app/${slug}/customers?error=${encodeURIComponent(message)}`);
+ }
  revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/customers`); redirect(`/app/${slug}/customers?success=Customer+added`);
 }
 export async function archiveCustomer(slug:string,formData:FormData){

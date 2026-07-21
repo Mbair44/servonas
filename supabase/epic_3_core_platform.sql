@@ -91,3 +91,10 @@ begin
 end; $$;
 drop trigger if exists business_settings_activity_trigger on public.businesses;
 create trigger business_settings_activity_trigger after update on public.businesses for each row execute function public.log_business_settings_activity();
+
+-- Email uniqueness is tenant-scoped and case-insensitive.
+alter table public.customers drop constraint if exists customers_email_unique;
+drop index if exists public.customers_email_unique;
+create unique index if not exists customers_business_email_unique
+  on public.customers (business_id, lower(email))
+  where email is not null and btrim(email) <> '' and is_deleted = false;
