@@ -31,7 +31,7 @@ export default function AuthForm({
         <h1>{title}</h1>
         <p>{subtitle}</p>
         {error && <div className="auth-error">{error}</div>}
-        <form action={action} className="auth-form">
+        <form action={action} className="auth-form" noValidate>
           {next && <input type="hidden" name="next" value={next} />}
           {!isReset && (
             <label>
