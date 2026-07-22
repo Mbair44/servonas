@@ -1,6 +1,93 @@
 import { notFound } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import PublicBookingForm from "@/components/PublicBookingForm";
 import { submitPublicBooking } from "./actions";
-export const dynamic="force-dynamic";
-const price=(s:any)=>s.price_label==="quote"?"Request a quote":`${s.price_label==="starting_at"?"Starting at ":""}${new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(s.price_amount??0)}`;
-export default async function PublicBookingPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{error?:string}>}){const {businessSlug}=await params;const query=await searchParams;const supabase=getSupabaseAdmin();if(!supabase)notFound();const {data:settings}=await supabase.from("booking_settings").select("*,businesses(name)").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();if(!settings)notFound();const [{data:services},{data:hours}]=await Promise.all([supabase.from("services").select("id,name,description,duration_minutes,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),supabase.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",settings.business_id).eq("active",true)]);const schedule=Object.fromEntries((hours??[]).map((h:any)=>[h.weekday,{start:h.start_time.slice(0,5),end:h.end_time.slice(0,5)}]));return <main className="public-booking" style={{"--booking-brand":settings.brand_color} as React.CSSProperties}><section className="public-booking-card"><header>{settings.logo_url?<img src={settings.logo_url} alt=""/>:<div className="booking-mark">{settings.businesses?.name?.slice(0,1)}</div>}<small>Online booking</small><h1>{settings.businesses?.name}</h1><p>{settings.welcome_message}</p></header>{query.error&&<div className="workspace-notice error">{query.error}</div>}{!services?.length?<div className="booking-empty">No services are available for online booking yet.</div>:<form action={submitPublicBooking.bind(null,businessSlug)} className="public-booking-form"><input className="honeypot" name="companyWebsite" tabIndex={-1} autoComplete="off"/><input type="hidden" name="requestKey" value={crypto.randomUUID()}/><label>Service<select name="serviceId" required defaultValue=""><option value="" disabled>Choose a service</option>{services.map((s:any)=><option value={s.id} key={s.id}>{s.name} · {s.duration_minutes} min · {price(s)}</option>)}</select></label><label>Appointment time<input name="startsAt" type="datetime-local" required/></label><div className="booking-hours wide"><b>Available hours</b><span>{[0,1,2,3,4,5,6].map(d=>schedule[d]?`${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]} ${schedule[d].start}–${schedule[d].end}`:null).filter(Boolean).join(" · ")}</span><small>Times are checked again when you submit.</small></div><label>First name<input name="firstName" required autoComplete="given-name"/></label><label>Last name<input name="lastName" autoComplete="family-name"/></label><label>Email<input name="email" type="email" autoComplete="email"/></label><label>Phone<input name="phone" type="tel" autoComplete="tel"/></label>{settings.collect_address&&<label className="wide">Service address<input name="address" autoComplete="street-address"/></label>}<label className="wide">How can we help?<textarea name="details" rows={4}/></label>{(settings.intake_questions??[]).map((q:string,i:number)=><label className="wide" key={i}>{q}<input name={`question_${i}`} /></label>)}<button>Request appointment</button><small className="wide booking-privacy">Your information is sent securely to {settings.businesses?.name} through Servonas.</small></form>}</section><footer>Powered by <b>Servonas</b></footer></main>}
+
+export const dynamic = "force-dynamic";
+
+export default async function PublicBookingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ businessSlug: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { businessSlug } = await params;
+  const query = await searchParams;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) notFound();
+
+  const { data: settings } = await supabase
+    .from("booking_settings")
+    .select("*,businesses(name)")
+    .ilike("public_slug", businessSlug)
+    .eq("enabled", true)
+    .maybeSingle();
+  if (!settings) notFound();
+
+  const [{ data: services }, { data: hours }] = await Promise.all([
+    supabase
+      .from("services")
+      .select("id,name,description,duration_minutes,price_amount,price_label")
+      .eq("business_id", settings.business_id)
+      .eq("active", true)
+      .eq("is_deleted", false)
+      .order("sort_order")
+      .order("name"),
+    supabase
+      .from("booking_availability")
+      .select("weekday,start_time,end_time")
+      .eq("business_id", settings.business_id)
+      .eq("active", true),
+  ]);
+
+  const schedule = Object.fromEntries(
+    (hours ?? []).map((hour: any) => [
+      hour.weekday,
+      { start: hour.start_time.slice(0, 5), end: hour.end_time.slice(0, 5) },
+    ]),
+  );
+  const businessName = Array.isArray(settings.businesses)
+    ? settings.businesses[0]?.name
+    : settings.businesses?.name;
+
+  return (
+    <main
+      className="public-booking"
+      style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
+    >
+      <section className="public-booking-card">
+        <header>
+          {settings.logo_url ? (
+            <img src={settings.logo_url} alt="" />
+          ) : (
+            <div className="booking-mark">{businessName?.slice(0, 1)}</div>
+          )}
+          <small>Online booking</small>
+          <h1>{businessName}</h1>
+          <p>{settings.welcome_message}</p>
+        </header>
+
+        {query.error && <div className="workspace-notice error">{query.error}</div>}
+        {!services?.length ? (
+          <div className="booking-empty">No services are available for online booking yet.</div>
+        ) : (
+          <PublicBookingForm
+            action={submitPublicBooking.bind(null, businessSlug)}
+            services={services}
+            schedule={schedule}
+            collectAddress={Boolean(settings.collect_address)}
+            intakeQuestions={settings.intake_questions ?? []}
+            businessName={businessName ?? "this business"}
+            minimumNoticeHours={Number(settings.minimum_notice_hours ?? 0)}
+            maximumDaysAhead={Number(settings.maximum_days_ahead ?? 60)}
+            googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+          />
+        )}
+      </section>
+      <footer>
+        Powered by <b>Servonas</b>
+      </footer>
+    </main>
+  );
+}

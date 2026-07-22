@@ -1,93 +1,17 @@
-import { notFound } from "next/navigation";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import PublicBookingForm from "@/components/PublicBookingForm";
-import { submitPublicBooking } from "./actions";
-
-export const dynamic = "force-dynamic";
-
-export default async function PublicBookingPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ businessSlug: string }>;
-  searchParams: Promise<{ error?: string }>;
-}) {
-  const { businessSlug } = await params;
-  const query = await searchParams;
-  const supabase = getSupabaseAdmin();
-  if (!supabase) notFound();
-
-  const { data: settings } = await supabase
-    .from("booking_settings")
-    .select("*,businesses(name)")
-    .ilike("public_slug", businessSlug)
-    .eq("enabled", true)
-    .maybeSingle();
-  if (!settings) notFound();
-
-  const [{ data: services }, { data: hours }] = await Promise.all([
-    supabase
-      .from("services")
-      .select("id,name,description,duration_minutes,price_amount,price_label")
-      .eq("business_id", settings.business_id)
-      .eq("active", true)
-      .eq("is_deleted", false)
-      .order("sort_order")
-      .order("name"),
-    supabase
-      .from("booking_availability")
-      .select("weekday,start_time,end_time")
-      .eq("business_id", settings.business_id)
-      .eq("active", true),
-  ]);
-
-  const schedule = Object.fromEntries(
-    (hours ?? []).map((hour: any) => [
-      hour.weekday,
-      { start: hour.start_time.slice(0, 5), end: hour.end_time.slice(0, 5) },
-    ]),
-  );
-  const businessName = Array.isArray(settings.businesses)
-    ? settings.businesses[0]?.name
-    : settings.businesses?.name;
-
-  return (
-    <main
-      className="public-booking"
-      style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
-    >
-      <section className="public-booking-card">
-        <header>
-          {settings.logo_url ? (
-            <img src={settings.logo_url} alt="" />
-          ) : (
-            <div className="booking-mark">{businessName?.slice(0, 1)}</div>
-          )}
-          <small>Online booking</small>
-          <h1>{businessName}</h1>
-          <p>{settings.welcome_message}</p>
-        </header>
-
-        {query.error && <div className="workspace-notice error">{query.error}</div>}
-        {!services?.length ? (
-          <div className="booking-empty">No services are available for online booking yet.</div>
-        ) : (
-          <PublicBookingForm
-            action={submitPublicBooking.bind(null, businessSlug)}
-            services={services}
-            schedule={schedule}
-            collectAddress={Boolean(settings.collect_address)}
-            intakeQuestions={settings.intake_questions ?? []}
-            businessName={businessName ?? "this business"}
-            minimumNoticeHours={Number(settings.minimum_notice_hours ?? 0)}
-            maximumDaysAhead={Number(settings.maximum_days_ahead ?? 60)}
-            googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
-          />
-        )}
-      </section>
-      <footer>
-        Powered by <b>Servonas</b>
-      </footer>
-    </main>
-  );
+import Link from "next/link";
+import { requireWorkspace } from "@/lib/workspace";
+import { canManageBusiness } from "@/lib/access";
+import { WorkspaceNav } from "./WorkspaceNav";
+import { inviteTeamMember,revokeInvitation } from "./team/actions";
+export default async function Workspace({params,searchParams}:{params:Promise<{businessSlug:string}>,searchParams:Promise<Record<string,string|undefined>>}){
+ const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug),canManage=canManageBusiness(role);
+ const [{count:customerCount},{count:upcomingJobCount},{data:members},{data:activity},{data:invites}]=await Promise.all([
+  supabase.from("customers").select("id",{count:"exact",head:true}).eq("business_id",business.id).eq("is_deleted",false),
+  supabase.from("jobs").select("id",{count:"exact",head:true}).eq("business_id",business.id).eq("is_deleted",false).gte("starts_at",new Date().toISOString()).neq("status","canceled"),
+  supabase.from("business_members").select("user_id,role,created_at,profiles(email,full_name)").eq("business_id",business.id).order("created_at"),
+  supabase.from("business_activity").select("id,action,entity_type,summary,created_at").eq("business_id",business.id).order("created_at",{ascending:false}).limit(8),
+  canManage?supabase.from("business_invitations").select("id,email,role,token,expires_at").eq("business_id",business.id).is("accepted_at",null).order("created_at",{ascending:false}):Promise.resolve({data:[] as any[]})
+ ]);
+ const inviteAction=inviteTeamMember.bind(null,businessSlug),revokeAction=revokeInvitation.bind(null,businessSlug);
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content"><header className="epic3-header"><div><small>{role} workspace</small><h1>{business.name}</h1><p>Here is what is happening in your business.</p></div><Link href="/app">Switch workspace</Link></header>{q.created&&<div className="workspace-notice success">Workspace created. You are the owner.</div>}{q.joined&&<div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}{q.teamError&&<div className="workspace-notice error">{q.teamError}</div>}{q.teamSuccess&&<div className="workspace-notice success">{q.teamSuccess}</div>}<div className="sv-work-metrics"><article><small>Customers</small><strong>{customerCount??0}</strong><Link href={`/app/${businessSlug}/customers`}>Manage customers</Link></article><article><small>Upcoming jobs</small><strong>{upcomingJobCount??0}</strong><Link href={`/app/${businessSlug}/jobs`}>Manage jobs</Link></article><article><small>Team members</small><strong>{members?.length??0}</strong><a href="#team">Manage access</a></article></div><div className="dashboard-grid"><section className="workspace-panel"><div className="panel-title"><div><span className="sv-kicker">Quick actions</span><h2>Run your business</h2></div></div><div className="quick-actions"><Link href={`/app/${businessSlug}/customers`}>Add a customer</Link><Link href={`/app/${businessSlug}/settings`}>Update business settings</Link><Link href={`/app/${businessSlug}/jobs`}>Create a job</Link></div></section><section className="workspace-panel"><div className="panel-title"><div><span className="sv-kicker">Activity</span><h2>Recent changes</h2></div></div><div className="activity-list">{activity?.length?activity.map(a=><article key={a.id}><strong>{a.summary}</strong><span>{new Date(a.created_at).toLocaleString()}</span></article>):<p>No activity yet. Add a customer or update settings to begin.</p>}</div></section></div><section className="workspace-panel" id="team"><div className="panel-title"><div><span className="sv-kicker">Team</span><h2>People with workspace access</h2></div></div><div className="team-list">{(members??[]).map((m:any)=><article key={m.user_id}><div><strong>{m.profiles?.full_name||m.profiles?.email||"Team member"}</strong><span>{m.profiles?.email}</span></div><b>{m.role}</b></article>)}</div></section>{canManage&&<section className="workspace-panel"><div><span className="sv-kicker">Invite employees</span><h2>Add someone to {business.name}</h2><p>Invitations expire after seven days.</p></div>{q.inviteLink&&<div className="invite-link"><code>{q.inviteLink}</code></div>}<form action={inviteAction} className="team-invite-form"><label>Email<input required name="email" type="email" placeholder="employee@company.com"/></label><label>Role<select name="role" defaultValue="staff"><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label><button className="sv-button">Send invitation</button></form>{(invites??[]).length>0&&<div className="pending-invites"><h3>Pending invitations</h3>{(invites??[]).map((i:any)=><article key={i.id}><div><strong>{i.email}</strong><span>{i.role} · expires {new Date(i.expires_at).toLocaleDateString()}</span></div><form action={revokeAction}><input type="hidden" name="invitationId" value={i.id}/><button className="text-button">Revoke</button></form></article>)}</div>}</section>}</section></main>
 }
