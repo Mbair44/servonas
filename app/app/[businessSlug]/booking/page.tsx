@@ -1,17 +1,93 @@
-import { WorkspaceNav } from "../WorkspaceNav";
-import { requireWorkspace } from "@/lib/workspace";
-import { addBlackout, archiveService, createService, deleteBlackout, replaceAvailability, saveBookingSettings, toggleService } from "./actions";
-const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-const money=(v:number|null)=>v==null?"Quote":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
-export default async function BookingAdminPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{success?:string;error?:string}>}){
- const {businessSlug}=await params;const query=await searchParams;const {supabase,business,role}=await requireWorkspace(businessSlug);
- const [{data:settings},{data:services},{data:hours},{data:blackouts}]=await Promise.all([
-  supabase.from("booking_settings").select("*").eq("business_id",business.id).maybeSingle(),supabase.from("services").select("*").eq("business_id",business.id).eq("is_deleted",false).order("sort_order").order("name"),supabase.from("booking_availability").select("*").eq("business_id",business.id).eq("active",true),supabase.from("booking_blackouts").select("*").eq("business_id",business.id).gte("ends_at",new Date().toISOString()).order("starts_at")]);
- const byDay=new Map<number,any>((hours??[]).map((h:any)=>[h.weekday,h]));const publicSlug=settings?.public_slug??business.slug;const site=(process.env.NEXT_PUBLIC_SITE_URL||"").replace(/\/$/,"");const bookingUrl=`${site}/book/${publicSlug}`;const canAdmin=role==="owner"||role==="admin";
- return <div className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><main className="epic3-content"><header className="epic3-header"><div><small>Epic 4.5</small><h1>Online booking</h1><p>Connect Servonas to your website and let customers schedule themselves.</p></div>{settings?.enabled&&<a className="button" href={`/book/${publicSlug}`} target="_blank">View booking page</a>}</header>{query.success&&<div className="workspace-notice success">{query.success}</div>}{query.error&&<div className="workspace-notice error">{query.error}</div>}
- <section className="workspace-panel"><div className="panel-title"><div><h2>Public booking page</h2><span>Hosted page, link, and website embed</span></div><span className={`job-status ${settings?.enabled?"confirmed":"draft"}`}>{settings?.enabled?"Live":"Disabled"}</span></div><form className="booking-settings-form" action={saveBookingSettings.bind(null,businessSlug)}><label className="wide toggle-row"><input type="checkbox" name="enabled" defaultChecked={settings?.enabled}/><span><b>Enable public booking</b><small>Customers can submit appointment requests without signing in.</small></span></label><label>Public URL slug<input name="publicSlug" defaultValue={publicSlug} required disabled={!canAdmin}/></label><label>Brand color<input name="brandColor" type="color" defaultValue={settings?.brand_color??"#4f46e5"} disabled={!canAdmin}/></label><label className="wide">Logo URL<input name="logoUrl" type="url" defaultValue={settings?.logo_url??""} placeholder="https://..." disabled={!canAdmin}/></label><label className="wide">Welcome message<textarea name="welcomeMessage" defaultValue={settings?.welcome_message??"Choose a service and a time that works for you."} disabled={!canAdmin}/></label><label className="wide">Confirmation message<textarea name="confirmationMessage" defaultValue={settings?.confirmation_message??"Thanks! Your appointment request has been received."} disabled={!canAdmin}/></label><label>Time zone<input name="timezone" defaultValue={settings?.timezone??"America/Phoenix"} disabled={!canAdmin}/></label><label>Minimum notice (hours)<input name="minimumNoticeHours" type="number" min="0" max="720" defaultValue={settings?.minimum_notice_hours??2} disabled={!canAdmin}/></label><label>Book ahead (days)<input name="maximumDaysAhead" type="number" min="1" max="365" defaultValue={settings?.maximum_days_ahead??60} disabled={!canAdmin}/></label><label>Daily appointment limit<input name="dailyAppointmentLimit" type="number" min="1" max="100" defaultValue={settings?.daily_appointment_limit??""} placeholder="No limit" disabled={!canAdmin}/></label><label>Buffer between jobs (minutes)<input name="bufferMinutes" type="number" min="0" max="240" step="5" defaultValue={settings?.buffer_minutes??0} disabled={!canAdmin}/></label><label className="wide">Intake questions <small>One question per line, up to 10</small><textarea name="intakeQuestions" defaultValue={(settings?.intake_questions??[]).join("\n")} placeholder="What problem are you experiencing?\nIs this urgent?" disabled={!canAdmin}/></label><label className="toggle-row"><input type="checkbox" name="autoConfirm" defaultChecked={settings?.auto_confirm}/><span>Automatically confirm appointments</span></label><label className="toggle-row"><input type="checkbox" name="collectAddress" defaultChecked={settings?.collect_address??true}/><span>Collect service address</span></label>{canAdmin&&<button className="button">Save settings</button>}</form>
- <div className="embed-box"><h3>Connect your website</h3><label>Booking link<input readOnly value={bookingUrl||`/book/${publicSlug}`}/></label><label>Embed code<textarea readOnly value={`<iframe src="${bookingUrl}" title="Book an appointment" width="100%" height="850" style="border:0;border-radius:16px" loading="lazy"></iframe>`}/></label></div></section>
- <section className="workspace-panel"><h2>Services</h2><form className="service-create-form" action={createService.bind(null,businessSlug)}><label>Name<input name="name" required placeholder="Drain cleaning"/></label><label>Duration<input name="duration" type="number" min="15" step="15" defaultValue="60"/></label><label>Price<input name="price" type="number" min="0" step="0.01" placeholder="Optional"/></label><label>Price display<select name="priceLabel" defaultValue="fixed"><option value="fixed">Fixed price</option><option value="starting_at">Starting at</option><option value="quote">Request quote</option></select></label><label className="wide">Description<textarea name="description" placeholder="What is included?"/></label><button className="button">Add service</button></form><div className="service-list">{services?.map((s:any)=><article key={s.id}><div><strong>{s.name}</strong><span>{s.duration_minutes} min · {s.price_label==="starting_at"?"Starting at ":""}{money(s.price_amount)}</span><p>{s.description}</p></div><div className="inline-actions"><form action={toggleService.bind(null,businessSlug)}><input type="hidden" name="serviceId" value={s.id}/><input type="hidden" name="active" value={String(s.active)}/><button className="text-button">{s.active?"Pause":"Activate"}</button></form><form action={archiveService.bind(null,businessSlug)}><input type="hidden" name="serviceId" value={s.id}/><button className="text-button danger">Remove</button></form></div></article>)}</div></section>
- <section className="workspace-panel"><h2>Weekly availability</h2><form action={replaceAvailability.bind(null,businessSlug)} className="availability-form">{days.map((day,i)=>{const row=byDay.get(i);return <div className="availability-row" key={day}><label className="toggle-row"><input type="checkbox" name={`day_${i}`} defaultChecked={!!row}/><b>{day}</b></label><input type="time" name={`start_${i}`} defaultValue={row?.start_time?.slice(0,5)??"09:00"}/><span>to</span><input type="time" name={`end_${i}`} defaultValue={row?.end_time?.slice(0,5)??"17:00"}/></div>})}<button className="button">Save availability</button></form></section>
- <section className="workspace-panel"><h2>Blocked dates and times</h2><form action={addBlackout.bind(null,businessSlug)} className="blackout-form"><label>Starts<input type="datetime-local" name="startsAt" required/></label><label>Ends<input type="datetime-local" name="endsAt" required/></label><label>Reason<input name="reason" placeholder="Holiday, team meeting…"/></label><button className="button">Block time</button></form><div className="blackout-list">{blackouts?.map((b:any)=><article key={b.id}><div><strong>{new Date(b.starts_at).toLocaleString()}</strong><span> through {new Date(b.ends_at).toLocaleString()} {b.reason?`· ${b.reason}`:""}</span></div><form action={deleteBlackout.bind(null,businessSlug)}><input type="hidden" name="blackoutId" value={b.id}/><button className="text-button danger">Remove</button></form></article>)}</div></section></main></div>;
+import { notFound } from "next/navigation";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import PublicBookingForm from "@/components/PublicBookingForm";
+import { submitPublicBooking } from "./actions";
+
+export const dynamic = "force-dynamic";
+
+export default async function PublicBookingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ businessSlug: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { businessSlug } = await params;
+  const query = await searchParams;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) notFound();
+
+  const { data: settings } = await supabase
+    .from("booking_settings")
+    .select("*,businesses(name)")
+    .ilike("public_slug", businessSlug)
+    .eq("enabled", true)
+    .maybeSingle();
+  if (!settings) notFound();
+
+  const [{ data: services }, { data: hours }] = await Promise.all([
+    supabase
+      .from("services")
+      .select("id,name,description,duration_minutes,price_amount,price_label")
+      .eq("business_id", settings.business_id)
+      .eq("active", true)
+      .eq("is_deleted", false)
+      .order("sort_order")
+      .order("name"),
+    supabase
+      .from("booking_availability")
+      .select("weekday,start_time,end_time")
+      .eq("business_id", settings.business_id)
+      .eq("active", true),
+  ]);
+
+  const schedule = Object.fromEntries(
+    (hours ?? []).map((hour: any) => [
+      hour.weekday,
+      { start: hour.start_time.slice(0, 5), end: hour.end_time.slice(0, 5) },
+    ]),
+  );
+  const businessName = Array.isArray(settings.businesses)
+    ? settings.businesses[0]?.name
+    : settings.businesses?.name;
+
+  return (
+    <main
+      className="public-booking"
+      style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
+    >
+      <section className="public-booking-card">
+        <header>
+          {settings.logo_url ? (
+            <img src={settings.logo_url} alt="" />
+          ) : (
+            <div className="booking-mark">{businessName?.slice(0, 1)}</div>
+          )}
+          <small>Online booking</small>
+          <h1>{businessName}</h1>
+          <p>{settings.welcome_message}</p>
+        </header>
+
+        {query.error && <div className="workspace-notice error">{query.error}</div>}
+        {!services?.length ? (
+          <div className="booking-empty">No services are available for online booking yet.</div>
+        ) : (
+          <PublicBookingForm
+            action={submitPublicBooking.bind(null, businessSlug)}
+            services={services}
+            schedule={schedule}
+            collectAddress={Boolean(settings.collect_address)}
+            intakeQuestions={settings.intake_questions ?? []}
+            businessName={businessName ?? "this business"}
+            minimumNoticeHours={Number(settings.minimum_notice_hours ?? 0)}
+            maximumDaysAhead={Number(settings.maximum_days_ahead ?? 60)}
+            googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+          />
+        )}
+      </section>
+      <footer>
+        Powered by <b>Servonas</b>
+      </footer>
+    </main>
+  );
 }
