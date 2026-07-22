@@ -24,9 +24,20 @@ async function verifyGoogleAddress(placeId: string) {
 }
 
 export async function submitPublicBooking(publicSlug: string, formData: FormData) {
-  const supabase = getSupabaseAdmin();
-  if (!supabase) fail(publicSlug, "Booking is temporarily unavailable");
-  if (text(formData, "companyWebsite")) redirect(`/book/${publicSlug}?success=Thanks`);
+  const maybeSupabase = getSupabaseAdmin();
+
+  if (!maybeSupabase) {
+    fail(publicSlug, "Booking is temporarily unavailable");
+  }
+
+  // The runtime guard above guarantees an admin client. This explicit
+  // assignment also gives TypeScript a non-null client for the rest of
+  // the server action.
+  const supabase = maybeSupabase as NonNullable<typeof maybeSupabase>;
+
+  if (text(formData, "companyWebsite")) {
+    redirect(`/book/${publicSlug}?success=Thanks`);
+  }
 
   const { data: settings } = await supabase
     .from("booking_settings")
