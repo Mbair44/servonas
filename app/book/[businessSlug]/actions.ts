@@ -176,7 +176,7 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
       })
       .select("id")
       .single();
-    if (error) {
+    if (error || !customer) {
       console.error("Public customer creation failed", error);
       fail(publicSlug, "We couldn’t save your contact information");
     }
@@ -221,7 +221,7 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
     })
     .select("id")
     .single();
-  if (jobError) {
+  if (jobError || !job) {
     console.error("Public job creation failed", jobError);
     fail(publicSlug, "We couldn’t complete your booking");
   }
