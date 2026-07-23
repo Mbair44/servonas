@@ -34,7 +34,7 @@ export default async function BookingSuccess({
 
   const { data: settings, error: settingsError } = await supabase
     .from("booking_settings")
-    .select("public_slug,confirmation_message,brand_color,timezone")
+    .select("public_slug,confirmation_message,brand_color,timezone,logo_path,logo_url")
     .eq("business_id", submission.business_id)
     .maybeSingle();
   if (settingsError) databaseFailure("booking settings lookup failed", settingsError);
@@ -81,6 +81,10 @@ export default async function BookingSuccess({
     databaseFailure("confirmed job is missing appointment times", { confirmation, jobId: job.id });
   }
   const status = job.status === "confirmed" ? "Confirmed" : "Pending confirmation";
+  const { data: signedLogo } = settings.logo_path
+    ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
+    : { data: null };
+  const bookingLogo = signedLogo?.signedUrl ?? settings.logo_url ?? null;
   const calendarParams = new URLSearchParams({
     action: "TEMPLATE",
     text: `${service.name} with ${business.name}`,
@@ -92,6 +96,7 @@ export default async function BookingSuccess({
   return (
     <main className="public-booking" style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}>
       <section className="public-booking-card booking-success">
+        {bookingLogo && <img className="booking-success-logo" src={bookingLogo} alt={`${business.name} logo`}/>}
         <div className="success-check" aria-hidden="true">✓</div>
         <small>Confirmation #{job.job_number}</small>
         <h1>{job.status === "confirmed" ? "You’re booked" : "Request received"}</h1>
