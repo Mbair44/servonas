@@ -3,12 +3,13 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 const escapeIcs = (value: string) => value.replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
 const icsDate = (value: string) => new Date(value).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 const missing = () => new Response("Not found", { status: 404 });
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(request: Request, { params }: { params: Promise<{ businessSlug: string }> }) {
   const { businessSlug } = await params;
   const confirmation = new URL(request.url).searchParams.get("confirmation");
   const supabase = getSupabaseAdmin();
-  if (!supabase || !confirmation) return missing();
+  if (!supabase || !confirmation || !uuidPattern.test(confirmation)) return missing();
 
   const { data: submission, error: submissionError } = await supabase
     .from("public_booking_submissions")
@@ -47,7 +48,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ busi
   const job = jobResult.data;
   const business = businessResult.data;
   if (!job?.starts_at || !job.ends_at || !business) {
-    console.error("Booking calendar associated records are missing", { confirmation, job, business });
+    console.error("Booking calendar associated records are missing", {
+      confirmation,
+      hasJob: Boolean(job),
+      hasStart: Boolean(job?.starts_at),
+      hasEnd: Boolean(job?.ends_at),
+      hasBusiness: Boolean(business),
+    });
     return new Response("Calendar could not be created", { status: 500 });
   }
 

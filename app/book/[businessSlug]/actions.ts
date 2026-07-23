@@ -9,6 +9,12 @@ import { EmailService } from "@/lib/communications/emailService";
 import { SMSService } from "@/lib/communications/smsService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
+const normalizePhone = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return value;
+};
 async function verifyGoogleAddress(placeId: string) {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return null;
@@ -16,10 +22,24 @@ async function verifyGoogleAddress(placeId: string) {
   url.searchParams.set("place_id", placeId);
   url.searchParams.set("fields", "formatted_address");
   url.searchParams.set("key", key);
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) return null;
-  const payload = await response.json();
-  return payload.status === "OK" ? (payload.result?.formatted_address as string | undefined) ?? null : null;
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      console.error("Google address verification request failed", { status: response.status });
+      return null;
+    }
+    const payload = await response.json();
+    if (payload.status !== "OK") {
+      console.error("Google address verification was rejected", { status: payload.status });
+      return null;
+    }
+    return (payload.result?.formatted_address as string | undefined) ?? null;
+  } catch (error) {
+    console.error("Google address verification was unavailable", {
+      cause: error instanceof Error ? error.name : "unknown",
+    });
+    return null;
+  }
 }
 
 export async function submitPublicBooking(
@@ -54,7 +74,9 @@ export async function submitPublicBooking(
   const first = text(formData, "firstName");
   const last = text(formData, "lastName");
   const email = text(formData, "email").toLowerCase();
-  const phone = text(formData, "phone");
+  const phoneInput = text(formData, "phone");
+  const phone = phoneInput ? normalizePhone(phoneInput) : "";
+  const requestKey = text(formData, "requestKey");
   const fieldErrors: Record<string, string> = {};
   if (!serviceId) fieldErrors.serviceId = "Choose a service.";
   if (!startRaw) fieldErrors.startsAt = "Choose an available date and time.";
@@ -65,7 +87,30 @@ export async function submitPublicBooking(
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.email = "Enter a valid email address.";
   if (phone && phone.replace(/\D/g, "").length < 10) fieldErrors.phone = "Enter a valid phone number.";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
+    fieldErrors.form = "Refresh the page before submitting this booking.";
+  }
   if (Object.keys(fieldErrors).length) return fail("Please correct the highlighted information.", fieldErrors);
+
+  const { data: priorSubmission, error: priorSubmissionError } = await supabase
+    .from("public_booking_submissions")
+    .select("id,job_id")
+    .eq("business_id", settings.business_id)
+    .eq("request_key", requestKey)
+    .maybeSingle();
+  if (priorSubmissionError) {
+    console.error("Public booking idempotency lookup failed", {
+      code: priorSubmissionError.code,
+      businessId: settings.business_id,
+    });
+    return fail("We couldn’t verify this booking request. Please try again.");
+  }
+  if (priorSubmission?.job_id) {
+    redirect(`/book/${publicSlug}/success?confirmation=${priorSubmission.id}`);
+  }
+  if (priorSubmission) {
+    return fail("This booking request is already being processed. Please wait a moment before trying again.");
+  }
 
   const { data: service } = await supabase
     .from("services")
@@ -100,9 +145,82 @@ export async function submitPublicBooking(
     } else verifiedAddress = enteredAddress;
   }
 
+  const { data: submission, error: reservationError } = await supabase
+    .from("public_booking_submissions")
+    .insert({
+      business_id: settings.business_id,
+      service_id: service.id,
+      request_key: requestKey,
+      status: "accepted",
+    })
+    .select("id")
+    .single();
+  if (reservationError || !submission) {
+    // A concurrent retry can lose the insert race against the unique request-key
+    // index. Re-read the winner instead of creating another customer or job.
+    if (reservationError?.code === "23505") {
+      const { data: winner, error: winnerError } = await supabase
+        .from("public_booking_submissions")
+        .select("id,job_id")
+        .eq("business_id", settings.business_id)
+        .eq("request_key", requestKey)
+        .maybeSingle();
+      if (winnerError) {
+        console.error("Public booking idempotency race lookup failed", {
+          code: winnerError.code,
+          businessId: settings.business_id,
+        });
+      } else if (winner?.job_id) {
+        redirect(`/book/${publicSlug}/success?confirmation=${winner.id}`);
+      } else if (winner) {
+        return fail("This booking request is already being processed. Please wait a moment before trying again.");
+      }
+    }
+    console.error("Public booking request reservation failed", {
+      code: reservationError?.code,
+      businessId: settings.business_id,
+    });
+    return fail("We couldn’t start your booking. Please try again.");
+  }
+  const releaseReservation = async () => {
+    const { error: releaseError } = await supabase
+      .from("public_booking_submissions")
+      .delete()
+      .eq("id", submission.id)
+      .is("job_id", null);
+    if (releaseError) {
+      console.error("Public booking reservation cleanup failed", {
+        code: releaseError.code,
+        submissionId: submission.id,
+        businessId: settings.business_id,
+      });
+    }
+  };
+
   let customerId: string | undefined;
   if (email) {
-    const { data: existing } = await supabase.from("customers").select("id").eq("business_id", settings.business_id).ilike("email", email).eq("is_deleted", false).maybeSingle();
+    const { data: existing, error: customerLookupError } = await supabase.from("customers").select("id").eq("business_id", settings.business_id).ilike("email", email).eq("is_deleted", false).maybeSingle();
+    if (customerLookupError) {
+      console.error("Public customer lookup failed", { code: customerLookupError.code, businessId: settings.business_id });
+      await releaseReservation();
+      return fail("We couldn’t verify your contact information. Please try again.");
+    }
+    customerId = existing?.id;
+  } else if (phone) {
+    const candidates = phone === phoneInput ? [phone] : [phone, phoneInput];
+    const { data: existing, error: customerLookupError } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("business_id", settings.business_id)
+      .in("phone", candidates)
+      .eq("is_deleted", false)
+      .limit(1)
+      .maybeSingle();
+    if (customerLookupError) {
+      console.error("Public customer phone lookup failed", { code: customerLookupError.code, businessId: settings.business_id });
+      await releaseReservation();
+      return fail("We couldn’t verify your contact information. Please try again.");
+    }
     customerId = existing?.id;
   }
   if (!customerId) {
@@ -110,12 +228,24 @@ export async function submitPublicBooking(
       business_id: settings.business_id, first_name: first, last_name: last, email: email || null, phone: phone || null,
     }).select("id").single();
     if (customerError || !customer) {
-      console.error("Public customer creation failed", customerError);
+      console.error("Public customer creation failed", { code: customerError?.code, businessId: settings.business_id });
+      await releaseReservation();
       return fail("We couldn’t save your contact information. Please try again.");
     }
     customerId = customer.id;
   } else {
-    await supabase.from("customers").update({ first_name: first, last_name: last, phone: phone || null, updated_at: new Date().toISOString() }).eq("id", customerId);
+    const { error: customerUpdateError } = await supabase.from("customers").update({
+      first_name: first,
+      last_name: last,
+      email: email || null,
+      phone: phone || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", customerId).eq("business_id", settings.business_id);
+    if (customerUpdateError) {
+      console.error("Public customer update failed", { code: customerUpdateError.code, businessId: settings.business_id });
+      await releaseReservation();
+      return fail("We couldn’t update your contact information. Please try again.");
+    }
   }
 
   const start = zonedDateTimeToUtc(datePart, timePart, settings.timezone);
@@ -139,20 +269,26 @@ export async function submitPublicBooking(
     booking_source: "website",
   }).select("id,job_number").single();
   if (jobError || !job) {
-    console.error("Public job creation failed", jobError);
+    console.error("Public job creation failed", { code: jobError?.code, businessId: settings.business_id });
+    await releaseReservation();
     return fail("We couldn’t complete your booking. Please try again.");
   }
 
-  const { data: submission, error: submissionError } = await supabase.from("public_booking_submissions").insert({
-    business_id: settings.business_id,
-    service_id: service.id,
-    job_id: job.id,
-    customer_id: customerId,
-    request_key: text(formData, "requestKey") || null,
-    status: "accepted",
-  }).select("id").single();
-  if (submissionError || !submission) {
-    console.error("Public submission creation failed", submissionError);
+  const { data: completedSubmission, error: submissionError } = await supabase
+    .from("public_booking_submissions")
+    .update({ job_id: job.id, customer_id: customerId })
+    .eq("id", submission.id)
+    .eq("business_id", settings.business_id)
+    .is("job_id", null)
+    .select("id")
+    .single();
+  if (submissionError || !completedSubmission) {
+    console.error("Public submission completion failed", {
+      code: submissionError?.code,
+      submissionId: submission.id,
+      jobId: job.id,
+      businessId: settings.business_id,
+    });
     return fail("Your appointment was created, but confirmation could not be loaded. Please contact the business.");
   }
   const [linkResult, analyticsResult] = await Promise.all([

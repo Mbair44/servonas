@@ -24,8 +24,9 @@ function timeValue(total: number) {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-function overlaps(start: number, end: number, window: BusyWindow) {
-  return start < new Date(window.ends_at).getTime() && end > new Date(window.starts_at).getTime();
+function overlaps(start: number, end: number, window: BusyWindow, endBufferMinutes = 0) {
+  const bufferedWindowEnd = new Date(window.ends_at).getTime() + endBufferMinutes * 60_000;
+  return start < bufferedWindowEnd && end > new Date(window.starts_at).getTime();
 }
 
 export async function getAvailability(
@@ -99,7 +100,10 @@ export async function getAvailability(
         const serviceEndsAt = startsAt + duration * 60_000;
         const conflictEndsAt = serviceEndsAt + buffer * 60_000;
         if (startsAt < firstBookable || startsAt > lastBookable) continue;
-        if (jobWindows.some((job) => overlaps(startsAt, conflictEndsAt, job))) continue;
+        // Extend both sides of adjacent appointments: conflictEndsAt applies
+        // the new booking's trailing buffer, while endBufferMinutes preserves
+        // the existing booking's trailing buffer.
+        if (jobWindows.some((job) => overlaps(startsAt, conflictEndsAt, job, buffer))) continue;
         if (blackoutWindows.some((blackout) => overlaps(startsAt, conflictEndsAt, blackout))) continue;
         slots.push(value);
       }

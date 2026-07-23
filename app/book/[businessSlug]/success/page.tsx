@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { formatBusinessDateTime } from "@/lib/bookingTime";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function databaseFailure(context: string, error: unknown): never {
   console.error(`Public booking confirmation: ${context}`, error);
   throw new Error("The booking confirmation could not be loaded.");
@@ -17,7 +19,7 @@ export default async function BookingSuccess({
 }) {
   const { businessSlug } = await params;
   const { confirmation } = await searchParams;
-  if (!confirmation) notFound();
+  if (!confirmation || !uuidPattern.test(confirmation)) notFound();
 
   const supabase = getSupabaseAdmin();
   if (!supabase) databaseFailure("Supabase admin client is unavailable", null);
