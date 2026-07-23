@@ -26,7 +26,7 @@ export async function updateScheduledJob(slug: string, jobId: string, formData: 
   const { supabase, user, business, role } = await requireWorkspace(slug);
   const back = returnPath(slug, text(formData, "returnPath"));
   if (!canManageCustomers(role)) redirect(resultUrl(back, "error", "You do not have permission to schedule jobs."));
-  const { data: job } = await supabase.from("jobs").select("id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  const { data: job } = await supabase.from("jobs").select("id,arrival_window_start,arrival_window_end").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!job) redirect(resultUrl(back, "error", "Job not found."));
   const startsAt = localDate(text(formData, "startsAt"), business.timezone);
   const duration = Number(text(formData, "durationMinutes"));
@@ -41,7 +41,10 @@ export async function updateScheduledJob(slug: string, jobId: string, formData: 
   }
   const conflict = await validateJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
-    startsAt, endsAt, technicianId, excludeJobId: jobId,
+    startsAt, endsAt,
+    arrivalWindowStart: job.arrival_window_start ? new Date(job.arrival_window_start) : null,
+    arrivalWindowEnd: job.arrival_window_end ? new Date(job.arrival_window_end) : null,
+    technicianId, excludeJobId: jobId,
   });
   if (conflict) redirect(resultUrl(back, "error", conflict));
   const { error } = await supabase.from("jobs").update({

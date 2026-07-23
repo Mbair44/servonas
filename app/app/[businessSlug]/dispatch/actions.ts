@@ -32,7 +32,7 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
   const date = text(formData, "date");
   if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "Permission denied."));
   const technicianId = text(formData, "technicianId") || null;
-  const { data: job } = await supabase.from("jobs").select("id,status,starts_at,ends_at,assigned_technician_id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  const { data: job } = await supabase.from("jobs").select("id,status,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!job) redirect(dispatchPath(slug, date, "error", "Job not found."));
   if (technicianId) {
     const { data: technician } = await supabase.from("technician_profiles").select("id,technician_status").eq("id", technicianId).eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).maybeSingle();
@@ -43,7 +43,10 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
   const endsAt = job.ends_at ? new Date(job.ends_at) : null;
   const conflict = await validateJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
-    startsAt, endsAt, technicianId, excludeJobId: jobId,
+    startsAt, endsAt,
+    arrivalWindowStart: job.arrival_window_start ? new Date(job.arrival_window_start) : null,
+    arrivalWindowEnd: job.arrival_window_end ? new Date(job.arrival_window_end) : null,
+    technicianId, excludeJobId: jobId,
   });
   if (conflict) redirect(dispatchPath(slug, date, "error", conflict));
   const { error } = await supabase.rpc("set_job_primary_technician", { p_job_id: jobId, p_technician_id: technicianId });
