@@ -1,3 +1,5 @@
+import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib/googleAddressComponents";
+
 export type VerifiedGoogleAddress = {
   formattedAddress: string;
   streetAddress: string;
@@ -9,8 +11,6 @@ export type VerifiedGoogleAddress = {
   latitude: number | null;
   longitude: number | null;
 };
-
-type AddressComponent = { long_name: string; short_name: string; types: string[] };
 
 export async function verifyGooglePlace(placeId: string): Promise<VerifiedGoogleAddress | null> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
@@ -30,20 +30,13 @@ export async function verifyGooglePlace(placeId: string): Promise<VerifiedGoogle
       console.error("Google location verification rejected", { status: payload.status });
       return null;
     }
-    const components = (payload.result.address_components ?? []) as AddressComponent[];
-    const part = (type: string, short = false) => {
-      const component = components.find((item) => item.types.includes(type));
-      return component ? (short ? component.short_name : component.long_name) : "";
-    };
-    const streetAddress = [part("street_number"), part("route")].filter(Boolean).join(" ");
+    const address = parseGoogleAddressComponents(
+      (payload.result.address_components ?? []) as GoogleAddressComponent[],
+      payload.result.formatted_address,
+    );
     return {
       formattedAddress: payload.result.formatted_address,
-      streetAddress,
-      unit: part("subpremise"),
-      city: part("locality") || part("postal_town") || part("administrative_area_level_2"),
-      state: part("administrative_area_level_1", true),
-      postalCode: part("postal_code"),
-      country: part("country", true) || "US",
+      ...address,
       latitude: payload.result.geometry?.location?.lat ?? null,
       longitude: payload.result.geometry?.location?.lng ?? null,
     };
