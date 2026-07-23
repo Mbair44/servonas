@@ -10,10 +10,6 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 
 function supabaseInvitationErrorDetails(error: unknown) {
-  if (!(error instanceof Error)) {
-    return { errorType: typeof error, errorValue: String(error) };
-  }
-
   const authError = error as Error & {
     code?: string;
     status?: number;
@@ -21,36 +17,28 @@ function supabaseInvitationErrorDetails(error: unknown) {
     cause?: unknown;
     toJSON?: () => unknown;
   };
-  let serialized: unknown;
+  let jsonString: string;
   try {
-    serialized = authError.toJSON?.();
-  } catch {
-    serialized = undefined;
+    jsonString = JSON.stringify(error);
+  } catch (serializationError) {
+    jsonString = `[JSON.stringify failed: ${serializationError instanceof Error ? serializationError.message : String(serializationError)}]`;
   }
 
   return {
-    errorName: authError.name,
-    errorCode: authError.code,
-    errorStatus: authError.status,
-    errorMessage: authError.message,
-    errorResponse: authError.response,
-    errorCause: authError.cause instanceof Error
-      ? {
-          name: authError.cause.name,
-          message: authError.cause.message,
-          ...Object.fromEntries(Object.getOwnPropertyNames(authError.cause).map((key) => [
-            key,
-            (authError.cause as unknown as Record<string, unknown>)[key],
-          ])),
-        }
-      : authError.cause,
-    errorSerialized: serialized,
-    errorOwnProperties: Object.fromEntries(Object.getOwnPropertyNames(authError).map((key) => [
-      key,
-      (authError as unknown as Record<string, unknown>)[key],
-    ])),
+    message: authError?.message ?? String(error),
+    status: authError?.status,
+    code: authError?.code,
+    name: authError?.name,
+    stack: authError?.stack,
+    jsonString,
+    rawError: error,
   };
 }
+
+type InvitationDeliveryResult = {
+  outcome: InvitationDeliveryOutcome;
+  errorMessage?: string;
+};
 
 async function siteOrigin() {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
@@ -69,11 +57,11 @@ async function deliverInvitation({
   email, businessName, redirectTo, businessId, invitationId,
 }: {
   email: string; businessName: string; redirectTo: string; businessId: string; invitationId: string;
-}): Promise<InvitationDeliveryOutcome> {
+}): Promise<InvitationDeliveryResult> {
   const admin = getSupabaseAdmin();
   if (!admin) {
     console.warn("Invitation email not attempted", { reason: "supabase_admin_not_configured", businessId, invitationId });
-    return classifyInvitationDelivery({ adminConfigured: false, hasAuthUser: false, hasError: false });
+    return { outcome: classifyInvitationDelivery({ adminConfigured: false, hasAuthUser: false, hasError: false }) };
   }
   try {
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
@@ -87,23 +75,22 @@ async function deliverInvitation({
       hasError: Boolean(error),
     });
     if (error) {
-      console.error("Supabase Auth invitation failed", {
+      const details = supabaseInvitationErrorDetails(error);
+      console.error("Supabase Auth invitation failed — complete error diagnostics", {
         provider: "supabase_auth",
         businessId,
         invitationId,
-        ...supabaseInvitationErrorDetails(error),
+        message: details.message,
+        status: details.status,
+        code: details.code,
+        name: details.name,
+        stack: details.stack,
+        jsonString: details.jsonString,
+        rawError: details.rawError,
         authUserCreated: Boolean(user?.id),
-        smtpDiagnostics: {
-          smtpErrorCode: "not_exposed_separately_by_supabase_auth_api",
-          smtpErrorMessage: "see errorMessage and errorSerialized",
-          smtpResponseText: "not_exposed_separately_by_supabase_auth_api",
-          smtpConnectionSucceeded: "not_exposed_by_supabase_auth_api",
-          smtpAuthenticationSucceeded: "not_exposed_by_supabase_auth_api",
-          senderMailboxExists: "not_exposed_by_supabase_auth_api",
-          failureStage: "not_exposed_by_supabase_auth_api",
-        },
         redirectTo,
-      });
+      }, error);
+      return { outcome, errorMessage: details.message };
     } else {
       console.info("Supabase Auth invitation result", {
         provider: "supabase_auth",
@@ -116,25 +103,23 @@ async function deliverInvitation({
         redirectTo,
       });
     }
-    return outcome;
+    return { outcome };
   } catch (error) {
-    console.error("Supabase Auth invitation request threw", {
+    const details = supabaseInvitationErrorDetails(error);
+    console.error("Supabase Auth invitation request threw — complete error diagnostics", {
       provider: "supabase_auth",
       businessId,
       invitationId,
-      ...supabaseInvitationErrorDetails(error),
-      smtpDiagnostics: {
-        smtpErrorCode: "not_available_request_failed_before_a_supabase_auth_response",
-        smtpErrorMessage: "see errorMessage and errorSerialized",
-        smtpResponseText: "not_available_request_failed_before_a_supabase_auth_response",
-        smtpConnectionSucceeded: "unknown",
-        smtpAuthenticationSucceeded: "unknown",
-        senderMailboxExists: "unknown",
-        failureStage: "before_receiving_supabase_auth_response",
-      },
+      message: details.message,
+      status: details.status,
+      code: details.code,
+      name: details.name,
+      stack: details.stack,
+      jsonString: details.jsonString,
+      rawError: details.rawError,
       redirectTo,
-    });
-    return "failed";
+    }, error);
+    return { outcome: "failed", errorMessage: details.message };
   }
 }
 
@@ -170,12 +155,14 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
   const origin = await siteOrigin();
   const next = `/invite/accept?token=${invitation.token}`;
   const redirectTo = `${origin}/auth/invite-callback?next=${encodeURIComponent(next)}`;
-  const outcome = await deliverInvitation({
+  const delivery = await deliverInvitation({
     email, businessName: business.name, redirectTo,
     businessId: business.id, invitationId: invitation.id,
   });
   revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(outcome))}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+  const resultKey = delivery.errorMessage ? "teamError" : "teamSuccess";
+  const resultMessage = delivery.errorMessage ?? invitationDeliveryMessage(delivery.outcome);
+  redirect(`/app/${businessSlug}?${resultKey}=${encodeURIComponent(resultMessage)}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
 }
 
 export async function resendInvitation(businessSlug: string, formData: FormData) {
@@ -190,13 +177,15 @@ export async function resendInvitation(businessSlug: string, formData: FormData)
   if (error) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be renewed.")}`);
   const origin = await siteOrigin();
   const next = `/invite/accept?token=${invitation.token}`;
-  const outcome = await deliverInvitation({
+  const delivery = await deliverInvitation({
     email: invitation.email, businessName: business.name,
     redirectTo: `${origin}/auth/invite-callback?next=${encodeURIComponent(next)}`,
     businessId: business.id, invitationId: invitation.id,
   });
   revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(outcome))}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+  const resultKey = delivery.errorMessage ? "teamError" : "teamSuccess";
+  const resultMessage = delivery.errorMessage ?? invitationDeliveryMessage(delivery.outcome);
+  redirect(`/app/${businessSlug}?${resultKey}=${encodeURIComponent(resultMessage)}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
 }
 
 export async function revokeInvitation(businessSlug: string, formData: FormData) {
