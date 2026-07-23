@@ -19,7 +19,7 @@ export default async function PublicBookingPage({
 
   const { data: settings } = await supabase
     .from("booking_settings")
-    .select("*,businesses(name)")
+    .select("*,businesses(name,website_url)")
     .ilike("public_slug", businessSlug)
     .eq("enabled", true)
     .maybeSingle();
@@ -79,9 +79,10 @@ export default async function PublicBookingPage({
             collectAddress={Boolean(settings.collect_address)}
             intakeQuestions={settings.intake_questions ?? []}
             businessName={businessName ?? "this business"}
-            minimumNoticeHours={Number(settings.minimum_notice_hours ?? 0)}
             maximumDaysAhead={Number(settings.maximum_days_ahead ?? 60)}
             googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+            publicSlug={businessSlug}
+            timezone={settings.timezone ?? "America/Phoenix"}
           />
         )}
       </section>
