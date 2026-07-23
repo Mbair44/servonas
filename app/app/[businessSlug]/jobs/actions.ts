@@ -204,20 +204,38 @@ export async function addJobNote(slug: string, jobId: string, formData: FormData
   const { supabase, user, business, role } = await requireWorkspace(slug);
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const note = text(formData, "note");
-  if (!note) redirect(`/app/${slug}/jobs/${jobId}?error=Enter+a+note`);
-  const { data: job } = await supabase.from("jobs").select("internal_notes").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  if (!note || note.length > 4000) redirect(`/app/${slug}/jobs/${jobId}?error=Enter+a+note+under+4,000+characters`);
+  const noteType = text(formData, "noteType");
+  if (!["internal", "customer_visible"].includes(noteType)) redirect(`/app/${slug}/jobs/${jobId}?error=Choose+a+valid+note+type`);
+  const { data: job } = await supabase.from("jobs").select("id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!job) redirect(`/app/${slug}/jobs/${jobId}?error=Job+not+found`);
-  const datedNote = `[${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: business.timezone }).format(new Date())}] ${note}`;
-  const { error } = await supabase.from("jobs").update({
-    internal_notes: [job.internal_notes, datedNote].filter(Boolean).join("\n\n"),
-    updated_by: user.id,
-  }).eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false);
+  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+  const { error } = await supabase.from("job_notes").insert({
+    business_id: business.id, job_id: jobId, body: note, note_type: noteType,
+    author_id: user.id, author_name: profile?.full_name?.trim() || "Office team",
+  });
   if (error) {
-    console.error("Job note update failed", { code: error.code, businessId: business.id, jobId });
+    console.error("Job note insert failed", { code: error.code, businessId: business.id, jobId });
     redirect(`/app/${slug}/jobs/${jobId}?error=Note+could+not+be+added`);
   }
   revalidatePath(`/app/${slug}/jobs/${jobId}`);
   redirect(`/app/${slug}/jobs/${jobId}?success=Note+added`);
+}
+
+export async function editJobNote(slug: string, jobId: string, formData: FormData) {
+  const { supabase, business, role } = await requireWorkspace(slug);
+  if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+  const noteId = text(formData, "noteId");
+  const body = text(formData, "body") || text(formData, "note");
+  const noteType = text(formData, "noteType");
+  if (!body || body.length > 4000 || !["internal", "customer_visible", "technician"].includes(noteType)) redirect(`/app/${slug}/jobs/${jobId}?error=Enter+a+valid+note+under+4,000+characters`);
+  const { error } = await supabase.from("job_notes").update({ body, note_type: noteType }).eq("id", noteId).eq("job_id", jobId).eq("business_id", business.id);
+  if (error) {
+    console.error("Job note edit failed", { code: error.code, businessId: business.id, jobId, noteId });
+    redirect(`/app/${slug}/jobs/${jobId}?error=Note+could+not+be+updated`);
+  }
+  revalidatePath(`/app/${slug}/jobs/${jobId}`);
+  redirect(`/app/${slug}/jobs/${jobId}?success=Note+updated`);
 }
 
 export async function addJobPhoto(slug: string, jobId: string, formData: FormData) {
@@ -239,7 +257,9 @@ export async function addJobPhoto(slug: string, jobId: string, formData: FormDat
   }
   const { error } = await supabase.from("job_photos").insert({
     business_id: business.id, job_id: jobId, storage_path: path,
-    caption: text(formData, "caption") || null, uploaded_by: user.id,
+    caption: text(formData, "caption") || null,
+    photo_type: ["before", "after", "general"].includes(text(formData, "photoType")) ? text(formData, "photoType") : "general",
+    uploaded_by: user.id,
   });
   if (error) {
     await supabase.storage.from("job-photos").remove([path]);
@@ -248,6 +268,23 @@ export async function addJobPhoto(slug: string, jobId: string, formData: FormDat
   }
   revalidatePath(`/app/${slug}/jobs/${jobId}`);
   redirect(`/app/${slug}/jobs/${jobId}?success=Photo+added`);
+}
+
+export async function removeJobPhoto(slug: string, jobId: string, formData: FormData) {
+  const { supabase, business, role } = await requireWorkspace(slug);
+  if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+  const photoId = text(formData, "photoId");
+  const { data: photo } = await supabase.from("job_photos").select("id,storage_path").eq("id", photoId).eq("job_id", jobId).eq("business_id", business.id).maybeSingle();
+  if (!photo) redirect(`/app/${slug}/jobs/${jobId}?error=Photo+not+found`);
+  const { error } = await supabase.from("job_photos").delete().eq("id", photo.id).eq("business_id", business.id);
+  if (error) {
+    console.error("Job photo removal failed", { code: error.code, businessId: business.id, jobId, photoId });
+    redirect(`/app/${slug}/jobs/${jobId}?error=Photo+could+not+be+removed`);
+  }
+  const { error: storageError } = await supabase.storage.from("job-photos").remove([photo.storage_path]);
+  if (storageError) console.warn("Removed job photo object cleanup failed", { code: storageError.name, businessId: business.id, jobId, photoId });
+  revalidatePath(`/app/${slug}/jobs/${jobId}`);
+  redirect(`/app/${slug}/jobs/${jobId}?success=Photo+removed`);
 }
 
 export async function archiveJob(slug: string, jobId: string) {
