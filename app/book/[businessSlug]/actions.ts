@@ -7,6 +7,7 @@ import { getAvailability } from "@/lib/publicAvailability";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { EmailService } from "@/lib/communications/emailService";
 import { SMSService } from "@/lib/communications/smsService";
+import { bookingPhotoExtension, validateBookingPhoto } from "@/lib/bookingPhoto";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const normalizePhone = (value: string) => {
@@ -77,6 +78,8 @@ export async function submitPublicBooking(
   const phoneInput = text(formData, "phone");
   const phone = phoneInput ? normalizePhone(phoneInput) : "";
   const requestKey = text(formData, "requestKey");
+  const photoEntry = formData.get("bookingPhoto");
+  const bookingPhoto = photoEntry instanceof File && photoEntry.size > 0 ? photoEntry : null;
   const fieldErrors: Record<string, string> = {};
   if (!serviceId) fieldErrors.serviceId = "Choose a service.";
   if (!startRaw) fieldErrors.startsAt = "Choose an available date and time.";
@@ -90,6 +93,8 @@ export async function submitPublicBooking(
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
     fieldErrors.form = "Refresh the page before submitting this booking.";
   }
+  const photoError = validateBookingPhoto(bookingPhoto);
+  if (photoError) fieldErrors.bookingPhoto = photoError;
   if (Object.keys(fieldErrors).length) return fail("Please correct the highlighted information.", fieldErrors);
 
   const { data: priorSubmission, error: priorSubmissionError } = await supabase
@@ -290,6 +295,39 @@ export async function submitPublicBooking(
       businessId: settings.business_id,
     });
     return fail("Your appointment was created, but confirmation could not be loaded. Please contact the business.");
+  }
+  if (bookingPhoto) {
+    const extension = bookingPhotoExtension(bookingPhoto.type);
+    const storagePath = `${settings.business_id}/${job.id}/customer-${submission.id}.${extension}`;
+    const { error: photoUploadError } = await supabase.storage.from("job-photos").upload(storagePath, bookingPhoto, {
+      contentType: bookingPhoto.type,
+      upsert: false,
+    });
+    if (photoUploadError) {
+      console.error("Public booking photo upload failed", {
+        code: photoUploadError.name,
+        submissionId: submission.id,
+        jobId: job.id,
+        businessId: settings.business_id,
+      });
+    } else {
+      const { error: photoRecordError } = await supabase.from("job_photos").insert({
+        business_id: settings.business_id,
+        job_id: job.id,
+        storage_path: storagePath,
+        caption: "Customer booking photo",
+        uploaded_by: null,
+      });
+      if (photoRecordError) {
+        await supabase.storage.from("job-photos").remove([storagePath]);
+        console.error("Public booking photo metadata failed", {
+          code: photoRecordError.code,
+          submissionId: submission.id,
+          jobId: job.id,
+          businessId: settings.business_id,
+        });
+      }
+    }
   }
   const [linkResult, analyticsResult] = await Promise.all([
     supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", job.id),

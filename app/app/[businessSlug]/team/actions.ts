@@ -8,6 +8,50 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
+
+function supabaseInvitationErrorDetails(error: unknown) {
+  if (!(error instanceof Error)) {
+    return { errorType: typeof error, errorValue: String(error) };
+  }
+
+  const authError = error as Error & {
+    code?: string;
+    status?: number;
+    response?: unknown;
+    cause?: unknown;
+    toJSON?: () => unknown;
+  };
+  let serialized: unknown;
+  try {
+    serialized = authError.toJSON?.();
+  } catch {
+    serialized = undefined;
+  }
+
+  return {
+    errorName: authError.name,
+    errorCode: authError.code,
+    errorStatus: authError.status,
+    errorMessage: authError.message,
+    errorResponse: authError.response,
+    errorCause: authError.cause instanceof Error
+      ? {
+          name: authError.cause.name,
+          message: authError.cause.message,
+          ...Object.fromEntries(Object.getOwnPropertyNames(authError.cause).map((key) => [
+            key,
+            (authError.cause as unknown as Record<string, unknown>)[key],
+          ])),
+        }
+      : authError.cause,
+    errorSerialized: serialized,
+    errorOwnProperties: Object.fromEntries(Object.getOwnPropertyNames(authError).map((key) => [
+      key,
+      (authError as unknown as Record<string, unknown>)[key],
+    ])),
+  };
+}
+
 async function siteOrigin() {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   const requestOrigin = (await headers()).get("origin");
@@ -47,11 +91,17 @@ async function deliverInvitation({
         provider: "supabase_auth",
         businessId,
         invitationId,
-        errorName: error.name,
-        errorCode: "code" in error ? error.code : undefined,
-        errorStatus: error.status,
-        errorMessage: error.message,
+        ...supabaseInvitationErrorDetails(error),
         authUserCreated: Boolean(user?.id),
+        smtpDiagnostics: {
+          smtpErrorCode: "not_exposed_separately_by_supabase_auth_api",
+          smtpErrorMessage: "see errorMessage and errorSerialized",
+          smtpResponseText: "not_exposed_separately_by_supabase_auth_api",
+          smtpConnectionSucceeded: "not_exposed_by_supabase_auth_api",
+          smtpAuthenticationSucceeded: "not_exposed_by_supabase_auth_api",
+          senderMailboxExists: "not_exposed_by_supabase_auth_api",
+          failureStage: "not_exposed_by_supabase_auth_api",
+        },
         redirectTo,
       });
     } else {
@@ -72,8 +122,16 @@ async function deliverInvitation({
       provider: "supabase_auth",
       businessId,
       invitationId,
-      errorName: error instanceof Error ? error.name : "unknown",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      ...supabaseInvitationErrorDetails(error),
+      smtpDiagnostics: {
+        smtpErrorCode: "not_available_request_failed_before_a_supabase_auth_response",
+        smtpErrorMessage: "see errorMessage and errorSerialized",
+        smtpResponseText: "not_available_request_failed_before_a_supabase_auth_response",
+        smtpConnectionSucceeded: "unknown",
+        smtpAuthenticationSucceeded: "unknown",
+        senderMailboxExists: "unknown",
+        failureStage: "before_receiving_supabase_auth_response",
+      },
       redirectTo,
     });
     return "failed";
