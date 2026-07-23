@@ -176,11 +176,15 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
       })
       .select("id")
       .single();
-    if (error || !customer) {
+    const insertedCustomerId = customer?.id;
+
+    if (error || !insertedCustomerId) {
       console.error("Public customer creation failed", error);
       fail(publicSlug, "We couldn’t save your contact information");
+      return;
     }
-    customerId = customer.id;
+
+    customerId = insertedCustomerId;
   } else {
     await supabase
       .from("customers")
@@ -221,9 +225,12 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
     })
     .select("id")
     .single();
-  if (jobError || !job) {
+  const insertedJobId = job?.id;
+
+  if (jobError || !insertedJobId) {
     console.error("Public job creation failed", jobError);
     fail(publicSlug, "We couldn’t complete your booking");
+    return;
   }
 
   const requestKey = text(formData, "requestKey") || null;
@@ -232,7 +239,7 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
     .insert({
       business_id: settings.business_id,
       service_id: service.id,
-      job_id: job.id,
+      job_id: insertedJobId,
       customer_id: customerId,
       request_key: requestKey,
       status: "accepted",
@@ -240,7 +247,7 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
     .select("id")
     .single();
   if (submission) {
-    await supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", job.id);
+    await supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", insertedJobId);
   }
 
   redirect(`/book/${publicSlug}/success`);
