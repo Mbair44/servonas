@@ -82,7 +82,8 @@ async function prepareJob(
   if (Object.keys(errors).length) return { error: "One or more selections are invalid.", errors, values };
   const schedulingError = await validateJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
-    startsAt, endsAt, technicianId: technicianId || null, excludeJobId,
+    startsAt, endsAt, arrivalWindowStart: arrivalStart, arrivalWindowEnd: arrivalEnd,
+    technicianId: technicianId || null, excludeJobId,
   });
   if (schedulingError) return { error: schedulingError, errors: { startsAt: schedulingError }, values };
   const estimatedDuration = Number(text(formData, "estimatedDurationMinutes") || 0);
