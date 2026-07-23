@@ -1,41 +1,154 @@
 "use server";
-import {revalidatePath} from "next/cache";
-import {headers} from "next/headers";
-import {redirect} from "next/navigation";
-import {createSupabaseServerClient} from "@/lib/supabaseServer";
-import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
-const val=(f:FormData,k:string)=>String(f.get(k)??"").trim();
-export async function inviteTeamMember(businessSlug:string,formData:FormData){
- const s=await createSupabaseServerClient(); const {data:{user}}=await s.auth.getUser();
- if(!user) redirect(`/login?next=/app/${businessSlug}`);
- const {data:business}=await s.from("businesses").select("id,name").eq("slug",businessSlug).maybeSingle();
- if(!business) redirect("/app");
- const {data:membership}=await s.from("business_members").select("role").eq("business_id",business.id).eq("user_id",user.id).maybeSingle();
- if(!membership||!["owner","admin"].includes(membership.role)) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Only owners and admins can invite team members.")}`);
- const email=val(formData,"email").toLowerCase(),role=val(formData,"role");
- if(!email.includes("@")||!["admin","manager","staff"].includes(role)) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Enter a valid email and role.")}`);
- const {data:invite,error}=await s.from("business_invitations").upsert({business_id:business.id,email,role,invited_by:user.id,accepted_at:null,accepted_by:null,expires_at:new Date(Date.now()+7*86400000).toISOString()},{onConflict:"business_id,email"}).select("token").single();
- if(error) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent(error.message)}`);
- const origin=(await headers()).get("origin")??process.env.NEXT_PUBLIC_SITE_URL??"http://localhost:3000";
- const next=`/invite/accept?token=${invite.token}`;
- const admin=getSupabaseAdmin();
- let delivery="Invitation created. Copy the invite link below if email delivery is not configured.";
- if(admin){
-   const {error:inviteError}=await admin.auth.admin.inviteUserByEmail(email,{redirectTo:`${origin}/auth/callback?next=${encodeURIComponent(next)}`,data:{business_name:business.name}});
-   if(!inviteError) delivery=`Invitation email sent to ${email}.`;
-   else if(!inviteError?.message.toLowerCase().includes("already")) delivery=`Invitation saved. Email provider response: ${inviteError.message}`;
- }
- revalidatePath(`/app/${businessSlug}`);
- redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(delivery)}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { classifyInvitationDelivery, invitationDeliveryMessage, type InvitationDeliveryOutcome } from "@/lib/invitationDelivery";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
+
+const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
+async function siteOrigin() {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  const requestOrigin = (await headers()).get("origin");
+  const candidate = (configured || requestOrigin || "http://localhost:3000").replace(/\/$/, "");
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : "http://localhost:3000";
+  } catch {
+    console.error("Invitation site URL is invalid", { configured: Boolean(configured), hasRequestOrigin: Boolean(requestOrigin) });
+    return "http://localhost:3000";
+  }
 }
 
-export async function revokeInvitation(businessSlug:string,formData:FormData){
- const s=await createSupabaseServerClient(); const id=val(formData,"invitationId");
- const {data:{user}}=await s.auth.getUser(); if(!user)redirect("/login");
- const {data:business}=await s.from("businesses").select("id").eq("slug",businessSlug).maybeSingle(); if(!business)redirect("/app");
- const {data:m}=await s.from("business_members").select("role").eq("business_id",business.id).eq("user_id",user.id).maybeSingle();
- if(!m||!["owner","admin"].includes(m.role))redirect(`/app/${businessSlug}`);
- await s.from("business_invitations").delete().eq("id",id).eq("business_id",business.id);
- revalidatePath(`/app/${businessSlug}`); redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Invitation revoked.")}`);
+async function deliverInvitation({
+  email, businessName, redirectTo, businessId, invitationId,
+}: {
+  email: string; businessName: string; redirectTo: string; businessId: string; invitationId: string;
+}): Promise<InvitationDeliveryOutcome> {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    console.warn("Invitation email not attempted", { reason: "supabase_admin_not_configured", businessId, invitationId });
+    return classifyInvitationDelivery({ adminConfigured: false, hasAuthUser: false, hasError: false });
+  }
+  try {
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: { business_name: businessName },
+    });
+    const user = data?.user;
+    const outcome = classifyInvitationDelivery({
+      adminConfigured: true,
+      hasAuthUser: Boolean(user?.id),
+      hasError: Boolean(error),
+    });
+    if (error) {
+      console.error("Supabase Auth invitation failed", {
+        provider: "supabase_auth",
+        businessId,
+        invitationId,
+        errorName: error.name,
+        errorCode: "code" in error ? error.code : undefined,
+        errorStatus: error.status,
+        errorMessage: error.message,
+        authUserCreated: Boolean(user?.id),
+        redirectTo,
+      });
+    } else {
+      console.info("Supabase Auth invitation result", {
+        provider: "supabase_auth",
+        businessId,
+        invitationId,
+        authUserId: user?.id,
+        invitedAt: user?.invited_at,
+        confirmationSentAt: user?.confirmation_sent_at,
+        messageId: null,
+        redirectTo,
+      });
+    }
+    return outcome;
+  } catch (error) {
+    console.error("Supabase Auth invitation request threw", {
+      provider: "supabase_auth",
+      businessId,
+      invitationId,
+      errorName: error instanceof Error ? error.name : "unknown",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      redirectTo,
+    });
+    return "failed";
+  }
+}
+
+async function invitationContext(businessSlug: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect(`/login?next=/app/${businessSlug}`);
+  const { data: business } = await supabase.from("businesses").select("id,name").eq("slug", businessSlug).maybeSingle();
+  if (!business) redirect("/app");
+  const { data: membership } = await supabase.from("business_members").select("role").eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
+  if (!membership || !["owner", "admin"].includes(membership.role)) {
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Only owners and admins can invite team members.")}`);
+  }
+  return { supabase, user, business };
+}
+
+export async function inviteTeamMember(businessSlug: string, formData: FormData) {
+  const { supabase, user, business } = await invitationContext(businessSlug);
+  const email = value(formData, "email").toLowerCase();
+  const role = value(formData, "role");
+  if (!email.includes("@") || !["admin", "manager", "staff"].includes(role)) {
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Enter a valid email and role.")}`);
+  }
+  const { data: invitation, error } = await supabase.from("business_invitations").upsert({
+    business_id: business.id, email, role, invited_by: user.id,
+    accepted_at: null, accepted_by: null,
+    expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+  }, { onConflict: "business_id,email" }).select("id,token").single();
+  if (error || !invitation) {
+    console.error("Business invitation save failed", { code: error?.code, businessId: business.id });
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be saved.")}`);
+  }
+  const origin = await siteOrigin();
+  const next = `/invite/accept?token=${invitation.token}`;
+  const redirectTo = `${origin}/auth/invite-callback?next=${encodeURIComponent(next)}`;
+  const outcome = await deliverInvitation({
+    email, businessName: business.name, redirectTo,
+    businessId: business.id, invitationId: invitation.id,
+  });
+  revalidatePath(`/app/${businessSlug}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(outcome))}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+}
+
+export async function resendInvitation(businessSlug: string, formData: FormData) {
+  const { supabase, business } = await invitationContext(businessSlug);
+  const invitationId = value(formData, "invitationId");
+  const { data: invitation } = await supabase.from("business_invitations").select("id,email,token,accepted_at").eq("id", invitationId).eq("business_id", business.id).maybeSingle();
+  if (!invitation || invitation.accepted_at) {
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Pending invitation not found.")}`);
+  }
+  const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const { error } = await supabase.from("business_invitations").update({ expires_at: expiresAt }).eq("id", invitation.id).eq("business_id", business.id);
+  if (error) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be renewed.")}`);
+  const origin = await siteOrigin();
+  const next = `/invite/accept?token=${invitation.token}`;
+  const outcome = await deliverInvitation({
+    email: invitation.email, businessName: business.name,
+    redirectTo: `${origin}/auth/invite-callback?next=${encodeURIComponent(next)}`,
+    businessId: business.id, invitationId: invitation.id,
+  });
+  revalidatePath(`/app/${businessSlug}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(outcome))}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+}
+
+export async function revokeInvitation(businessSlug: string, formData: FormData) {
+  const { supabase, business } = await invitationContext(businessSlug);
+  const invitationId = value(formData, "invitationId");
+  const { error } = await supabase.from("business_invitations").delete().eq("id", invitationId).eq("business_id", business.id);
+  if (error) {
+    console.error("Business invitation revoke failed", { code: error.code, businessId: business.id, invitationId });
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be revoked.")}`);
+  }
+  revalidatePath(`/app/${businessSlug}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Invitation revoked.")}`);
 }
