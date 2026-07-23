@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import type { CrmActionState } from "@/app/app/[businessSlug]/customers/actions";
+import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib/googleAddressComponents";
 
 type Location = Record<string, string | boolean | number | null | undefined>;
 
@@ -17,6 +18,11 @@ export default function ServiceLocationForm({
   const [state, formAction, pending] = useActionState(action, {});
   const [placeId, setPlaceId] = useState(String(location?.google_place_id ?? ""));
   const [address, setAddress] = useState(String(location?.street_address ?? ""));
+  const [unit, setUnit] = useState(String(location?.unit ?? ""));
+  const [city, setCity] = useState(String(location?.city ?? ""));
+  const [region, setRegion] = useState(String(location?.state ?? ""));
+  const [postalCode, setPostalCode] = useState(String(location?.postal_code ?? ""));
+  const [country, setCountry] = useState(String(location?.country ?? "US"));
   const addressRef = useRef<HTMLInputElement>(null);
   const value = (name: string, fallback = "") => state.values?.[name] ?? fallback;
 
@@ -25,17 +31,23 @@ export default function ServiceLocationForm({
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const initialize = () => {
-      const maps = (window as typeof window & { google?: { maps?: { places?: { Autocomplete: new (input: HTMLInputElement, options: object) => { addListener: (name: string, callback: () => void) => void; getPlace: () => { place_id?: string; formatted_address?: string } } } } } }).google?.maps;
+      const maps = (window as typeof window & { google?: { maps?: { places?: { Autocomplete: new (input: HTMLInputElement, options: object) => { addListener: (name: string, callback: () => void) => void; getPlace: () => { place_id?: string; formatted_address?: string; address_components?: GoogleAddressComponent[] } } } } } }).google?.maps;
       if (!maps?.places || !addressRef.current) {
         if (++attempts < 20) timer = setTimeout(initialize, 150);
         return;
       }
-      const autocomplete = new maps.places.Autocomplete(addressRef.current, { types: ["address"], fields: ["place_id", "formatted_address"] });
+      const autocomplete = new maps.places.Autocomplete(addressRef.current, { types: ["address"], fields: ["place_id", "formatted_address", "address_components"] });
       autocomplete.addListener("place_changed", () => {
         const place = autocomplete.getPlace();
         if (place.place_id && place.formatted_address) {
+          const structured = parseGoogleAddressComponents(place.address_components, place.formatted_address);
           setPlaceId(place.place_id);
-          setAddress(place.formatted_address);
+          setAddress(structured.streetAddress);
+          setUnit(structured.unit);
+          setCity(structured.city);
+          setRegion(structured.state);
+          setPostalCode(structured.postalCode);
+          setCountry(structured.country);
         }
       });
     };
@@ -60,11 +72,11 @@ export default function ServiceLocationForm({
     <label>Location name<input name="locationName" required defaultValue={value("locationName", String(location?.location_name ?? "Home"))}/></label>
     <label>Street address<input ref={addressRef} name="streetAddress" required autoComplete="off" value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }}/></label>
     {state.fieldErrors?.address && <small className="crm-field-error crm-wide">{state.fieldErrors.address}</small>}
-    <label>Unit or suite<input name="unit" defaultValue={value("unit", String(location?.unit ?? ""))}/></label>
-    <label>City<input name="city" required defaultValue={value("city", String(location?.city ?? ""))}/></label>
-    <label>State<input name="state" required defaultValue={value("state", String(location?.state ?? ""))}/></label>
-    <label>Postal code<input name="postalCode" required defaultValue={value("postalCode", String(location?.postal_code ?? ""))}/></label>
-    <label>Country<input name="country" defaultValue={value("country", String(location?.country ?? "US"))}/></label>
+    <label>Unit or suite<input name="unit" value={unit} onChange={(event) => setUnit(event.target.value)}/></label>
+    <label>City<input name="city" required value={city} onChange={(event) => { setCity(event.target.value); setPlaceId(""); }}/></label>
+    <label>State<input name="state" required value={region} onChange={(event) => { setRegion(event.target.value); setPlaceId(""); }}/></label>
+    <label>Postal code<input name="postalCode" required value={postalCode} onChange={(event) => { setPostalCode(event.target.value); setPlaceId(""); }}/></label>
+    <label>Country<input name="country" value={country} onChange={(event) => { setCountry(event.target.value); setPlaceId(""); }}/></label>
     <label>Gate code<input name="gateCode" defaultValue={value("gateCode", String(location?.gate_code ?? ""))}/></label>
     <label className="crm-wide">Access instructions<textarea name="accessInstructions" rows={3} defaultValue={value("accessInstructions", String(location?.access_instructions ?? ""))}/></label>
     <label className="crm-wide">Parking notes<textarea name="parkingNotes" rows={2} defaultValue={value("parkingNotes", String(location?.parking_notes ?? ""))}/></label>
