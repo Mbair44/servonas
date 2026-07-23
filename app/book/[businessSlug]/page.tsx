@@ -50,6 +50,10 @@ export default async function PublicBookingPage({
   const businessName = Array.isArray(settings.businesses)
     ? settings.businesses[0]?.name
     : settings.businesses?.name;
+  const { data: signedLogo } = settings.logo_path
+    ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
+    : { data: null };
+  const bookingLogo = signedLogo?.signedUrl ?? settings.logo_url ?? null;
 
   return (
     <main
@@ -58,8 +62,8 @@ export default async function PublicBookingPage({
     >
       <section className="public-booking-card">
         <header>
-          {settings.logo_url ? (
-            <img src={settings.logo_url} alt="" />
+          {bookingLogo ? (
+            <img src={bookingLogo} alt={`${businessName ?? "Business"} logo`} />
           ) : (
             <div className="booking-mark">{businessName?.slice(0, 1)}</div>
           )}
