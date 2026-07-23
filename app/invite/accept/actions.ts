@@ -63,9 +63,18 @@ export async function acceptInvitation(formData: FormData) {
 
   const { data, error } = await supabase.rpc("accept_business_invitation", { p_token: token });
   if (error) {
-    redirect(`/invite/accept?token=${encodeURIComponent(token)}&error=${encodeURIComponent(error.message)}`);
+    console.error("Business invitation acceptance failed", {
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    redirect(`/invite/accept?token=${encodeURIComponent(token)}&error=${encodeURIComponent("The invitation could not be accepted. Please try again or ask the company administrator to resend it.")}`);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.business_slug) {
+    console.error("Business invitation acceptance returned no workspace", { hasData: Boolean(data) });
+    redirect(`/invite/accept?token=${encodeURIComponent(token)}&error=${encodeURIComponent("The invitation was accepted, but the workspace could not be opened.")}`);
+  }
   redirect(`/app/${row.business_slug}?joined=1`);
 }
