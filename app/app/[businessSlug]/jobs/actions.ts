@@ -6,6 +6,7 @@ import { canManageCustomers } from "@/lib/access";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
+import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspace } from "@/lib/workspace";
 
 export type JobActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
@@ -169,6 +170,10 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const status = text(formData, "status");
   if (!jobStatuses.includes(status as typeof jobStatuses[number])) redirect(`/app/${slug}/jobs/${jobId}?error=Invalid+status`);
+  const { data: currentJob } = await supabase.from("jobs").select("status").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  if (!currentJob || !canTransitionJob(currentJob.status as JobStatus, status as JobStatus)) {
+    redirect(`/app/${slug}/jobs/${jobId}?error=That+status+transition+is+not+allowed`);
+  }
   const timestamps: Record<string, string> = {};
   const now = new Date().toISOString();
   if (status === "arrived") timestamps.actual_arrival_at = now;
@@ -182,6 +187,10 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
 export async function cancelJob(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspace(slug);
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+  const { data: currentJob } = await supabase.from("jobs").select("status").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  if (!currentJob || !canTransitionJob(currentJob.status as JobStatus, "canceled")) {
+    redirect(`/app/${slug}/jobs/${jobId}?error=This+job+can+no+longer+be+cancelled`);
+  }
   const { error } = await supabase.from("jobs").update({
     status: "canceled", canceled_at: new Date().toISOString(),
     cancellation_reason: text(formData, "cancellationReason") || "Cancelled by office",
