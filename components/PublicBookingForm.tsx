@@ -60,6 +60,7 @@ export default function PublicBookingForm(props: Props) {
   const [availability, setAvailability] = useState<Record<string, string[]>>({});
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
+  const [addressLookupError, setAddressLookupError] = useState("");
   const addressRef = useRef<HTMLInputElement>(null);
   const sessionId = useRef(crypto.randomUUID());
   const requestKey = useRef(crypto.randomUUID());
@@ -100,10 +101,18 @@ export default function PublicBookingForm(props: Props) {
   useEffect(() => { setTime(""); }, [date, serviceId]);
   useEffect(() => {
     if (!props.collectAddress || !props.googleMapsApiKey || !addressRef.current) return;
+    let attempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const initialize = () => {
       const maps = (window as typeof window & { google?: { maps?: { places?: { Autocomplete: new (input: HTMLInputElement, options: object) => { addListener: (name: string, callback: () => void) => void; getPlace: () => { place_id?: string; formatted_address?: string } } } } } }).google?.maps;
-      if (!maps?.places || !addressRef.current) return;
+      if (!maps?.places || !addressRef.current) {
+        attempts += 1;
+        if (attempts < 20) retryTimer = setTimeout(initialize, 150);
+        else setAddressLookupError("Address suggestions could not be loaded. Please refresh and try again.");
+        return;
+      }
       const autocomplete = new maps.places.Autocomplete(addressRef.current, { types: ["address"], fields: ["place_id", "formatted_address"] });
+      setAddressLookupError("");
       autocomplete.addListener("place_changed", () => {
         const place = autocomplete.getPlace();
         if (place.place_id && place.formatted_address) { setPlaceId(place.place_id); setAddress(place.formatted_address); }
@@ -113,10 +122,15 @@ export default function PublicBookingForm(props: Props) {
     const existing = document.querySelector<HTMLScriptElement>('script[data-servonas-google-places="true"]');
     if (existing) { existing.addEventListener("load", initialize, { once: true }); return () => existing.removeEventListener("load", initialize); }
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(props.googleMapsApiKey)}&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(props.googleMapsApiKey)}&libraries=places`;
     script.async = true; script.defer = true; script.dataset.servonasGooglePlaces = "true";
-    script.addEventListener("load", initialize, { once: true }); document.head.appendChild(script);
-    return () => script.removeEventListener("load", initialize);
+    script.addEventListener("load", initialize, { once: true });
+    script.addEventListener("error", () => setAddressLookupError("Address suggestions could not be loaded. Please refresh and try again."), { once: true });
+    document.head.appendChild(script);
+    return () => {
+      script.removeEventListener("load", initialize);
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [props.collectAddress, props.googleMapsApiKey]);
 
   const calendarDays = useMemo(() => {
@@ -179,7 +193,7 @@ export default function PublicBookingForm(props: Props) {
       <label>Last name<input name="lastName" autoComplete="family-name" defaultValue={state.values?.lastName} /></label>
       <label>Email<input name="email" type="email" autoComplete="email" defaultValue={state.values?.email} />{fieldError("email")}</label>
       <label>Phone<input name="phone" type="tel" autoComplete="tel" defaultValue={state.values?.phone} />{fieldError("phone")}</label>
-      {props.collectAddress && <label className="wide">Service address<input ref={addressRef} name="address" autoComplete="street-address" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }} placeholder="Start typing and select an address" />{fieldError("address")}<small className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
+      {props.collectAddress && <label className="wide">Service address<input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
       <label className="wide">How can we help?<textarea name="details" rows={4} defaultValue={state.values?.details} /></label>
       {props.intakeQuestions.map((question, index) => <label className="wide" key={question}>{question}<input name={`question_${index}`} defaultValue={state.values?.[`question_${index}`]} /></label>)}
       <button className="booking-submit" disabled={pending || !time}>{pending ? <><span className="button-spinner" /> Booking…</> : "Request appointment"}</button>
