@@ -1,4 +1,11 @@
 -- Epic 4.5 production booking: analytics and provider-neutral communication stubs.
+-- This unique partial index is the server action's idempotency boundary. It is
+-- repeated here so this migration is safe to apply even if environments were
+-- provisioned from an older Epic 4.5 schema.
+create unique index if not exists public_booking_request_key_unique
+  on public.public_booking_submissions(business_id,request_key)
+  where request_key is not null;
+
 create table if not exists public.public_booking_events (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
