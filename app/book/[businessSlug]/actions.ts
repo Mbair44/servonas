@@ -155,7 +155,7 @@ export async function submitPublicBooking(
     console.error("Public submission creation failed", submissionError);
     return fail("Your appointment was created, but confirmation could not be loaded. Please contact the business.");
   }
-  await Promise.all([
+  const [linkResult, analyticsResult] = await Promise.all([
     supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", job.id),
     supabase.from("public_booking_events").insert({
       business_id: settings.business_id, service_id: service.id, submission_id: submission.id, event_name: "booking_completed", metadata: {},
@@ -163,5 +163,39 @@ export async function submitPublicBooking(
     status === "confirmed" ? EmailService.bookingConfirmation(job.id) : EmailService.bookingPending(job.id),
     SMSService.bookingConfirmation(job.id),
   ]);
+  if (linkResult.error) console.error("Public job confirmation link failed", linkResult.error);
+  if (analyticsResult.error) console.error("Public booking completion analytics failed", analyticsResult.error);
+
+  const [verifiedSubmissionResult, verifiedJobResult] = await Promise.all([
+    supabase
+      .from("public_booking_submissions")
+      .select("id,job_id")
+      .eq("id", submission.id)
+      .eq("business_id", settings.business_id)
+      .eq("job_id", job.id)
+      .maybeSingle(),
+    supabase
+      .from("jobs")
+      .select("id,business_id")
+      .eq("id", job.id)
+      .eq("business_id", settings.business_id)
+      .eq("is_deleted", false)
+      .maybeSingle(),
+  ]);
+  if (
+    verifiedSubmissionResult.error ||
+    verifiedJobResult.error ||
+    !verifiedSubmissionResult.data ||
+    !verifiedJobResult.data
+  ) {
+    console.error("Public booking verification failed before redirect", {
+      submissionError: verifiedSubmissionResult.error,
+      jobError: verifiedJobResult.error,
+      submissionId: submission.id,
+      jobId: job.id,
+      businessId: settings.business_id,
+    });
+    return fail("Your appointment was created, but confirmation could not be verified. Please contact the business.");
+  }
   redirect(`/book/${publicSlug}/success?confirmation=${submission.id}`);
 }
