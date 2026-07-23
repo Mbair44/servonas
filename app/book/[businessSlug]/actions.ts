@@ -1,51 +1,53 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import type { BookingActionState } from "@/components/PublicBookingForm";
+import { zonedDateTimeToUtc } from "@/lib/bookingTime";
+import { getAvailability } from "@/lib/publicAvailability";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { EmailService } from "@/lib/communications/emailService";
+import { SMSService } from "@/lib/communications/smsService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
-const fail = (slug: string, message: string): never =>
-  redirect(`/book/${slug}?error=${encodeURIComponent(message)}`);
-
 async function verifyGoogleAddress(placeId: string) {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return null;
-
   const url = new URL("https://maps.googleapis.com/maps/api/place/details/json");
   url.searchParams.set("place_id", placeId);
-  url.searchParams.set("fields", "formatted_address,address_components,geometry,types");
+  url.searchParams.set("fields", "formatted_address");
   url.searchParams.set("key", key);
-
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) return null;
   const payload = await response.json();
-  if (payload.status !== "OK" || !payload.result?.formatted_address) return null;
-  return payload.result.formatted_address as string;
+  return payload.status === "OK" ? (payload.result?.formatted_address as string | undefined) ?? null : null;
 }
 
-export async function submitPublicBooking(publicSlug: string, formData: FormData) {
-  const maybeSupabase = getSupabaseAdmin();
-
-  if (!maybeSupabase) {
-    fail(publicSlug, "Booking is temporarily unavailable");
-  }
-
-  // The runtime guard above guarantees an admin client. This explicit
-  // assignment also gives TypeScript a non-null client for the rest of
-  // the server action.
-  const supabase = maybeSupabase as NonNullable<typeof maybeSupabase>;
-
-  if (text(formData, "companyWebsite")) {
-    redirect(`/book/${publicSlug}?success=Thanks`);
-  }
+export async function submitPublicBooking(
+  publicSlug: string,
+  _previousState: BookingActionState,
+  formData: FormData,
+): Promise<BookingActionState> {
+  const values = Object.fromEntries(
+    [...formData.entries()]
+      .filter(([key, value]) => typeof value === "string" && key !== "companyWebsite")
+      .map(([key, value]) => [key, String(value)]),
+  );
+  const fail = (message: string, fieldErrors: Record<string, string> = {}): BookingActionState => ({
+    error: message,
+    fieldErrors,
+    values,
+  });
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return fail("Booking is temporarily unavailable.");
+  if (text(formData, "companyWebsite")) return {};
 
   const { data: settings } = await supabase
     .from("booking_settings")
-    .select("*,businesses(id,name,slug)")
+    .select("*,businesses(id,name)")
     .ilike("public_slug", publicSlug)
     .eq("enabled", true)
     .maybeSingle();
-  if (!settings) fail(publicSlug, "This booking page is not available");
+  if (!settings) return fail("This booking page is not available.");
 
   const serviceId = text(formData, "serviceId");
   const startRaw = text(formData, "startsAt");
@@ -53,202 +55,113 @@ export async function submitPublicBooking(publicSlug: string, formData: FormData
   const last = text(formData, "lastName");
   const email = text(formData, "email").toLowerCase();
   const phone = text(formData, "phone");
-  if (!serviceId || !startRaw || !first || (!email && !phone)) {
-    fail(publicSlug, "Complete the required fields");
+  const fieldErrors: Record<string, string> = {};
+  if (!serviceId) fieldErrors.serviceId = "Choose a service.";
+  if (!startRaw) fieldErrors.startsAt = "Choose an available date and time.";
+  if (!first) fieldErrors.firstName = "Enter your first name.";
+  if (!email && !phone) {
+    fieldErrors.email = "Enter an email address or phone number.";
+    fieldErrors.phone = "Enter a phone number or email address.";
   }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.email = "Enter a valid email address.";
+  if (phone && phone.replace(/\D/g, "").length < 10) fieldErrors.phone = "Enter a valid phone number.";
+  if (Object.keys(fieldErrors).length) return fail("Please correct the highlighted information.", fieldErrors);
 
   const { data: service } = await supabase
     .from("services")
-    .select("*")
+    .select("id,name,duration_minutes,price_amount")
     .eq("id", serviceId)
     .eq("business_id", settings.business_id)
     .eq("active", true)
     .eq("is_deleted", false)
     .maybeSingle();
-  if (!service) fail(publicSlug, "That service is no longer available");
+  if (!service) return fail("That service is no longer available.", { serviceId: "Choose another service." });
 
   const [datePart, timePart] = startRaw.split("T");
-  if (!datePart || !/^\d{2}:(00|30)$/.test(timePart ?? "")) {
-    fail(publicSlug, "Choose an appointment time in a 30-minute increment");
+  if (!datePart || !/^\d{2}:\d{2}$/.test(timePart ?? "")) {
+    return fail("Choose a valid appointment time.", { startsAt: "Choose an available date and time." });
   }
-
-  const start = new Date(startRaw);
-  if (Number.isNaN(start.getTime())) fail(publicSlug, "Choose a valid appointment time");
-  const serviceEnd = new Date(start.getTime() + service.duration_minutes * 60000);
-  const conflictEnd = new Date(
-    start.getTime() + (service.duration_minutes + settings.buffer_minutes) * 60000,
-  );
-  const now = Date.now();
-  if (
-    start.getTime() < now + settings.minimum_notice_hours * 3600000 ||
-    start.getTime() > now + settings.maximum_days_ahead * 86400000
-  ) {
-    fail(publicSlug, "That time is outside the booking window");
+  const slots = await getAvailability(supabase, settings, service, datePart, datePart);
+  if (!slots[datePart]?.includes(timePart)) {
+    return fail("That time is no longer available. Your information has been kept—please choose another time.", {
+      startsAt: "Time unavailable.",
+    });
   }
-
-  const weekday = new Date(`${datePart}T12:00:00Z`).getUTCDay();
-  const serviceEndTime = `${String(serviceEnd.getHours()).padStart(2, "0")}:${String(
-    serviceEnd.getMinutes(),
-  ).padStart(2, "0")}`;
-  const { data: opening } = await supabase
-    .from("booking_availability")
-    .select("start_time,end_time")
-    .eq("business_id", settings.business_id)
-    .eq("weekday", weekday)
-    .eq("active", true)
-    .lte("start_time", timePart)
-    .gte("end_time", serviceEndTime)
-    .maybeSingle();
-  if (!opening) fail(publicSlug, "That time is outside the business’s available hours");
 
   let verifiedAddress: string | null = null;
   if (settings.collect_address) {
     const enteredAddress = text(formData, "address");
     const placeId = text(formData, "addressPlaceId");
-    if (!enteredAddress) fail(publicSlug, "Enter a service address");
+    if (!enteredAddress) return fail("Enter the service address.", { address: "Address is required." });
     if (process.env.GOOGLE_MAPS_API_KEY) {
-      if (!placeId) fail(publicSlug, "Select a verified address from Google’s suggestions");
+      if (!placeId) return fail("Select an address from Google’s suggestions.", { address: "Choose a verified address." });
       verifiedAddress = await verifyGoogleAddress(placeId);
-      if (!verifiedAddress) fail(publicSlug, "We could not verify that address. Please choose it again");
-    } else {
-      verifiedAddress = enteredAddress;
-    }
-  }
-
-  const dayStart = new Date(`${datePart}T00:00:00`);
-  const dayEnd = new Date(`${datePart}T23:59:59`);
-  const [{ data: conflicts }, { data: blackouts }, { count: dayCount }] = await Promise.all([
-    supabase
-      .from("jobs")
-      .select("id")
-      .eq("business_id", settings.business_id)
-      .eq("is_deleted", false)
-      .not("status", "eq", "canceled")
-      .lt("starts_at", conflictEnd.toISOString())
-      .gt("ends_at", start.toISOString())
-      .limit(1),
-    supabase
-      .from("booking_blackouts")
-      .select("id")
-      .eq("business_id", settings.business_id)
-      .lt("starts_at", conflictEnd.toISOString())
-      .gt("ends_at", start.toISOString())
-      .limit(1),
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("business_id", settings.business_id)
-      .eq("is_deleted", false)
-      .not("status", "eq", "canceled")
-      .gte("starts_at", dayStart.toISOString())
-      .lte("starts_at", dayEnd.toISOString()),
-  ]);
-  if (
-    conflicts?.length ||
-    blackouts?.length ||
-    (settings.daily_appointment_limit && Number(dayCount) >= settings.daily_appointment_limit)
-  ) {
-    fail(publicSlug, "That time is not available. Please choose another");
+      if (!verifiedAddress) return fail("We could not verify that address.", { address: "Choose the address again." });
+    } else verifiedAddress = enteredAddress;
   }
 
   let customerId: string | undefined;
   if (email) {
-    const { data: existing } = await supabase
-      .from("customers")
-      .select("id")
-      .eq("business_id", settings.business_id)
-      .ilike("email", email)
-      .eq("is_deleted", false)
-      .maybeSingle();
+    const { data: existing } = await supabase.from("customers").select("id").eq("business_id", settings.business_id).ilike("email", email).eq("is_deleted", false).maybeSingle();
     customerId = existing?.id;
   }
-
   if (!customerId) {
-    const { data: customer, error } = await supabase
-      .from("customers")
-      .insert({
-        business_id: settings.business_id,
-        first_name: first,
-        last_name: last,
-        email: email || null,
-        phone: phone || null,
-        notes: null,
-      })
-      .select("id")
-      .single();
-    const insertedCustomerId = customer?.id;
-
-    if (error || !insertedCustomerId) {
-      console.error("Public customer creation failed", error);
-      fail(publicSlug, "We couldn’t save your contact information");
-      return;
+    const { data: customer, error: customerError } = await supabase.from("customers").insert({
+      business_id: settings.business_id, first_name: first, last_name: last, email: email || null, phone: phone || null,
+    }).select("id").single();
+    if (customerError || !customer) {
+      console.error("Public customer creation failed", customerError);
+      return fail("We couldn’t save your contact information. Please try again.");
     }
-
-    customerId = insertedCustomerId;
+    customerId = customer.id;
   } else {
-    await supabase
-      .from("customers")
-      .update({
-        first_name: first,
-        last_name: last,
-        phone: phone || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", customerId);
+    await supabase.from("customers").update({ first_name: first, last_name: last, phone: phone || null, updated_at: new Date().toISOString() }).eq("id", customerId);
   }
 
+  const start = zonedDateTimeToUtc(datePart, timePart, settings.timezone);
+  const serviceEnd = new Date(start.getTime() + service.duration_minutes * 60_000);
   const status = settings.auto_confirm ? "confirmed" : "pending";
-  const { data: job, error: jobError } = await supabase
-    .from("jobs")
-    .insert({
-      business_id: settings.business_id,
-      customer_id: customerId,
-      service_id: service.id,
-      title: service.name,
-      status,
-      starts_at: start.toISOString(),
-      ends_at: serviceEnd.toISOString(),
-      service_address: verifiedAddress,
-      description:
-        [
-          text(formData, "details"),
-          ...(settings.intake_questions ?? []).map((question: string, index: number) => {
-            const answer = text(formData, `question_${index}`);
-            return answer ? `${question}: ${answer}` : "";
-          }),
-        ]
-          .filter(Boolean)
-          .join("\n\n") || null,
-      subtotal: service.price_amount || 0,
-      tax_amount: 0,
-      booking_source: "website",
-    })
-    .select("id")
-    .single();
-  const insertedJobId = job?.id;
-
-  if (jobError || !insertedJobId) {
+  const { data: job, error: jobError } = await supabase.from("jobs").insert({
+    business_id: settings.business_id,
+    customer_id: customerId,
+    service_id: service.id,
+    title: service.name,
+    status,
+    starts_at: start.toISOString(),
+    ends_at: serviceEnd.toISOString(),
+    service_address: verifiedAddress,
+    description: [text(formData, "details"), ...(settings.intake_questions ?? []).map((question: string, index: number) => {
+      const answer = text(formData, `question_${index}`);
+      return answer ? `${question}: ${answer}` : "";
+    })].filter(Boolean).join("\n\n") || null,
+    subtotal: service.price_amount || 0,
+    tax_amount: 0,
+    booking_source: "website",
+  }).select("id,job_number").single();
+  if (jobError || !job) {
     console.error("Public job creation failed", jobError);
-    fail(publicSlug, "We couldn’t complete your booking");
-    return;
+    return fail("We couldn’t complete your booking. Please try again.");
   }
 
-  const requestKey = text(formData, "requestKey") || null;
-  const { data: submission } = await supabase
-    .from("public_booking_submissions")
-    .insert({
-      business_id: settings.business_id,
-      service_id: service.id,
-      job_id: insertedJobId,
-      customer_id: customerId,
-      request_key: requestKey,
-      status: "accepted",
-    })
-    .select("id")
-    .single();
-  if (submission) {
-    await supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", insertedJobId);
+  const { data: submission, error: submissionError } = await supabase.from("public_booking_submissions").insert({
+    business_id: settings.business_id,
+    service_id: service.id,
+    job_id: job.id,
+    customer_id: customerId,
+    request_key: text(formData, "requestKey") || null,
+    status: "accepted",
+  }).select("id").single();
+  if (submissionError || !submission) {
+    console.error("Public submission creation failed", submissionError);
+    return fail("Your appointment was created, but confirmation could not be loaded. Please contact the business.");
   }
-
-  redirect(`/book/${publicSlug}/success`);
+  await Promise.all([
+    supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", job.id),
+    supabase.from("public_booking_events").insert({
+      business_id: settings.business_id, service_id: service.id, submission_id: submission.id, event_name: "booking_completed", metadata: {},
+    }),
+    status === "confirmed" ? EmailService.bookingConfirmation(job.id) : EmailService.bookingPending(job.id),
+    SMSService.bookingConfirmation(job.id),
+  ]);
+  redirect(`/book/${publicSlug}/success?confirmation=${submission.id}`);
 }
