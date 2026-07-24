@@ -77,6 +77,7 @@ export async function submitPublicBooking(
   const email = text(formData, "email").toLowerCase();
   const phoneInput = text(formData, "phone");
   const phone = phoneInput ? normalizePhone(phoneInput) : "";
+  const smsConsent = text(formData, "smsConsent") === "on";
   const requestKey = text(formData, "requestKey");
   const photoEntry = formData.get("bookingPhoto");
   const bookingPhoto = photoEntry instanceof File && photoEntry.size > 0 ? photoEntry : null;
@@ -281,7 +282,7 @@ export async function submitPublicBooking(
 
   const { data: completedSubmission, error: submissionError } = await supabase
     .from("public_booking_submissions")
-    .update({ job_id: job.id, customer_id: customerId })
+    .update({ job_id: job.id, customer_id: customerId, sms_consent: smsConsent })
     .eq("id", submission.id)
     .eq("business_id", settings.business_id)
     .is("job_id", null)
@@ -335,7 +336,7 @@ export async function submitPublicBooking(
       business_id: settings.business_id, service_id: service.id, submission_id: submission.id, event_name: "booking_completed", metadata: {},
     }),
     status === "confirmed" ? EmailService.bookingConfirmation(job.id) : EmailService.bookingPending(job.id),
-    SMSService.bookingConfirmation(job.id),
+    SMSService.bookingConfirmation(job.id, smsConsent),
     SMSService.bookingManagerNotification(job.id, settings.booking_manager_phone),
   ]);
   if (linkResult.error) console.error("Public job confirmation link failed", linkResult.error);

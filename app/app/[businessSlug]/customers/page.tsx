@@ -2,6 +2,7 @@ import Link from "next/link";
 import { WorkspaceNav } from "../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageCustomers } from "@/lib/access";
+import { formatBusinessDate } from "@/lib/bookingTime";
 
 const pageSize = 25;
 const cleanSearch = (value: string) => value.toLowerCase().trim();
@@ -77,7 +78,7 @@ export default async function Customers({
             <div><strong>{customer.first_name} {customer.last_name}</strong><span>{customer.company_name || "Residential customer"}</span></div>
             <div><b>{customer.phone || "No phone"}</b><span>{customer.email || "No email"}</span></div>
             <div><b>{customer.primary?.location_name || "No location"}</b><span>{customer.primary ? `${customer.primary.city}, ${customer.primary.state}` : "Add a service location"}</span></div>
-            <div><b>{customer.jobCount} job{customer.jobCount === 1 ? "" : "s"}</b><span>{customer.lastService ? `Last: ${new Date(customer.lastService).toLocaleDateString()}` : "No service history"}</span></div>
+            <div><b>{customer.jobCount} job{customer.jobCount === 1 ? "" : "s"}</b><span>{customer.lastService ? `Last: ${formatBusinessDate(customer.lastService, business.timezone)}` : "No service history"}</span></div>
             <span className={`crm-status ${customer.is_active ? "active" : "inactive"}`}>{customer.is_active ? "Active" : "Inactive"}</span>
           </Link>) : <div className="sv-empty"><h3>No matching customers</h3><p>Adjust the filters or add a customer.</p></div>}
         </div>
