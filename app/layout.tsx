@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./public-estimate.css";
 import Link from "next/link";
 
 export const metadata = {

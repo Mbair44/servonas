@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { canManageCustomers } from "@/lib/access";
 import { calculateFinancialDocument, type Discount } from "@/lib/financial/calculations";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { requireWorkspace } from "@/lib/workspace";
+import { generatePublicDocumentToken, publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 
 export type EstimateActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
 export type EstimateLineDraft = {
@@ -205,13 +207,18 @@ export async function sendEstimate(slug: string, estimateId: string) {
   });
   if (versionError && versionError.code !== "23505") redirect(resultPath(slug, estimateId, "error", "Estimate snapshot could not be created"));
   const now = new Date().toISOString();
+  const publicToken = generatePublicDocumentToken();
+  const publicTokenHash = await publicDocumentTokenHash(publicToken);
   const { error } = await supabase.from("estimates").update({
-    status: "sent", sent_at: now, issue_date: snapshot.estimate.issue_date || now.slice(0, 10), updated_by: user.id,
+    status: "sent", sent_at: now, issue_date: snapshot.estimate.issue_date || now.slice(0, 10),
+    public_token_hash: publicTokenHash, public_token_revoked_at: null, updated_by: user.id,
   }).eq("id", estimateId).eq("business_id", business.id).eq("status", "draft");
   if (error) redirect(resultPath(slug, estimateId, "error", "Estimate could not be marked sent"));
   await supabase.from("estimate_events").insert({ business_id: business.id, estimate_id: estimateId, event_type: "sent", actor_user_id: user.id });
   revalidatePath(`/app/${slug}/estimates`);
-  redirect(resultPath(slug, estimateId, "success", "Estimate marked sent; delivery is added in Checkpoint 5"));
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL || (await headers()).get("origin") || "http://localhost:3000").replace(/\/$/, "");
+  const publicLink = `${origin}/estimate/${publicToken}`;
+  redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent("Estimate marked sent; delivery is added in Checkpoint 5")}&publicLink=${encodeURIComponent(publicLink)}`);
 }
 
 export async function reviseEstimate(slug: string, estimateId: string) {

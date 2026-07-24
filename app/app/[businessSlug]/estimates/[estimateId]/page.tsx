@@ -4,9 +4,10 @@ import { canManageCustomers } from "@/lib/access";
 import { formatCents } from "@/lib/financial/priceBook";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../../WorkspaceNav";
+import CopyLinkButton from "@/components/CopyLinkButton";
 import { convertEstimateToInvoice, convertEstimateToJob, duplicateEstimate, reviseEstimate, sendEstimate, voidEstimate } from "../actions";
 
-export default async function EstimateDetail({ params, searchParams }: { params:Promise<{businessSlug:string;estimateId:string}>; searchParams:Promise<{success?:string;error?:string}> }) {
+export default async function EstimateDetail({ params, searchParams }: { params:Promise<{businessSlug:string;estimateId:string}>; searchParams:Promise<{success?:string;error?:string;publicLink?:string}> }) {
   const {businessSlug,estimateId}=await params; const q=await searchParams; const {supabase,business,role}=await requireWorkspace(businessSlug);
   const [{data:estimate},{data:lines},{data:fees},{data:events}] = await Promise.all([
     supabase.from("estimates").select("*,customers!estimates_customer_fk(first_name,last_name,company_name,email),service_locations!estimates_location_fk(location_name,street_address,city,state,postal_code),jobs!estimates_job_fk(id,job_number,title)").eq("id",estimateId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
@@ -18,7 +19,7 @@ export default async function EstimateDetail({ params, searchParams }: { params:
   const canEdit=canManageCustomers(role);
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
     <header className="epic3-header"><div><small>{estimate.estimate_number} · Version {estimate.version_number}</small><h1>{estimate.title}</h1><p><span className={`estimate-status ${estimate.status}`}>{estimate.status}</span> {customer?.company_name||`${customer?.first_name??""} ${customer?.last_name??""}`}</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/estimates`}>Back</Link>{canEdit&&estimate.status==="draft"&&<Link className="sv-button" href={`/app/${businessSlug}/estimates/${estimateId}/edit`}>Edit</Link>}</div></header>
-    {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
+    {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}{q.publicLink&&<div className="estimate-public-link"><div><strong>Customer estimate link</strong><span>This secure link is shown once. Copy it now; email delivery is added in Checkpoint 5.</span></div><CopyLinkButton url={q.publicLink} label="Copy customer link"/></div>}
     {canEdit&&<section className="estimate-actions workspace-panel">
       {estimate.status==="draft"&&<form action={sendEstimate.bind(null,businessSlug,estimateId)}><button className="sv-button">Mark sent</button></form>}
       {["sent","viewed"].includes(estimate.status)&&<form action={reviseEstimate.bind(null,businessSlug,estimateId)}><button className="sv-button sv-secondary">Revise</button></form>}
