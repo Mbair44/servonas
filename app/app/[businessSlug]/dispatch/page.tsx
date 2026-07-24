@@ -7,7 +7,7 @@ import { routableLocationCoordinates, scheduledStopSequence } from "@/lib/dispat
 import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../WorkspaceNav";
-import { assignDispatchJob, updateDispatchStatus } from "./actions";
+import { assignDispatchJob, calculateDispatchRoutes, updateDispatchStatus } from "./actions";
 
 type Relation<T> = T | T[] | null;
 type DispatchJob = {
@@ -156,7 +156,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content dispatch-page">
     <header className="epic3-header"><div><small>Field service operations</small><h1>Dispatch board</h1><p>Coordinate today’s field work in {business.timezone}.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/schedule?date=${date}&view=day`}>Open schedule</Link></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
-    <section className="workspace-panel dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date, -1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date, 1))}>›</Link></div><form><label>Date<input name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</strong></section>
+    <section className="workspace-panel dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date, -1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date, 1))}>›</Link></div><form><label>Date<input name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</strong>{canEdit&&<form action={calculateDispatchRoutes.bind(null,businessSlug)}><input type="hidden" name="date" value={date}/><button className="sv-button" type="submit">{routePlan?.calculation_status==="ready"?"Recalculate roads":"Calculate road routes"}</button></form>}</section>
     <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes}/>
     <div className="dispatch-list-heading"><div><small>Map-independent controls</small><h2>Dispatch assignments</h2></div><p>Assignment, status, contact, and schedule controls remain available if the map provider is unavailable.</p></div>
     <div className="dispatch-board">
