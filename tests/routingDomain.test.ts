@@ -12,6 +12,7 @@ const input: ComputeRouteInput = {
   origin: { id: "office", latitude: 33.4484, longitude: -112.074 },
   intermediates: [{ id: "job-1", latitude: 33.4152, longitude: -111.8315 }],
   destination: { id: "office-return", latitude: 33.4484, longitude: -112.074 },
+  travelMode: "driving",
   departureAt: "2026-07-24T15:00:00.000Z",
 };
 
@@ -45,6 +46,12 @@ test("route input enforces the provider-neutral waypoint ceiling", () => {
       }),
     /more than 25 intermediate waypoints/,
   );
+});
+
+test("route input supports future provider travel modes without a domain migration", () => {
+  assert.doesNotThrow(() => assertValidComputeRouteInput({ ...input, travelMode: "commercial_vehicle" }));
+  assert.doesNotThrow(() => assertValidComputeRouteInput({ ...input, travelMode: "provider_future_mode" }));
+  assert.throws(() => assertValidComputeRouteInput({ ...input, travelMode: "" }), /travel mode/);
 });
 
 test("driving route results require integer road metrics and every leg", () => {
@@ -97,4 +104,3 @@ test("driving route results require integer road metrics and every leg", () => {
     /nonnegative integer/,
   );
 });
-

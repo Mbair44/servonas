@@ -9,7 +9,10 @@ import { EmailService } from "@/lib/communications/emailService";
 import { SMSService } from "@/lib/communications/smsService";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { bookingPhotoExtension, validateBookingPhoto } from "@/lib/bookingPhoto";
-import { verifyGooglePlace, type VerifiedGoogleAddress } from "@/lib/googleAddress";
+import { resolveGoogleAddress } from "@/lib/googleAddress";
+import { GoogleGeocodingProvider } from "@/lib/geocoding/googleProvider";
+import { resolveServiceLocationAddress } from "@/lib/geocoding/service";
+import type { ResolveAddressResult } from "@/lib/geocoding/domain";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const normalizePhone = (value: string) => {
@@ -115,7 +118,7 @@ export async function submitPublicBooking(
   }
 
   let verifiedAddress: string | null = null;
-  let verifiedLocation: VerifiedGoogleAddress | null = null;
+  let addressResolution: ResolveAddressResult | null = null;
   let addressPlaceId: string | null = null;
   if (settings.collect_address) {
     const enteredAddress = text(formData, "address");
@@ -123,12 +126,29 @@ export async function submitPublicBooking(
     if (!enteredAddress) return fail("Enter the service address.", { address: "Address is required." });
     if (process.env.GOOGLE_MAPS_API_KEY) {
       if (!placeId) return fail("Select an address from Google’s suggestions.", { address: "Choose a verified address." });
-      verifiedLocation = await verifyGooglePlace(placeId);
-      if (!verifiedLocation?.streetAddress || !verifiedLocation.city || !verifiedLocation.state || !verifiedLocation.postalCode) {
-        return fail("We could not verify that address.", { address: "Choose the address again." });
+      const structured = {
+        line1: text(formData, "addressLine1"),
+        line2: text(formData, "addressLine2") || null,
+        city: text(formData, "addressCity"),
+        region: text(formData, "addressRegion"),
+        postalCode: text(formData, "addressPostalCode") || null,
+        countryCode: text(formData, "addressCountryCode") || "US",
+      };
+      if (!structured.line1 || !structured.city || !structured.region) {
+        return fail("Choose the address again.", { address: "The selected address was incomplete." });
       }
-      verifiedAddress = verifiedLocation.formattedAddress;
+      addressResolution = await resolveGoogleAddress(structured, placeId);
+      const normalized = addressResolution.status === "verified" ? addressResolution.normalizedAddress : null;
+      verifiedAddress = addressResolution.formattedAddress || enteredAddress;
       addressPlaceId = placeId;
+      if (normalized?.line1) {
+        formData.set("addressLine1", normalized.line1);
+        formData.set("addressLine2", normalized.line2 ?? "");
+        formData.set("addressCity", normalized.city ?? structured.city);
+        formData.set("addressRegion", normalized.region ?? structured.region);
+        formData.set("addressPostalCode", normalized.postalCode ?? structured.postalCode ?? "");
+        formData.set("addressCountryCode", normalized.countryCode ?? structured.countryCode);
+      }
     } else verifiedAddress = enteredAddress;
   }
 
@@ -272,16 +292,13 @@ export async function submitPublicBooking(
         await releaseReservation();
         return fail("We couldn’t prepare the service location. Please try again.");
       }
-      const location = verifiedLocation ?? {
-        formattedAddress: verifiedAddress,
-        streetAddress: verifiedAddress,
-        unit: "",
-        city: "Not provided",
-        state: "N/A",
-        postalCode: "N/A",
-        country: "US",
-        latitude: null,
-        longitude: null,
+      const location = {
+        streetAddress: text(formData, "addressLine1") || verifiedAddress,
+        unit: text(formData, "addressLine2"),
+        city: text(formData, "addressCity") || "Not provided",
+        state: text(formData, "addressRegion") || "N/A",
+        postalCode: text(formData, "addressPostalCode") || "N/A",
+        country: text(formData, "addressCountryCode") || "US",
       };
       const { data: createdLocation, error: locationError } = await supabase.from("service_locations").insert({
         business_id: settings.business_id,
@@ -293,9 +310,6 @@ export async function submitPublicBooking(
         state: location.state,
         postal_code: location.postalCode,
         country: location.country,
-        google_place_id: addressPlaceId,
-        latitude: location.latitude,
-        longitude: location.longitude,
         is_primary: (count ?? 0) === 0,
         is_active: true,
       }).select("id").single();
@@ -308,6 +322,16 @@ export async function submitPublicBooking(
       }
       serviceLocationId = createdLocation.id;
       createdServiceLocationId = createdLocation.id;
+    }
+    if (serviceLocationId && process.env.GOOGLE_MAPS_API_KEY) {
+      await resolveServiceLocationAddress({
+        supabase,
+        businessId: settings.business_id,
+        serviceLocationId,
+        provider: new GoogleGeocodingProvider(),
+        providerPlaceId: addressPlaceId,
+        resolvedResult: addressResolution ?? undefined,
+      });
     }
   }
 

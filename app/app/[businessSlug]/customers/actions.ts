@@ -8,7 +8,12 @@ import {
   isValidCrmEmail,
   isValidCrmPhone,
 } from "@/lib/crmValidation";
-import { verifyGooglePlace } from "@/lib/googleAddress";
+import { GoogleGeocodingProvider } from "@/lib/geocoding/googleProvider";
+import {
+  clearManualServiceLocationCoordinates,
+  resolveServiceLocationAddress,
+  setManualServiceLocationCoordinates,
+} from "@/lib/geocoding/service";
 import { requireWorkspace } from "@/lib/workspace";
 
 export type CrmActionState = {
@@ -158,22 +163,19 @@ export async function archiveCustomer(slug: string, customerId: string) {
   redirect(`/app/${slug}/customers?success=Customer+archived`);
 }
 
-async function locationPayload(formData: FormData) {
+function locationPayload(formData: FormData) {
   const placeId = text(formData, "googlePlaceId");
-  const verified = placeId ? await verifyGooglePlace(placeId) : null;
-  if (process.env.GOOGLE_MAPS_API_KEY && !verified) return { error: "Select and verify an address from Google’s suggestions." };
+  if (process.env.GOOGLE_MAPS_API_KEY && !placeId) return { error: "Select an address from Google’s suggestions." };
   return {
+    providerPlaceId: placeId || null,
     data: {
       location_name: text(formData, "locationName") || "Service location",
-      street_address: verified?.streetAddress || text(formData, "streetAddress"),
-      unit: verified?.unit || text(formData, "unit") || null,
-      city: verified?.city || text(formData, "city"),
-      state: verified?.state || text(formData, "state"),
-      postal_code: verified?.postalCode || text(formData, "postalCode"),
-      country: verified?.country || text(formData, "country") || "US",
-      google_place_id: placeId || null,
-      latitude: verified?.latitude ?? null,
-      longitude: verified?.longitude ?? null,
+      street_address: text(formData, "streetAddress"),
+      unit: text(formData, "unit") || null,
+      city: text(formData, "city"),
+      state: text(formData, "state"),
+      postal_code: text(formData, "postalCode"),
+      country: text(formData, "country") || "US",
       access_instructions: text(formData, "accessInstructions") || null,
       gate_code: text(formData, "gateCode") || null,
       parking_notes: text(formData, "parkingNotes") || null,
@@ -197,7 +199,7 @@ export async function saveServiceLocation(
   if (!canManageCustomers(role)) return { error: "You do not have permission to manage locations.", values };
   const { data: customer } = await supabase.from("customers").select("id").eq("id", customerId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!customer) return { error: "Customer not found.", values };
-  const payload = await locationPayload(formData);
+  const payload = locationPayload(formData);
   const payloadError = "error" in payload ? payload.error : null;
   if (payloadError) return { error: payloadError, fieldErrors: { address: payloadError }, values };
   const locationData = "data" in payload ? payload.data : null;
@@ -208,16 +210,85 @@ export async function saveServiceLocation(
   if (locationData.is_primary) {
     await supabase.from("service_locations").update({ is_primary: false, updated_by: user.id }).eq("business_id", business.id).eq("customer_id", customerId).eq("is_primary", true);
   }
-  const query = locationId
-    ? supabase.from("service_locations").update({ ...locationData, updated_by: user.id }).eq("id", locationId).eq("business_id", business.id).eq("customer_id", customerId)
-    : supabase.from("service_locations").insert({ ...locationData, business_id: business.id, customer_id: customerId, created_by: user.id, updated_by: user.id });
-  const { error } = await query;
-  if (error) {
-    console.error("CRM location save failed", { code: error.code, businessId: business.id, customerId, locationId });
+  const saveResult = locationId
+    ? await supabase.from("service_locations").update({ ...locationData, updated_by: user.id }).eq("id", locationId).eq("business_id", business.id).eq("customer_id", customerId).select("id").maybeSingle()
+    : await supabase.from("service_locations").insert({ ...locationData, business_id: business.id, customer_id: customerId, created_by: user.id, updated_by: user.id }).select("id").single();
+  if (saveResult.error || !saveResult.data) {
+    console.error("CRM location save failed", { code: saveResult.error?.code, businessId: business.id, customerId, locationId });
     return { error: "The service location could not be saved.", values };
   }
+  let geocodingMessage = "Location saved";
+  if (process.env.GOOGLE_MAPS_API_KEY) {
+    const resolution = await resolveServiceLocationAddress({
+      supabase,
+      businessId: business.id,
+      serviceLocationId: saveResult.data.id,
+      provider: new GoogleGeocodingProvider(),
+      providerPlaceId: payload.providerPlaceId,
+    });
+    if (!resolution.ok) geocodingMessage = "Location saved; address needs verification";
+  }
   revalidatePath(`/app/${slug}/customers/${customerId}`);
-  redirect(`/app/${slug}/customers/${customerId}?success=Location+saved`);
+  redirect(`/app/${slug}/customers/${customerId}?success=${encodeURIComponent(geocodingMessage)}`);
+}
+
+export async function retryServiceLocationGeocoding(
+  slug: string,
+  customerId: string,
+  locationId: string,
+) {
+  const { supabase, business, role } = await requireWorkspace(slug);
+  if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
+  const result = await resolveServiceLocationAddress({
+    supabase,
+    businessId: business.id,
+    serviceLocationId: locationId,
+    provider: new GoogleGeocodingProvider(),
+    force: true,
+  });
+  revalidatePath(`/app/${slug}/customers/${customerId}`);
+  redirect(
+    `/app/${slug}/customers/${customerId}?${result.ok ? "success" : "error"}=${encodeURIComponent(result.message)}`,
+  );
+}
+
+export async function overrideServiceLocationCoordinates(
+  slug: string,
+  customerId: string,
+  locationId: string,
+  formData: FormData,
+) {
+  const { supabase, business, role } = await requireWorkspace(slug);
+  if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
+  const result = await setManualServiceLocationCoordinates({
+    supabase,
+    businessId: business.id,
+    serviceLocationId: locationId,
+    latitude: Number(text(formData, "latitude")),
+    longitude: Number(text(formData, "longitude")),
+  });
+  revalidatePath(`/app/${slug}/customers/${customerId}`);
+  redirect(
+    `/app/${slug}/customers/${customerId}?${result.ok ? "success" : "error"}=${encodeURIComponent(result.message)}`,
+  );
+}
+
+export async function clearServiceLocationCoordinateOverride(
+  slug: string,
+  customerId: string,
+  locationId: string,
+) {
+  const { supabase, business, role } = await requireWorkspace(slug);
+  if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
+  const result = await clearManualServiceLocationCoordinates({
+    supabase,
+    businessId: business.id,
+    serviceLocationId: locationId,
+  });
+  revalidatePath(`/app/${slug}/customers/${customerId}`);
+  redirect(
+    `/app/${slug}/customers/${customerId}?${result.ok ? "success" : "error"}=${encodeURIComponent(result.message)}`,
+  );
 }
 
 export async function archiveServiceLocation(slug: string, customerId: string, locationId: string) {

@@ -5,7 +5,12 @@ import { canManageCustomers } from "@/lib/access";
 import { formatBusinessDate, formatBusinessDateTime } from "@/lib/bookingTime";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../../WorkspaceNav";
-import { archiveCustomer, archiveServiceLocation, saveServiceLocation } from "../actions";
+import {
+  archiveCustomer,
+  archiveServiceLocation,
+  retryServiceLocationGeocoding,
+  saveServiceLocation,
+} from "../actions";
 
 export default async function CustomerDetail({
   params,
@@ -32,7 +37,7 @@ export default async function CustomerDetail({
     {q.error && <div className="workspace-notice error">{q.error}</div>}{q.success && <div className="workspace-notice success">{q.success}</div>}
     <div className="crm-detail-grid">
       <section className="workspace-panel crm-summary"><h2>Contact</h2><dl><div><dt>Email</dt><dd>{customer.email || "Not provided"}</dd></div><div><dt>Primary phone</dt><dd>{customer.phone || "Not provided"}</dd></div><div><dt>Secondary phone</dt><dd>{customer.secondary_phone || "Not provided"}</dd></div><div><dt>Preference</dt><dd>{customer.preferred_contact_method}</dd></div><div><dt>Lead source</dt><dd>{customer.lead_source || "Not recorded"}</dd></div><div><dt>Status</dt><dd>{customer.is_active ? "Active" : "Inactive"}</dd></div></dl>{customer.tags?.length > 0 && <div className="crm-tags">{customer.tags.map((tag: string) => <span key={tag}>{tag}</span>)}</div>}<h3>Notes</h3><p>{customer.notes || "No customer notes."}</p></section>
-      <section className="workspace-panel"><div className="panel-title"><h2>Service locations</h2><span>{locations?.length ?? 0}</span></div><div className="crm-location-list">{locations?.map((location) => <article key={location.id}><div><strong>{location.location_name}{location.is_primary ? " · Primary" : ""}</strong><span>{location.street_address}{location.unit ? `, ${location.unit}` : ""}<br/>{location.city}, {location.state} {location.postal_code}</span>{location.access_instructions && <p><b>Access:</b> {location.access_instructions}</p>}</div>{canEdit && <div className="inline-actions"><Link href={`/app/${businessSlug}/customers/${customerId}/locations/${location.id}/edit`}>Edit</Link><form action={archiveServiceLocation.bind(null, businessSlug, customerId, location.id)}><button className="text-button danger">Archive</button></form></div>}</article>)}</div></section>
+      <section className="workspace-panel"><div className="panel-title"><h2>Service locations</h2><span>{locations?.length ?? 0}</span></div><div className="crm-location-list">{locations?.map((location) => <article key={location.id}><div><strong>{location.location_name}{location.is_primary ? " · Primary" : ""}</strong><span>{location.street_address}{location.unit ? `, ${location.unit}` : ""}<br/>{location.city}, {location.state} {location.postal_code}</span><small>Routing address: {String(location.geocoding_status ?? "not requested").replaceAll("_", " ")}</small>{location.access_instructions && <p><b>Access:</b> {location.access_instructions}</p>}</div>{canEdit && <div className="inline-actions"><Link href={`/app/${businessSlug}/customers/${customerId}/locations/${location.id}/edit`}>Edit</Link>{!["verified","manual"].includes(String(location.geocoding_status)) && <form action={retryServiceLocationGeocoding.bind(null, businessSlug, customerId, location.id)}><button className="text-button">Retry verification</button></form>}<form action={archiveServiceLocation.bind(null, businessSlug, customerId, location.id)}><button className="text-button danger">Archive</button></form></div>}</article>)}</div></section>
     </div>
     {canEdit && <section className="workspace-panel"><h2>Add service location</h2><ServiceLocationForm action={saveServiceLocation.bind(null, businessSlug, customerId, null)} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY ? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY : undefined}/></section>}
     <div className="crm-detail-grid">
