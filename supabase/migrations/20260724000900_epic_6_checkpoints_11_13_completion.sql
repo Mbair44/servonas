@@ -44,7 +44,7 @@ begin
   returning next_value-1,prefix into v_value,v_prefix;
   v_number:=v_prefix||lpad(v_value::text,6,'0');
   insert into public.invoices(business_id,invoice_number,customer_id,service_location_id,job_id,status,title,currency,issue_date,source_key,created_by,updated_by)
-  values(v_job.business_id,v_number,v_job.customer_id,v_job.service_location_id,v_job.id,'draft',v_job.title,'USD',current_date,v_job.id,auth.uid(),auth.uid())
+  values(v_job.business_id,v_number,v_job.customer_id,v_job.service_location_id,v_job.id,'draft',v_job.title,'USD',(now() at time zone (select timezone from public.businesses where id=v_job.business_id))::date,v_job.id,auth.uid(),auth.uid())
   returning id into v_id;
   insert into public.invoice_events(business_id,invoice_id,event_type,actor_user_id,metadata)
   values(v_job.business_id,v_id,'created',auth.uid(),jsonb_build_object('source','technician'));
@@ -153,5 +153,25 @@ begin
 end $$;
 revoke all on function public.financial_dashboard_summary(uuid,date) from public;
 grant execute on function public.financial_dashboard_summary(uuid,date) to authenticated;
+
+create or replace function public.protect_non_draft_invoice_children() returns trigger
+language plpgsql set search_path=public as $$
+declare v_invoice_id uuid; v_business_id uuid; v_status text;
+begin
+  v_invoice_id:=coalesce(new.invoice_id,old.invoice_id);
+  v_business_id:=coalesce(new.business_id,old.business_id);
+  select status into v_status from public.invoices where id=v_invoice_id and business_id=v_business_id;
+  if v_status is distinct from 'draft' then
+    raise exception 'Only draft invoice details can be changed' using errcode='23514';
+  end if;
+  if tg_op='DELETE' then return old; end if;
+  return new;
+end $$;
+drop trigger if exists invoice_lines_draft_guard on public.invoice_line_items;
+create trigger invoice_lines_draft_guard before insert or update or delete on public.invoice_line_items
+for each row execute function public.protect_non_draft_invoice_children();
+drop trigger if exists invoice_fees_draft_guard on public.invoice_fees;
+create trigger invoice_fees_draft_guard before insert or update or delete on public.invoice_fees
+for each row execute function public.protect_non_draft_invoice_children();
 
 commit;
