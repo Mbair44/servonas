@@ -4,6 +4,7 @@ import { formatCents } from "@/lib/financial/priceBook";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { publicDocumentTokenHash, validPublicDocumentToken } from "@/lib/publicDocumentToken";
 import { dateInTimeZone } from "@/lib/bookingTime";
+import { EstimateEmailService } from "@/lib/communications/estimateEmailService";
 import { acceptEstimate,declineEstimate } from "./actions";
 
 export const dynamic="force-dynamic";
@@ -28,8 +29,14 @@ export default async function PublicEstimate({params,searchParams}:{params:Promi
   const expired=Boolean(estimate.public_token_revoked_at||(estimate.public_token_expires_at&&new Date(estimate.public_token_expires_at)<=new Date())||(estimate.expiration_date&&estimate.expiration_date<today)||estimate.status==="expired");
   const closed=expired||!["sent","viewed"].includes(estimate.status);
   if(estimate.status==="sent"&&!expired){
-    await supabase.from("estimates").update({status:"viewed",viewed_at:estimate.viewed_at||new Date().toISOString()}).eq("id",estimate.id).eq("status","sent");
-    await supabase.from("estimate_events").insert({business_id:estimate.business_id,estimate_id:estimate.id,event_type:"viewed"});
+    const {data:transition,error:transitionError}=await supabase.from("estimates")
+      .update({status:"viewed",viewed_at:estimate.viewed_at||new Date().toISOString()})
+      .eq("id",estimate.id).eq("status","sent").select("id").maybeSingle();
+    if(transitionError)console.error("Public estimate viewed transition failed",{code:transitionError.code,estimateId:estimate.id});
+    if(transition){
+      await supabase.from("estimate_events").insert({business_id:estimate.business_id,estimate_id:estimate.id,event_type:"viewed"});
+      await EstimateEmailService.viewed(estimate.id,token);
+    }
   }
   await supabase.from("estimate_events").insert({business_id:estimate.business_id,estimate_id:estimate.id,event_type:"public_link_accessed"});
   const {data:signedLogo}=settings?.logo_path?await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path,3600):{data:null};

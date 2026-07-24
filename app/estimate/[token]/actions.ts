@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { publicDocumentTokenHash, validPublicDocumentToken } from "@/lib/publicDocumentToken";
 import { dateInTimeZone } from "@/lib/bookingTime";
+import { EstimateEmailService } from "@/lib/communications/estimateEmailService";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -47,6 +48,7 @@ export async function acceptEstimate(token:string,formData:FormData){
     business_id:estimate.business_id,estimate_id:estimate.id,event_type:"accepted",
     customer_actor_name:name,customer_actor_email:email,metadata:message?{message}: {},
   });
+  await EstimateEmailService.accepted(estimate.id,token);
   redirect(result(token,"success","Estimate accepted. Thank you."));
 }
 
@@ -68,5 +70,6 @@ export async function declineEstimate(token:string,formData:FormData){
     business_id:estimate.business_id,estimate_id:estimate.id,event_type:"declined",
     customer_actor_name:name,customer_actor_email:email,metadata:{has_message:Boolean(reason)},
   });
+  await EstimateEmailService.declined(estimate.id,token);
   redirect(result(token,"success","Your response was saved."));
 }
