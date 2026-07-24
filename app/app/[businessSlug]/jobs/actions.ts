@@ -182,6 +182,60 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
   redirect(`/app/${slug}/jobs/${jobId}?success=Job+updated`);
 }
 
+export async function assignJobTechnician(slug: string, jobId: string, formData: FormData) {
+  const { supabase, business, role } = await requireWorkspace(slug);
+  if (!canManageCustomers(role)) {
+    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Your workspace role does not allow job assignment. Ask an owner or admin to grant manager access.")}`);
+  }
+  const technicianId = text(formData, "technicianId") || null;
+  const { data: job, error: jobError } = await supabase.from("jobs")
+    .select("id,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id")
+    .eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  if (jobError || !job) {
+    console.error("Job assignment lookup failed", { code: jobError?.code, businessId: business.id, jobId });
+    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The job could not be loaded for assignment.")}`);
+  }
+  if (technicianId) {
+    const technician = await ownedRecord(supabase, "technician_profiles", technicianId, business.id);
+    if (!technician) {
+      redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Choose an active technician who can be assigned jobs.")}`);
+    }
+    if (technician.technician_status === "off_duty") {
+      redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("That technician is currently off duty.")}`);
+    }
+  }
+  const conflict = await validateJobSchedule({
+    supabase,
+    businessId: business.id,
+    timeZone: business.timezone,
+    startsAt: job.starts_at ? new Date(job.starts_at) : null,
+    endsAt: job.ends_at ? new Date(job.ends_at) : null,
+    arrivalWindowStart: job.arrival_window_start ? new Date(job.arrival_window_start) : null,
+    arrivalWindowEnd: job.arrival_window_end ? new Date(job.arrival_window_end) : null,
+    technicianId,
+    excludeJobId: jobId,
+  });
+  if (conflict) {
+    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(conflict)}`);
+  }
+  const { error } = await supabase.rpc("set_job_primary_technician", {
+    p_job_id: jobId,
+    p_technician_id: technicianId,
+  });
+  if (error) {
+    console.error("Job technician assignment failed", { code: error.code, businessId: business.id, jobId });
+    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The technician assignment could not be saved.")}`);
+  }
+  if (technicianId && technicianId !== job.assigned_technician_id) {
+    await JobNotificationService.technicianAssigned(jobId);
+  }
+  revalidatePath(`/app/${slug}/jobs/${jobId}`);
+  revalidatePath(`/app/${slug}/jobs`);
+  revalidatePath(`/app/${slug}/schedule`);
+  revalidatePath(`/app/${slug}/dispatch`);
+  redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(technicianId ? "Technician assigned." : "Job moved to unassigned.")}`);
+}
+
 export async function changeJobStatus(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspace(slug);
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
