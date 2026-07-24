@@ -6,6 +6,96 @@ import { stripeConnectState } from "@/lib/stripeConnect";
 
 export const runtime = "nodejs";
 
+type AdminClient=NonNullable<ReturnType<typeof getSupabaseAdmin>>;
+
+async function payloadHash(rawBody:string){
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(rawBody));
+  return Buffer.from(digest).toString("hex");
+}
+
+function invoicePaymentReference(event:Stripe.Event){
+  const object=event.data.object;
+  if("metadata" in object&&object.metadata?.servonas_kind==="invoice_payment"){
+    return object.metadata.payment_id??("client_reference_id" in object?object.client_reference_id:null);
+  }
+  return null;
+}
+
+async function processInvoicePaymentEvent(
+  event:Stripe.Event,
+  rawBody:string,
+  stripe:Stripe,
+  supabase:AdminClient,
+){
+  const paymentId=invoicePaymentReference(event);
+  if(!paymentId)return null;
+  const accountId=typeof event.account==="string"?event.account:null;
+  if(!accountId){
+    console.error("Invoice payment webhook missing connected account",{eventId:event.id,eventType:event.type,paymentId});
+    return NextResponse.json({error:"Connected account is required."},{status:400});
+  }
+  const ledger=await supabase.from("payment_webhook_events").insert({
+    provider:"stripe",provider_event_id:event.id,provider_account_id:accountId,event_type:event.type,
+    processing_status:"processing",attempt_count:1,payload_hash:await payloadHash(rawBody),safe_metadata:{payment_id:paymentId},
+  }).select("id").single();
+  if(ledger.error?.code==="23505")return NextResponse.json({received:true,duplicate:true});
+  if(ledger.error||!ledger.data){
+    console.error("Invoice payment webhook ledger failed",{eventId:event.id,eventType:event.type,code:ledger.error?.code});
+    return NextResponse.json({error:"Webhook ledger unavailable."},{status:500});
+  }
+  const ledgerId=ledger.data.id;
+  try{
+    const {data:payment,error:lookupError}=await supabase.from("payments")
+      .select("id,business_id,invoice_id,provider_account_id,status")
+      .eq("id",paymentId).eq("provider","stripe").eq("provider_account_id",accountId).maybeSingle();
+    if(lookupError)throw new Error(`Payment lookup failed (${lookupError.code}).`);
+    if(!payment){
+      await supabase.from("payment_webhook_events").update({
+        processing_status:"ignored",processed_at:new Date().toISOString(),safe_metadata:{payment_id:paymentId,reason:"payment_not_found_for_account"},
+      }).eq("id",ledgerId);
+      console.warn("Invoice payment webhook ignored",{eventId:event.id,eventType:event.type,paymentId,accountId,reason:"payment_not_found_for_account"});
+      return NextResponse.json({received:true,ignored:true});
+    }
+    let status:"requires_action"|"processing"|"succeeded"|"failed"|"canceled";
+    let intent:Stripe.PaymentIntent|null=null;
+    if(event.type.startsWith("checkout.session.")){
+      const eventSession=event.data.object as Stripe.Checkout.Session;
+      const session=await stripe.checkout.sessions.retrieve(eventSession.id,{expand:["payment_intent.latest_charge"]},{stripeAccount:accountId});
+      intent=typeof session.payment_intent==="object"?session.payment_intent:null;
+      status=event.type==="checkout.session.expired"?"canceled":
+        event.type==="checkout.session.async_payment_failed"?"failed":
+        session.payment_status==="paid"?"succeeded":"processing";
+    }else{
+      const eventIntent=event.data.object as Stripe.PaymentIntent;
+      intent=await stripe.paymentIntents.retrieve(eventIntent.id,{expand:["latest_charge"]},{stripeAccount:accountId});
+      status=event.type==="payment_intent.succeeded"?"succeeded":
+        event.type==="payment_intent.payment_failed"?"failed":
+        event.type==="payment_intent.requires_action"?"requires_action":"processing";
+    }
+    const charge=intent&&typeof intent.latest_charge==="object"?intent.latest_charge as Stripe.Charge:null;
+    const paymentMethod=intent?.payment_method_types?.[0]??null;
+    const occurredAt=new Date(event.created*1000).toISOString();
+    const {error:reconcileError}=await supabase.rpc("reconcile_invoice_online_payment",{
+      p_business_id:payment.business_id,p_payment_id:payment.id,p_status:status,
+      p_payment_intent_id:intent?.id??null,p_charge_id:charge?.id??null,
+      p_payment_method_type:paymentMethod,p_receipt_url:charge?.receipt_url??null,
+      p_failure_code:intent?.last_payment_error?.code??null,p_failure_message:intent?.last_payment_error?.message??null,
+      p_occurred_at:occurredAt,
+    });
+    if(reconcileError)throw new Error(`Payment reconciliation failed (${reconcileError.code}).`);
+    await supabase.from("payment_webhook_events").update({
+      processing_status:"processed",processed_at:new Date().toISOString(),
+      safe_metadata:{payment_id:payment.id,business_id:payment.business_id,invoice_id:payment.invoice_id,status},
+    }).eq("id",ledgerId);
+    return NextResponse.json({received:true});
+  }catch(error){
+    const message=error instanceof Error?error.message:"Unknown invoice payment webhook error.";
+    await supabase.from("payment_webhook_events").update({processing_status:"failed",last_error:message.slice(0,1000)}).eq("id",ledgerId);
+    console.error("Invoice payment webhook processing failed",{eventId:event.id,eventType:event.type,paymentId,accountId,message});
+    return NextResponse.json({error:"Invoice payment processing failed."},{status:500});
+  }
+}
+
 export async function POST(request: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -33,12 +123,10 @@ export async function POST(request: Request) {
 
   if (event.type === "account.updated") {
     const account = event.data.object as Stripe.Account;
-    const payloadDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody));
-    const payloadHash = Buffer.from(payloadDigest).toString("hex");
     const eventInsert = await supabase.from("payment_webhook_events").insert({
       provider: "stripe", provider_event_id: event.id, provider_account_id: account.id,
       event_type: event.type, processing_status: "processing", attempt_count: 1,
-      payload_hash: payloadHash, safe_metadata: {},
+      payload_hash: await payloadHash(rawBody), safe_metadata: {},
     }).select("id").single();
     if (eventInsert.error?.code === "23505") {
       return NextResponse.json({ received: true, duplicate: true });
@@ -82,6 +170,14 @@ export async function POST(request: Request) {
       safe_metadata: { business_id: paymentAccount.business_id, onboarding_status: state.onboarding_status },
     }).eq("id", eventInsert.data.id);
     return NextResponse.json({ received: true });
+  }
+
+  if([
+    "checkout.session.completed","checkout.session.async_payment_succeeded","checkout.session.async_payment_failed","checkout.session.expired",
+    "payment_intent.processing","payment_intent.requires_action","payment_intent.payment_failed","payment_intent.succeeded",
+  ].includes(event.type)){
+    const response=await processInvoicePaymentEvent(event,rawBody,stripe,supabase);
+    if(response)return response;
   }
 
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
