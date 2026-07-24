@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import ServiceLocationForm from "@/components/ServiceLocationForm";
 import { canManageCustomers } from "@/lib/access";
+import { formatBusinessDate, formatBusinessDateTime } from "@/lib/bookingTime";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../../WorkspaceNav";
 import { archiveCustomer, archiveServiceLocation, saveServiceLocation } from "../actions";
@@ -35,8 +36,8 @@ export default async function CustomerDetail({
     </div>
     {canEdit && <section className="workspace-panel"><h2>Add service location</h2><ServiceLocationForm action={saveServiceLocation.bind(null, businessSlug, customerId, null)} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY ? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY : undefined}/></section>}
     <div className="crm-detail-grid">
-      <section className="workspace-panel"><div className="panel-title"><h2>Upcoming jobs</h2><Link href={`/app/${businessSlug}/jobs?customerId=${customerId}`}>Create job</Link></div>{upcoming.length ? <div className="crm-job-list">{upcoming.map((job) => <Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>#{job.job_number} · {job.title}</b><span>{new Date(job.starts_at).toLocaleString()} · {job.status.replaceAll("_", " ")}</span></Link>)}</div> : <p className="muted">No upcoming jobs.</p>}</section>
-      <section className="workspace-panel"><h2>Job history</h2>{history.length ? <div className="crm-job-list">{history.map((job) => <Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>#{job.job_number} · {job.title}</b><span>{job.starts_at ? new Date(job.starts_at).toLocaleDateString() : "Unscheduled"} · ${Number(job.total_amount).toFixed(2)}</span></Link>)}</div> : <p className="muted">No job history.</p>}</section>
+      <section className="workspace-panel"><div className="panel-title"><h2>Upcoming jobs</h2><Link href={`/app/${businessSlug}/jobs?customerId=${customerId}`}>Create job</Link></div>{upcoming.length ? <div className="crm-job-list">{upcoming.map((job) => <Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>#{job.job_number} · {job.title}</b><span>{formatBusinessDateTime(job.starts_at, business.timezone)} · {job.status.replaceAll("_", " ")}</span></Link>)}</div> : <p className="muted">No upcoming jobs.</p>}</section>
+      <section className="workspace-panel"><h2>Job history</h2>{history.length ? <div className="crm-job-list">{history.map((job) => <Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>#{job.job_number} · {job.title}</b><span>{job.starts_at ? formatBusinessDate(job.starts_at, business.timezone) : "Unscheduled"} · ${Number(job.total_amount).toFixed(2)}</span></Link>)}</div> : <p className="muted">No job history.</p>}</section>
     </div>
     <section className="workspace-panel crm-placeholders"><article><h3>Estimates</h3><p>Coming in a future billing checkpoint.</p></article><article><h3>Invoices</h3><p>Coming in a future billing checkpoint.</p></article><article><h3>Communications</h3><p>Provider integrations are not enabled yet.</p></article></section>
     {canEdit && <form action={archiveCustomer.bind(null, businessSlug, customerId)} className="crm-danger-zone"><button className="text-button danger">Archive customer</button></form>}

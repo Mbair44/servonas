@@ -56,7 +56,13 @@ export async function replaceAvailability(slug:string,formData:FormData){
  for(let d=0;d<7;d++){if(checked(formData,`day_${d}`)){const start=text(formData,`start_${d}`),end=text(formData,`end_${d}`);if(start&&end&&end>start)rows.push({business_id:business.id,weekday:d,start_time:start,end_time:end,active:true});}}
  await supabase.from("booking_availability").delete().eq("business_id",business.id);if(rows.length){const {error}=await supabase.from("booking_availability").insert(rows);if(error){console.error(error);redirect(`/app/${slug}/booking?error=We+couldn’t+save+availability`)}}refresh(slug);redirect(`/app/${slug}/booking?success=Availability+saved`);
 }
-export async function addBlackout(slug:string,formData:FormData){const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;const starts=text(formData,"startsAt"),ends=text(formData,"endsAt");if(!starts||!ends||new Date(ends)<=new Date(starts))redirect(`/app/${slug}/booking?error=Enter+a+valid+blocked+time+range`);await supabase.from("booking_blackouts").insert({business_id:business.id,starts_at:new Date(starts).toISOString(),ends_at:new Date(ends).toISOString(),reason:text(formData,"reason")||null,created_by:user.id});refresh(slug);redirect(`/app/${slug}/booking?success=Blocked+time+added`);}
+export async function addBlackout(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;
+ const starts=localDateTime(text(formData,"startsAt"),business.timezone),ends=localDateTime(text(formData,"endsAt"),business.timezone);
+ if(!starts||!ends||ends<=starts)redirect(`/app/${slug}/booking?error=Enter+a+valid+blocked+time+range`);
+ await supabase.from("booking_blackouts").insert({business_id:business.id,starts_at:starts.toISOString(),ends_at:ends.toISOString(),reason:text(formData,"reason")||null,created_by:user.id});
+ refresh(slug);redirect(`/app/${slug}/booking?success=Blocked+time+added`);
+}
 export async function deleteBlackout(slug:string,formData:FormData){const {supabase,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;await supabase.from("booking_blackouts").delete().eq("id",text(formData,"blackoutId")).eq("business_id",business.id);refresh(slug);}
 
 const localDateTime=(value:string,timeZone:string)=>{
