@@ -269,12 +269,37 @@ export async function sendEstimate(slug: string, estimateId: string) {
   const origin = (process.env.NEXT_PUBLIC_SITE_URL || (await headers()).get("origin") || "http://localhost:3000").replace(/\/$/, "");
   const publicLink = `${origin}/estimate/${publicToken}`;
   const delivery = await EstimateEmailService.send(estimateId, publicToken);
-  const deliveryMessage = delivery.ok && "messageId" in delivery
-    ? "Estimate sent and delivery recorded"
-    : delivery.ok && "stubbed" in delivery
-      ? "Estimate sent; email delivery is not configured"
-      : "Estimate sent; email delivery failed";
-  redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent(deliveryMessage)}&publicLink=${encodeURIComponent(publicLink)}`);
+  if(!delivery.ok||"stubbed" in delivery){
+    const detail="adminDetail" in delivery?delivery.adminDetail:"No provider diagnostic was returned.";
+    redirect(`/app/${slug}/estimates/${estimateId}?error=${encodeURIComponent(`Estimate sent, but email was not delivered. ${detail}`)}&publicLink=${encodeURIComponent(publicLink)}`);
+  }
+  redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent("Estimate sent and delivery recorded")}&publicLink=${encodeURIComponent(publicLink)}`);
+}
+
+export async function resendEstimateEmail(slug:string,estimateId:string){
+  const {supabase,business,role}=await requireWorkspace(slug);
+  if(!canManageCustomers(role))redirect(resultPath(slug,estimateId,"error","Permission denied"));
+  const {data:estimate}=await supabase.from("estimates").select("id,status")
+    .eq("id",estimateId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+  if(!estimate||!["sent","viewed"].includes(estimate.status))redirect(resultPath(slug,estimateId,"error","Only open sent estimates can be emailed"));
+  const publicToken=generatePublicDocumentToken();
+  const publicTokenHash=await publicDocumentTokenHash(publicToken);
+  const {error:tokenError}=await supabase.from("estimates").update({
+    public_token_hash:publicTokenHash,public_token_revoked_at:null,
+  }).eq("id",estimateId).eq("business_id",business.id);
+  if(tokenError){
+    console.error("Estimate resend token rotation failed",{code:tokenError.code,businessId:business.id,estimateId});
+    redirect(resultPath(slug,estimateId,"error","A new secure estimate link could not be created"));
+  }
+  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  const publicLink=`${origin}/estimate/${publicToken}`;
+  const delivery=await EstimateEmailService.send(estimateId,publicToken);
+  if(!delivery.ok||"stubbed" in delivery){
+    const detail="adminDetail" in delivery?delivery.adminDetail:"No provider diagnostic was returned.";
+    redirect(`/app/${slug}/estimates/${estimateId}?error=${encodeURIComponent(`Email was not delivered. ${detail}`)}&publicLink=${encodeURIComponent(publicLink)}`);
+  }
+  if("duplicate" in delivery)redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent("This estimate version was already delivered")}&publicLink=${encodeURIComponent(publicLink)}`);
+  redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent("Estimate email sent")}&publicLink=${encodeURIComponent(publicLink)}`);
 }
 
 export async function reviseEstimate(slug: string, estimateId: string) {
@@ -358,9 +383,9 @@ export async function convertEstimateToInvoice(slug: string, estimateId: string)
   const { supabase, user, business, role } = await requireWorkspace(slug);
   if (!canManageCustomers(role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const snapshot = await estimateSnapshot(supabase, business.id, estimateId);
-  if (!snapshot.estimate || !["accepted", "converted", "sent", "viewed"].includes(snapshot.estimate.status)) redirect(resultPath(slug, estimateId, "error", "This estimate cannot be invoiced"));
+  if (!snapshot.estimate || !["accepted", "converted"].includes(snapshot.estimate.status)) redirect(resultPath(slug, estimateId, "error", "Only accepted estimates can be invoiced"));
   const { data: existing } = await supabase.from("invoices").select("id").eq("business_id", business.id).eq("source_key", estimateId).maybeSingle();
-  if (existing) redirect(resultPath(slug, estimateId, "success", "Invoice already created"));
+  if (existing) redirect(`/app/${slug}/invoices/${existing.id}?success=Invoice+already+exists+for+this+estimate`);
   const { data: number } = await supabase.rpc("next_financial_document_number", { p_business_id: business.id, p_document_type: "invoice" });
   const estimate = snapshot.estimate;
   const { data: invoice, error } = await supabase.from("invoices").insert({
@@ -372,6 +397,8 @@ export async function convertEstimateToInvoice(slug: string, estimateId: string)
     tax_total_cents: estimate.tax_total_cents, fee_total_cents: estimate.fee_total_cents,
     grand_total_cents: estimate.grand_total_cents, deposit_type: estimate.deposit_type,
     deposit_value: estimate.deposit_value, deposit_required_cents: estimate.deposit_required_cents,
+    document_discount_type: estimate.document_discount_type,
+    document_discount_value: estimate.document_discount_value,
     balance_due_cents: estimate.grand_total_cents, created_by: user.id, updated_by: user.id,
   }).select("id").single();
   if (error || !invoice) redirect(resultPath(slug, estimateId, "error", "Invoice could not be created"));
@@ -385,6 +412,10 @@ export async function convertEstimateToInvoice(slug: string, estimateId: string)
     line_subtotal_cents: line.line_subtotal_cents, tax_amount_cents: line.tax_amount_cents,
     line_total_cents: line.line_total_cents, sort_order: line.sort_order,
   })));
+  if(snapshot.fees.length)await supabase.from("invoice_fees").insert(snapshot.fees.map((fee)=>({
+    business_id:business.id,invoice_id:invoice.id,name_snapshot:fee.name_snapshot,
+    amount_cents:fee.amount_cents,sort_order:fee.sort_order,
+  })));
   await supabase.from("invoice_events").insert({ business_id: business.id, invoice_id: invoice.id, event_type: "created", actor_user_id: user.id, metadata: { estimate_id: estimate.id } });
-  redirect(resultPath(slug, estimateId, "success", `Invoice ${number} created`));
+  redirect(`/app/${slug}/invoices/${invoice.id}?success=${encodeURIComponent(`Invoice ${number} created from estimate`)}`);
 }

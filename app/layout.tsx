@@ -1,6 +1,7 @@
 import "./globals.css";
 import "./public-estimate.css";
 import Link from "next/link";
+import Script from "next/script";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
@@ -10,6 +11,16 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return <html lang="en"><body>
+    <Script
+      src="https://www.googletagmanager.com/gtag/js?id=AW-18340749438"
+      strategy="afterInteractive"
+    />
+    <Script id="google-ads-tag" strategy="afterInteractive">
+      {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'AW-18340749438');`}
+    </Script>
     <header className="sv-header"><div className="sv-container sv-nav">
       <Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
       <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link href="/login">Log in</Link><Link className="sv-button sv-small" href="/signup">Start Free</Link></nav>
