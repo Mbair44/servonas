@@ -36,6 +36,8 @@ type RouteJob = {
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const signature = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const databaseFailure = (stage: string, error: { code?: string; message?: string; details?: string; hint?: string } | null) =>
+  `${stage} (${error?.code ?? "missing"}): ${[error?.message, error?.details, error?.hint].filter(Boolean).join(" ")}`;
 
 function providerFromEnvironment(): RoutingProvider {
   const provider = process.env.ROUTING_PROVIDER?.trim().toLowerCase() || "google";
@@ -73,7 +75,7 @@ export async function calculateDailyRoutes({
     .not("status", "in", '("canceled","declined")')
     .gte("starts_at", start.toISOString()).lt("starts_at", end.toISOString())
     .order("starts_at");
-  if (jobsError) throw new Error(`Scheduled route jobs could not be loaded (${jobsError.code}).`);
+  if (jobsError) throw new Error(databaseFailure("Scheduled route jobs could not be loaded", jobsError));
   const jobs = (rows ?? []) as unknown as RouteJob[];
   const { data: plan, error: planError } = await admin.from("route_plans").upsert({
     business_id: businessId,
@@ -82,10 +84,9 @@ export async function calculateDailyRoutes({
     calculation_status: "calculating",
     provider: provider.name,
     updated_by: actorUserId,
-  }, { onConflict: "business_id,service_date" }).select("id,calculation_revision,travel_mode").single();
-  if (planError || !plan) throw new Error(`Route plan could not be prepared (${planError?.code ?? "missing"}).`);
+  }, { onConflict: "business_id,service_date" }).select("id,travel_mode").single();
+  if (planError || !plan) throw new Error(databaseFailure("Route plan could not be prepared", planError));
   await admin.from("route_plans").update({
-    calculation_revision: Number(plan.calculation_revision) + 1,
     calculation_status: "calculating",
     error_code: null,
   }).eq("id", plan.id).eq("business_id", businessId);
