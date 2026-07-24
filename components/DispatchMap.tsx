@@ -18,6 +18,10 @@ export type DispatchMapJob = {
   technicianName: string | null;
   technicianColor: string | null;
   sequence: number | null;
+  estimatedArrivalLabel: string | null;
+  drivingDistanceMeters: number | null;
+  drivingDurationSeconds: number | null;
+  isLocked: boolean;
   href: string;
   hasConflict: boolean;
 };
@@ -25,15 +29,22 @@ export type DispatchMapJob = {
 export type DispatchMapRoute = {
   technicianId: string;
   technicianName: string;
+  technicianStatus: string;
   color: string;
   encodedPolyline: string | null;
   stopCount: number;
   calculationStatus: string;
+  originLabel: string;
+  destinationLabel: string;
+  drivingDistanceMeters: number | null;
+  drivingDurationSeconds: number | null;
 };
 
 type MapsObject = {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => {
     fitBounds: (bounds: unknown, padding?: number) => void;
+    setCenter: (center: { lat: number; lng: number }) => void;
+    setZoom: (zoom: number) => void;
   };
   Marker: new (options: Record<string, unknown>) => {
     addListener: (event: string, callback: () => void) => void;
@@ -99,6 +110,14 @@ function escapeHtml(value: string): string {
   })[character] ?? character);
 }
 
+function distanceLabel(meters: number | null): string {
+  return meters === null ? "Route pending" : `${(meters / 1609.344).toFixed(1)} driving miles`;
+}
+
+function durationLabel(seconds: number | null): string {
+  return seconds === null ? "Drive time pending" : `${Math.max(1, Math.round(seconds / 60))}-minute drive`;
+}
+
 export default function DispatchMap({
   apiKey,
   jobs,
@@ -110,6 +129,8 @@ export default function DispatchMap({
 }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<InstanceType<MapsObject["Map"]> | null>(null);
+  const markerByJob = useRef(new Map<string, InstanceType<MapsObject["Marker"]>>());
+  const infoWindow = useRef<InstanceType<MapsObject["InfoWindow"]> | null>(null);
   const fitVisible = useRef<(() => void) | null>(null);
   const [mapError, setMapError] = useState("");
   const [loading, setLoading] = useState(Boolean(apiKey));
@@ -123,6 +144,9 @@ export default function DispatchMap({
   const [showLines, setShowLines] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [fullScreen, setFullScreen] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [mapRevision, setMapRevision] = useState(0);
+  const [expandedRoutes, setExpandedRoutes] = useState<Set<string>>(() => new Set());
 
   const technicians = useMemo(
     () =>
@@ -158,6 +182,7 @@ export default function DispatchMap({
       return;
     }
     let cancelled = false;
+    const markerIndex = markerByJob.current;
     const markers: Array<InstanceType<MapsObject["Marker"]>> = [];
     const polylines: Array<InstanceType<MapsObject["Polyline"]>> = [];
     loadGoogleMaps(apiKey)
@@ -174,6 +199,8 @@ export default function DispatchMap({
         mapInstance.current = map;
         const bounds = new maps.LatLngBounds();
         const info = new maps.InfoWindow();
+        infoWindow.current = info;
+        markerIndex.clear();
         for (const route of visibleRoutes) {
           if (!showLines || !route.encodedPolyline || !maps.geometry?.encoding) continue;
           const path = maps.geometry.encoding.decodePath(route.encodedPolyline);
@@ -213,15 +240,16 @@ export default function DispatchMap({
             },
           });
           marker.addListener("click", () => {
-            info.setContent(`<div class="dispatch-map-info"><strong>${escapeHtml(job.sequence ? `Stop ${job.sequence} · ${job.title}` : job.title)}</strong><span>${escapeHtml(job.customerName)}</span><span>${escapeHtml(job.address ?? "Address unavailable")}</span><span>${escapeHtml(job.scheduledLabel)} · ${escapeHtml(job.status.replaceAll("_", " "))}</span>${job.arrivalWindow ? `<span>Arrival window: ${escapeHtml(job.arrivalWindow)}</span>` : ""}<a href="${escapeHtml(job.href)}">Open job</a></div>`);
-            info.open({ map, anchor: marker });
+            setSelectedJobId(job.id);
           });
+          markerIndex.set(job.id, marker);
           markers.push(marker);
         }
         fitVisible.current = () => {
           if (!bounds.isEmpty()) map.fitBounds(bounds, 48);
         };
         fitVisible.current();
+        setMapRevision((value) => value + 1);
         setMapError("");
       })
       .catch((error) => setMapError(error instanceof Error ? error.message : "The map could not load."))
@@ -230,9 +258,24 @@ export default function DispatchMap({
       cancelled = true;
       markers.forEach((marker) => marker.setMap(null));
       polylines.forEach((polyline) => polyline.setMap(null));
+      markerIndex.clear();
+      infoWindow.current = null;
       fitVisible.current = null;
     };
   }, [apiKey, showLabels, showLines, technician, visibleJobs, visibleRoutes]);
+
+  useEffect(() => {
+    if (!selectedJobId) return;
+    const job = jobs.find((candidate) => candidate.id === selectedJobId);
+    const marker = markerByJob.current.get(selectedJobId);
+    const map = mapInstance.current;
+    const info = infoWindow.current;
+    if (!job || !marker || !map || !info || job.latitude === null || job.longitude === null) return;
+    map.setCenter({ lat: job.latitude, lng: job.longitude });
+    map.setZoom(14);
+    info.setContent(`<div class="dispatch-map-info"><strong>${escapeHtml(job.sequence ? `Stop ${job.sequence} · ${job.title}` : job.title)}</strong><span>${escapeHtml(job.customerName)}</span><span>${escapeHtml(job.address ?? "Address unavailable")}</span><span>${escapeHtml(job.scheduledLabel)} · ${escapeHtml(job.status.replaceAll("_", " "))}</span>${job.arrivalWindow ? `<span>Arrival window: ${escapeHtml(job.arrivalWindow)}</span>` : ""}${job.estimatedArrivalLabel ? `<span>Estimated arrival: ${escapeHtml(job.estimatedArrivalLabel)}</span>` : ""}${job.drivingDistanceMeters !== null ? `<span>${escapeHtml(distanceLabel(job.drivingDistanceMeters))} · ${escapeHtml(durationLabel(job.drivingDurationSeconds))}</span>` : ""}<a href="${escapeHtml(job.href)}">Open job</a></div>`);
+    info.open({ map, anchor: marker });
+  }, [jobs, mapRevision, selectedJobId]);
 
   const mappedCount = visibleJobs.filter((job) => job.latitude !== null && job.longitude !== null).length;
   const missingJobs = visibleJobs.filter((job) => job.latitude === null || job.longitude === null);
@@ -261,7 +304,43 @@ export default function DispatchMap({
       <div className="dispatch-map-layout">
         <aside className="dispatch-map-legend" aria-label="Technician routes">
           <button type="button" className={technician === "all" ? "selected" : ""} onClick={() => setTechnician("all")}><span className="dispatch-route-symbol all">A</span><span><strong>All routes</strong><small>{jobs.length} scheduled jobs</small></span></button>
-          {routes.map((route) => <button type="button" key={route.technicianId} className={technician === route.technicianId ? "selected" : ""} onClick={() => setTechnician(route.technicianId)}><span className="dispatch-route-symbol" style={{ background: route.color }}>{route.technicianName.slice(0, 1)}</span><span><strong>{route.technicianName}</strong><small>{route.stopCount} stops · {route.calculationStatus.replaceAll("_", " ")}</small></span></button>)}
+          <div className="dispatch-route-panels">
+            {routes.map((route) => {
+              const routeJobs = jobs.filter((job) => job.technicianId === route.technicianId).sort((left,right) => (left.sequence ?? 999)-(right.sequence ?? 999));
+              const expanded = expandedRoutes.has(route.technicianId);
+              const warningCount = routeJobs.filter((job) => job.hasConflict || job.latitude === null).length + (["partial","failed","stale"].includes(route.calculationStatus) ? 1 : 0);
+              return <section key={route.technicianId} className={`dispatch-route-panel ${technician === route.technicianId ? "selected" : ""}`}>
+                <button type="button" className="dispatch-route-summary" aria-expanded={expanded} onClick={() => {
+                  setTechnician(route.technicianId);
+                  setExpandedRoutes((current) => {
+                    const next = new Set(current);
+                    if (next.has(route.technicianId)) next.delete(route.technicianId); else next.add(route.technicianId);
+                    return next;
+                  });
+                }}>
+                  <span className="dispatch-route-symbol" style={{ background: route.color }}>{route.technicianName.slice(0,1)}</span>
+                  <span><strong>{route.technicianName}</strong><small>{route.technicianStatus.replaceAll("_", " ")} · {route.stopCount} stops</small><small>{distanceLabel(route.drivingDistanceMeters)}</small></span>
+                  <span className="dispatch-route-expand">{warningCount > 0 && <b title={`${warningCount} route warnings`}>{warningCount}</b>}{expanded ? "−" : "+"}</span>
+                </button>
+                {expanded && <div className="dispatch-route-details">
+                  <div className="dispatch-route-total"><span>{distanceLabel(route.drivingDistanceMeters)}</span><span>{durationLabel(route.drivingDurationSeconds)}</span></div>
+                  <div className="dispatch-route-window"><span>First: {routeJobs[0]?.scheduledLabel ?? "No stops"}</span><span>Last: {routeJobs.at(-1)?.scheduledLabel ?? "No stops"}</span></div>
+                  <div className="dispatch-route-endpoint"><b>Start</b><span>{route.originLabel}</span></div>
+                  <ol>
+                    {routeJobs.map((job) => <li key={job.id} className={selectedJobId === job.id ? "selected" : ""}>
+                      <button type="button" onClick={() => setSelectedJobId(job.id)} disabled={job.latitude === null} aria-label={`Focus stop ${job.sequence}, ${job.title}, on map`}>
+                        <span className="dispatch-stop-number">{job.sequence}</span>
+                        <span className="dispatch-stop-copy"><strong>{job.scheduledLabel} · {job.title}</strong><small>{job.customerName}</small><small>{job.address || "No service address"}</small><small>{job.drivingDistanceMeters === null ? "Drive calculation pending" : `${distanceLabel(job.drivingDistanceMeters)} · ${durationLabel(job.drivingDurationSeconds)}`}</small>{job.estimatedArrivalLabel && <small>ETA {job.estimatedArrivalLabel}</small>}</span>
+                        <span className="dispatch-stop-icons">{job.isLocked && <b title="Stop position locked">L</b>}{job.hasConflict && <b className="warning" title="Schedule conflict">!</b>}{job.latitude === null && <b className="warning" title="Address cannot be mapped">?</b>}</span>
+                      </button>
+                      <a href={job.href}>Open job</a>
+                    </li>)}
+                  </ol>
+                  <div className="dispatch-route-endpoint"><b>End</b><span>{route.destinationLabel}</span></div>
+                </div>}
+              </section>;
+            })}
+          </div>
           <div className="dispatch-map-toggles">
             <label><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)}/> Completed stops</label>
             <label><input type="checkbox" checked={showUnassigned} onChange={(event) => setShowUnassigned(event.target.checked)}/> Unassigned jobs</label>

@@ -68,15 +68,30 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     console.error("Dispatch route plan query failed", { code: routePlanError.code, businessId: business.id });
   }
   const { data: persistedRoutes, error: persistedRouteError } = routePlan
-    ? await supabase.from("technician_routes").select("technician_id,encoded_polyline,stop_count,calculation_status").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
+    ? await supabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
     : { data: null, error: null };
   if (persistedRouteError) {
     console.error("Dispatch technician routes query failed", { code: persistedRouteError.code, businessId: business.id });
+  }
+  const routeIds = (persistedRoutes ?? []).map((route) => route.id);
+  const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
+    ? await Promise.all([
+      supabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
+      supabase.from("route_legs").select("to_route_stop_id,driving_distance_meters,driving_duration_seconds,calculation_status").eq("business_id", business.id).in("technician_route_id", routeIds),
+    ])
+    : [{ data: null, error: null }, { data: null, error: null }];
+  if (persistedStopError) {
+    console.error("Dispatch route stops query failed", { code: persistedStopError.code, businessId: business.id });
+  }
+  if (persistedLegError) {
+    console.error("Dispatch route legs query failed", { code: persistedLegError.code, businessId: business.id });
   }
   const conflicts = conflictingDispatchJobIds(jobs);
   const unassigned = jobs.filter((job) => !job.assigned_technician_id);
   const canEdit = canManageCustomers(role);
   const routeByTechnician = new Map((persistedRoutes ?? []).map((route) => [route.technician_id, route]));
+  const stopByJob = new Map((persistedStops ?? []).map((stop) => [stop.job_id, stop]));
+  const legByStop = new Map((persistedLegs ?? []).filter((leg) => leg.to_route_stop_id).map((leg) => [leg.to_route_stop_id!, leg]));
   const mapRoutes: DispatchMapRoute[] = technicians
     .filter((technician) => jobs.some((job) => job.assigned_technician_id === technician.id))
     .map((technician) => {
@@ -84,10 +99,15 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       return {
         technicianId: technician.id,
         technicianName: technician.display_name,
+        technicianStatus: technician.technician_status,
         color: technician.schedule_color,
         encodedPolyline: persisted?.encoded_polyline ?? null,
         stopCount: persisted?.stop_count ?? jobs.filter((job) => job.assigned_technician_id === technician.id).length,
         calculationStatus: persisted?.calculation_status ?? routePlan?.calculation_status ?? "not_calculated",
+        originLabel: persisted?.origin_is_private ? "Private technician start" : persisted?.origin_label || "Start location not configured",
+        destinationLabel: persisted?.destination_is_private ? "Private technician end" : persisted?.destination_label || "End location not configured",
+        drivingDistanceMeters: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_distance_meters : null,
+        drivingDurationSeconds: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_duration_seconds : null,
       };
     });
   const sequenceByJob = scheduledStopSequence(
@@ -106,6 +126,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       latitude: location?.latitude,
       longitude: location?.longitude,
     });
+    const persistedStop = stopByJob.get(job.id);
+    const persistedLeg = persistedStop ? legByStop.get(persistedStop.id) : null;
     return {
       id: job.id,
       jobNumber: job.job_number,
@@ -121,7 +143,11 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       technicianId: technician?.id ?? null,
       technicianName: technician?.display_name ?? null,
       technicianColor: technician?.schedule_color ?? null,
-      sequence: sequenceByJob.get(job.id) ?? null,
+      sequence: persistedStop?.sequence ?? sequenceByJob.get(job.id) ?? null,
+      estimatedArrivalLabel: persistedStop?.planned_arrival_at ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: business.timezone }).format(new Date(persistedStop.planned_arrival_at)) : null,
+      drivingDistanceMeters: persistedLeg?.calculation_status === "ready" ? persistedLeg.driving_distance_meters : null,
+      drivingDurationSeconds: persistedLeg?.calculation_status === "ready" ? persistedLeg.driving_duration_seconds : null,
+      isLocked: persistedStop?.is_locked ?? false,
       href: `/app/${businessSlug}/jobs/${job.id}`,
       hasConflict: conflicts.has(job.id),
     };
