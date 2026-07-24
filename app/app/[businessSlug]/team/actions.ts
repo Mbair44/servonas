@@ -52,15 +52,42 @@ async function existingUserId(email: string) {
 }
 
 async function deliverExistingUserInvitation({
-  email, businessName, invitationLink, businessId, invitationId,
+  email, businessName, invitationLink, redirectTo, businessId, invitationId,
 }: {
-  email: string; businessName: string; invitationLink: string; businessId: string; invitationId: string;
+  email: string; businessName: string; invitationLink: string; redirectTo: string;
+  businessId: string; invitationId: string;
 }): Promise<InvitationDeliveryResult> {
-  if (process.env.EMAIL_DELIVERY_MODE !== "live" || !process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+  const admin = getSupabaseAdmin();
+  if (!admin) {
     console.warn("Existing-user invitation email not attempted", {
-      reason: "transactional_email_not_configured", businessId, invitationId,
+      reason: "supabase_admin_not_configured", businessId, invitationId,
     });
     return { outcome: "not_configured" };
+  }
+
+  const { error: otpError } = await admin.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: redirectTo,
+      shouldCreateUser: false,
+      data: { business_name: businessName },
+    },
+  });
+  if (!otpError) {
+    console.info("Existing-user invitation sign-in email accepted", {
+      provider: "supabase_auth", businessId, invitationId, redirectTo,
+    });
+    return { outcome: "sent" };
+  }
+  const otpDetails = supabaseInvitationErrorDetails(otpError);
+  console.error("Existing-user Supabase invitation email failed", {
+    provider: "supabase_auth", businessId, invitationId,
+    message: otpDetails.message, status: otpDetails.status, code: otpDetails.code,
+    name: otpDetails.name, jsonString: otpDetails.jsonString, redirectTo,
+  });
+
+  if (process.env.EMAIL_DELIVERY_MODE !== "live" || !process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    return { outcome: "failed" };
   }
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -118,7 +145,7 @@ async function deliverInvitation({
   businessId: string; invitationId: string; userAlreadyExists: boolean;
 }): Promise<InvitationDeliveryResult> {
   if (userAlreadyExists) {
-    return deliverExistingUserInvitation({ email, businessName, invitationLink, businessId, invitationId });
+    return deliverExistingUserInvitation({ email, businessName, invitationLink, redirectTo, businessId, invitationId });
   }
   const admin = getSupabaseAdmin();
   if (!admin) {
@@ -159,7 +186,7 @@ async function deliverInvitation({
           businessId, invitationId,
         });
         return deliverExistingUserInvitation({
-          email, businessName, invitationLink, businessId, invitationId,
+          email, businessName, invitationLink, redirectTo, businessId, invitationId,
         });
       }
       return { outcome, errorMessage: details.message };

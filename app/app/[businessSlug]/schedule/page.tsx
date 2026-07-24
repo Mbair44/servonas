@@ -54,7 +54,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
   const rangeEndDate = addDays(days.at(-1) ?? selectedDate, 1);
   const rangeStart = zonedDateTimeToUtc(days[0], "00:00", business.timezone).toISOString();
   const rangeEnd = zonedDateTimeToUtc(rangeEndDate, "00:00", business.timezone).toISOString();
-  let jobsQuery = supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers(first_name,last_name,company_name),service_locations(city,state),services(name),technician_profiles(display_name,schedule_color)")
+  let jobsQuery = supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(city,state),services!jobs_service_tenant_fk(name),technician_profiles!jobs_technician_tenant_fk(display_name,schedule_color)")
     .eq("business_id", business.id).eq("is_deleted", false).gte("starts_at", rangeStart).lt("starts_at", rangeEnd).neq("status", "canceled");
   if (query.status && query.status !== "all") jobsQuery = jobsQuery.eq("status", query.status);
   if (query.technician === "unassigned") jobsQuery = jobsQuery.is("assigned_technician_id", null);
@@ -63,7 +63,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
     jobsQuery.order("starts_at"),
     supabase.from("technician_profiles").select("id,display_name,schedule_color").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("display_name"),
     supabase.from("booking_availability").select("start_time,end_time").eq("business_id", business.id).eq("active", true),
-    supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers(first_name,last_name,company_name),service_locations(city,state),services(name),technician_profiles(display_name,schedule_color)")
+    supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(city,state),services!jobs_service_tenant_fk(name),technician_profiles!jobs_technician_tenant_fk(display_name,schedule_color)")
       .eq("business_id", business.id).eq("is_deleted", false).is("assigned_technician_id", null).not("status", "in", '("completed","canceled","declined")').order("starts_at", { ascending: true, nullsFirst: true }).limit(30),
   ]);
   if (error) {

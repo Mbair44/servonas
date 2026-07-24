@@ -22,7 +22,7 @@ export default async function TechnicianHome({ searchParams }: { searchParams: P
   const { data: profiles } = await supabase.from("technician_profiles").select("id,business_id,display_name,technician_status,businesses(name,timezone)").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
   if (!profiles?.length) return <main className="tech-shell"><section className="tech-empty"><h1>No technician profile</h1><p>Your administrator must create and activate your technician profile before jobs can be assigned.</p><form action={signOut}><button className="sv-button">Log out</button></form></section></main>;
   const ids = profiles.map((profile) => profile.id);
-  const { data: rows, error } = await supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,arrival_window_start,arrival_window_end,service_address,business_id,customers(first_name,last_name,company_name),services(name),service_locations(city,state)")
+  const { data: rows, error } = await supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,arrival_window_start,arrival_window_end,service_address,business_id,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),services!jobs_service_tenant_fk(name),service_locations!jobs_service_location_tenant_fk(city,state)")
     .in("assigned_technician_id", ids).eq("is_deleted", false).not("status", "in", '("completed","canceled","declined")').order("starts_at", { ascending: true, nullsFirst: false });
   if (error) {
     console.error("Technician home query failed", { code: error.code, userId: user.id });

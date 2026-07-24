@@ -9,7 +9,7 @@ export default async function Jobs({ params, searchParams }: { params: Promise<{
   const { businessSlug } = await params;
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
-  let jobsQuery = supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,total_amount,customers(first_name,last_name,company_name),service_locations(location_name,city,state),services(name),technician_profiles(display_name)")
+  let jobsQuery = supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,total_amount,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(location_name,city,state),services!jobs_service_tenant_fk(name),technician_profiles!jobs_technician_tenant_fk(display_name)")
     .eq("business_id", business.id).eq("is_deleted", false);
   if (query.status && query.status !== "all") jobsQuery = jobsQuery.eq("status", query.status);
   if (query.priority && query.priority !== "all") jobsQuery = jobsQuery.eq("priority", query.priority);
