@@ -29,6 +29,25 @@ export async function requireWorkspace(slug: string) {
         businessId: business.id,
         membershipRole: ownerMembership?.role ?? null,
       });
+      const admin = getSupabaseAdmin();
+      if (!admin) throw new Error("Business owner membership repair is unavailable.");
+      const { error: repairError } = await admin.from("business_members").upsert({
+        business_id: business.id,
+        user_id: user.id,
+        role: "owner",
+      }, { onConflict: "business_id,user_id" });
+      if (repairError) {
+        console.error("Business owner membership repair failed", {
+          code: repairError.code,
+          actorUserId: user.id,
+          businessId: business.id,
+        });
+        throw new Error("Business owner permissions could not be repaired.");
+      }
+      console.info("Business owner membership role repaired", {
+        actorUserId: user.id,
+        businessId: business.id,
+      });
     }
     return { supabase, user, business, role: "owner", isPlatformAdmin: false };
   }
