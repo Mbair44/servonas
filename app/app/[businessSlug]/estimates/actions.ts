@@ -8,6 +8,7 @@ import { calculateFinancialDocument, type Discount } from "@/lib/financial/calcu
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { requireWorkspace } from "@/lib/workspace";
 import { generatePublicDocumentToken, publicDocumentTokenHash } from "@/lib/publicDocumentToken";
+import { EstimateEmailService } from "@/lib/communications/estimateEmailService";
 
 export type EstimateActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
 export type EstimateLineDraft = {
@@ -23,6 +24,34 @@ const valuesFrom = (data: FormData) => Object.fromEntries([...data.entries()].fi
 const safeJson = <T,>(value: string, fallback: T): T => { try { return JSON.parse(value) as T; } catch { return fallback; } };
 const resultPath = (slug: string, id: string, kind: "success" | "error", message: string) =>
   `/app/${slug}/estimates/${id}?${kind}=${encodeURIComponent(message)}`;
+type DatabaseWriteError = { code?: string; message?: string; details?: string; hint?: string };
+
+function estimateWriteFailure(error: DatabaseWriteError | null, operation: "create" | "update"): EstimateActionState {
+  console.error(`Estimate ${operation} failed`, {
+    code: error?.code,
+    message: error?.message,
+    details: error?.details,
+    hint: error?.hint,
+  });
+  if (error?.code === "23503") return {
+    error: "The selected customer, location, or job is no longer available. Refresh the page and choose it again.",
+    fieldErrors: { customerId: "Review the selected customer and service location." },
+  };
+  if (error?.code === "23514") return {
+    error: "The estimate totals, discount, deposit, or dates do not meet the required rules. Review those fields and try again.",
+  };
+  if (error?.code === "42501") return {
+    error: "You no longer have permission to save estimates for this business.",
+  };
+  if (["PGRST204", "42703", "42P01"].includes(error?.code ?? "")) return {
+    error: "Estimate setup is incomplete. An administrator needs to apply the latest Epic 6 database migrations.",
+  };
+  return {
+    error: operation === "create"
+      ? "The estimate could not be created. Your entries are still here; please try again."
+      : "The estimate could not be saved. Your entries are still here; please try again.",
+  };
+}
 
 function discount(type: string, raw: string): Discount | null {
   if (type === "none") return { type: "none", value: 0 };
@@ -150,12 +179,33 @@ export async function createEstimate(slug: string, _state: EstimateActionState, 
   const prepared = await prepareEstimate(formData, context);
   if (!prepared.payload || !prepared.lines || !prepared.fees || !prepared.totals) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
   const { data: number, error: numberError } = await context.supabase.rpc("next_financial_document_number", { p_business_id: context.business.id, p_document_type: "estimate" });
-  if (numberError || !number) return { error: "Estimate numbering is unavailable.", values };
+  if (numberError || !number) {
+    console.error("Estimate numbering failed", {
+      code: numberError?.code,
+      message: numberError?.message,
+      details: numberError?.details,
+      hint: numberError?.hint,
+      businessId: context.business.id,
+    });
+    return {
+      error: numberError && ["PGRST202", "42883", "42P01"].includes(numberError.code)
+        ? "Estimate numbering is not installed. An administrator needs to apply the Epic 6 Checkpoint 1 migration."
+        : "Estimate numbering is temporarily unavailable. Please try again.",
+      values,
+    };
+  }
   const { data: estimate, error } = await context.supabase.from("estimates").insert({
-    ...prepared.payload, estimate_number: number, status: "draft", request_key: requestKey,
+    ...prepared.payload, business_id: context.business.id, estimate_number: number, status: "draft", request_key: requestKey,
     created_by: context.user.id, updated_by: context.user.id,
   }).select("id").single();
-  if (error || !estimate) return { error: "The estimate could not be created.", values };
+  if (error || !estimate) {
+    if (error?.code === "23505") {
+      const { data: duplicate } = await context.supabase.from("estimates").select("id")
+        .eq("business_id", context.business.id).eq("request_key", requestKey).maybeSingle();
+      if (duplicate) redirect(`/app/${slug}/estimates/${duplicate.id}`);
+    }
+    return { ...estimateWriteFailure(error, "create"), values };
+  }
   const childError = await replaceEstimateChildren(context, estimate.id, prepared);
   if (childError) {
     await context.supabase.from("estimates").update({ is_deleted: true }).eq("id", estimate.id);
@@ -176,7 +226,7 @@ export async function updateEstimate(slug: string, estimateId: string, _state: E
   const prepared = await prepareEstimate(formData, context);
   if (!prepared.payload || !prepared.lines || !prepared.fees || !prepared.totals) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
   const { error } = await context.supabase.from("estimates").update({ ...prepared.payload, updated_by: context.user.id }).eq("id", estimateId).eq("business_id", context.business.id);
-  if (error) return { error: "The estimate could not be saved.", values: prepared.values };
+  if (error) return { ...estimateWriteFailure(error, "update"), values: prepared.values };
   const childError = await replaceEstimateChildren(context, estimateId, prepared);
   if (childError) return { error: "Estimate details saved, but its line items could not be replaced.", values: prepared.values };
   await context.supabase.from("estimate_events").insert({ business_id: context.business.id, estimate_id: estimateId, event_type: "updated", actor_user_id: context.user.id });
@@ -218,7 +268,13 @@ export async function sendEstimate(slug: string, estimateId: string) {
   revalidatePath(`/app/${slug}/estimates`);
   const origin = (process.env.NEXT_PUBLIC_SITE_URL || (await headers()).get("origin") || "http://localhost:3000").replace(/\/$/, "");
   const publicLink = `${origin}/estimate/${publicToken}`;
-  redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent("Estimate marked sent; delivery is added in Checkpoint 5")}&publicLink=${encodeURIComponent(publicLink)}`);
+  const delivery = await EstimateEmailService.send(estimateId, publicToken);
+  const deliveryMessage = delivery.ok && "messageId" in delivery
+    ? "Estimate sent and delivery recorded"
+    : delivery.ok && "stubbed" in delivery
+      ? "Estimate sent; email delivery is not configured"
+      : "Estimate sent; email delivery failed";
+  redirect(`/app/${slug}/estimates/${estimateId}?success=${encodeURIComponent(deliveryMessage)}&publicLink=${encodeURIComponent(publicLink)}`);
 }
 
 export async function reviseEstimate(slug: string, estimateId: string) {
