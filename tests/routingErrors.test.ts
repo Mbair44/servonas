@@ -17,6 +17,13 @@ test("routing errors identify missing routing schema without exposing internals"
   );
 });
 
+test("routing errors name a missing non-sensitive schema column", () => {
+  assert.equal(
+    publicRouteCalculationError(new Error('Route plan could not be prepared (42703): column "updated_by" does not exist')),
+    'Routing database operation failed (42703): column "updated_by" does not exist.',
+  );
+});
+
 test("routing errors redact Google API keys", () => {
   assert.doesNotMatch(
     publicRouteCalculationError(new Error("Failure using AIzaAbcdefghijklmnopqrstuvwxyz123456")),

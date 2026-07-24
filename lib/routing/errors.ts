@@ -23,7 +23,10 @@ export function publicRouteCalculationError(error: unknown): string {
   if (/Unsupported routing provider/i.test(message)) return message;
   const databaseCode = message.match(/\(([0-9A-Z]{5}|PGRST\d+|missing)\)/i)?.[1];
   if (/route plan|scheduled route jobs|route legs|route stops/i.test(message)) {
-    return `Routing database operation failed${databaseCode ? ` (${databaseCode})` : ""}. Confirm the Epic 7 routing migration is installed.`;
+    const undefinedColumn = message.match(/column\s+(?:"?[\w.]+"?)\s+does not exist/i)?.[0];
+    return undefinedColumn
+      ? `Routing database operation failed${databaseCode ? ` (${databaseCode})` : ""}: ${undefinedColumn}.`
+      : `Routing database operation failed${databaseCode ? ` (${databaseCode})` : ""}. Confirm the Epic 7 routing migration is installed.`;
   }
   if (/timeout|timed out|abort/i.test(message)) {
     return "Google Routes did not respond before the server timeout. Try again.";
