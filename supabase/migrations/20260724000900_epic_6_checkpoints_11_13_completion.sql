@@ -122,7 +122,7 @@ create policy "assigned technicians read job payments" on public.payments for se
 
 create or replace function public.financial_dashboard_summary(p_business_id uuid,p_as_of date default current_date)
 returns jsonb language plpgsql security invoker set search_path=public as $$
-declare result jsonb;
+declare result jsonb; v_timezone text;
 begin
   if not public.has_business_role(p_business_id,array['owner','admin','manager']) then raise exception 'Financial dashboard denied' using errcode='42501'; end if;
   select jsonb_build_object(
@@ -143,10 +143,11 @@ begin
     select 'estimate' kind,status,grand_total_cents total,0::bigint balance,null::date due_date from public.estimates where business_id=p_business_id and not is_deleted
     union all select 'invoice',status,grand_total_cents,balance_due_cents,due_date from public.invoices where business_id=p_business_id and not is_deleted
   ) d;
+  select timezone into v_timezone from public.businesses where id=p_business_id;
   return result || (select jsonb_build_object(
-    'payments_today_cents',coalesce(sum(amount_cents-refunded_amount_cents) filter(where paid_at::date=p_as_of),0),
-    'payments_month_cents',coalesce(sum(amount_cents-refunded_amount_cents) filter(where date_trunc('month',paid_at)=date_trunc('month',p_as_of::timestamptz)),0),
-    'refunds_month_cents',coalesce(sum(refunded_amount_cents) filter(where date_trunc('month',paid_at)=date_trunc('month',p_as_of::timestamptz)),0),
+    'payments_today_cents',coalesce(sum(amount_cents-refunded_amount_cents) filter(where (paid_at at time zone coalesce(v_timezone,'UTC'))::date=p_as_of),0),
+    'payments_month_cents',coalesce(sum(amount_cents-refunded_amount_cents) filter(where date_trunc('month',paid_at at time zone coalesce(v_timezone,'UTC'))=date_trunc('month',p_as_of::timestamp)),0),
+    'refunds_month_cents',coalesce(sum(refunded_amount_cents) filter(where date_trunc('month',paid_at at time zone coalesce(v_timezone,'UTC'))=date_trunc('month',p_as_of::timestamp)),0),
     'average_ticket_cents',coalesce(round(avg(amount_cents) filter(where status in('succeeded','partially_refunded','refunded'))),0)
   ) from public.payments where business_id=p_business_id);
 end $$;

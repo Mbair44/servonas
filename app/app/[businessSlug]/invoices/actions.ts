@@ -10,6 +10,7 @@ import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { requireWorkspace } from "@/lib/workspace";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import { stripeClient,stripeProviderError } from "@/lib/stripeConnect";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import type { EstimateFeeDraft, EstimateLineDraft } from "../estimates/actions";
 
 export type InvoiceActionState={error?:string;fieldErrors?:Record<string,string>;values?:Record<string,string>};
@@ -161,6 +162,7 @@ export async function sendInvoice(slug:string,invoiceId:string){
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
   revalidatePath(`/app/${slug}/invoices`);
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
@@ -177,6 +179,7 @@ export async function resendInvoice(slug:string,invoiceId:string){
   if(error){console.error("Invoice portal link rotation failed",{code:error.code,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error","A new secure invoice link could not be created"));}
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id,metadata:{resend:true}});
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  await sendInvoiceFinancialEmail(invoiceId,"payment_link_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("New secure invoice link created")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
@@ -236,6 +239,8 @@ export async function recordOfflinePayment(slug:string,invoiceId:string,data:For
     p_notes:text(data,"notes"),p_idempotency_key:requestKey,
   });
   if(error){console.error("Offline invoice payment failed",{code:error.code,message:error.message,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error",error.code==="23514"?"Payment exceeds the balance or the invoice cannot accept payments.":"Payment could not be recorded. Apply the Checkpoint 6 migration if needed."));}
+  const {data:payment}=await supabase.from("payments").select("id").eq("business_id",business.id).eq("idempotency_key",requestKey).maybeSingle();
+  if(payment)await sendInvoiceFinancialEmail(invoiceId,"payment_succeeded",{paymentId:payment.id});
   revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
   redirect(path(slug,invoiceId,"success","Offline payment recorded"));
 }
@@ -313,6 +318,7 @@ export async function refundInvoicePayment(slug:string,invoiceId:string,paymentI
     console.error("Invoice refund reconciliation failed",{code:reconcileError.code,businessId:business.id,invoiceId,paymentId,refundId,status});
     redirect(path(slug,invoiceId,"error","The refund status could not be recorded. Do not retry until the payment history is checked."));
   }
+  if(status==="succeeded")await sendInvoiceFinancialEmail(invoiceId,"refund_issued",{refundId:String(refundId),paymentId});
   revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
   if(status==="failed")redirect(path(slug,invoiceId,"error","The refund failed. No invoice balance was changed."));
   redirect(path(slug,invoiceId,"success",status==="succeeded"?"Refund recorded":"Refund submitted; provider confirmation is pending"));

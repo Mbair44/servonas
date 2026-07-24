@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingSms } from "@/lib/sms";
 import { stripeConnectState } from "@/lib/stripeConnect";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 
 export const runtime = "nodejs";
 
@@ -75,7 +76,7 @@ async function processInvoicePaymentEvent(
     const charge=intent&&typeof intent.latest_charge==="object"?intent.latest_charge as Stripe.Charge:null;
     const paymentMethod=intent?.payment_method_types?.[0]??null;
     const occurredAt=new Date(event.created*1000).toISOString();
-    const {error:reconcileError}=await supabase.rpc("reconcile_invoice_online_payment",{
+    const {data:reconciled,error:reconcileError}=await supabase.rpc("reconcile_invoice_online_payment",{
       p_business_id:payment.business_id,p_payment_id:payment.id,p_status:status,
       p_payment_intent_id:intent?.id??null,p_charge_id:charge?.id??null,
       p_payment_method_type:paymentMethod,p_receipt_url:charge?.receipt_url??null,
@@ -83,6 +84,12 @@ async function processInvoicePaymentEvent(
       p_occurred_at:occurredAt,
     });
     if(reconcileError)throw new Error(`Payment reconciliation failed (${reconcileError.code}).`);
+    const invoiceId=reconciled?.[0]?.invoice_id;
+    if(invoiceId){
+      const notification=status==="failed"?"payment_failed":status==="succeeded"?(reconciled[0].invoice_status==="paid"?"invoice_paid":"partial_payment"):null;
+      if(notification)await sendInvoiceFinancialEmail(invoiceId,notification,{paymentId:payment.id});
+      if(status==="succeeded")await sendInvoiceFinancialEmail(invoiceId,"receipt_sent",{paymentId:payment.id});
+    }
     await supabase.from("payment_webhook_events").update({
       processing_status:"processed",processed_at:new Date().toISOString(),
       safe_metadata:{payment_id:payment.id,business_id:payment.business_id,invoice_id:payment.invoice_id,status},
@@ -116,7 +123,7 @@ async function processInvoiceRefundEvent(event:Stripe.Event,rawBody:string,supab
       .select("id,business_id,payment_id").eq("id",refundId).maybeSingle();
     if(refundError)throw new Error(`Refund lookup failed (${refundError.code}).`);
     const {data:payment,error:paymentError}=refundRecord?await supabase.from("payments")
-      .select("id,provider_account_id").eq("id",refundRecord.payment_id).eq("business_id",refundRecord.business_id).maybeSingle():{data:null,error:null};
+      .select("id,provider_account_id,invoice_id").eq("id",refundRecord.payment_id).eq("business_id",refundRecord.business_id).maybeSingle():{data:null,error:null};
     if(paymentError)throw new Error(`Refund payment lookup failed (${paymentError.code}).`);
     if(!refundRecord||payment?.provider_account_id!==accountId){
       await supabase.from("payment_webhook_events").update({
@@ -132,6 +139,7 @@ async function processInvoiceRefundEvent(event:Stripe.Event,rawBody:string,supab
       p_completed_at:status==="succeeded"?new Date(event.created*1000).toISOString():null,
     });
     if(reconcileError)throw new Error(`Refund reconciliation failed (${reconcileError.code}).`);
+    if(status==="succeeded"&&payment?.invoice_id)await sendInvoiceFinancialEmail(payment.invoice_id,"refund_issued",{paymentId:payment.id,refundId:refundRecord.id});
     await supabase.from("payment_webhook_events").update({
       processing_status:"processed",processed_at:new Date().toISOString(),
       safe_metadata:{refund_id:refundId,business_id:refundRecord.business_id,payment_id:refundRecord.payment_id,status},

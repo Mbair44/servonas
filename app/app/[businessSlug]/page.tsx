@@ -6,6 +6,7 @@ import { addDays, dateInTimeZone, formatBusinessDateTime, zonedDateTimeToUtc } f
 import { calendarDays } from "@/lib/scheduleCalendar";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "./WorkspaceNav";
+import { formatCents } from "@/lib/financial/priceBook";
 import { disableTechnician, enableTechnician, inviteTeamMember, resendInvitation, revokeInvitation } from "./team/actions";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
@@ -72,6 +73,9 @@ export default async function Workspace({ params, searchParams }: {
     console.error("Executive dashboard query failed", { jobsCode: jobsError?.code, customersCode: customersError?.code, businessId: business.id });
     throw new Error("Dashboard metrics could not be loaded.");
   }
+  const {data:financial,error:financialError}=await supabase.rpc("financial_dashboard_summary",{p_business_id:business.id,p_as_of:today});
+  if(financialError)console.error("Financial dashboard summary failed",{code:financialError.code,businessId:business.id});
+  const money=(key:string)=>Number((financial as Record<string,unknown>|null)?.[key]??0);
 
   const allJobs = jobs ?? [];
   const todayJobs = allJobs.filter((job) => job.starts_at && job.starts_at >= todayStart && job.starts_at < todayEnd);
@@ -111,7 +115,7 @@ export default async function Workspace({ params, searchParams }: {
     <section aria-labelledby="overview-heading"><h2 className="sr-only" id="overview-heading">Business overview</h2><div className="executive-kpis">
       <article className="executive-card kpi-card"><div className="card-icon blue" aria-hidden="true">↗</div><div><span>Jobs today</span><strong>{todayJobs.length}</strong></div><p>{scheduledToday} Scheduled · {progressingToday} In progress · {waitingToday} Waiting</p><Link href={`/app/${businessSlug}/dispatch?date=${today}`}>Open dispatch <span aria-hidden="true">→</span></Link></article>
       <article className="executive-card kpi-card"><div className="card-icon violet" aria-hidden="true">◫</div><div><span>This week</span><strong>{weekJobs.length} <small>jobs</small></strong></div><p>{remainingWeek} remaining on the schedule</p><Link href={`/app/${businessSlug}/schedule`}>View schedule <span aria-hidden="true">→</span></Link></article>
-      <article className="executive-card kpi-card placeholder"><div className="card-icon muted" aria-hidden="true">$</div><div><span>Revenue</span><strong>Coming soon</strong></div><p>Connected reporting arrives with billing.</p><span className="future-label">Epic 6</span></article>
+      <article className="executive-card kpi-card"><div className="card-icon green" aria-hidden="true">$</div><div><span>Payments this month</span><strong>{formatCents(money("payments_month_cents"))}</strong></div><p>{formatCents(money("payments_today_cents"))} received today</p><Link href={`/app/${businessSlug}/invoices`}>View invoices <span aria-hidden="true">→</span></Link></article>
       <article className="executive-card kpi-card"><div className="card-icon green" aria-hidden="true">◎</div><div><span>Customers</span><strong>{customers?.length ?? 0} <small>customers</small></strong></div><p>{newCustomers} new this week</p><Link href={`/app/${businessSlug}/customers`}>Manage customers <span aria-hidden="true">→</span></Link></article>
     </div></section>
 
@@ -142,7 +146,15 @@ export default async function Workspace({ params, searchParams }: {
 
     <section className="executive-two-column lower">
       <article className="executive-card"><div className="section-heading compact"><div><span>Live feed</span><h2>Recent activity</h2></div></div><div className="executive-activity">{activity?.length ? activity.map((item) => <div key={item.id}><span aria-hidden="true">✓</span><p><strong>{item.summary}</strong><small>{relativeTime(item.created_at,nowMs)}</small></p></div>) : <div className="dashboard-empty"><span aria-hidden="true">✦</span><strong>No recent activity.</strong><p>As your business grows, activity will appear here.</p></div>}</div></article>
-      <article className="executive-card future-card"><div className="section-heading compact"><div><span>Financial outlook</span><h2>Coming with Epic 6</h2></div></div><div className="future-grid">{["Outstanding invoices","Pending estimates","Average ticket","Revenue"].map((label) => <div key={label}><span>{label}</span><strong>Coming soon</strong></div>)}</div></article>
+      <article className="executive-card future-card"><div className="section-heading compact"><div><span>Financial outlook</span><h2>Billing and aging</h2></div><Link href={`/app/${businessSlug}/invoices`}>Invoices</Link></div><div className="future-grid">{[
+        ["Outstanding invoices",formatCents(money("outstanding_invoice_cents"))],["Overdue",formatCents(money("overdue_cents"))],
+        ["Outstanding estimates",formatCents(money("outstanding_estimate_cents"))],["Average ticket",formatCents(money("average_ticket_cents"))],
+        ["Draft estimates",String(money("draft_estimates"))],["Sent estimates",String(money("sent_estimates"))],
+        ["Estimate conversion",`${money("decided_estimates")?Math.round(money("accepted_estimates")/money("decided_estimates")*100):0}%`],["Draft invoices",String(money("draft_invoices"))],
+        ["Current",formatCents(money("aging_current_cents"))],["1–30 days",formatCents(money("aging_1_30_cents"))],
+        ["31–60 days",formatCents(money("aging_31_60_cents"))],["61–90 days",formatCents(money("aging_61_90_cents"))],
+        ["90+ days",formatCents(money("aging_90_plus_cents"))],["Refunds this month",formatCents(money("refunds_month_cents"))],
+      ].map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></article>
     </section>
 
     <section className="quick-actions-section" aria-labelledby="quick-heading"><div className="section-heading compact"><div><span>Shortcuts</span><h2 id="quick-heading">Quick actions</h2></div></div><nav aria-label="Dashboard quick actions"><Link href={`/app/${businessSlug}/jobs/new`}><span>＋</span>New job</Link><Link href={`/app/${businessSlug}/customers/new`}><span>＋</span>New customer</Link><Link href={`/book/${businessSlug}`}><span>↗</span>New booking</Link><Link href={`/app/${businessSlug}/dispatch`}><span>⌁</span>Dispatch board</Link><Link href={`/app/${businessSlug}/schedule`}><span>▦</span>Schedule</Link></nav></section>

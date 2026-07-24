@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 
@@ -114,9 +115,10 @@ export async function addTechnicianInvoiceItem(jobId:string,data:FormData){
 export async function presentTechnicianInvoice(jobId:string){
   const {supabase}=await technicianJob(jobId);
   const token=generatePublicDocumentToken(),hash=await publicDocumentTokenHash(token);
-  const {error}=await supabase.rpc("technician_present_job_invoice",{p_job_id:jobId,p_token_hash:hash,p_expires_at:new Date(Date.now()+365*86400000).toISOString()});
+  const {data:invoiceId,error}=await supabase.rpc("technician_present_job_invoice",{p_job_id:jobId,p_token_hash:hash,p_expires_at:new Date(Date.now()+365*86400000).toISOString()});
   if(error){console.error("Technician invoice presentation failed",{code:error.code,jobId});redirect(`/tech/jobs/${jobId}?error=Invoice+must+contain+approved+pricing+before+it+can+be+presented`);}
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||"http://localhost:3000").replace(/\/$/,"");
+  if(invoiceId)await sendInvoiceFinancialEmail(String(invoiceId),"payment_link_sent",{publicUrl:`${origin}/invoice/${token}`});
   revalidatePath(`/tech/jobs/${jobId}`);redirect(`/tech/jobs/${jobId}?success=Payment+link+ready&paymentLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
@@ -124,7 +126,9 @@ export async function recordTechnicianPayment(jobId:string,data:FormData){
   const {supabase}=await technicianJob(jobId);
   const amount=parseCurrencyToCents(text(data,"amount")),method=text(data,"method"),key=text(data,"requestKey");
   if(amount===null||amount<=0||!["cash","check"].includes(method))redirect(`/tech/jobs/${jobId}?error=Enter+a+valid+cash+or+check+payment`);
-  const {error}=await supabase.rpc("technician_record_job_payment",{p_job_id:jobId,p_amount:amount,p_method:method,p_received_at:new Date().toISOString(),p_reference:text(data,"reference"),p_key:key});
+  const {data:paymentId,error}=await supabase.rpc("technician_record_job_payment",{p_job_id:jobId,p_amount:amount,p_method:method,p_received_at:new Date().toISOString(),p_reference:text(data,"reference"),p_key:key});
   if(error){console.error("Technician payment failed",{code:error.code,jobId});redirect(`/tech/jobs/${jobId}?error=Payment+could+not+be+recorded`);}
+  const {data:invoice}=await supabase.from("invoices").select("id,status").eq("job_id",jobId).maybeSingle();
+  if(invoice&&paymentId){await sendInvoiceFinancialEmail(invoice.id,invoice.status==="paid"?"invoice_paid":"partial_payment",{paymentId:String(paymentId)});await sendInvoiceFinancialEmail(invoice.id,"receipt_sent",{paymentId:String(paymentId)});}
   revalidatePath(`/tech/jobs/${jobId}`);redirect(`/tech/jobs/${jobId}?success=Payment+recorded`);
 }

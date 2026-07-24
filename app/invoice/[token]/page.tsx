@@ -8,6 +8,7 @@ import { publicDocumentTokenHash,validPublicDocumentToken } from "@/lib/publicDo
 import { allowPublicInvoiceAccess } from "@/lib/publicInvoiceRateLimit";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripePaymentsReady } from "@/lib/stripeConnect";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 
 export const dynamic="force-dynamic";
 export const metadata={
@@ -55,6 +56,7 @@ export default async function PublicInvoice({params,searchParams}:{params:Promis
     }).eq("id",invoice.id).eq("business_id",invoice.business_id).eq("status","sent").select("id").maybeSingle();
     if(transitionError)console.error("Public invoice viewed transition failed",{code:transitionError.code,invoiceId:invoice.id});
     if(transition)await supabase.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"viewed"});
+    if(transition)await sendInvoiceFinancialEmail(invoice.id,"invoice_viewed");
   }
   const {error:accessEventError}=await supabase.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"public_link_accessed"});
   if(accessEventError)console.error("Public invoice access event failed",{code:accessEventError.code,invoiceId:invoice.id});
