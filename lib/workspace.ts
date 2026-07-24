@@ -20,6 +20,18 @@ export async function requireWorkspace(slug: string) {
     });
     return { supabase, user, business, role: platformAdminRole, isPlatformAdmin: true };
   }
+  if (business.owner_user_id === user.id) {
+    const { data: ownerMembership } = await supabase.from("business_members").select("role")
+      .eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
+    if (ownerMembership?.role !== "owner") {
+      console.warn("Business owner membership role is inconsistent", {
+        actorUserId: user.id,
+        businessId: business.id,
+        membershipRole: ownerMembership?.role ?? null,
+      });
+    }
+    return { supabase, user, business, role: "owner", isPlatformAdmin: false };
+  }
   const { data: membership, error: membershipError } = await supabase.from("business_members").select("role").eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
   if (membershipError) throw new Error(`Unable to verify workspace access: ${membershipError.message}`);
   if (!membership) notFound();

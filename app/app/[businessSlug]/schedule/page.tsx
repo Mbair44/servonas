@@ -25,21 +25,21 @@ const localInput = (value: string | null, timeZone: string) => {
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
 };
 
-function ScheduleJobCard({ job, slug, timeZone, technicians, returnPath, compact = false }: {
-  job: JobRow; slug: string; timeZone: string; technicians: { id: string; display_name: string }[]; returnPath: string; compact?: boolean;
+function ScheduleJobCard({ job, slug, timeZone, technicians, returnPath, compact = false, canEdit }: {
+  job: JobRow; slug: string; timeZone: string; technicians: { id: string; display_name: string }[]; returnPath: string; compact?: boolean; canEdit: boolean;
 }) {
   const customer = relation(job.customers), service = relation(job.services), technician = relation(job.technician_profiles), location = relation(job.service_locations);
   const duration = job.estimated_duration_minutes || (job.starts_at && job.ends_at ? Math.round((new Date(job.ends_at).getTime() - new Date(job.starts_at).getTime()) / 60_000) : 60);
   const time = job.starts_at ? new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(new Date(job.starts_at)) : "Unscheduled";
   return <details className={`schedule-job ${job.status} ${compact ? "compact" : ""}`} style={{ borderLeftColor: technician?.schedule_color || "#6255d9" }}>
     <summary><span>{time}</span><strong>#{job.job_number} · {job.title}</strong><small>{customer?.company_name || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || "No customer"}</small><small>{service?.name || "Custom work"} · {technician?.display_name || "Unassigned"}</small>{!compact && <small>{location ? `${location.city}, ${location.state}` : job.service_address || "No address"} · {job.priority}</small>}</summary>
-    <div className="schedule-popover"><Link href={`/app/${slug}/jobs/${job.id}`}>Open job details</Link><form action={updateScheduledJob.bind(null, slug, job.id)}>
+    <div className="schedule-popover"><Link href={`/app/${slug}/jobs/${job.id}`}>Open job details</Link>{canEdit ? <form action={updateScheduledJob.bind(null, slug, job.id)}>
       <input type="hidden" name="returnPath" value={returnPath}/>
       <label>Start<input required name="startsAt" type="datetime-local" defaultValue={localInput(job.starts_at, timeZone)}/></label>
       <label>Duration<input required name="durationMinutes" type="number" min="15" step="15" defaultValue={duration}/></label>
       <label>Technician<select name="technicianId" defaultValue={job.assigned_technician_id ?? ""}><option value="">Unassigned</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
       <button className="sv-button">Save schedule</button>
-    </form></div>
+    </form> : <p>Your role has read-only schedule access.</p>}</div>
   </details>;
 }
 
@@ -89,6 +89,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content schedule-page">
     <header className="epic3-header"><div><small>Field service operations</small><h1>Schedule</h1><p>Times are displayed in {business.timezone}.</p></div>{canEdit && <Link className="sv-button" href={`/app/${businessSlug}/jobs/new`}>Add job</Link>}</header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
+    {!canEdit && <div className="workspace-notice">Your {role.replaceAll("_", " ")} role can view this schedule but cannot change assignments. Ask an owner or admin to grant manager access.</div>}
     <section className="workspace-panel schedule-toolbar"><div className="schedule-navigation"><Link aria-label={`Previous ${view}`} href={hrefFor(addDays(selectedDate, -navigationStep))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label={`Next ${view}`} href={hrefFor(addDays(selectedDate, navigationStep))}>›</Link></div>
       <form><label>Date<input name="date" type="date" defaultValue={selectedDate}/></label><label>View<select name="view" defaultValue={view}><option value="day">Day</option><option value="week">Week</option></select></label><label>Technician<select name="technician" defaultValue={query.technician ?? ""}><option value="">All technicians</option><option value="unassigned">Unassigned only</option>{technicians?.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label><label>Status<select name="status" defaultValue={query.status ?? "all"}><option value="all">All active statuses</option>{jobStatuses.filter((status) => status !== "canceled").map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label><button className="sv-button">Apply</button></form>
     </section>
@@ -101,11 +102,11 @@ export default async function SchedulePage({ params, searchParams }: { params: P
           {Array.from({ length: endHour - startHour + 1 }, (_, index) => <i key={index} style={{ top: index * 60 * pixelsPerMinute }}/>)}
           {dayJobs.map((job) => {
             const placement = calendarPlacement(job.starts_at!, job.ends_at, business.timezone, startHour, endHour);
-            return <div className="schedule-positioned-job" key={job.id} style={{ top: placement.top * pixelsPerMinute, minHeight: placement.height * pixelsPerMinute }}><ScheduleJobCard job={job} slug={businessSlug} timeZone={business.timezone} technicians={technicians ?? []} returnPath={returnPath}/></div>;
+            return <div className="schedule-positioned-job" key={job.id} style={{ top: placement.top * pixelsPerMinute, minHeight: placement.height * pixelsPerMinute }}><ScheduleJobCard job={job} slug={businessSlug} timeZone={business.timezone} technicians={technicians ?? []} returnPath={returnPath} canEdit={canEdit}/></div>;
           })}
         </div>;
       })}
     </div></section>
-    <aside className="workspace-panel unassigned-panel"><div><span className="sv-kicker">Needs dispatch</span><h2>Unassigned jobs</h2><p>{unassignedJobs.length} jobs need a technician.</p></div><div className="unassigned-list">{unassignedJobs.length ? unassignedJobs.map((job) => <ScheduleJobCard key={job.id} job={job} slug={businessSlug} timeZone={business.timezone} technicians={technicians ?? []} returnPath={returnPath} compact/>) : <div className="sv-empty"><p>All active jobs are assigned.</p></div>}</div></aside></div>
+    <aside className="workspace-panel unassigned-panel"><div><span className="sv-kicker">Needs dispatch</span><h2>Unassigned jobs</h2><p>{unassignedJobs.length} jobs need a technician.</p></div><div className="unassigned-list">{unassignedJobs.length ? unassignedJobs.map((job) => <ScheduleJobCard key={job.id} job={job} slug={businessSlug} timeZone={business.timezone} technicians={technicians ?? []} returnPath={returnPath} compact canEdit={canEdit}/>) : <div className="sv-empty"><p>All active jobs are assigned.</p></div>}</div></aside></div>
   </section></main>;
 }

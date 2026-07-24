@@ -230,6 +230,28 @@ async function invitationContext(businessSlug: string) {
   return { supabase, user, business };
 }
 
+export async function updateTeamMemberRole(businessSlug: string, formData: FormData) {
+  const { supabase, business } = await invitationContext(businessSlug);
+  const memberUserId = value(formData, "memberUserId");
+  const role = value(formData, "role");
+  if (!memberUserId || !["admin", "manager", "staff"].includes(role)) {
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Choose a valid team member role.")}#team`);
+  }
+  const { data: member } = await supabase.from("business_members").select("role")
+    .eq("business_id", business.id).eq("user_id", memberUserId).maybeSingle();
+  if (!member || member.role === "owner") {
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The business owner role cannot be changed here.")}#team`);
+  }
+  const { error } = await supabase.from("business_members").update({ role })
+    .eq("business_id", business.id).eq("user_id", memberUserId);
+  if (error) {
+    console.error("Team member role update failed", { code: error.code, businessId: business.id, memberUserId });
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The team member role could not be updated.")}#team`);
+  }
+  revalidatePath(`/app/${businessSlug}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Team member role updated.")}#team`);
+}
+
 export async function inviteTeamMember(businessSlug: string, formData: FormData) {
   const { supabase, user, business } = await invitationContext(businessSlug);
   const email = value(formData, "email").toLowerCase();
