@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { classifyInvitationDelivery, invitationDeliveryMessage, type InvitationDeliveryOutcome } from "@/lib/invitationDelivery";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { requireWorkspace } from "@/lib/workspace";
 
 const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const escapeHtml = (input: string) => input.replace(/[&<>"']/g, (character) => ({
@@ -196,13 +196,8 @@ async function deliverInvitation({
 }
 
 async function invitationContext(businessSlug: string) {
-  const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?next=/app/${businessSlug}`);
-  const { data: business } = await supabase.from("businesses").select("id,name").eq("slug", businessSlug).maybeSingle();
-  if (!business) redirect("/app");
-  const { data: membership } = await supabase.from("business_members").select("role").eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
-  if (!membership || !["owner", "admin"].includes(membership.role)) {
+  const { supabase, user, business, role } = await requireWorkspace(businessSlug);
+  if (!["owner", "admin", "platform_admin"].includes(role)) {
     redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Only owners and admins can invite team members.")}`);
   }
   return { supabase, user, business };
