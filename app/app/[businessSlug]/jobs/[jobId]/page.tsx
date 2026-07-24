@@ -29,7 +29,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
     return { ...photo, url: data?.signedUrl ?? null };
   }));
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
-    <header className="epic3-header"><div><small>Job #{job.job_number}</small><h1>{job.title}</h1><p><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span> <span className={`job-priority ${job.priority}`}>{job.priority} priority</span></p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/jobs`}>Back to jobs</Link>{canEdit && <Link className="sv-button" href={`/app/${businessSlug}/jobs/${jobId}/edit`}>Edit job</Link>}</div></header>
+    <header className="epic3-header"><div><small>Job #{job.job_number}</small><h1>{job.title}</h1><p><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span> <span className={`job-priority ${job.priority}`}>{job.priority} priority</span></p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/jobs`}>Back to jobs</Link>{canEdit&&<Link className="sv-button sv-secondary" href={`/app/${businessSlug}/invoices/new?jobId=${jobId}`}>Create invoice</Link>}{canEdit && <Link className="sv-button" href={`/app/${businessSlug}/jobs/${jobId}/edit`}>Edit job</Link>}</div></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     <div className="job-detail-grid">
       <section className="workspace-panel job-summary"><h2>Customer & location</h2><dl>

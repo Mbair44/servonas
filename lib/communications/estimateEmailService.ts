@@ -68,23 +68,27 @@ async function queue(estimateId:string,event:EstimateCommunicationEvent,reviewTo
     :await supabase.from("estimate_communication_events").insert(payload).select("id").single();
   if(eventResult.error||!eventResult.data){
     console.error("Estimate email event recording failed",{code:eventResult.error?.code,estimateId,event});
-    return {ok:false,error:"Estimate email status could not be recorded."};
+    return {ok:false,error:"Estimate email status could not be recorded.",adminDetail:`Database error ${eventResult.error?.code||"unknown"}.`};
   }
-  if(!live)return {ok:true,stubbed:true};
+  if(!live)return {ok:true,stubbed:true,adminDetail:"EMAIL_DELIVERY_MODE is not set to live."};
   const apiKey=process.env.RESEND_API_KEY,from=process.env.EMAIL_FROM;
   if(!apiKey||!from){
+    const missing=[!apiKey?"RESEND_API_KEY":null,!from?"EMAIL_FROM":null].filter(Boolean).join(", ");
     await supabase.from("estimate_communication_events").update({status:"failed",error_message:"Email delivery is not configured."}).eq("id",eventResult.data.id);
-    console.error("Estimate email delivery unavailable",{reason:"resend_not_configured",estimateId,event,eventId:eventResult.data.id});
-    return {ok:false,error:"Estimate email delivery is not configured."};
+    console.error("Estimate email delivery unavailable",{reason:"resend_not_configured",missing,estimateId,event,eventId:eventResult.data.id});
+    return {ok:false,error:"Estimate email delivery is not configured.",adminDetail:`Missing environment variable${missing.includes(",")?"s":""}: ${missing}.`};
   }
   try{
     const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({from,to:[customer.email],subject,html,text:body})});
-    const provider=await response.json() as {id?:string;name?:string;message?:string;statusCode?:number};
+    const responseText=await response.text();
+    let provider:{id?:string;name?:string;message?:string;statusCode?:number}={};
+    try{provider=JSON.parse(responseText) as typeof provider;}catch{/* Preserve non-JSON provider responses below. */}
     if(!response.ok||!provider.id){
-      const safeError=provider.message||"Provider rejected the estimate email.";
+      const safeError=(provider.message||responseText||response.statusText||"Provider rejected the estimate email.").slice(0,1000);
+      const adminDetail=`Resend HTTP ${response.status}${provider.statusCode?` / provider ${provider.statusCode}`:""}${provider.name?` (${provider.name})`:""}: ${safeError}`;
       await supabase.from("estimate_communication_events").update({status:"failed",error_message:safeError}).eq("id",eventResult.data.id);
       console.error("Estimate email provider failure",{provider:"resend",httpStatus:response.status,providerStatus:provider.statusCode,providerError:provider.name,reason:safeError,estimateId,event,eventId:eventResult.data.id});
-      return {ok:false,error:"Estimate email delivery failed."};
+      return {ok:false,error:"Estimate email delivery failed.",adminDetail};
     }
     await supabase.from("estimate_communication_events").update({status:"sent",provider_message_id:provider.id,sent_at:new Date().toISOString(),error_message:null}).eq("id",eventResult.data.id);
     return {ok:true,messageId:provider.id};
@@ -92,14 +96,14 @@ async function queue(estimateId:string,event:EstimateCommunicationEvent,reviewTo
     const message=error instanceof Error?error.message:"Email request failed.";
     await supabase.from("estimate_communication_events").update({status:"failed",error_message:message}).eq("id",eventResult.data.id);
     console.error("Estimate email request failed",{errorName:error instanceof Error?error.name:"unknown",errorMessage:message,estimateId,event,eventId:eventResult.data.id});
-    return {ok:false,error:"Estimate email delivery failed."};
+    return {ok:false,error:"Estimate email delivery failed.",adminDetail:`Resend request error: ${message.slice(0,1000)}`};
   }
 }
 
 async function safelyQueue(estimateId:string,event:EstimateCommunicationEvent,token?:string){
   try{return await queue(estimateId,event,token);}catch(error){
     console.error("Unexpected estimate email failure",{estimateId,event,errorName:error instanceof Error?error.name:"unknown"});
-    return {ok:false,error:"Estimate email delivery failed unexpectedly."};
+    return {ok:false,error:"Estimate email delivery failed unexpectedly.",adminDetail:"An unexpected server error occurred before Resend confirmed delivery."};
   }
 }
 export const EstimateEmailService={

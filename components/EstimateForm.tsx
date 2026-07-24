@@ -15,11 +15,13 @@ type Estimate = Record<string, string | number | null | undefined>;
 const blankLine = (): EstimateLineDraft => ({ name: "", quantity: "1", unitType: "each", unitPrice: "0.00", internalCost: "0.00", discountType: "none", discountValue: "0", taxable: true, taxRateBasisPoints: 0 });
 
 export default function EstimateForm({
-  action, customers, locations, jobs, priceItems, taxRates, estimate, initialLines = [], initialFees = [], submitLabel,
+  action, customers, locations, jobs, priceItems, taxRates, estimate, initialLines = [], initialFees = [], submitLabel, documentType = "estimate", newDocument = false,
 }: {
   action: (state: EstimateActionState, data: FormData) => Promise<EstimateActionState>;
   customers: Customer[]; locations: Location[]; jobs: Job[]; priceItems: PriceItem[]; taxRates: TaxRate[];
   estimate?: Estimate; initialLines?: EstimateLineDraft[]; initialFees?: EstimateFeeDraft[]; submitLabel: string;
+  documentType?: "estimate" | "invoice";
+  newDocument?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
@@ -79,14 +81,14 @@ export default function EstimateForm({
 
   return <form action={formAction} className="estimate-form">
     {state.error && <div className="workspace-notice error wide">{state.error}</div>}
-    {!estimate && <input type="hidden" name="requestKey" value={requestKey.current}/>}
+    {(!estimate||newDocument)&&<input type="hidden" name="requestKey" value={requestKey.current}/>}
     <input type="hidden" name="linesJson" value={JSON.stringify(lines)}/><input type="hidden" name="feesJson" value={JSON.stringify(fees)}/>
     <label className="wide">Estimate title<input required name="title" defaultValue={String(estimate?.title ?? "")}/>{error("title")}</label>
     <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
     <label>Service location<select name="serviceLocationId" defaultValue={String(estimate?.service_location_id ?? "")}><option value="">No location</option>{visibleLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}</option>)}</select>{error("serviceLocationId")}</label>
     <label>Related job<select name="jobId" defaultValue={String(estimate?.job_id ?? "")}><option value="">Standalone estimate</option>{visibleJobs.map((job) => <option key={job.id} value={job.id}>#{job.job_number} — {job.title}</option>)}</select>{error("jobId")}</label>
     <label>Issue date<input name="issueDate" type="date" defaultValue={String(estimate?.issue_date ?? new Date().toISOString().slice(0, 10))}/></label>
-    <label>Expiration date<input name="expirationDate" type="date" defaultValue={String(estimate?.expiration_date ?? "")}/>{error("expirationDate")}</label>
+    <label>{documentType==="invoice"?"Due date":"Expiration date"}<input name={documentType==="invoice"?"dueDate":"expirationDate"} type="date" defaultValue={String(documentType==="invoice"?estimate?.due_date??"":estimate?.expiration_date??"")}/>{error(documentType==="invoice"?"dueDate":"expirationDate")}</label>
     <section className="estimate-lines wide"><div className="panel-title"><div><h2>Line items</h2>{error("lines")}</div><button type="button" className="sv-button sv-secondary sv-small" onClick={() => setLines((current) => [...current, blankLine()])}>Add custom line</button></div>
       {lines.map((line, index) => <article key={index}>
         <label>Price book<select value={line.priceBookItemId ?? ""} onChange={(event) => addPriceItem(index, event.target.value)}><option value="">Custom item</option>{priceItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -105,9 +107,9 @@ export default function EstimateForm({
       <div><div className="panel-title"><h2>Fees</h2><button type="button" className="text-button" onClick={() => setFees((current) => [...current, { name: "", amount: "0.00" }])}>Add fee</button></div>{fees.map((fee, index) => <div className="estimate-fee" key={index}><input placeholder="Fee name" value={fee.name} onChange={(event) => setFees((current) => current.map((row, position) => position === index ? { ...row, name: event.target.value } : row))}/><input type="number" min="0" step=".01" value={fee.amount} onChange={(event) => setFees((current) => current.map((row, position) => position === index ? { ...row, amount: event.target.value } : row))}/><button type="button" className="text-button danger" onClick={() => setFees((current) => current.filter((_, position) => position !== index))}>Remove</button></div>)}{error("fees")}</div>
       <div><h2>Deposit</h2><label>Type<select name="depositType" value={depositType} onChange={(event) => setDepositType(event.target.value)}><option value="none">None</option><option value="fixed">Fixed</option><option value="percentage">Percentage</option></select></label><label>Value<input name="depositValue" value={depositValue} type="number" min="0" step=".01" disabled={depositType === "none"} onChange={(event) => setDepositValue(event.target.value)}/></label>{error("depositValue")}</div>
     </section>
-    <label className="wide">Customer-facing message<textarea name="customerMessage" rows={3} defaultValue={String(estimate?.customer_message ?? "")}/></label>
+    <label className="wide">Customer-facing message<textarea name="customerMessage" rows={3} defaultValue={String(documentType==="invoice"?estimate?.customer_notes??"":estimate?.customer_message??"")}/></label>
     <label className="wide">Internal notes<textarea name="internalNotes" rows={3} defaultValue={String(estimate?.internal_notes ?? "")}/></label>
-    <aside className="estimate-preview wide"><h2>Estimate preview</h2>{totals ? <dl><div><dt>Subtotal</dt><dd>{formatCents(totals.subtotalCents)}</dd></div><div><dt>Discount</dt><dd>−{formatCents(totals.discountTotalCents)}</dd></div><div><dt>Tax</dt><dd>{formatCents(totals.taxTotalCents)}</dd></div><div><dt>Fees</dt><dd>{formatCents(totals.feeTotalCents)}</dd></div><div className="total"><dt>Total</dt><dd>{formatCents(totals.grandTotalCents)}</dd></div><div><dt>Deposit required</dt><dd>{formatCents(totals.depositRequiredCents)}</dd></div></dl> : <p>Correct the line items to preview totals.</p>}</aside>
+    <aside className="estimate-preview wide"><h2>{documentType==="invoice"?"Invoice":"Estimate"} preview</h2>{totals ? <dl><div><dt>Subtotal</dt><dd>{formatCents(totals.subtotalCents)}</dd></div><div><dt>Discount</dt><dd>−{formatCents(totals.discountTotalCents)}</dd></div><div><dt>Tax</dt><dd>{formatCents(totals.taxTotalCents)}</dd></div><div><dt>Fees</dt><dd>{formatCents(totals.feeTotalCents)}</dd></div><div className="total"><dt>Total</dt><dd>{formatCents(totals.grandTotalCents)}</dd></div><div><dt>Deposit required</dt><dd>{formatCents(totals.depositRequiredCents)}</dd></div></dl> : <p>Correct the line items to preview totals.</p>}</aside>
     <button className="sv-button" disabled={pending}>{pending ? "Saving…" : submitLabel}</button>
   </form>;
 }
