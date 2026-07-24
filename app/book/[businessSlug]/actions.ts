@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { EmailService } from "@/lib/communications/emailService";
 import { SMSService } from "@/lib/communications/smsService";
 import { bookingPhotoExtension, validateBookingPhoto } from "@/lib/bookingPhoto";
+import { verifyGooglePlace, type VerifiedGoogleAddress } from "@/lib/googleAddress";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const normalizePhone = (value: string) => {
@@ -16,33 +17,6 @@ const normalizePhone = (value: string) => {
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return value;
 };
-async function verifyGoogleAddress(placeId: string) {
-  const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return null;
-  const url = new URL("https://maps.googleapis.com/maps/api/place/details/json");
-  url.searchParams.set("place_id", placeId);
-  url.searchParams.set("fields", "formatted_address");
-  url.searchParams.set("key", key);
-  try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) {
-      console.error("Google address verification request failed", { status: response.status });
-      return null;
-    }
-    const payload = await response.json();
-    if (payload.status !== "OK") {
-      console.error("Google address verification was rejected", { status: payload.status });
-      return null;
-    }
-    return (payload.result?.formatted_address as string | undefined) ?? null;
-  } catch (error) {
-    console.error("Google address verification was unavailable", {
-      cause: error instanceof Error ? error.name : "unknown",
-    });
-    return null;
-  }
-}
-
 export async function submitPublicBooking(
   publicSlug: string,
   _previousState: BookingActionState,
@@ -140,14 +114,20 @@ export async function submitPublicBooking(
   }
 
   let verifiedAddress: string | null = null;
+  let verifiedLocation: VerifiedGoogleAddress | null = null;
+  let addressPlaceId: string | null = null;
   if (settings.collect_address) {
     const enteredAddress = text(formData, "address");
     const placeId = text(formData, "addressPlaceId");
     if (!enteredAddress) return fail("Enter the service address.", { address: "Address is required." });
     if (process.env.GOOGLE_MAPS_API_KEY) {
       if (!placeId) return fail("Select an address from Google’s suggestions.", { address: "Choose a verified address." });
-      verifiedAddress = await verifyGoogleAddress(placeId);
-      if (!verifiedAddress) return fail("We could not verify that address.", { address: "Choose the address again." });
+      verifiedLocation = await verifyGooglePlace(placeId);
+      if (!verifiedLocation?.streetAddress || !verifiedLocation.city || !verifiedLocation.state || !verifiedLocation.postalCode) {
+        return fail("We could not verify that address.", { address: "Choose the address again." });
+      }
+      verifiedAddress = verifiedLocation.formattedAddress;
+      addressPlaceId = placeId;
     } else verifiedAddress = enteredAddress;
   }
 
@@ -204,19 +184,21 @@ export async function submitPublicBooking(
   };
 
   let customerId: string | undefined;
+  let existingCustomer: { id: string; email: string | null; phone: string | null } | null = null;
   if (email) {
-    const { data: existing, error: customerLookupError } = await supabase.from("customers").select("id").eq("business_id", settings.business_id).ilike("email", email).eq("is_deleted", false).maybeSingle();
+    const { data: existing, error: customerLookupError } = await supabase.from("customers").select("id,email,phone").eq("business_id", settings.business_id).ilike("email", email).eq("is_deleted", false).maybeSingle();
     if (customerLookupError) {
       console.error("Public customer lookup failed", { code: customerLookupError.code, businessId: settings.business_id });
       await releaseReservation();
       return fail("We couldn’t verify your contact information. Please try again.");
     }
     customerId = existing?.id;
+    existingCustomer = existing;
   } else if (phone) {
     const candidates = phone === phoneInput ? [phone] : [phone, phoneInput];
     const { data: existing, error: customerLookupError } = await supabase
       .from("customers")
-      .select("id")
+      .select("id,email,phone")
       .eq("business_id", settings.business_id)
       .in("phone", candidates)
       .eq("is_deleted", false)
@@ -228,10 +210,13 @@ export async function submitPublicBooking(
       return fail("We couldn’t verify your contact information. Please try again.");
     }
     customerId = existing?.id;
+    existingCustomer = existing;
   }
   if (!customerId) {
     const { data: customer, error: customerError } = await supabase.from("customers").insert({
       business_id: settings.business_id, first_name: first, last_name: last, email: email || null, phone: phone || null,
+      preferred_contact_method: smsConsent && phone ? "sms" : email ? "email" : "phone",
+      lead_source: "website",
     }).select("id").single();
     if (customerError || !customer) {
       console.error("Public customer creation failed", { code: customerError?.code, businessId: settings.business_id });
@@ -243,8 +228,8 @@ export async function submitPublicBooking(
     const { error: customerUpdateError } = await supabase.from("customers").update({
       first_name: first,
       last_name: last,
-      email: email || null,
-      phone: phone || null,
+      email: email || existingCustomer?.email || null,
+      phone: phone || existingCustomer?.phone || null,
       updated_at: new Date().toISOString(),
     }).eq("id", customerId).eq("business_id", settings.business_id);
     if (customerUpdateError) {
@@ -254,12 +239,84 @@ export async function submitPublicBooking(
     }
   }
 
+  let serviceLocationId: string | null = null;
+  let createdServiceLocationId: string | null = null;
+  if (settings.collect_address && verifiedAddress) {
+    let locationQuery = supabase.from("service_locations").select("id")
+      .eq("business_id", settings.business_id)
+      .eq("customer_id", customerId)
+      .eq("is_deleted", false);
+    locationQuery = addressPlaceId
+      ? locationQuery.eq("google_place_id", addressPlaceId)
+      : locationQuery.ilike("street_address", verifiedAddress);
+    const { data: existingLocation, error: locationLookupError } = await locationQuery.limit(1).maybeSingle();
+    if (locationLookupError) {
+      console.error("Public service location lookup failed", {
+        code: locationLookupError.code, businessId: settings.business_id, customerId,
+      });
+      await releaseReservation();
+      return fail("We couldn’t verify the service location. Please try again.");
+    }
+    serviceLocationId = existingLocation?.id ?? null;
+    if (!serviceLocationId) {
+      const { count, error: countError } = await supabase.from("service_locations")
+        .select("id", { count: "exact", head: true })
+        .eq("business_id", settings.business_id)
+        .eq("customer_id", customerId)
+        .eq("is_deleted", false);
+      if (countError) {
+        console.error("Public service location count failed", {
+          code: countError.code, businessId: settings.business_id, customerId,
+        });
+        await releaseReservation();
+        return fail("We couldn’t prepare the service location. Please try again.");
+      }
+      const location = verifiedLocation ?? {
+        formattedAddress: verifiedAddress,
+        streetAddress: verifiedAddress,
+        unit: "",
+        city: "Not provided",
+        state: "N/A",
+        postalCode: "N/A",
+        country: "US",
+        latitude: null,
+        longitude: null,
+      };
+      const { data: createdLocation, error: locationError } = await supabase.from("service_locations").insert({
+        business_id: settings.business_id,
+        customer_id: customerId,
+        location_name: (count ?? 0) === 0 ? "Primary location" : "Service location",
+        street_address: location.streetAddress,
+        unit: location.unit || null,
+        city: location.city,
+        state: location.state,
+        postal_code: location.postalCode,
+        country: location.country,
+        google_place_id: addressPlaceId,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        is_primary: (count ?? 0) === 0,
+        is_active: true,
+      }).select("id").single();
+      if (locationError || !createdLocation) {
+        console.error("Public service location creation failed", {
+          code: locationError?.code, businessId: settings.business_id, customerId,
+        });
+        await releaseReservation();
+        return fail("We couldn’t save the service location. Please try again.");
+      }
+      serviceLocationId = createdLocation.id;
+      createdServiceLocationId = createdLocation.id;
+    }
+  }
+
   const start = zonedDateTimeToUtc(datePart, timePart, settings.timezone);
   const serviceEnd = new Date(start.getTime() + service.duration_minutes * 60_000);
   const status = settings.auto_confirm ? "confirmed" : "pending";
   const { data: job, error: jobError } = await supabase.from("jobs").insert({
     business_id: settings.business_id,
     customer_id: customerId,
+    service_location_id: serviceLocationId,
     service_id: service.id,
     title: service.name,
     status,
@@ -276,6 +333,9 @@ export async function submitPublicBooking(
   }).select("id,job_number").single();
   if (jobError || !job) {
     console.error("Public job creation failed", { code: jobError?.code, businessId: settings.business_id });
+    if (createdServiceLocationId) {
+      await supabase.from("service_locations").delete().eq("id", createdServiceLocationId).eq("business_id", settings.business_id);
+    }
     await releaseReservation();
     return fail("We couldn’t complete your booking. Please try again.");
   }
