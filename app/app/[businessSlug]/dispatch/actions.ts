@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
+import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { availableJobTransitions, canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { requireWorkspace } from "@/lib/workspace";
@@ -60,6 +61,7 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
   if (technicianId) {
     await supabase.from("technician_profiles").update({ technician_status: "assigned" }).eq("id", technicianId).eq("business_id", business.id).neq("technician_status", "off_duty");
   }
+  if (technicianId && technicianId !== job.assigned_technician_id) await JobNotificationService.technicianAssigned(jobId);
   revalidatePath(`/app/${slug}/dispatch`); revalidatePath(`/app/${slug}/schedule`); revalidatePath(`/app/${slug}/jobs/${jobId}`);
   redirect(dispatchPath(slug, date, "success", technicianId ? "Job assigned." : "Job moved to unassigned."));
 }
@@ -88,6 +90,13 @@ export async function updateDispatchStatus(slug: string, jobId: string, formData
     redirect(dispatchPath(slug, date, "error", "Job status could not be updated."));
   }
   await updateTechnicianOperationalState(supabase, business.id, job.assigned_technician_id, requested);
+  if (requested === "en_route") await JobNotificationService.technicianEnRoute(jobId);
+  if (requested === "completed") {
+    await Promise.allSettled([
+      JobNotificationService.jobCompleted(jobId),
+      JobNotificationService.reviewRequest(jobId),
+    ]);
+  }
   revalidatePath(`/app/${slug}/dispatch`); revalidatePath(`/app/${slug}/jobs/${jobId}`);
   redirect(dispatchPath(slug, date, "success", "Job status updated."));
 }

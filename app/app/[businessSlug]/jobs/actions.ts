@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
+import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
@@ -126,8 +127,9 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
   if (existing) redirect(`/app/${slug}/jobs/${existing.id}`);
   const prepared = await prepareJob(formData, context);
   if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
+  const payload = prepared.payload!;
   const { data: job, error } = await supabase.from("jobs").insert({
-    ...prepared.payload, business_id: business.id, request_key: requestKey,
+    ...payload, business_id: business.id, request_key: requestKey,
     created_by: user.id, updated_by: user.id,
   }).select("id").single();
   if (error || !job) {
@@ -142,6 +144,11 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
     const { error: assignmentError } = await supabase.rpc("set_job_primary_technician", { p_job_id: job.id, p_technician_id: prepared.technicianId });
     if (assignmentError) console.error("Initial job assignment failed", { code: assignmentError.code, businessId: business.id, jobId: job.id });
   }
+  await Promise.allSettled([
+    JobNotificationService.jobBooked(job.id),
+    payload.status === "confirmed" ? JobNotificationService.jobConfirmed(job.id) : Promise.resolve(),
+    prepared.technicianId ? JobNotificationService.technicianAssigned(job.id) : Promise.resolve(),
+  ]);
   revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/jobs`);
   redirect(`/app/${slug}/jobs/${job.id}?success=Job+created`);
 }
@@ -151,17 +158,26 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
   const { supabase, user, business, role } = context;
   const values = valuesFrom(formData);
   if (!canManageCustomers(role)) return { error: "You do not have permission to edit jobs.", values };
-  const { data: owned } = await supabase.from("jobs").select("id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  const { data: owned } = await supabase.from("jobs").select("id,status,starts_at,ends_at,assigned_technician_id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!owned) return { error: "Job not found.", values };
   const prepared = await prepareJob(formData, context, jobId);
   if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
-  const { error } = await supabase.from("jobs").update({ ...prepared.payload, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id);
+  const payload = prepared.payload!;
+  const { error } = await supabase.from("jobs").update({ ...payload, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id);
   if (error) {
     console.error("Office job update failed", { code: error.code, businessId: business.id, jobId });
     return { error: "The job could not be saved.", values };
   }
   const { error: assignmentError } = await supabase.rpc("set_job_primary_technician", { p_job_id: jobId, p_technician_id: prepared.technicianId });
   if (assignmentError) return { error: "Job details saved, but technician assignment could not be updated.", values };
+  await Promise.allSettled([
+    prepared.technicianId && prepared.technicianId !== owned.assigned_technician_id
+      ? JobNotificationService.technicianAssigned(jobId) : Promise.resolve(),
+    payload.starts_at !== owned.starts_at || payload.ends_at !== owned.ends_at
+      ? JobNotificationService.jobRescheduled(jobId) : Promise.resolve(),
+    payload.status === "confirmed" && owned.status !== "confirmed"
+      ? JobNotificationService.jobConfirmed(jobId) : Promise.resolve(),
+  ]);
   revalidatePath(`/app/${slug}/jobs`); revalidatePath(`/app/${slug}/jobs/${jobId}`);
   redirect(`/app/${slug}/jobs/${jobId}?success=Job+updated`);
 }
@@ -182,6 +198,14 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
   if (status === "completed") timestamps.work_completed_at = now;
   const { error } = await supabase.from("jobs").update({ status, ...timestamps, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false);
   if (error) redirect(`/app/${slug}/jobs/${jobId}?error=Status+could+not+be+updated`);
+  if (status === "confirmed") await JobNotificationService.jobConfirmed(jobId);
+  if (status === "en_route") await JobNotificationService.technicianEnRoute(jobId);
+  if (status === "completed") {
+    await Promise.allSettled([
+      JobNotificationService.jobCompleted(jobId),
+      JobNotificationService.reviewRequest(jobId),
+    ]);
+  }
   revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=Status+updated`);
 }
 
@@ -198,6 +222,7 @@ export async function cancelJob(slug: string, jobId: string, formData: FormData)
     updated_by: user.id,
   }).eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false);
   if (error) redirect(`/app/${slug}/jobs/${jobId}?error=Job+could+not+be+cancelled`);
+  await JobNotificationService.jobCancelled(jobId);
   revalidatePath(`/app/${slug}/jobs`); redirect(`/app/${slug}/jobs/${jobId}?success=Job+cancelled`);
 }
 
