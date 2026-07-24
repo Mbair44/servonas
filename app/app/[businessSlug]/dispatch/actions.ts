@@ -3,14 +3,50 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { availableJobTransitions, canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { requireWorkspace } from "@/lib/workspace";
+import { calculateDailyRoutes } from "@/lib/routing/routeCalculationService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const dispatchPath = (slug: string, date: string, kind: "error" | "success", message: string) =>
   `/app/${slug}/dispatch?date=${encodeURIComponent(date)}&${kind}=${encodeURIComponent(message)}`;
+
+export async function calculateDispatchRoutes(slug: string, formData: FormData) {
+  const { user, business, role } = await requireWorkspace(slug);
+  const date = text(formData, "date");
+  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to calculate routes."));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) redirect(dispatchPath(slug, date, "error", "Choose a valid service date."));
+  const admin = getSupabaseAdmin();
+  if (!admin) redirect(dispatchPath(slug, date, "error", "Server routing persistence is not configured."));
+  if (!process.env.GOOGLE_ROUTES_API_KEY) {
+    redirect(dispatchPath(slug, date, "error", "Google Routes API is not configured."));
+  }
+  let result;
+  try {
+    result = await calculateDailyRoutes({
+      admin,
+      businessId: business.id,
+      serviceDate: date,
+      businessTimeZone: business.timezone,
+      actorUserId: user.id,
+    });
+  } catch (error) {
+    console.error("Daily route calculation failed", {
+      businessId: business.id,
+      serviceDate: date,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    redirect(dispatchPath(slug, date, "error", "Road routes could not be calculated. Review server routing configuration and logs."));
+  }
+  revalidatePath(`/app/${slug}/dispatch`);
+  const message = result.failed || result.skipped
+    ? `Routes updated with warnings: ${result.calculated} calculated, ${result.cached} cached, ${result.failed + result.skipped} need attention.`
+    : `Routes ready: ${result.calculated} calculated, ${result.cached} reused.`;
+  redirect(dispatchPath(slug, date, "success", message));
+}
 
 async function updateTechnicianOperationalState(
   supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"],
