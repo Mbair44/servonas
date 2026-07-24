@@ -2,11 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { canManageCustomers } from "@/lib/access";
 import { calculateFinancialDocument, type Discount } from "@/lib/financial/calculations";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { requireWorkspace } from "@/lib/workspace";
+import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import type { EstimateFeeDraft, EstimateLineDraft } from "../estimates/actions";
 
 export type InvoiceActionState={error?:string;fieldErrors?:Record<string,string>;values?:Record<string,string>};
@@ -143,12 +145,18 @@ export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceA
 export async function sendInvoice(slug:string,invoiceId:string){
   const {supabase,business,user,role}=await requireWorkspace(slug);
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
-  const {data,error}=await supabase.from("invoices").update({status:"sent",sent_at:new Date().toISOString(),updated_by:user.id})
+  const token=generatePublicDocumentToken(),tokenHash=await publicDocumentTokenHash(token);
+  const expiresAt=new Date(Date.now()+365*24*60*60*1000).toISOString();
+  const {data,error}=await supabase.from("invoices").update({
+    status:"sent",sent_at:new Date().toISOString(),updated_by:user.id,
+    public_token_hash:tokenHash,public_token_expires_at:expiresAt,public_token_revoked_at:null,
+  })
     .eq("id",invoiceId).eq("business_id",business.id).eq("status","draft").select("id").maybeSingle();
   if(error||!data)redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
   revalidatePath(`/app/${slug}/invoices`);
-  redirect(path(slug,invoiceId,"success","Invoice marked sent"));
+  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){
@@ -156,8 +164,15 @@ export async function resendInvoice(slug:string,invoiceId:string){
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const {data:invoice}=await supabase.from("invoices").select("status").eq("id",invoiceId).eq("business_id",business.id).maybeSingle();
   if(!invoice||!["sent","viewed","partially_paid","overdue"].includes(invoice.status))redirect(path(slug,invoiceId,"error","This invoice cannot be resent"));
+  const token=generatePublicDocumentToken(),tokenHash=await publicDocumentTokenHash(token);
+  const expiresAt=new Date(Date.now()+365*24*60*60*1000).toISOString();
+  const {error}=await supabase.from("invoices").update({
+    public_token_hash:tokenHash,public_token_expires_at:expiresAt,public_token_revoked_at:null,updated_by:user.id,
+  }).eq("id",invoiceId).eq("business_id",business.id);
+  if(error){console.error("Invoice portal link rotation failed",{code:error.code,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error","A new secure invoice link could not be created"));}
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id,metadata:{resend:true}});
-  redirect(path(slug,invoiceId,"success","Invoice resend recorded; customer delivery is enabled in Checkpoint 7"));
+  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("New secure invoice link created")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
 export async function duplicateInvoice(slug:string,invoiceId:string){
@@ -171,7 +186,7 @@ export async function duplicateInvoice(slug:string,invoiceId:string){
   if(!source)redirect(`/app/${slug}/invoices?error=Invoice+not+found`);
   const {data:number}=await supabase.rpc("next_financial_document_number",{p_business_id:business.id,p_document_type:"invoice"});
   const copy={...source};
-  for(const key of ["id","created_at","updated_at","invoice_number","request_key","source_key","public_token_hash"] as const)delete copy[key];
+  for(const key of ["id","created_at","updated_at","invoice_number","request_key","source_key","public_token_hash","public_token_expires_at","public_token_revoked_at"] as const)delete copy[key];
   const {data:invoice,error}=await supabase.from("invoices").insert({...copy,business_id:business.id,invoice_number:number,status:"draft",title:`${source.title} (copy)`,estimate_id:null,amount_paid_cents:0,amount_refunded_cents:0,balance_due_cents:source.grand_total_cents,sent_at:null,viewed_at:null,paid_at:null,voided_at:null,created_by:user.id,updated_by:user.id}).select("id").single();
   if(error||!invoice)redirect(path(slug,invoiceId,"error","Invoice could not be duplicated"));
   await Promise.all([

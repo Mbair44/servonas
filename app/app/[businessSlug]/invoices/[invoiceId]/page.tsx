@@ -2,13 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import OfflinePaymentForm from "@/components/OfflinePaymentForm";
 import PrintButton from "@/components/PrintButton";
+import CopyLinkButton from "@/components/CopyLinkButton";
 import { canManageCustomers } from "@/lib/access";
 import { formatCents } from "@/lib/financial/priceBook";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../../WorkspaceNav";
 import { duplicateInvoice,recordOfflinePayment,resendInvoice,sendInvoice,voidInvoice } from "../actions";
 
-export default async function InvoiceDetail({params,searchParams}:{params:Promise<{businessSlug:string;invoiceId:string}>;searchParams:Promise<{success?:string;error?:string}>}){
+export default async function InvoiceDetail({params,searchParams}:{params:Promise<{businessSlug:string;invoiceId:string}>;searchParams:Promise<{success?:string;error?:string;publicLink?:string}>}){
   const {businessSlug,invoiceId}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
   const [{data:invoice},{data:lines},{data:fees},{data:payments},{data:events}]=await Promise.all([
     supabase.from("invoices").select("*,customers!invoices_customer_fk(first_name,last_name,company_name,email),service_locations!invoices_location_fk(location_name,street_address,city,state,postal_code),jobs!invoices_job_fk(id,job_number,title),estimates!invoices_estimate_fk(id,estimate_number)").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
@@ -26,6 +27,7 @@ export default async function InvoiceDetail({params,searchParams}:{params:Promis
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
     <header className="epic3-header"><div><small>{invoice.invoice_number}</small><h1>{invoice.title}</h1><p><span className={`estimate-status ${invoice.status}`}>{invoice.status.replaceAll("_"," ")}</span> {customer?.company_name||`${customer?.first_name??""} ${customer?.last_name??""}`}</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/invoices`}>Back</Link>{canEdit&&invoice.status==="draft"&&<Link className="sv-button" href={`/app/${businessSlug}/invoices/${invoiceId}/edit`}>Edit</Link>}<PrintButton/></div></header>
     {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
+    {q.publicLink&&<div className="estimate-public-link"><div><strong>Customer invoice link</strong><span>This secure link is shown once. Copy it now for customer delivery.</span></div><CopyLinkButton url={q.publicLink} label="Copy invoice link"/></div>}
     {canEdit&&<section className="estimate-actions workspace-panel">
       {invoice.status==="draft"&&<form action={sendInvoice.bind(null,businessSlug,invoiceId)}><button className="sv-button">Send</button></form>}
       {["sent","viewed","partially_paid","overdue"].includes(invoice.status)&&<form action={resendInvoice.bind(null,businessSlug,invoiceId)}><button className="sv-button sv-secondary">Resend</button></form>}
