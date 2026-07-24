@@ -58,6 +58,8 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
     catch(error){errors.lines=error instanceof Error?error.message:"Invoice totals are invalid.";}
   }
   const issueDate=text(data,"issueDate")||null,dueDate=text(data,"dueDate")||null;
+  const minimumPartialPayment=parseCurrencyToCents(text(data,"minimumPartialPayment")||"1.00");
+  if(minimumPartialPayment===null||minimumPartialPayment<50)errors.minimumPartialPayment="Minimum partial payment must be at least $0.50.";
   if(issueDate&&dueDate&&dueDate<issueDate)errors.dueDate="Due date must be on or after the issue date.";
   if(Object.keys(errors).length||!totals)return {error:"Please correct the highlighted fields.",errors,values};
   return {values,lines,fees,totals,payload:{
@@ -68,6 +70,8 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
     deposit_type:text(data,"depositType"),deposit_value:deposit!.value,deposit_required_cents:totals.depositRequiredCents,
     balance_due_cents:totals.grandTotalCents,document_discount_type:text(data,"documentDiscountType"),
     document_discount_value:documentDiscount!.value,issue_date:issueDate,due_date:dueDate,
+    allow_partial_payments:data.get("allowPartialPayments")==="on",
+    minimum_partial_payment_cents:minimumPartialPayment!,
   }};
 }
 
