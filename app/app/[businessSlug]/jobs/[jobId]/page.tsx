@@ -13,7 +13,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
   const [{ data: job, error }, { data: history }, { data: notes }, { data: photoRows }] = await Promise.all([
-    supabase.from("jobs").select("*,customers(id,first_name,last_name,company_name,email,phone),service_locations(id,location_name,street_address,unit,city,state,postal_code),services(name),technician_profiles(display_name)").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
+    supabase.from("jobs").select("*,customers!jobs_customer_tenant_fk(id,first_name,last_name,company_name,email,phone),service_locations!jobs_service_location_tenant_fk(id,location_name,street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(name),technician_profiles!jobs_technician_tenant_fk(display_name)").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
     supabase.from("job_timeline_events").select("id,event_type,summary,actor_name,occurred_at").eq("job_id", jobId).eq("business_id", business.id).order("occurred_at", { ascending: false }),
     supabase.from("job_notes").select("id,body,note_type,author_name,created_at,updated_at").eq("job_id", jobId).eq("business_id", business.id).order("created_at", { ascending: false }),
     supabase.from("job_photos").select("id,storage_path,caption,photo_type,created_at").eq("job_id", jobId).eq("business_id", business.id).order("created_at", { ascending: false }),

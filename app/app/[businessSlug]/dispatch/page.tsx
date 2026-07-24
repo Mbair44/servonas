@@ -51,7 +51,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const start = zonedDateTimeToUtc(date, "00:00", business.timezone).toISOString();
   const end = zonedDateTimeToUtc(addDays(date, 1), "00:00", business.timezone).toISOString();
   const [{ data: jobRows, error }, { data: technicianRows }] = await Promise.all([
-    supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,service_address,customers(first_name,last_name,company_name,phone),service_locations(street_address,unit,city,state,postal_code),services(name)")
+    supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name,phone),service_locations!jobs_service_location_tenant_fk(street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(name)")
       .eq("business_id", business.id).eq("is_deleted", false).gte("starts_at", start).lt("starts_at", end).not("status", "in", '("canceled","declined")').order("starts_at"),
     supabase.from("technician_profiles").select("id,display_name,phone,technician_status,schedule_color").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).order("display_name"),
   ]);

@@ -31,7 +31,7 @@ async function customerBookingConfirmation(jobId: string, consent: boolean) {
   if (!supabase) return { ok: false, error: "Supabase is unavailable." };
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services(name),customers(first_name,phone)")
+    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,phone)")
     .eq("id", jobId)
     .maybeSingle();
   if (jobError || !job) {
@@ -125,7 +125,7 @@ async function bookingManagerNotification(jobId: string, phone: string | null | 
 
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("job_number,starts_at,service_address,status,businesses(name,timezone),services(name),customers(first_name,last_name)")
+    .select("job_number,starts_at,service_address,status,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,last_name)")
     .eq("id", jobId)
     .maybeSingle();
   if (jobError || !job) {

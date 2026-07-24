@@ -12,7 +12,7 @@ async function queue(jobId: string, template: EmailTemplate) {
   if (!supabase) return { ok: false, error: "Supabase is unavailable." };
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services(name),customers(first_name,last_name,email)")
+    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,last_name,email)")
     .eq("id", jobId)
     .maybeSingle();
   if (jobError || !job) {
