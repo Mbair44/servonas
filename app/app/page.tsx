@@ -11,6 +11,7 @@ export default async function AppHome(){
   if(!user) redirect("/login");
   const isPlatformAdmin=isServonasPlatformAdmin(user);
   const admin=isPlatformAdmin?getSupabaseAdmin():null;
+  if(isPlatformAdmin&&!admin)throw new Error("Platform administration is unavailable.");
   const {data:memberships}=isPlatformAdmin
     ? await admin!.from("businesses").select("id,name,slug").eq("is_deleted",false).order("name")
     : await s.from("business_members").select("role,businesses(id,name,slug)").eq("user_id",user.id);
