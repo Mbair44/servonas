@@ -306,3 +306,61 @@ export async function revokeInvitation(businessSlug: string, formData: FormData)
   revalidatePath(`/app/${businessSlug}`);
   redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Invitation revoked.")}`);
 }
+
+export async function enableTechnician(businessSlug: string, formData: FormData) {
+  const { supabase, user, business } = await invitationContext(businessSlug);
+  const memberUserId = value(formData, "memberUserId");
+  const { data: member } = await supabase.from("business_members")
+    .select("user_id,profiles!business_members_user_profile_fk(email,full_name)")
+    .eq("business_id", business.id).eq("user_id", memberUserId).maybeSingle();
+  if (!member) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Team member not found.")}`);
+  const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+  const displayName = profile?.full_name?.trim() || profile?.email?.split("@")[0] || "Technician";
+  const { data: existing } = await supabase.from("technician_profiles").select("id")
+    .eq("business_id", business.id).eq("member_user_id", memberUserId).maybeSingle();
+  const result = existing
+    ? await supabase.from("technician_profiles").update({
+        display_name: displayName, is_active: true, is_technician: true,
+        can_be_assigned_jobs: true, technician_status: "available", updated_by: user.id,
+      }).eq("id", existing.id).eq("business_id", business.id)
+    : await supabase.from("technician_profiles").insert({
+        business_id: business.id, member_user_id: memberUserId, display_name: displayName,
+        is_active: true, is_technician: true, can_be_assigned_jobs: true,
+        technician_status: "available", created_by: user.id, updated_by: user.id,
+      });
+  if (result.error) {
+    console.error("Technician capability enable failed", {
+      code: result.error.code, businessId: business.id, memberUserId,
+    });
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Technician access could not be enabled.")}`);
+  }
+  revalidatePath(`/app/${businessSlug}`);
+  revalidatePath(`/app/${businessSlug}/dispatch`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Technician access enabled.")}#team`);
+}
+
+export async function disableTechnician(businessSlug: string, formData: FormData) {
+  const { supabase, user, business } = await invitationContext(businessSlug);
+  const memberUserId = value(formData, "memberUserId");
+  const { data: technician } = await supabase.from("technician_profiles").select("id")
+    .eq("business_id", business.id).eq("member_user_id", memberUserId).maybeSingle();
+  if (!technician) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Technician profile not found.")}`);
+  const { count } = await supabase.from("jobs").select("id", { count: "exact", head: true })
+    .eq("business_id", business.id).eq("assigned_technician_id", technician.id)
+    .eq("is_deleted", false).not("status", "in", '("completed","canceled","declined")');
+  if ((count ?? 0) > 0) {
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Reassign this technician’s active jobs before disabling technician access.")}`);
+  }
+  const { error } = await supabase.from("technician_profiles").update({
+    is_active: false, can_be_assigned_jobs: false, technician_status: "off_duty", updated_by: user.id,
+  }).eq("id", technician.id).eq("business_id", business.id);
+  if (error) {
+    console.error("Technician capability disable failed", {
+      code: error.code, businessId: business.id, memberUserId,
+    });
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Technician access could not be disabled.")}`);
+  }
+  revalidatePath(`/app/${businessSlug}`);
+  revalidatePath(`/app/${businessSlug}/dispatch`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Technician access disabled.")}#team`);
+}
