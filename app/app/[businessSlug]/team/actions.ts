@@ -8,6 +8,9 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
+const escapeHtml = (input: string) => input.replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+}[character]!));
 
 function supabaseInvitationErrorDetails(error: unknown) {
   const authError = error as Error & {
@@ -40,6 +43,61 @@ type InvitationDeliveryResult = {
   errorMessage?: string;
 };
 
+async function existingUserId(email: string) {
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
+  const { data, error } = await admin.from("profiles").select("id").ilike("email", email).maybeSingle();
+  if (error) console.error("Invitation existing-user lookup failed", { code: error.code });
+  return data?.id ?? null;
+}
+
+async function deliverExistingUserInvitation({
+  email, businessName, invitationLink, businessId, invitationId,
+}: {
+  email: string; businessName: string; invitationLink: string; businessId: string; invitationId: string;
+}): Promise<InvitationDeliveryResult> {
+  if (process.env.EMAIL_DELIVERY_MODE !== "live" || !process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    console.warn("Existing-user invitation email not attempted", {
+      reason: "transactional_email_not_configured", businessId, invitationId,
+    });
+    return { outcome: "not_configured" };
+  }
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM,
+        to: [email],
+        subject: `You’re invited to join ${businessName}`,
+        text: `You already have a Servonas account. Sign in with this email, then accept the invitation:\n\n${invitationLink}`,
+        html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Join ${escapeHtml(businessName)}</h2><p>You already have a Servonas account. Sign in with this email, then accept the invitation.</p><p><a href="${escapeHtml(invitationLink)}">Accept invitation</a></p></div>`,
+      }),
+    });
+    const result = await response.json() as { id?: string; message?: string; name?: string; statusCode?: number };
+    if (!response.ok || !result.id) {
+      console.error("Existing-user invitation email failed", {
+        provider: "resend", businessId, invitationId, httpStatus: response.status,
+        providerStatus: result.statusCode, providerError: result.name, reason: result.message,
+      });
+      return { outcome: "failed" };
+    }
+    console.info("Existing-user invitation email sent", {
+      provider: "resend", businessId, invitationId, providerMessageId: result.id,
+    });
+    return { outcome: "sent" };
+  } catch (error) {
+    console.error("Existing-user invitation email request failed", {
+      businessId, invitationId, errorName: error instanceof Error ? error.name : "unknown",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return { outcome: "failed" };
+  }
+}
+
 async function siteOrigin() {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   const requestOrigin = (await headers()).get("origin");
@@ -54,10 +112,14 @@ async function siteOrigin() {
 }
 
 async function deliverInvitation({
-  email, businessName, redirectTo, businessId, invitationId,
+  email, businessName, redirectTo, invitationLink, businessId, invitationId, userAlreadyExists,
 }: {
-  email: string; businessName: string; redirectTo: string; businessId: string; invitationId: string;
+  email: string; businessName: string; redirectTo: string; invitationLink: string;
+  businessId: string; invitationId: string; userAlreadyExists: boolean;
 }): Promise<InvitationDeliveryResult> {
+  if (userAlreadyExists) {
+    return deliverExistingUserInvitation({ email, businessName, invitationLink, businessId, invitationId });
+  }
   const admin = getSupabaseAdmin();
   if (!admin) {
     console.warn("Invitation email not attempted", { reason: "supabase_admin_not_configured", businessId, invitationId });
@@ -76,6 +138,8 @@ async function deliverInvitation({
     });
     if (error) {
       const details = supabaseInvitationErrorDetails(error);
+      const existingAccountError = details.code === "email_exists"
+        || /already (been )?registered|already exists|email.*in use/i.test(details.message);
       console.error("Supabase Auth invitation failed — complete error diagnostics", {
         provider: "supabase_auth",
         businessId,
@@ -90,6 +154,14 @@ async function deliverInvitation({
         authUserCreated: Boolean(user?.id),
         redirectTo,
       }, error);
+      if (existingAccountError) {
+        console.info("Supabase Auth account already exists; using business invitation link delivery", {
+          businessId, invitationId,
+        });
+        return deliverExistingUserInvitation({
+          email, businessName, invitationLink, businessId, invitationId,
+        });
+      }
       return { outcome, errorMessage: details.message };
     } else {
       console.info("Supabase Auth invitation result", {
@@ -143,6 +215,19 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
   if (!email.includes("@") || !["admin", "manager", "staff"].includes(role)) {
     redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Enter a valid email and role.")}`);
   }
+  const userId = await existingUserId(email);
+  if (userId) {
+    const admin = getSupabaseAdmin();
+    const { data: existingMembership, error: membershipError } = await admin!.from("business_members")
+      .select("user_id").eq("business_id", business.id).eq("user_id", userId).maybeSingle();
+    if (membershipError) {
+      console.error("Invitation membership lookup failed", { code: membershipError.code, businessId: business.id });
+      redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Existing membership could not be checked.")}`);
+    }
+    if (existingMembership) {
+      redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("That user is already a member of this business.")}`);
+    }
+  }
   const { data: invitation, error } = await supabase.from("business_invitations").upsert({
     business_id: business.id, email, role, invited_by: user.id,
     accepted_at: null, accepted_by: null,
@@ -154,15 +239,14 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
   }
   const origin = await siteOrigin();
   const next = `/invite/accept?token=${invitation.token}`;
+  const invitationLink = `${origin}${next}`;
   const redirectTo = `${origin}/auth/invite-callback?next=${encodeURIComponent(next)}`;
   const delivery = await deliverInvitation({
-    email, businessName: business.name, redirectTo,
-    businessId: business.id, invitationId: invitation.id,
+    email, businessName: business.name, redirectTo, invitationLink,
+    businessId: business.id, invitationId: invitation.id, userAlreadyExists: Boolean(userId),
   });
   revalidatePath(`/app/${businessSlug}`);
-  const resultKey = delivery.errorMessage ? "teamError" : "teamSuccess";
-  const resultMessage = delivery.errorMessage ?? invitationDeliveryMessage(delivery.outcome);
-  redirect(`/app/${businessSlug}?${resultKey}=${encodeURIComponent(resultMessage)}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(delivery.outcome))}&inviteLink=${encodeURIComponent(invitationLink)}`);
 }
 
 export async function resendInvitation(businessSlug: string, formData: FormData) {
@@ -177,15 +261,16 @@ export async function resendInvitation(businessSlug: string, formData: FormData)
   if (error) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be renewed.")}`);
   const origin = await siteOrigin();
   const next = `/invite/accept?token=${invitation.token}`;
+  const invitationLink = `${origin}${next}`;
+  const userId = await existingUserId(invitation.email);
   const delivery = await deliverInvitation({
     email: invitation.email, businessName: business.name,
     redirectTo: `${origin}/auth/invite-callback?next=${encodeURIComponent(next)}`,
-    businessId: business.id, invitationId: invitation.id,
+    invitationLink, businessId: business.id, invitationId: invitation.id,
+    userAlreadyExists: Boolean(userId),
   });
   revalidatePath(`/app/${businessSlug}`);
-  const resultKey = delivery.errorMessage ? "teamError" : "teamSuccess";
-  const resultMessage = delivery.errorMessage ?? invitationDeliveryMessage(delivery.outcome);
-  redirect(`/app/${businessSlug}?${resultKey}=${encodeURIComponent(resultMessage)}&inviteLink=${encodeURIComponent(`${origin}${next}`)}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(delivery.outcome))}&inviteLink=${encodeURIComponent(invitationLink)}`);
 }
 
 export async function revokeInvitation(businessSlug: string, formData: FormData) {
