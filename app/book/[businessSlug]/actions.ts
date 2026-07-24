@@ -336,6 +336,7 @@ export async function submitPublicBooking(
     }),
     status === "confirmed" ? EmailService.bookingConfirmation(job.id) : EmailService.bookingPending(job.id),
     SMSService.bookingConfirmation(job.id),
+    SMSService.bookingManagerNotification(job.id, settings.booking_manager_phone),
   ]);
   if (linkResult.error) console.error("Public job confirmation link failed", linkResult.error);
   if (analyticsResult.error) console.error("Public booking completion analytics failed", analyticsResult.error);
