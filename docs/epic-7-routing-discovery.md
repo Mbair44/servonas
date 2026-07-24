@@ -75,6 +75,12 @@ The current data does not distinguish pending, verified, failed, and stale
 geocoding. It also lacks structured office/technician route origins and destination
 settings.
 
+Checkpoint 3 now centralizes this behavior in `lib/geocoding`, keeps routable
+status/coordinates on `service_locations`, and isolates fingerprints, provider
+errors, confidence, and audit history in office-only tables. Existing Google Place
+IDs remain compatible while provider-neutral identity fields support future
+providers.
+
 ### Authorization
 
 - Owner, admin, and manager roles have operational dispatch access.
@@ -374,4 +380,3 @@ Approval should explicitly cover:
 - The proposed provider-neutral boundary and dedicated server routing key.
 - The proposed migration/domain model and RLS direction.
 - Beginning Checkpoint 2 only; later checkpoints retain their approval gates.
-

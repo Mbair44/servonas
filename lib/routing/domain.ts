@@ -23,6 +23,10 @@ export const ROUTE_ENDPOINT_TYPES = [
 ] as const;
 export type RouteEndpointType = (typeof ROUTE_ENDPOINT_TYPES)[number];
 
+export const KNOWN_TRAVEL_MODES = ["driving", "walking", "bicycling", "commercial_vehicle"] as const;
+export type KnownTravelMode = (typeof KNOWN_TRAVEL_MODES)[number];
+export type TravelMode = KnownTravelMode | (string & {});
+
 export type RouteCoordinates = {
   latitude: number;
   longitude: number;
@@ -61,6 +65,8 @@ export type ComputeRouteInput = {
   origin: RouteWaypoint;
   destination: RouteWaypoint;
   intermediates: RouteWaypoint[];
+  travelMode: TravelMode;
+  vehicleProfile?: string;
   departureAt?: string;
 };
 
@@ -122,6 +128,7 @@ export function assertValidComputeRouteInput(input: ComputeRouteInput): void {
   if (input.intermediates.length > 25) {
     throw new Error("A route cannot contain more than 25 intermediate waypoints.");
   }
+  if (!input.travelMode.trim()) throw new Error("A route requires a travel mode.");
 
   const ids = new Set<string>();
   for (const waypoint of waypoints) {
@@ -165,4 +172,3 @@ export function validateDrivingRouteResult(
     assertDrivingMetric(leg.drivingDurationSeconds, "leg.drivingDurationSeconds");
   }
 }
-

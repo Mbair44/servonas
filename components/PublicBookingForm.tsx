@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib/googleAddressComponents";
 
 interface Service {
   id: string;
@@ -53,6 +54,14 @@ export default function PublicBookingForm(props: Props) {
   const [time, setTime] = useState("");
   const [address, setAddress] = useState("");
   const [placeId, setPlaceId] = useState("");
+  const [structuredAddress, setStructuredAddress] = useState({
+    line1: "",
+    line2: "",
+    city: "",
+    region: "",
+    postalCode: "",
+    countryCode: "US",
+  });
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -104,18 +113,30 @@ export default function PublicBookingForm(props: Props) {
     let attempts = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const initialize = () => {
-      const maps = (window as typeof window & { google?: { maps?: { places?: { Autocomplete: new (input: HTMLInputElement, options: object) => { addListener: (name: string, callback: () => void) => void; getPlace: () => { place_id?: string; formatted_address?: string } } } } } }).google?.maps;
+      const maps = (window as typeof window & { google?: { maps?: { places?: { Autocomplete: new (input: HTMLInputElement, options: object) => { addListener: (name: string, callback: () => void) => void; getPlace: () => { place_id?: string; formatted_address?: string; address_components?: GoogleAddressComponent[] } } } } } }).google?.maps;
       if (!maps?.places || !addressRef.current) {
         attempts += 1;
         if (attempts < 20) retryTimer = setTimeout(initialize, 150);
         else setAddressLookupError("Address suggestions could not be loaded. Please refresh and try again.");
         return;
       }
-      const autocomplete = new maps.places.Autocomplete(addressRef.current, { types: ["address"], fields: ["place_id", "formatted_address"] });
+      const autocomplete = new maps.places.Autocomplete(addressRef.current, { types: ["address"], fields: ["place_id", "formatted_address", "address_components"] });
       setAddressLookupError("");
       autocomplete.addListener("place_changed", () => {
         const place = autocomplete.getPlace();
-        if (place.place_id && place.formatted_address) { setPlaceId(place.place_id); setAddress(place.formatted_address); }
+        if (place.place_id && place.formatted_address) {
+          const parsed = parseGoogleAddressComponents(place.address_components, place.formatted_address);
+          setPlaceId(place.place_id);
+          setAddress(place.formatted_address);
+          setStructuredAddress({
+            line1: parsed.streetAddress,
+            line2: parsed.unit,
+            city: parsed.city,
+            region: parsed.state,
+            postalCode: parsed.postalCode,
+            countryCode: parsed.country,
+          });
+        }
       });
     };
     if ((window as typeof window & { google?: { maps?: { places?: unknown } } }).google?.maps?.places) { initialize(); return; }
@@ -149,6 +170,12 @@ export default function PublicBookingForm(props: Props) {
       <input type="hidden" name="requestKey" value={requestKey.current} />
       <input type="hidden" name="startsAt" value={date && time ? `${date}T${time}` : ""} />
       <input type="hidden" name="addressPlaceId" value={placeId} />
+      <input type="hidden" name="addressLine1" value={structuredAddress.line1} />
+      <input type="hidden" name="addressLine2" value={structuredAddress.line2} />
+      <input type="hidden" name="addressCity" value={structuredAddress.city} />
+      <input type="hidden" name="addressRegion" value={structuredAddress.region} />
+      <input type="hidden" name="addressPostalCode" value={structuredAddress.postalCode} />
+      <input type="hidden" name="addressCountryCode" value={structuredAddress.countryCode} />
       {state.error && <div className="booking-form-error wide" role="alert">{state.error}</div>}
 
       <label className="wide">Service
@@ -194,7 +221,7 @@ export default function PublicBookingForm(props: Props) {
       <label>Email<input name="email" type="email" autoComplete="email" defaultValue={state.values?.email} />{fieldError("email")}</label>
       <label>Phone<input name="phone" type="tel" autoComplete="tel" defaultValue={state.values?.phone} />{fieldError("phone")}</label>
       <label className="wide toggle-row"><input name="smsConsent" type="checkbox" defaultChecked={state.values?.smsConsent === "on"} /><span><b>Text me booking updates</b><small>By checking this box, you agree to receive transactional appointment texts from {props.businessName}. Message and data rates may apply. Reply STOP to opt out.</small></span></label>
-      {props.collectAddress && <label className="wide">Service address<input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
+      {props.collectAddress && <label className="wide">Service address<input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); setStructuredAddress({ line1: "", line2: "", city: "", region: "", postalCode: "", countryCode: "US" }); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
       <label className="wide">How can we help?<textarea name="details" rows={4} defaultValue={state.values?.details} /></label>
       <label className="wide booking-photo-field">Add a photo <span>Optional</span><input name="bookingPhoto" type="file" accept="image/jpeg,image/png,image/webp,image/heic"/>{fieldError("bookingPhoto")}<small className="field-help">You can attach one JPG, PNG, WebP, or HEIC image up to 10MB to help the business understand the job.</small></label>
       {props.intakeQuestions.map((question, index) => <label className="wide" key={question}>{question}<input name={`question_${index}`} defaultValue={state.values?.[`question_${index}`]} /></label>)}

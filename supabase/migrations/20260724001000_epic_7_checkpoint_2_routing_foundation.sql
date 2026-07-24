@@ -28,6 +28,10 @@ create table public.route_plans (
   calculation_status text not null default 'not_calculated',
   provider text,
   version bigint not null default 1,
+  calculation_revision bigint not null default 0,
+  travel_mode text not null default 'driving',
+  vehicle_profile text,
+  route_options jsonb not null default '{}'::jsonb,
   calculation_signature text,
   total_driving_distance_meters integer,
   total_driving_duration_seconds integer,
@@ -46,6 +50,9 @@ create table public.route_plans (
       'not_calculated','queued','calculating','ready','partial','failed','stale'
     )),
   constraint route_plans_version_check check (version > 0),
+  constraint route_plans_calculation_revision_check check (calculation_revision >= 0),
+  constraint route_plans_travel_mode_check check (length(trim(travel_mode)) > 0),
+  constraint route_plans_route_options_object_check check (jsonb_typeof(route_options)='object'),
   constraint route_plans_distance_check
     check (total_driving_distance_meters is null or total_driving_distance_meters >= 0),
   constraint route_plans_duration_check
@@ -62,6 +69,10 @@ comment on column public.route_plans.total_driving_distance_meters is
   'Sum of successfully calculated road-network legs only; never a straight-line substitute.';
 comment on column public.route_plans.total_driving_duration_seconds is
   'Sum of provider-calculated driving durations only.';
+comment on column public.route_plans.travel_mode is
+  'Provider-neutral travel mode. Text is intentionally extensible for future provider modes without a schema migration.';
+comment on column public.route_plans.calculation_revision is
+  'Incremented whenever a new route calculation is queued or started.';
 
 create unique index route_plans_business_id_id_unique
   on public.route_plans(business_id,id);
@@ -81,16 +92,17 @@ create table public.technician_routes (
   origin_address_snapshot text,
   origin_latitude numeric(10,7),
   origin_longitude numeric(10,7),
+  origin_is_private boolean not null default false,
   destination_type text not null default 'none',
   destination_label text,
   destination_address_snapshot text,
   destination_latitude numeric(10,7),
   destination_longitude numeric(10,7),
+  destination_is_private boolean not null default false,
   driving_distance_meters integer,
   driving_duration_seconds integer,
   service_duration_seconds integer not null default 0,
   stop_count integer not null default 0,
-  route_geometry jsonb,
   encoded_polyline text,
   provider text,
   provider_route_id text,
@@ -131,6 +143,22 @@ create table public.technician_routes (
     check ((origin_latitude is null)=(origin_longitude is null)),
   constraint technician_routes_destination_coordinates_check
     check ((destination_latitude is null)=(destination_longitude is null)),
+  constraint technician_routes_private_origin_check check (
+    not origin_is_private
+    or (
+      origin_address_snapshot is null
+      and origin_latitude is null
+      and origin_longitude is null
+    )
+  ),
+  constraint technician_routes_private_destination_check check (
+    not destination_is_private
+    or (
+      destination_address_snapshot is null
+      and destination_latitude is null
+      and destination_longitude is null
+    )
+  ),
   constraint technician_routes_distance_check
     check (driving_distance_meters is null or driving_distance_meters >= 0),
   constraint technician_routes_duration_check
@@ -138,10 +166,14 @@ create table public.technician_routes (
   constraint technician_routes_service_duration_check check (service_duration_seconds >= 0),
   constraint technician_routes_stop_count_check check (stop_count >= 0)
 );
-comment on column public.technician_routes.route_geometry is
-  'Provider road-network geometry. Provider provenance and calculated_at must accompany populated geometry.';
+comment on column public.technician_routes.encoded_polyline is
+  'Compact provider road-network geometry. Full provider responses and redundant JSON geometry are not persisted.';
 comment on column public.technician_routes.driving_distance_meters is
   'Road-network distance only. Null when driving routing is unavailable.';
+comment on column public.technician_routes.origin_is_private is
+  'When true, the general route row is prohibited from storing the technician private address or coordinates.';
+comment on column public.technician_routes.destination_is_private is
+  'When true, the general route row is prohibited from storing the technician private address or coordinates.';
 
 create unique index technician_routes_business_id_id_unique
   on public.technician_routes(business_id,id);
@@ -240,7 +272,6 @@ create table public.route_legs (
   driving_distance_meters integer,
   driving_duration_seconds integer,
   straight_line_distance_meters integer,
-  route_geometry jsonb,
   encoded_polyline text,
   provider text,
   provider_request_id text,
@@ -296,6 +327,8 @@ comment on column public.route_legs.driving_distance_meters is
   'Authoritative provider-calculated road distance. Never populated from straight-line distance.';
 comment on column public.route_legs.straight_line_distance_meters is
   'Optional internal heuristic. It must never be labeled or totaled as driving distance.';
+comment on column public.route_legs.encoded_polyline is
+  'Compact road-following leg geometry; full provider response payloads are intentionally not stored.';
 
 create unique index route_legs_business_id_id_unique
   on public.route_legs(business_id,id);
@@ -344,6 +377,10 @@ create table public.route_optimization_runs (
 );
 create unique index route_optimization_runs_business_id_id_unique
   on public.route_optimization_runs(business_id,id);
+comment on column public.route_optimization_runs.input_snapshot is
+  'Normalized provider-neutral optimization inputs for audit; never credentials or a raw provider request.';
+comment on column public.route_optimization_runs.output_snapshot is
+  'Normalized provider-neutral optimization summary; full provider response payloads are not stored.';
 create unique index route_optimization_runs_business_plan_id_unique
   on public.route_optimization_runs(business_id,route_plan_id,id);
 create index route_optimization_runs_plan_status_idx
@@ -402,6 +439,28 @@ begin
   return new;
 end; $$;
 
+-- Starting a new calculation always advances both the calculation revision and
+-- route version. This protects optimistic clients even when callers update the
+-- row directly instead of using a future calculation orchestration RPC.
+create or replace function public.enforce_route_plan_calculation_revision()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if new.calculation_status in ('queued','calculating')
+    and old.calculation_status not in ('queued','calculating') then
+    new.calculation_revision=old.calculation_revision+1;
+    if new.version <= old.version then
+      new.version=old.version+1;
+    end if;
+  elsif new.calculation_revision <> old.calculation_revision then
+    raise exception 'Calculation revision can only change when a new calculation starts'
+      using errcode='check_violation';
+  end if;
+  return new;
+end; $$;
+
+create trigger route_plans_calculation_revision
+before update on public.route_plans
+for each row execute function public.enforce_route_plan_calculation_revision();
 create trigger route_plans_updated_at before update on public.route_plans
 for each row execute function public.set_routing_updated_at();
 create trigger technician_routes_updated_at before update on public.technician_routes

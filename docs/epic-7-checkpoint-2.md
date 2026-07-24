@@ -23,6 +23,10 @@ by the Epic 5 guards.
   metrics.
 - Partial or failed legs keep driving metrics nullable. They are excluded from
   route totals.
+- Road geometry is persisted as compact encoded polylines. Redundant JSON geometry
+  and complete provider responses are intentionally not stored.
+- Travel mode is an extensible text value with optional vehicle profile/options,
+  allowing future provider modes without a schema migration.
 
 ## Tenant and technician access
 
@@ -31,6 +35,9 @@ by the Epic 5 guards.
 - Technician stop access additionally requires current assignment to the stop's
   job.
 - Technicians cannot read optimization inputs, outputs, or suggestions.
+- General technician-route rows cannot contain an address or coordinates when an
+  origin or destination is marked private. Checkpoint 3 must place any technician
+  home/start data in a separately protected store.
 - Anonymous users have no routing policies.
 - Composite foreign keys prevent records from joining data across businesses.
 - Composite route/plan keys also prevent a leg from referencing another
@@ -51,6 +58,8 @@ version is incremented when relevant source data changes:
 Dates are derived in the business time zone. Existing route geometry may remain
 stored for diagnostics/display but is explicitly stale and must not overwrite a
 newer calculation without matching both plan version and calculation signature.
+Beginning a new calculation also increments `calculation_revision` and ensures the
+route-plan `version` advances, even when the state transition is written directly.
 
 ## Applying the migration
 
@@ -90,4 +99,3 @@ still documents every composite relationship for future backfills/imports.
   production route persistence.
 - The migration has not been applied from this workspace because no usable local
   Supabase CLI/database connection is available.
-
