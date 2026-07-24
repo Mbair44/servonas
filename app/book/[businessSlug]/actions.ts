@@ -7,6 +7,7 @@ import { getAvailability } from "@/lib/publicAvailability";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { EmailService } from "@/lib/communications/emailService";
 import { SMSService } from "@/lib/communications/smsService";
+import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { bookingPhotoExtension, validateBookingPhoto } from "@/lib/bookingPhoto";
 import { verifyGooglePlace, type VerifiedGoogleAddress } from "@/lib/googleAddress";
 
@@ -401,6 +402,10 @@ export async function submitPublicBooking(
   ]);
   if (linkResult.error) console.error("Public job confirmation link failed", linkResult.error);
   if (analyticsResult.error) console.error("Public booking completion analytics failed", analyticsResult.error);
+  await Promise.allSettled([
+    JobNotificationService.jobBooked(job.id),
+    status === "confirmed" ? JobNotificationService.jobConfirmed(job.id) : Promise.resolve(),
+  ]);
 
   const [verifiedSubmissionResult, verifiedJobResult] = await Promise.all([
     supabase

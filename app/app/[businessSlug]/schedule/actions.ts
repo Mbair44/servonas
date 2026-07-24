@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
+import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { requireWorkspace } from "@/lib/workspace";
@@ -60,6 +61,7 @@ export async function updateScheduledJob(slug: string, jobId: string, formData: 
     console.error("Schedule assignment failed", { code: assignmentError.code, businessId: business.id, jobId });
     redirect(resultUrl(back, "error", "The time was saved, but assignment could not be updated."));
   }
+  await JobNotificationService.jobRescheduled(jobId);
   revalidatePath(`/app/${slug}/schedule`);
   revalidatePath(`/app/${slug}/jobs/${jobId}`);
   redirect(resultUrl(back, "success", "Schedule updated."));
