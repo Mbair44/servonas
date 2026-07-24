@@ -8,6 +8,7 @@ import { publicDocumentTokenHash,validPublicDocumentToken } from "@/lib/publicDo
 import { allowPublicInvoiceAccess } from "@/lib/publicInvoiceRateLimit";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripePaymentsReady } from "@/lib/stripeConnect";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 
 export const dynamic="force-dynamic";
 export const metadata={
@@ -41,7 +42,7 @@ export default async function PublicInvoice({params,searchParams}:{params:Promis
   const [{data:lines,error:linesError},{data:fees,error:feesError},{data:payments,error:paymentsError},{data:settings},{data:paymentAccount}]=await Promise.all([
     supabase.from("invoice_line_items").select("id,name_snapshot,description_snapshot,quantity,unit_type_snapshot,unit_price_cents,line_total_cents").eq("invoice_id",invoice.id).eq("business_id",invoice.business_id).order("sort_order"),
     supabase.from("invoice_fees").select("id,name_snapshot,amount_cents").eq("invoice_id",invoice.id).eq("business_id",invoice.business_id).order("sort_order"),
-    supabase.from("payments").select("id,amount_cents,currency,payment_method_type,provider,status,paid_at,received_at,created_at,offline_reference,provider_receipt_url").eq("invoice_id",invoice.id).eq("business_id",invoice.business_id).eq("status","succeeded").order("created_at",{ascending:false}),
+    supabase.from("payments").select("id,amount_cents,currency,payment_method_type,provider,status,paid_at,received_at,created_at,offline_reference,provider_receipt_url").eq("invoice_id",invoice.id).eq("business_id",invoice.business_id).in("status",["succeeded","partially_refunded","refunded"]).order("created_at",{ascending:false}),
     supabase.from("booking_settings").select("brand_color,logo_path,logo_url").eq("business_id",invoice.business_id).maybeSingle(),
     supabase.from("business_payment_accounts").select("charges_enabled,payouts_enabled,onboarding_status").eq("business_id",invoice.business_id).eq("provider","stripe").maybeSingle(),
   ]);
@@ -55,6 +56,7 @@ export default async function PublicInvoice({params,searchParams}:{params:Promis
     }).eq("id",invoice.id).eq("business_id",invoice.business_id).eq("status","sent").select("id").maybeSingle();
     if(transitionError)console.error("Public invoice viewed transition failed",{code:transitionError.code,invoiceId:invoice.id});
     if(transition)await supabase.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"viewed"});
+    if(transition)await sendInvoiceFinancialEmail(invoice.id,"invoice_viewed");
   }
   const {error:accessEventError}=await supabase.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"public_link_accessed"});
   if(accessEventError)console.error("Public invoice access event failed",{code:accessEventError.code,invoiceId:invoice.id});

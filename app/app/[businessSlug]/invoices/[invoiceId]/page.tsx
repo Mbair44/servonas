@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import OfflinePaymentForm from "@/components/OfflinePaymentForm";
+import InvoicePaymentActions from "@/components/InvoicePaymentActions";
 import PrintButton from "@/components/PrintButton";
 import CopyLinkButton from "@/components/CopyLinkButton";
 import { canManageCustomers } from "@/lib/access";
 import { formatCents } from "@/lib/financial/priceBook";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../../WorkspaceNav";
-import { duplicateInvoice,recordOfflinePayment,resendInvoice,sendInvoice,voidInvoice } from "../actions";
+import { duplicateInvoice,recordOfflinePayment,refundInvoicePayment,resendInvoice,sendInvoice,voidInvoice,voidOfflinePayment } from "../actions";
 
 export default async function InvoiceDetail({params,searchParams}:{params:Promise<{businessSlug:string;invoiceId:string}>;searchParams:Promise<{success?:string;error?:string;publicLink?:string}>}){
   const {businessSlug,invoiceId}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
@@ -15,10 +16,17 @@ export default async function InvoiceDetail({params,searchParams}:{params:Promis
     supabase.from("invoices").select("*,customers!invoices_customer_fk(first_name,last_name,company_name,email),service_locations!invoices_location_fk(location_name,street_address,city,state,postal_code),jobs!invoices_job_fk(id,job_number,title),estimates!invoices_estimate_fk(id,estimate_number)").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
     supabase.from("invoice_line_items").select("*").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
     supabase.from("invoice_fees").select("*").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
-    supabase.from("payments").select("id,amount_cents,currency,payment_method_type,provider,status,received_at,offline_reference,created_at").eq("invoice_id",invoiceId).eq("business_id",business.id).order("created_at",{ascending:false}),
+    supabase.from("payments").select("id,amount_cents,refunded_amount_cents,currency,payment_method_type,provider,status,received_at,paid_at,offline_reference,offline_notes,recorded_by,void_reason,voided_at,provider_receipt_url,created_at").eq("invoice_id",invoiceId).eq("business_id",business.id).order("created_at",{ascending:false}),
     supabase.from("invoice_events").select("id,event_type,metadata,created_at").eq("invoice_id",invoiceId).eq("business_id",business.id).order("created_at",{ascending:false}),
   ]);
   if(!invoice)notFound();
+  const paymentIds=(payments??[]).map(payment=>payment.id);
+  const {data:refunds}=paymentIds.length?await supabase.from("payment_refunds")
+    .select("id,payment_id,amount_cents,status,refund_method,reason,offline_reference,requested_by,requested_at,completed_at,failure_message")
+    .eq("business_id",business.id).in("payment_id",paymentIds).order("requested_at",{ascending:false}):{data:[]};
+  const userIds=[...new Set([...(payments??[]).map(payment=>payment.recorded_by),...(refunds??[]).map(refund=>refund.requested_by)].filter(Boolean) as string[])];
+  const {data:actors}=userIds.length?await supabase.from("profiles").select("id,full_name,email").in("id",userIds):{data:[]};
+  const actorById=new Map((actors??[]).map(actor=>[actor.id,actor.full_name||actor.email]));
   const customer=Array.isArray(invoice.customers)?invoice.customers[0]:invoice.customers;
   const location=Array.isArray(invoice.service_locations)?invoice.service_locations[0]:invoice.service_locations;
   const job=Array.isArray(invoice.jobs)?invoice.jobs[0]:invoice.jobs;
@@ -40,7 +48,14 @@ export default async function InvoiceDetail({params,searchParams}:{params:Promis
       {invoice.customer_notes&&<div className="estimate-message"><h3>Customer note</h3><p>{invoice.customer_notes}</p></div>}
     </section><aside>
       {canPay&&<section className="workspace-panel"><h2>Record offline payment</h2><p>Use “Other / deposit application” when applying funds collected outside Servonas.</p><OfflinePaymentForm action={recordOfflinePayment.bind(null,businessSlug,invoiceId)} balance={(invoice.balance_due_cents/100).toFixed(2)}/></section>}
-      <section className="workspace-panel"><h2>Payment history</h2><div className="estimate-event-list">{payments?.length?payments.map(payment=><div key={payment.id}><strong>{formatCents(payment.amount_cents,payment.currency)} · {(payment.payment_method_type||payment.provider).replaceAll("_"," ")}</strong><span>{payment.status} · {new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(payment.received_at||payment.created_at))}</span>{payment.offline_reference&&<small>{payment.offline_reference}</small>}</div>):<p>No payments recorded.</p>}</div></section>
+      <section className="workspace-panel"><h2>Payment history</h2><div className="estimate-event-list payment-ledger">{payments?.length?payments.map(payment=>{
+        const paymentRefunds=(refunds??[]).filter(refund=>refund.payment_id===payment.id);
+        const refundable=Math.max(0,Number(payment.amount_cents)-Number(payment.refunded_amount_cents));
+        return <div key={payment.id}><strong>{formatCents(payment.amount_cents,payment.currency)} · {(payment.payment_method_type||payment.provider).replaceAll("_"," ")}</strong><span>{payment.status.replaceAll("_"," ")} · {new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(payment.received_at||payment.paid_at||payment.created_at))}</span>{payment.recorded_by&&<small>Received by {actorById.get(payment.recorded_by)||"authorized team member"}</small>}{payment.offline_reference&&<small>Reference: {payment.offline_reference}</small>}{payment.offline_notes&&<small>{payment.offline_notes}</small>}{payment.provider_receipt_url&&<a href={payment.provider_receipt_url} target="_blank" rel="noreferrer">View Stripe receipt</a>}{payment.void_reason&&<small>Void reason: {payment.void_reason}</small>}
+          {paymentRefunds.map(refund=><article className={`payment-refund ${refund.status}`} key={refund.id}><strong>Refund {formatCents(refund.amount_cents,payment.currency)} · {refund.status.replaceAll("_"," ")}</strong><span>{refund.refund_method.replaceAll("_"," ")} · {new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(refund.completed_at||refund.requested_at))}</span><small>Reason: {refund.reason}</small>{refund.requested_by&&<small>Requested by {actorById.get(refund.requested_by)||"authorized team member"}</small>}{refund.offline_reference&&<small>Reference: {refund.offline_reference}</small>}{refund.failure_message&&<small>Failure: {refund.failure_message}</small>}</article>)}
+          {canEdit&&<InvoicePaymentActions payment={{provider:payment.provider,status:payment.status,refundableCents:refundable,currency:payment.currency}} refundAction={refundInvoicePayment.bind(null,businessSlug,invoiceId,payment.id)} voidAction={payment.provider==="offline"?voidOfflinePayment.bind(null,businessSlug,invoiceId,payment.id):undefined}/>}
+        </div>;
+      }):<p>No payments recorded.</p>}</div></section>
       <section className="workspace-panel"><h2>Internal notes</h2><p>{invoice.internal_notes||"No internal notes."}</p></section>
       <section className="workspace-panel"><h2>Activity</h2><div className="estimate-event-list">{events?.map(event=><div key={event.id}><strong>{event.event_type.replaceAll("_"," ")}</strong><span>{new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(event.created_at))}</span></div>)}</div></section>
     </aside></div>

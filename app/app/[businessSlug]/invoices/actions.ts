@@ -9,6 +9,8 @@ import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { requireWorkspace } from "@/lib/workspace";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
+import { stripeClient,stripeProviderError } from "@/lib/stripeConnect";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import type { EstimateFeeDraft, EstimateLineDraft } from "../estimates/actions";
 
 export type InvoiceActionState={error?:string;fieldErrors?:Record<string,string>;values?:Record<string,string>};
@@ -160,6 +162,7 @@ export async function sendInvoice(slug:string,invoiceId:string){
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
   revalidatePath(`/app/${slug}/invoices`);
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
@@ -176,6 +179,7 @@ export async function resendInvoice(slug:string,invoiceId:string){
   if(error){console.error("Invoice portal link rotation failed",{code:error.code,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error","A new secure invoice link could not be created"));}
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id,metadata:{resend:true}});
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  await sendInvoiceFinancialEmail(invoiceId,"payment_link_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("New secure invoice link created")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
@@ -235,6 +239,87 @@ export async function recordOfflinePayment(slug:string,invoiceId:string,data:For
     p_notes:text(data,"notes"),p_idempotency_key:requestKey,
   });
   if(error){console.error("Offline invoice payment failed",{code:error.code,message:error.message,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error",error.code==="23514"?"Payment exceeds the balance or the invoice cannot accept payments.":"Payment could not be recorded. Apply the Checkpoint 6 migration if needed."));}
+  const {data:payment}=await supabase.from("payments").select("id").eq("business_id",business.id).eq("idempotency_key",requestKey).maybeSingle();
+  if(payment)await sendInvoiceFinancialEmail(invoiceId,"payment_succeeded",{paymentId:payment.id});
   revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
   redirect(path(slug,invoiceId,"success","Offline payment recorded"));
+}
+
+export async function voidOfflinePayment(slug:string,invoiceId:string,paymentId:string,data:FormData){
+  const {supabase,business,role}=await requireWorkspace(slug);
+  if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
+  const reason=text(data,"reason");
+  if(reason.length<3)redirect(path(slug,invoiceId,"error","Enter a payment void reason"));
+  const {error}=await supabase.rpc("void_invoice_offline_payment",{
+    p_business_id:business.id,p_payment_id:paymentId,p_reason:reason,
+  });
+  if(error){
+    console.error("Offline payment void failed",{code:error.code,businessId:business.id,invoiceId,paymentId});
+    redirect(path(slug,invoiceId,"error","This offline payment could not be voided"));
+  }
+  revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
+  redirect(path(slug,invoiceId,"success","Offline payment voided"));
+}
+
+export async function refundInvoicePayment(slug:string,invoiceId:string,paymentId:string,data:FormData){
+  const {supabase,business,role}=await requireWorkspace(slug);
+  if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
+  const amount=parseCurrencyToCents(text(data,"amount")),reason=text(data,"reason");
+  const method=text(data,"refundMethod"),requestKey=text(data,"requestKey");
+  if(amount===null||amount<=0)redirect(path(slug,invoiceId,"error","Enter a valid refund amount"));
+  if(reason.length<3)redirect(path(slug,invoiceId,"error","Enter a refund reason"));
+  if(!["provider","offline"].includes(method))redirect(path(slug,invoiceId,"error","Choose a valid refund method"));
+  if(!/^[0-9a-f-]{36}$/i.test(requestKey))redirect(path(slug,invoiceId,"error","Refresh before issuing the refund"));
+  const {data:payment,error:paymentError}=await supabase.from("payments")
+    .select("id,provider,provider_account_id,provider_payment_intent_id,amount_cents,refunded_amount_cents,status")
+    .eq("id",paymentId).eq("invoice_id",invoiceId).eq("business_id",business.id).maybeSingle();
+  if(paymentError||!payment)redirect(path(slug,invoiceId,"error","Payment not found"));
+  const refundable=Number(payment.amount_cents)-Number(payment.refunded_amount_cents);
+  if(!["succeeded","partially_refunded"].includes(payment.status)||amount>refundable){
+    redirect(path(slug,invoiceId,"error","Refund exceeds the refundable payment amount"));
+  }
+  if(method==="provider"&&(payment.provider!=="stripe"||!payment.provider_account_id||!payment.provider_payment_intent_id)){
+    redirect(path(slug,invoiceId,"error","A provider refund is unavailable for this payment"));
+  }
+  const {data:refundId,error:requestError}=await supabase.rpc("create_invoice_refund_request",{
+    p_business_id:business.id,p_payment_id:payment.id,p_amount_cents:amount,p_refund_method:method,
+    p_reason:reason,p_internal_notes:text(data,"notes"),p_offline_reference:text(data,"reference"),
+    p_idempotency_key:requestKey,
+  });
+  if(requestError||!refundId){
+    console.error("Invoice refund request failed",{code:requestError?.code,businessId:business.id,invoiceId,paymentId});
+    redirect(path(slug,invoiceId,"error","The refund request could not be created"));
+  }
+  let status:"pending"|"requires_action"|"succeeded"|"failed"|"canceled"="succeeded";
+  let providerRefundId:string|null=null,failureMessage:string|null=null;
+  if(method==="provider"){
+    try{
+      const stripe=stripeClient();
+      const refund=await stripe.refunds.create({
+        payment_intent:payment.provider_payment_intent_id,amount,
+        metadata:{servonas_kind:"invoice_refund",refund_id:String(refundId),invoice_id:invoiceId},
+      },{stripeAccount:payment.provider_account_id,idempotencyKey:`servonas-refund-${business.id}-${refundId}`});
+      providerRefundId=refund.id;
+      status=refund.status==="succeeded"?"succeeded":refund.status==="failed"?"failed":
+        refund.status==="canceled"?"canceled":refund.status==="requires_action"?"requires_action":"pending";
+      failureMessage=refund.failure_reason??null;
+    }catch(error){
+      const detail=stripeProviderError(error);
+      status="failed";failureMessage=detail.message;
+      console.error("Stripe invoice refund failed",{businessId:business.id,invoiceId,paymentId,refundId,...detail});
+    }
+  }
+  const {error:reconcileError}=await supabase.rpc("reconcile_invoice_refund",{
+    p_business_id:business.id,p_refund_id:refundId,p_status:status,
+    p_provider_refund_id:providerRefundId,p_failure_message:failureMessage,
+    p_completed_at:status==="succeeded"?new Date().toISOString():null,
+  });
+  if(reconcileError){
+    console.error("Invoice refund reconciliation failed",{code:reconcileError.code,businessId:business.id,invoiceId,paymentId,refundId,status});
+    redirect(path(slug,invoiceId,"error","The refund status could not be recorded. Do not retry until the payment history is checked."));
+  }
+  if(status==="succeeded")await sendInvoiceFinancialEmail(invoiceId,"refund_issued",{refundId:String(refundId),paymentId});
+  revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
+  if(status==="failed")redirect(path(slug,invoiceId,"error","The refund failed. No invoice balance was changed."));
+  redirect(path(slug,invoiceId,"success",status==="succeeded"?"Refund recorded":"Refund submitted; provider confirmation is pending"));
 }
