@@ -9,6 +9,7 @@ import { availableJobTransitions, canTransitionJob, type JobStatus } from "@/lib
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { requireWorkspace } from "@/lib/workspace";
 import { calculateDailyRoutes } from "@/lib/routing/routeCalculationService";
+import { publicRouteCalculationError } from "@/lib/routing/errors";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const dispatchPath = (slug: string, date: string, kind: "error" | "success", message: string) =>
@@ -39,7 +40,7 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
       serviceDate: date,
       reason: error instanceof Error ? error.message : String(error),
     });
-    redirect(dispatchPath(slug, date, "error", "Road routes could not be calculated. Review server routing configuration and logs."));
+    redirect(dispatchPath(slug, date, "error", publicRouteCalculationError(error)));
   }
   revalidatePath(`/app/${slug}/dispatch`);
   const message = result.failed || result.skipped
