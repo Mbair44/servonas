@@ -3,6 +3,30 @@ begin;
 
 alter table public.price_book_items add column if not exists technician_can_add boolean not null default true;
 
+-- Keep this migration self-contained for databases where the earlier technician
+-- access checkpoint was applied manually or its helper was omitted.
+create or replace function public.is_assigned_technician(
+  p_business_id uuid,
+  p_job_id uuid
+) returns boolean
+language sql stable security definer set search_path=public
+as $$
+  select exists (
+    select 1
+    from public.jobs j
+    join public.technician_profiles t
+      on t.id=j.assigned_technician_id and t.business_id=j.business_id
+    where j.id=p_job_id
+      and j.business_id=p_business_id
+      and j.is_deleted=false
+      and t.member_user_id=auth.uid()
+      and t.is_active=true
+      and t.is_technician=true
+  );
+$$;
+revoke all on function public.is_assigned_technician(uuid,uuid) from public;
+grant execute on function public.is_assigned_technician(uuid,uuid) to authenticated,service_role;
+
 create table if not exists public.financial_notification_events (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
