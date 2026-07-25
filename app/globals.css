@@ -559,3 +559,4 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 @media(max-width:1250px){.job-actions{grid-template-columns:1fr 1fr}}@media(max-width:640px){.job-actions{grid-template-columns:1fr}}
 .dispatch-toolbar{grid-template-columns:auto auto 1fr auto}
 @media(max-width:700px){.dispatch-toolbar{grid-template-columns:1fr}.dispatch-toolbar>form:last-child{width:100%}.dispatch-toolbar>form:last-child .sv-button{width:100%}}
+.schedule-day-column:has(.schedule-job[open]){z-index:15}.schedule-positioned-job:has(.schedule-job[open]){z-index:40}.schedule-job[open] .schedule-popover{z-index:60}
