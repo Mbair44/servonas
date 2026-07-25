@@ -6,6 +6,7 @@ import { conflictingDispatchJobIds, dispatchTechnicianState } from "@/lib/dispat
 import { routableLocationCoordinates, scheduledStopSequence } from "@/lib/dispatchMap";
 import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspace } from "@/lib/workspace";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { WorkspaceNav } from "../WorkspaceNav";
 import { assignDispatchJob, calculateDispatchRoutes, updateDispatchStatus } from "./actions";
 
@@ -48,6 +49,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const { businessSlug } = await params;
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
+  const canEdit = canManageCustomers(role);
+  const routingSupabase = canEdit ? getSupabaseAdmin() ?? supabase : supabase;
   const today = dateInTimeZone(new Date(), business.timezone);
   const date = validDate(query.date, today);
   const start = zonedDateTimeToUtc(date, "00:00", business.timezone).toISOString();
@@ -56,7 +59,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name,phone),service_locations!jobs_service_location_tenant_fk(street_address,unit,city,state,postal_code,latitude,longitude,geocoding_status),services!jobs_service_tenant_fk(name)")
       .eq("business_id", business.id).eq("is_deleted", false).gte("starts_at", start).lt("starts_at", end).not("status", "in", '("canceled","declined")').order("starts_at"),
     supabase.from("technician_profiles").select("id,display_name,phone,technician_status,schedule_color").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).order("display_name"),
-    supabase.from("route_plans").select("id,calculation_status").eq("business_id", business.id).eq("service_date", date).maybeSingle(),
+    routingSupabase.from("route_plans").select("id,calculation_status").eq("business_id", business.id).eq("service_date", date).maybeSingle(),
   ]);
   if (error) {
     console.error("Dispatch board query failed", { code: error.code, businessId: business.id });
@@ -68,7 +71,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     console.error("Dispatch route plan query failed", { code: routePlanError.code, businessId: business.id });
   }
   const { data: persistedRoutes, error: persistedRouteError } = routePlan
-    ? await supabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
+    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
     : { data: null, error: null };
   if (persistedRouteError) {
     console.error("Dispatch technician routes query failed", { code: persistedRouteError.code, businessId: business.id });
@@ -76,8 +79,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const routeIds = (persistedRoutes ?? []).map((route) => route.id);
   const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
     ? await Promise.all([
-      supabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
-      supabase.from("route_legs").select("to_route_stop_id,driving_distance_meters,driving_duration_seconds,calculation_status").eq("business_id", business.id).in("technician_route_id", routeIds),
+      routingSupabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
+      routingSupabase.from("route_legs").select("to_route_stop_id,driving_distance_meters,driving_duration_seconds,calculation_status").eq("business_id", business.id).in("technician_route_id", routeIds),
     ])
     : [{ data: null, error: null }, { data: null, error: null }];
   if (persistedStopError) {
@@ -88,7 +91,6 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   }
   const conflicts = conflictingDispatchJobIds(jobs);
   const unassigned = jobs.filter((job) => !job.assigned_technician_id);
-  const canEdit = canManageCustomers(role);
   const routeByTechnician = new Map((persistedRoutes ?? []).map((route) => [route.technician_id, route]));
   const stopByJob = new Map((persistedStops ?? []).map((stop) => [stop.job_id, stop]));
   const legByStop = new Map((persistedLegs ?? []).filter((leg) => leg.to_route_stop_id).map((leg) => [leg.to_route_stop_id!, leg]));
