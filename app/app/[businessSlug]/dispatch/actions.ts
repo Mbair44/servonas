@@ -10,6 +10,8 @@ import { validateJobSchedule } from "@/lib/jobScheduling";
 import { requireWorkspace } from "@/lib/workspace";
 import { calculateDailyRoutes } from "@/lib/routing/routeCalculationService";
 import { publicRouteCalculationError } from "@/lib/routing/errors";
+import { actualRouteImpactSummary, type RoadMetrics } from "@/lib/routing/impact";
+import { isRouteEditConflict, parseRoutePlanVersion, ROUTE_EDIT_CONFLICT_MESSAGE } from "@/lib/routing/concurrency";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const dispatchPath = (slug: string, date: string, kind: "error" | "success", message: string) =>
@@ -54,8 +56,9 @@ export async function reorderDispatchRoute(slug: string, formData: FormData) {
   const date = text(formData, "date");
   const technicianRouteId = text(formData, "technicianRouteId");
   const technicianId = text(formData, "technicianId");
+  const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
   if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to reorder routes."));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !technicianRouteId || !technicianId) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !technicianRouteId || !technicianId || !planVersion) {
     redirect(dispatchPath(slug, date, "error", "The route reorder request was incomplete."));
   }
   let orderedJobIds: string[];
@@ -69,15 +72,17 @@ export async function reorderDispatchRoute(slug: string, formData: FormData) {
   const { data: previousRoute } = await supabase.from("technician_routes")
     .select("driving_distance_meters,driving_duration_seconds")
     .eq("business_id", business.id).eq("id", technicianRouteId).maybeSingle();
-  const { error } = await supabase.rpc("reorder_technician_route_stops", {
+  const { error } = await supabase.rpc("reorder_technician_route_stops_versioned", {
     p_business_id: business.id,
     p_technician_route_id: technicianRouteId,
     p_ordered_job_ids: orderedJobIds,
+    p_expected_plan_version: planVersion,
     p_confirm_active: text(formData, "confirmActive") === "yes",
   });
   if (error) {
     console.error("Manual route reorder failed", { code: error.code, message: error.message, businessId: business.id, technicianRouteId });
-    const message = error.code === "55000" ? error.message : "The route order could not be saved.";
+    const message = isRouteEditConflict(error) ? ROUTE_EDIT_CONFLICT_MESSAGE
+      : error.code === "55000" ? error.message : "The route order could not be saved.";
     redirect(dispatchPath(slug, date, "error", message));
   }
   const admin = getSupabaseAdmin();
@@ -130,10 +135,12 @@ async function updateTechnicianOperationalState(
 }
 
 export async function assignDispatchJob(slug: string, jobId: string, formData: FormData) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspace(slug);
   const date = text(formData, "date");
   if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "Permission denied."));
   const technicianId = text(formData, "technicianId") || null;
+  const routePlanId = text(formData, "routePlanId") || null;
+  const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
   const { data: job } = await supabase.from("jobs").select("id,status,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!job) redirect(dispatchPath(slug, date, "error", "Job not found."));
   if (technicianId) {
@@ -151,10 +158,32 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
     technicianId, excludeJobId: jobId,
   });
   if (conflict) redirect(dispatchPath(slug, date, "error", conflict));
-  const { error } = await supabase.rpc("set_job_primary_technician", { p_job_id: jobId, p_technician_id: technicianId });
+  const admin = getSupabaseAdmin();
+  const affectedTechnicianIds = [...new Set([job.assigned_technician_id, technicianId].filter((value): value is string => Boolean(value)))];
+  const routeMetrics = async (technician: string) => {
+    if (!admin) return null;
+    const { data } = await admin.from("technician_routes")
+      .select("driving_distance_meters,driving_duration_seconds,technician_profiles!inner(display_name),route_plans!inner(service_date)")
+      .eq("business_id", business.id).eq("technician_id", technician).eq("route_plans.service_date", date).maybeSingle();
+    const profile = Array.isArray(data?.technician_profiles) ? data?.technician_profiles[0] : data?.technician_profiles;
+    return data ? {
+      name: profile?.display_name ?? "Technician",
+      metrics: {
+        drivingDistanceMeters: data.driving_distance_meters,
+        drivingDurationSeconds: data.driving_duration_seconds,
+      } satisfies RoadMetrics,
+    } : null;
+  };
+  const before = new Map(await Promise.all(affectedTechnicianIds.map(async (id) => [id, await routeMetrics(id)] as const)));
+  const { error } = routePlanId && planVersion
+    ? await supabase.rpc("reassign_dispatch_job_versioned", {
+      p_business_id: business.id, p_route_plan_id: routePlanId, p_job_id: jobId,
+      p_technician_id: technicianId, p_expected_plan_version: planVersion,
+    })
+    : await supabase.rpc("set_job_primary_technician", { p_job_id: jobId, p_technician_id: technicianId });
   if (error) {
-    console.error("Dispatch assignment failed", { code: error.code, businessId: business.id, jobId });
-    redirect(dispatchPath(slug, date, "error", "Assignment could not be updated."));
+    console.error("Dispatch assignment failed", { code: error.code, message: error.message, businessId: business.id, jobId });
+    redirect(dispatchPath(slug, date, "error", isRouteEditConflict(error) ? ROUTE_EDIT_CONFLICT_MESSAGE : "Assignment could not be updated."));
   }
   if (job.assigned_technician_id && job.assigned_technician_id !== technicianId) {
     await supabase.from("technician_profiles").update({ technician_status: "available" }).eq("id", job.assigned_technician_id).eq("business_id", business.id).neq("technician_status", "off_duty");
@@ -163,8 +192,36 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
     await supabase.from("technician_profiles").update({ technician_status: "assigned" }).eq("id", technicianId).eq("business_id", business.id).neq("technician_status", "off_duty");
   }
   if (technicianId && technicianId !== job.assigned_technician_id) await JobNotificationService.technicianAssigned(jobId);
+  let recalculationMessage = " Impacted routes are marked stale.";
+  if (admin && process.env.GOOGLE_ROUTES_API_KEY && affectedTechnicianIds.length) {
+    try {
+      for (const affectedTechnicianId of affectedTechnicianIds) {
+        await calculateDailyRoutes({
+          admin, businessId: business.id, serviceDate: date, businessTimeZone: business.timezone,
+          actorUserId: user.id, onlyTechnicianId: affectedTechnicianId,
+        });
+      }
+      const after = new Map(await Promise.all(affectedTechnicianIds.map(async (id) => [id, await routeMetrics(id)] as const)));
+      const comparable = affectedTechnicianIds.flatMap((id) => {
+        const oldRoute = before.get(id), newRoute = after.get(id);
+        return oldRoute && newRoute ? [{
+          technicianName: newRoute.name,
+          before: oldRoute.metrics,
+          after: newRoute.metrics,
+        }] : [];
+      });
+      const impact = comparable.length === affectedTechnicianIds.length ? actualRouteImpactSummary(comparable) : null;
+      recalculationMessage = impact ? ` Actual road impact: ${impact}` : " Impacted routes were recalculated; comparable before-and-after road metrics were not available.";
+    } catch (routeError) {
+      console.error("Assignment route recalculation failed", {
+        businessId: business.id, jobId, affectedTechnicianIds,
+        reason: routeError instanceof Error ? routeError.message : String(routeError),
+      });
+      recalculationMessage = " Assignment saved, but one or more impacted routes still need recalculation.";
+    }
+  }
   revalidatePath(`/app/${slug}/dispatch`); revalidatePath(`/app/${slug}/schedule`); revalidatePath(`/app/${slug}/jobs/${jobId}`);
-  redirect(dispatchPath(slug, date, "success", technicianId ? "Job assigned." : "Job moved to unassigned."));
+  redirect(dispatchPath(slug, date, "success", `${technicianId ? "Job assigned." : "Job moved to unassigned."}${recalculationMessage}`));
 }
 
 export async function updateDispatchStatus(slug: string, jobId: string, formData: FormData) {
