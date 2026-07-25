@@ -130,6 +130,9 @@ export default function DispatchMap({
   date,
   canReorder,
   reorderAction,
+  planVersion,
+  calculationRevision,
+  planUpdatedAt,
 }: {
   apiKey?: string;
   jobs: DispatchMapJob[];
@@ -138,6 +141,9 @@ export default function DispatchMap({
   date: string;
   canReorder: boolean;
   reorderAction: (formData: FormData) => void | Promise<void>;
+  planVersion: number | null;
+  calculationRevision: number | null;
+  planUpdatedAt: string | null;
 }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<InstanceType<MapsObject["Map"]> | null>(null);
@@ -306,6 +312,7 @@ export default function DispatchMap({
           <small>Daily route workspace</small>
           <h2 id="dispatch-map-title">Dispatch map</h2>
           <p>{mappedCount} mapped · {warnings.filter((warning) => warning.severity === "critical").length} critical · {warnings.filter((warning) => warning.severity === "warning").length} warnings</p>
+          {planVersion !== null && <small className="dispatch-plan-revision">Plan v{planVersion} · Calculation {calculationRevision ?? 0} · Updated {planUpdatedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(planUpdatedAt)) : "unknown"}</small>}
         </div>
         <div className="dispatch-map-buttons">
           <button type="button" className="sv-button sv-secondary" onClick={() => fitVisible.current?.()}>Fit visible</button>
@@ -387,6 +394,7 @@ export default function DispatchMap({
                     <input type="hidden" name="date" value={date}/>
                     <input type="hidden" name="technicianRouteId" value={route.technicianRouteId}/>
                     <input type="hidden" name="technicianId" value={route.technicianId}/>
+                    <input type="hidden" name="planVersion" value={planVersion ?? ""}/>
                     <input type="hidden" name="orderedJobIds" value={JSON.stringify(order)}/>
                     <strong>Preview new stop order?</strong>
                     <p>The affected route will be recalculated using actual driving roads. No savings are estimated until calculation finishes.</p>

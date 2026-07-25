@@ -13,6 +13,61 @@ export async function updateBusinessSettings(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/settings`); redirect(`/app/${slug}/settings?success=Settings+saved`);
 }
 
+const coordinate=(formData:FormData,key:string)=>{
+ const value=text(formData,key); if(!value)return null; const parsed=Number(value); return Number.isFinite(parsed)?parsed:NaN;
+};
+export async function updateRouteEndpoints(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can manage route endpoints.")}`);
+ const technicianId=text(formData,"technicianId");
+ const startMode=text(formData,"startMode"),endMode=text(formData,"endMode");
+ const latitude=coordinate(formData,technicianId?"homeLatitude":"officeLatitude");
+ const longitude=coordinate(formData,technicianId?"homeLongitude":"officeLongitude");
+ if(Number.isNaN(latitude)||Number.isNaN(longitude)||(latitude===null)!==(longitude===null)){
+  redirect(`/app/${slug}/settings?error=${encodeURIComponent("Enter a valid latitude and longitude pair.")}#route-endpoints`);
+ }
+ if(technicianId){
+  const usesHome=startMode==="home"||endMode==="home";
+  const customStartLatitude=coordinate(formData,"customStartLatitude"),customStartLongitude=coordinate(formData,"customStartLongitude");
+  const customEndLatitude=coordinate(formData,"customEndLatitude"),customEndLongitude=coordinate(formData,"customEndLongitude");
+  if((startMode==="custom"&&(!text(formData,"customStartAddress")||customStartLatitude===null||customStartLongitude===null||Number.isNaN(customStartLatitude)||Number.isNaN(customStartLongitude)))||(endMode==="custom"&&(!text(formData,"customEndAddress")||customEndLatitude===null||customEndLongitude===null||Number.isNaN(customEndLatitude)||Number.isNaN(customEndLongitude))))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Custom endpoints require an address and verified coordinates.")}#route-endpoints`);
+  const payload={
+   business_id:business.id,technician_id:technicianId,start_mode:startMode||"inherit",end_mode:endMode||"inherit",
+   home_label:text(formData,"homeLabel")||"Technician home",
+   home_address:usesHome?text(formData,"homeAddress")||null:null,
+   home_latitude:usesHome?latitude:null,home_longitude:usesHome?longitude:null,
+   custom_start_label:startMode==="custom"?text(formData,"customStartLabel")||"Custom start":null,
+   custom_start_address:startMode==="custom"?text(formData,"customStartAddress")||null:null,
+   custom_start_latitude:startMode==="custom"?customStartLatitude:null,custom_start_longitude:startMode==="custom"?customStartLongitude:null,
+   custom_end_label:endMode==="custom"?text(formData,"customEndLabel")||"Custom end":null,
+   custom_end_address:endMode==="custom"?text(formData,"customEndAddress")||null:null,
+   custom_end_latitude:endMode==="custom"?customEndLatitude:null,custom_end_longitude:endMode==="custom"?customEndLongitude:null,updated_by:user.id,
+  };
+  if(usesHome&&(!payload.home_address||latitude===null))redirect(`/app/${slug}/settings?error=${encodeURIComponent("A private home address and verified coordinates are required when routing from home.")}#route-endpoints`);
+  const {error}=await supabase.from("technician_route_endpoint_overrides").upsert(payload,{onConflict:"business_id,technician_id"});
+  if(error){console.error("Private technician endpoint update failed",{code:error.code,businessId:business.id,technicianId});redirect(`/app/${slug}/settings?error=${encodeURIComponent("Technician route endpoints could not be saved.")}#route-endpoints`);}
+ }else{
+  const usesOffice=startMode==="office"||endMode==="office";
+  const customStartLatitude=coordinate(formData,"customStartLatitude"),customStartLongitude=coordinate(formData,"customStartLongitude");
+  const customEndLatitude=coordinate(formData,"customEndLatitude"),customEndLongitude=coordinate(formData,"customEndLongitude");
+  if((startMode==="custom"&&(!text(formData,"customStartAddress")||customStartLatitude===null||customStartLongitude===null||Number.isNaN(customStartLatitude)||Number.isNaN(customStartLongitude)))||(endMode==="custom"&&(!text(formData,"customEndAddress")||customEndLatitude===null||customEndLongitude===null||Number.isNaN(customEndLatitude)||Number.isNaN(customEndLongitude))))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Custom endpoints require an address and verified coordinates.")}#route-endpoints`);
+  const payload={business_id:business.id,start_mode:startMode||"first_job",end_mode:endMode||"last_job",
+   office_label:text(formData,"officeLabel")||"Main office",office_address:usesOffice?text(formData,"officeAddress")||null:null,
+   office_latitude:usesOffice?latitude:null,office_longitude:usesOffice?longitude:null,
+   custom_start_label:startMode==="custom"?text(formData,"customStartLabel")||"Custom start":null,
+   custom_start_address:startMode==="custom"?text(formData,"customStartAddress")||null:null,
+   custom_start_latitude:startMode==="custom"?customStartLatitude:null,custom_start_longitude:startMode==="custom"?customStartLongitude:null,
+   custom_end_label:endMode==="custom"?text(formData,"customEndLabel")||"Custom end":null,
+   custom_end_address:endMode==="custom"?text(formData,"customEndAddress")||null:null,
+   custom_end_latitude:endMode==="custom"?customEndLatitude:null,custom_end_longitude:endMode==="custom"?customEndLongitude:null,updated_by:user.id};
+  if(usesOffice&&(!payload.office_address||latitude===null))redirect(`/app/${slug}/settings?error=${encodeURIComponent("An office address and verified coordinates are required when office routing is selected.")}#route-endpoints`);
+  const {error}=await supabase.from("business_route_endpoint_defaults").upsert(payload,{onConflict:"business_id"});
+  if(error){console.error("Business route endpoint update failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/settings?error=${encodeURIComponent("Business route defaults could not be saved.")}#route-endpoints`);}
+ }
+ revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/dispatch`);
+ redirect(`/app/${slug}/settings?success=${encodeURIComponent("Route endpoints saved. Existing routes are marked stale.")}#route-endpoints`);
+}
+
 const stripeResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings?${kind}=${encodeURIComponent(message)}#payments`;
 
 export async function connectStripe(slug:string){
