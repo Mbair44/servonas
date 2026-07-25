@@ -9,6 +9,7 @@ import {
   splitRouteWaypoints,
   type RouteSegment,
 } from "./segmentation";
+import { resolveRouteEndpoints } from "./endpoints";
 
 type RouteJob = {
   id: string;
@@ -147,9 +148,30 @@ export async function calculateDailyRoutes({
       summary.skipped += 1;
       continue;
     }
+    const first = routable[0], last = routable.at(-1)!;
+    const endpoints = await resolveRouteEndpoints({
+      admin, businessId, technicianId, firstStop: first.waypoint, lastStop: last.waypoint,
+    });
+    if ((endpoints.origin.type !== "none" && !endpoints.origin.waypoint)
+      || (endpoints.destination.type !== "none" && !endpoints.destination.waypoint)) {
+      await admin.from("technician_routes").update({
+        calculation_status: "failed", encoded_polyline: null,
+        driving_distance_meters: null, driving_duration_seconds: null,
+        error_code: "route_endpoint_coordinates_missing",
+      }).eq("business_id", businessId).eq("route_plan_id", plan.id).eq("technician_id", technicianId);
+      summary.skipped += 1;
+      continue;
+    }
+    const calculationWaypoints = [
+      ...(endpoints.origin.type !== "first_stop" && endpoints.origin.waypoint ? [endpoints.origin.waypoint] : []),
+      ...routable.map((item) => item.waypoint),
+      ...(endpoints.destination.type !== "last_stop" && endpoints.destination.waypoint ? [endpoints.destination.waypoint] : []),
+    ];
     const routeSignature = signature({
       provider: provider.name,
       travelMode: plan.travel_mode,
+      origin: endpoints.origin.waypoint,
+      destination: endpoints.destination.waypoint,
       stops: routable.map(({ job, waypoint }) => ({
         id: job.id, latitude: waypoint.latitude, longitude: waypoint.longitude,
         startsAt: job.starts_at, endsAt: job.ends_at, duration: job.estimated_duration_minutes,
@@ -164,13 +186,18 @@ export async function calculateDailyRoutes({
       planDuration += existing.driving_duration_seconds ?? 0;
       continue;
     }
-    const first = routable[0], last = routable.at(-1)!;
     const { data: technicianRoute, error: routeError } = await admin.from("technician_routes").upsert({
       business_id: businessId, route_plan_id: plan.id, technician_id: technicianId,
-      origin_type: "first_stop", origin_label: first.location.street_address,
-      origin_latitude: first.waypoint.latitude, origin_longitude: first.waypoint.longitude,
-      destination_type: "last_stop", destination_label: last.location.street_address,
-      destination_latitude: last.waypoint.latitude, destination_longitude: last.waypoint.longitude,
+      origin_type: endpoints.origin.type, origin_label: endpoints.origin.label,
+      origin_address_snapshot: endpoints.origin.isPrivate ? null : endpoints.origin.address,
+      origin_latitude: endpoints.origin.isPrivate ? null : endpoints.origin.waypoint?.latitude ?? null,
+      origin_longitude: endpoints.origin.isPrivate ? null : endpoints.origin.waypoint?.longitude ?? null,
+      origin_is_private: endpoints.origin.isPrivate,
+      destination_type: endpoints.destination.type, destination_label: endpoints.destination.label,
+      destination_address_snapshot: endpoints.destination.isPrivate ? null : endpoints.destination.address,
+      destination_latitude: endpoints.destination.isPrivate ? null : endpoints.destination.waypoint?.latitude ?? null,
+      destination_longitude: endpoints.destination.isPrivate ? null : endpoints.destination.waypoint?.longitude ?? null,
+      destination_is_private: endpoints.destination.isPrivate,
       stop_count: routable.length,
       service_duration_seconds: routable.reduce((total, item) => total + (item.job.estimated_duration_minutes ?? 0) * 60, 0),
       provider: provider.name, calculation_status: "calculating", calculation_signature: routeSignature,
@@ -197,7 +224,7 @@ export async function calculateDailyRoutes({
       summary.failed += 1;
       continue;
     }
-    if (routable.length === 1) {
+    if (calculationWaypoints.length === 1) {
       const now = new Date().toISOString();
       await admin.from("route_stops").update({ calculation_status: "ready" }).eq("id", stops[0].id);
       await admin.from("technician_routes").update({ calculation_status: "ready", driving_distance_meters: 0, driving_duration_seconds: 0, calculated_at: now }).eq("id", technicianRoute.id);
@@ -211,7 +238,7 @@ export async function calculateDailyRoutes({
       continue;
     }
     const stopByJob = new Map(stops.map((stop) => [stop.job_id, stop]));
-    const segments = splitRouteWaypoints(routable.map((item) => item.waypoint));
+    const segments = splitRouteWaypoints(calculationWaypoints);
     const outcomes: Array<{ segment: RouteSegment; result?: DrivingRouteResult; error?: string }> = [];
     for (const segment of segments) {
       const input: ComputeRouteInput = {
@@ -237,7 +264,8 @@ export async function calculateDailyRoutes({
     const failedOutcomes = outcomes.filter((outcome) => !outcome.result);
     type PersistedLeg = {
       business_id: string; technician_route_id: string;
-      from_route_stop_id: string; to_route_stop_id: string;
+      from_route_stop_id: string | null; to_route_stop_id: string | null;
+      from_origin_type: string | null; to_destination_type: string | null;
       sequence: number; driving_distance_meters: number | null; driving_duration_seconds: number | null;
       encoded_polyline: string | null; provider: string; provider_request_id: string | null;
       calculation_status: "ready" | "failed"; calculated_at: string | null;
@@ -249,8 +277,10 @@ export async function calculateDailyRoutes({
       if (segmentResult) {
         legRows.push(...segmentResult.legs.map((leg, localIndex) => ({
           business_id: businessId, technician_route_id: technicianRoute.id,
-          from_route_stop_id: stopByJob.get(leg.fromWaypointId)!.id,
-          to_route_stop_id: stopByJob.get(leg.toWaypointId)!.id,
+          from_route_stop_id: stopByJob.get(leg.fromWaypointId)?.id ?? null,
+          to_route_stop_id: stopByJob.get(leg.toWaypointId)?.id ?? null,
+          from_origin_type: leg.fromWaypointId === "__start" ? endpoints.origin.type === "technician" ? "technician" : endpoints.origin.type : null,
+          to_destination_type: leg.toWaypointId === "__end" ? endpoints.destination.type === "technician" ? "technician" : endpoints.destination.type : null,
           sequence: outcome.segment.startWaypointIndex + localIndex + 1,
           driving_distance_meters: leg.drivingDistanceMeters,
           driving_duration_seconds: leg.drivingDurationSeconds,
@@ -264,8 +294,10 @@ export async function calculateDailyRoutes({
       }
       legRows.push(...outcome.segment.waypoints.slice(0, -1).map((waypoint, localIndex) => ({
         business_id: businessId, technician_route_id: technicianRoute.id,
-        from_route_stop_id: stopByJob.get(waypoint.id)!.id,
-        to_route_stop_id: stopByJob.get(outcome.segment.waypoints[localIndex + 1].id)!.id,
+        from_route_stop_id: stopByJob.get(waypoint.id)?.id ?? null,
+        to_route_stop_id: stopByJob.get(outcome.segment.waypoints[localIndex + 1].id)?.id ?? null,
+        from_origin_type: waypoint.id === "__start" ? endpoints.origin.type === "technician" ? "technician" : endpoints.origin.type : null,
+        to_destination_type: outcome.segment.waypoints[localIndex + 1].id === "__end" ? endpoints.destination.type === "technician" ? "technician" : endpoints.destination.type : null,
         sequence: outcome.segment.startWaypointIndex + localIndex + 1,
         driving_distance_meters: null, driving_duration_seconds: null,
         encoded_polyline: null, provider: provider.name, provider_request_id: null,
@@ -280,7 +312,8 @@ export async function calculateDailyRoutes({
       summary.failed += 1;
       continue;
     }
-    const readyLegBySequence = new Map(legRows.filter((leg) => leg.calculation_status === "ready").map((leg) => [leg.sequence, leg]));
+    const readyTravelByPair = new Map(readyOutcomes.flatMap((outcome) => outcome.result.legs)
+      .map((leg) => [`${leg.fromWaypointId}:${leg.toWaypointId}`, leg]));
     let arrivalMs = new Date(first.job.starts_at).getTime();
     let arrivalKnown = true;
     for (let index = 0; index < routable.length; index += 1) {
@@ -297,9 +330,10 @@ export async function calculateDailyRoutes({
         calculation_status: "failed", error_code: "prior_segment_failed",
         planned_arrival_at: item.job.starts_at, planned_departure_at: item.job.ends_at,
       }).eq("id", stopByJob.get(item.job.id)!.id);
-      const nextLeg = readyLegBySequence.get(index + 1);
+      const nextJob = routable[index + 1]?.job;
+      const nextLeg = nextJob ? readyTravelByPair.get(`${item.job.id}:${nextJob.id}`) : null;
       if (index < routable.length - 1 && !nextLeg) arrivalKnown = false;
-      if (arrivalKnown && nextLeg) arrivalMs = departureMs + Number(nextLeg.driving_duration_seconds) * 1000;
+      if (arrivalKnown && nextLeg) arrivalMs = departureMs + nextLeg.drivingDurationSeconds * 1000;
     }
     const routeDistance = readyOutcomes.reduce((total, outcome) => total + outcome.result.drivingDistanceMeters, 0);
     const routeDuration = readyOutcomes.reduce((total, outcome) => total + outcome.result.drivingDurationSeconds, 0);

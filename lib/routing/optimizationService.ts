@@ -22,7 +22,7 @@ export async function generateRouteOptimizationSuggestions({
   const provider = new GoogleRoutesProvider(process.env.GOOGLE_ROUTES_API_KEY ?? "");
   const [{ data: plan }, { data: routes }, { data: stopRows }] = await Promise.all([
     admin.from("route_plans").select("id,version,travel_mode,total_driving_distance_meters,total_driving_duration_seconds").eq("id", routePlanId).eq("business_id", businessId).single(),
-    admin.from("technician_routes").select("id,technician_id,driving_distance_meters,driving_duration_seconds,calculation_status").eq("route_plan_id", routePlanId).eq("business_id", businessId),
+    admin.from("technician_routes").select("id,technician_id,origin_type,destination_type,driving_distance_meters,driving_duration_seconds,calculation_status").eq("route_plan_id", routePlanId).eq("business_id", businessId),
     admin.from("route_stops").select("id,technician_route_id,job_id,sequence,is_locked,latitude,longitude,service_duration_seconds,appointment_window_start,appointment_window_end,jobs!route_stops_job_tenant_fk(status,starts_at,ends_at)").eq("route_plan_id", routePlanId).eq("business_id", businessId).order("sequence"),
   ]);
   if (!plan || plan.version !== expectedPlanVersion) throw new Error("This route changed while you were editing it. Refresh the route plan before applying your changes.");
@@ -49,7 +49,8 @@ export async function generateRouteOptimizationSuggestions({
   let afterDuration = Number(plan.total_driving_duration_seconds ?? 0);
   try {
     for (const route of routes ?? []) {
-      if (route.calculation_status !== "ready" || route.driving_distance_meters === null || route.driving_duration_seconds === null) continue;
+      if (route.calculation_status !== "ready" || route.driving_distance_meters === null || route.driving_duration_seconds === null
+        || !["first_stop", "none"].includes(route.origin_type) || !["last_stop", "none"].includes(route.destination_type)) continue;
       const routeRows = stops.filter((stop) => stop.technician_route_id === route.id);
       if (routeRows.length < 3 || routeRows.length > 27 || routeRows.some((stop) => stop.latitude === null || stop.longitude === null)) continue;
       const normalized: OptimizationStop[] = routeRows.map((stop) => {
