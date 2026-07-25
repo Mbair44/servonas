@@ -5,6 +5,7 @@ import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { conflictingDispatchJobIds, dispatchTechnicianState } from "@/lib/dispatchBoard";
 import { routableLocationCoordinates, scheduledStopSequence } from "@/lib/dispatchMap";
 import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransitions";
+import { evaluateRouteWarnings } from "@/lib/routing/warnings";
 import { requireWorkspace } from "@/lib/workspace";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { WorkspaceNav } from "../WorkspaceNav";
@@ -71,7 +72,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     console.error("Dispatch route plan query failed", { code: routePlanError.code, businessId: business.id });
   }
   const { data: persistedRoutes, error: persistedRouteError } = routePlan
-    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
+    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_type,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
     : { data: null, error: null };
   if (persistedRouteError) {
     console.error("Dispatch technician routes query failed", {
@@ -163,6 +164,34 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       hasConflict: conflicts.has(job.id),
     };
   });
+  const routeWarnings = evaluateRouteWarnings({
+    routes: technicians.filter((technician) => jobs.some((job) => job.assigned_technician_id === technician.id)).map((technician) => {
+      const persisted = routeByTechnician.get(technician.id);
+      return {
+        technicianId: technician.id, technicianName: technician.display_name,
+        calculationStatus: persisted?.calculation_status ?? routePlan?.calculation_status ?? "not_calculated",
+        originType: persisted?.origin_type ?? null,
+        drivingDistanceMeters: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_distance_meters : null,
+        drivingDurationSeconds: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_duration_seconds : null,
+      };
+    }),
+    stops: jobs.map((job) => {
+      const location = relation(job.service_locations);
+      const coordinates = routableLocationCoordinates({ geocodingStatus: location?.geocoding_status, latitude: location?.latitude, longitude: location?.longitude });
+      const persistedStop = stopByJob.get(job.id);
+      const persistedLeg = persistedStop ? legByStop.get(persistedStop.id) : null;
+      return {
+        jobId: job.id, jobNumber: job.job_number, title: job.title,
+        technicianId: job.assigned_technician_id,
+        sequence: persistedStop?.sequence ?? sequenceByJob.get(job.id) ?? null,
+        startsAt: job.starts_at, endsAt: job.ends_at,
+        arrivalWindowStart: job.arrival_window_start, arrivalWindowEnd: job.arrival_window_end,
+        plannedArrivalAt: persistedStop?.planned_arrival_at ?? null,
+        hasCoordinates: coordinates !== null, hasScheduleConflict: conflicts.has(job.id),
+        inboundDrivingDurationSeconds: persistedLeg?.calculation_status === "ready" ? persistedLeg.driving_duration_seconds : null,
+      };
+    }),
+  });
   const hrefFor = (nextDate: string) => `/app/${businessSlug}/dispatch?date=${nextDate}`;
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content dispatch-page">
     <header className="epic3-header"><div><small>Field service operations</small><h1>Dispatch board</h1><p>Coordinate today’s field work in {business.timezone}.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/schedule?date=${date}&view=day`}>Open schedule</Link></header>
@@ -170,7 +199,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     {persistedRouteError && <div className="workspace-notice error">Saved routes could not be loaded ({persistedRouteError.code}): {persistedRouteError.message}</div>}
     {!persistedRouteError && routePlan?.calculation_status === "ready" && (persistedRoutes?.length ?? 0) === 0 && <div className="workspace-notice error">The route plan is marked ready but contains no technician routes. Recalculate the selected date to rebuild its route records.</div>}
     <section className="workspace-panel dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date, -1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date, 1))}>›</Link></div><form><label>Date<input name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</strong>{canEdit&&<form action={calculateDispatchRoutes.bind(null,businessSlug)}><input type="hidden" name="date" value={date}/><button className="sv-button" type="submit">{routePlan?.calculation_status==="ready"?"Recalculate roads":"Calculate road routes"}</button></form>}</section>
-    <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes}/>
+    <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes} warnings={routeWarnings}/>
     <div className="dispatch-list-heading"><div><small>Map-independent controls</small><h2>Dispatch assignments</h2></div><p>Assignment, status, contact, and schedule controls remain available if the map provider is unavailable.</p></div>
     <div className="dispatch-board">
       <section className="dispatch-column unassigned"><header><div><span className="dispatch-avatar">?</span><div><h2>Unassigned</h2><small>{unassigned.length} jobs</small></div></div></header><div className="dispatch-card-list">{unassigned.length ? unassigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone}/>) : <div className="dispatch-empty">No unassigned jobs.</div>}</div></section>
