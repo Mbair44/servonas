@@ -257,5 +257,14 @@ export async function calculateDailyRoutes({
     error_code: finalStatus === "failed" ? "no_routes_calculated" : null,
     stale_at: null,
   }).eq("id", plan.id).eq("business_id", businessId);
+  const { data: verifiedRoutes, error: verificationError } = await admin.from("technician_routes")
+    .select("id,calculation_status,encoded_polyline,stop_count")
+    .eq("business_id", businessId).eq("route_plan_id", plan.id);
+  if (verificationError) {
+    throw new Error(databaseFailure("Calculated routes could not be verified", verificationError));
+  }
+  if (groups.size > 0 && (verifiedRoutes?.length ?? 0) === 0) {
+    throw new Error("Route calculation persisted no technician route records.");
+  }
   return summary;
 }

@@ -74,7 +74,13 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
     : { data: null, error: null };
   if (persistedRouteError) {
-    console.error("Dispatch technician routes query failed", { code: persistedRouteError.code, businessId: business.id });
+    console.error("Dispatch technician routes query failed", {
+      code: persistedRouteError.code,
+      message: persistedRouteError.message,
+      details: persistedRouteError.details,
+      hint: persistedRouteError.hint,
+      businessId: business.id,
+    });
   }
   const routeIds = (persistedRoutes ?? []).map((route) => route.id);
   const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
@@ -158,6 +164,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content dispatch-page">
     <header className="epic3-header"><div><small>Field service operations</small><h1>Dispatch board</h1><p>Coordinate today’s field work in {business.timezone}.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/schedule?date=${date}&view=day`}>Open schedule</Link></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
+    {persistedRouteError && <div className="workspace-notice error">Saved routes could not be loaded ({persistedRouteError.code}): {persistedRouteError.message}</div>}
+    {!persistedRouteError && routePlan?.calculation_status === "ready" && (persistedRoutes?.length ?? 0) === 0 && <div className="workspace-notice error">The route plan is marked ready but contains no technician routes. Recalculate the selected date to rebuild its route records.</div>}
     <section className="workspace-panel dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date, -1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date, 1))}>›</Link></div><form><label>Date<input name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</strong>{canEdit&&<form action={calculateDispatchRoutes.bind(null,businessSlug)}><input type="hidden" name="date" value={date}/><button className="sv-button" type="submit">{routePlan?.calculation_status==="ready"?"Recalculate roads":"Calculate road routes"}</button></form>}</section>
     <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes}/>
     <div className="dispatch-list-heading"><div><small>Map-independent controls</small><h2>Dispatch assignments</h2></div><p>Assignment, status, contact, and schedule controls remain available if the map provider is unavailable.</p></div>
