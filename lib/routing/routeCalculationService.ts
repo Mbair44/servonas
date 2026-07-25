@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { GoogleRoutesProvider } from "./googleRoutesProvider";
-import type { ComputeRouteInput, RoutingProvider, RouteWaypoint } from "./domain";
+import type { ComputeRouteInput, DrivingRouteResult, RoutingProvider, RouteWaypoint } from "./domain";
+import {
+  mergeEncodedPolylines,
+  SERVONAS_MAX_DAILY_ROUTE_STOPS,
+  splitRouteWaypoints,
+  type RouteSegment,
+} from "./segmentation";
 
 type RouteJob = {
   id: string;
@@ -49,6 +55,7 @@ export type RouteCalculationSummary = {
   calculated: number;
   cached: number;
   failed: number;
+  partial: number;
   skipped: number;
 };
 
@@ -101,7 +108,7 @@ export async function calculateDailyRoutes({
   if (removedRouteIds.length) {
     await admin.from("technician_routes").delete().eq("business_id", businessId).in("id", removedRouteIds);
   }
-  const summary: RouteCalculationSummary = { calculated: 0, cached: 0, failed: 0, skipped: 0 };
+  const summary: RouteCalculationSummary = { calculated: 0, cached: 0, failed: 0, partial: 0, skipped: 0 };
   let planDistance = 0;
   let planDuration = 0;
 
@@ -181,73 +188,126 @@ export async function calculateDailyRoutes({
       summary.calculated += 1;
       continue;
     }
-    if (routable.length > 27) {
-      await admin.from("technician_routes").update({ calculation_status: "failed", error_code: "waypoint_limit" }).eq("id", technicianRoute.id);
-      await admin.from("route_stops").update({ calculation_status: "failed", error_code: "waypoint_limit" }).eq("technician_route_id", technicianRoute.id);
+    if (routable.length > SERVONAS_MAX_DAILY_ROUTE_STOPS) {
+      await admin.from("technician_routes").update({ calculation_status: "failed", error_code: "daily_stop_limit" }).eq("id", technicianRoute.id);
+      await admin.from("route_stops").update({ calculation_status: "failed", error_code: "daily_stop_limit" }).eq("technician_route_id", technicianRoute.id);
       summary.failed += 1;
       continue;
     }
-    const input: ComputeRouteInput = {
-      origin: first.waypoint,
-      intermediates: routable.slice(1, -1).map((item) => item.waypoint),
-      destination: last.waypoint,
-      travelMode: plan.travel_mode,
-      departureAt: new Date(first.job.starts_at).getTime() > Date.now() ? first.job.starts_at : undefined,
-    };
-    try {
-      const result = await provider.computeRoute(input);
-      const stopByJob = new Map(stops.map((stop) => [stop.job_id, stop]));
-      const legs = result.legs.map((leg, index) => ({
-        business_id: businessId, technician_route_id: technicianRoute.id,
-        from_route_stop_id: stopByJob.get(leg.fromWaypointId)?.id,
-        to_route_stop_id: stopByJob.get(leg.toWaypointId)?.id,
-        sequence: index + 1, driving_distance_meters: leg.drivingDistanceMeters,
-        driving_duration_seconds: leg.drivingDurationSeconds, encoded_polyline: leg.encodedPolyline,
-        provider: result.provider, provider_request_id: result.providerRequestId,
-        calculation_status: "ready", calculated_at: result.calculatedAt,
-        provider_warnings: leg.providerWarnings,
-      }));
-      const { error: legError } = await admin.from("route_legs").insert(legs);
-      if (legError) throw new Error(`Route legs could not be stored (${legError.code}).`);
-      let arrivalMs = new Date(first.job.starts_at).getTime();
-      for (let index = 0; index < routable.length; index += 1) {
-        const item = routable[index];
-        const appointmentStart = item.job.arrival_window_start ? new Date(item.job.arrival_window_start).getTime() : null;
-        if (appointmentStart !== null) arrivalMs = Math.max(arrivalMs, appointmentStart);
-        const serviceSeconds = (item.job.estimated_duration_minutes ?? 0) * 60;
-        const departureMs = arrivalMs + serviceSeconds * 1000;
-        await admin.from("route_stops").update({
-          calculation_status: "ready",
-          planned_arrival_at: new Date(arrivalMs).toISOString(),
-          planned_departure_at: new Date(departureMs).toISOString(),
-        }).eq("id", stopByJob.get(item.job.id)!.id);
-        arrivalMs = departureMs + (result.legs[index]?.drivingDurationSeconds ?? 0) * 1000;
+    const stopByJob = new Map(stops.map((stop) => [stop.job_id, stop]));
+    const segments = splitRouteWaypoints(routable.map((item) => item.waypoint));
+    const outcomes: Array<{ segment: RouteSegment; result?: DrivingRouteResult; error?: string }> = [];
+    for (const segment of segments) {
+      const input: ComputeRouteInput = {
+        origin: segment.waypoints[0],
+        intermediates: segment.waypoints.slice(1, -1),
+        destination: segment.waypoints.at(-1)!,
+        travelMode: plan.travel_mode,
+        departureAt: segment.index === 0 && new Date(first.job.starts_at).getTime() > Date.now()
+          ? first.job.starts_at : undefined,
+      };
+      try {
+        outcomes.push({ segment, result: await provider.computeRoute(input) });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.error("Technician route segment calculation failed", {
+          businessId, technicianId, segmentIndex: segment.index,
+          segmentCount: segments.length, provider: provider.name, reason,
+        });
+        outcomes.push({ segment, error: reason });
       }
-      await admin.from("technician_routes").update({
-        calculation_status: "ready", encoded_polyline: result.encodedPolyline,
-        driving_distance_meters: result.drivingDistanceMeters,
-        driving_duration_seconds: result.drivingDurationSeconds,
-        provider: result.provider, provider_route_id: result.providerRequestId,
-        calculated_at: result.calculatedAt, stale_at: null,
-      }).eq("id", technicianRoute.id);
-      planDistance += result.drivingDistanceMeters;
-      planDuration += result.drivingDurationSeconds;
-      summary.calculated += 1;
-    } catch (error) {
-      console.error("Technician route calculation failed", {
-        businessId, technicianId, provider: provider.name,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      await admin.from("technician_routes").update({
-        calculation_status: "failed", error_code: "provider_failed",
-      }).eq("id", technicianRoute.id);
-      await admin.from("route_stops").update({
-        calculation_status: "failed", error_code: "provider_failed",
-      }).eq("technician_route_id", technicianRoute.id);
-      summary.failed += 1;
     }
+    const readyOutcomes = outcomes.filter((outcome): outcome is typeof outcome & { result: DrivingRouteResult } => Boolean(outcome.result));
+    const failedOutcomes = outcomes.filter((outcome) => !outcome.result);
+    type PersistedLeg = {
+      business_id: string; technician_route_id: string;
+      from_route_stop_id: string; to_route_stop_id: string;
+      sequence: number; driving_distance_meters: number | null; driving_duration_seconds: number | null;
+      encoded_polyline: string | null; provider: string; provider_request_id: string | null;
+      calculation_status: "ready" | "failed"; calculated_at: string | null;
+      provider_warnings: Array<{ code: string; message: string }>; error_code: string | null;
+    };
+    const legRows: PersistedLeg[] = [];
+    for (const outcome of outcomes) {
+      const segmentResult = outcome.result;
+      if (segmentResult) {
+        legRows.push(...segmentResult.legs.map((leg, localIndex) => ({
+          business_id: businessId, technician_route_id: technicianRoute.id,
+          from_route_stop_id: stopByJob.get(leg.fromWaypointId)!.id,
+          to_route_stop_id: stopByJob.get(leg.toWaypointId)!.id,
+          sequence: outcome.segment.startWaypointIndex + localIndex + 1,
+          driving_distance_meters: leg.drivingDistanceMeters,
+          driving_duration_seconds: leg.drivingDurationSeconds,
+          encoded_polyline: leg.encodedPolyline,
+          provider: segmentResult.provider,
+          provider_request_id: segmentResult.providerRequestId,
+          calculation_status: "ready" as const, calculated_at: segmentResult.calculatedAt,
+          provider_warnings: leg.providerWarnings, error_code: null,
+        })));
+        continue;
+      }
+      legRows.push(...outcome.segment.waypoints.slice(0, -1).map((waypoint, localIndex) => ({
+        business_id: businessId, technician_route_id: technicianRoute.id,
+        from_route_stop_id: stopByJob.get(waypoint.id)!.id,
+        to_route_stop_id: stopByJob.get(outcome.segment.waypoints[localIndex + 1].id)!.id,
+        sequence: outcome.segment.startWaypointIndex + localIndex + 1,
+        driving_distance_meters: null, driving_duration_seconds: null,
+        encoded_polyline: null, provider: provider.name, provider_request_id: null,
+        calculation_status: "failed" as const, calculated_at: null,
+        provider_warnings: [], error_code: "segment_provider_failed",
+      })));
+    }
+    const { error: legError } = await admin.from("route_legs").insert(legRows);
+    if (legError) {
+      console.error("Segmented route legs could not be stored", { code: legError.code, businessId, technicianId });
+      await admin.from("technician_routes").update({ calculation_status: "failed", error_code: "leg_write_failed" }).eq("id", technicianRoute.id);
+      summary.failed += 1;
+      continue;
+    }
+    const readyLegBySequence = new Map(legRows.filter((leg) => leg.calculation_status === "ready").map((leg) => [leg.sequence, leg]));
+    let arrivalMs = new Date(first.job.starts_at).getTime();
+    let arrivalKnown = true;
+    for (let index = 0; index < routable.length; index += 1) {
+      const item = routable[index];
+      const appointmentStart = item.job.arrival_window_start ? new Date(item.job.arrival_window_start).getTime() : null;
+      if (arrivalKnown && appointmentStart !== null) arrivalMs = Math.max(arrivalMs, appointmentStart);
+      const serviceSeconds = (item.job.estimated_duration_minutes ?? 0) * 60;
+      const departureMs = arrivalMs + serviceSeconds * 1000;
+      await admin.from("route_stops").update(arrivalKnown ? {
+        calculation_status: "ready", error_code: null,
+        planned_arrival_at: new Date(arrivalMs).toISOString(),
+        planned_departure_at: new Date(departureMs).toISOString(),
+      } : {
+        calculation_status: "failed", error_code: "prior_segment_failed",
+        planned_arrival_at: item.job.starts_at, planned_departure_at: item.job.ends_at,
+      }).eq("id", stopByJob.get(item.job.id)!.id);
+      const nextLeg = readyLegBySequence.get(index + 1);
+      if (index < routable.length - 1 && !nextLeg) arrivalKnown = false;
+      if (arrivalKnown && nextLeg) arrivalMs = departureMs + Number(nextLeg.driving_duration_seconds) * 1000;
+    }
+    const routeDistance = readyOutcomes.reduce((total, outcome) => total + outcome.result.drivingDistanceMeters, 0);
+    const routeDuration = readyOutcomes.reduce((total, outcome) => total + outcome.result.drivingDurationSeconds, 0);
+    const routeStatus = failedOutcomes.length ? (readyOutcomes.length ? "partial" : "failed") : "ready";
+    const mergedPolyline = routeStatus === "ready"
+      ? mergeEncodedPolylines(readyOutcomes.map((outcome) => outcome.result.encodedPolyline ?? "").filter(Boolean))
+      : null;
+    await admin.from("technician_routes").update({
+      calculation_status: routeStatus, encoded_polyline: mergedPolyline,
+      driving_distance_meters: readyOutcomes.length ? routeDistance : null,
+      driving_duration_seconds: readyOutcomes.length ? routeDuration : null,
+      provider: provider.name,
+      provider_route_id: readyOutcomes.map((outcome) => outcome.result.providerRequestId).filter(Boolean).join(",") || null,
+      calculated_at: new Date().toISOString(), stale_at: null,
+      error_code: failedOutcomes.length ? "segment_provider_failed" : null,
+    }).eq("id", technicianRoute.id);
+    planDistance += routeDistance;
+    planDuration += routeDuration;
+    if (routeStatus === "ready") summary.calculated += 1;
+    else if (routeStatus === "partial") summary.partial += 1;
+    else summary.failed += 1;
   }
-  const finalStatus = summary.failed || summary.skipped ? (summary.calculated || summary.cached ? "partial" : "failed") : "ready";
+  const finalStatus = summary.failed || summary.skipped || summary.partial
+    ? (summary.calculated || summary.cached || summary.partial ? "partial" : "failed") : "ready";
   await admin.from("route_plans").update({
     calculation_status: finalStatus,
     total_driving_distance_meters: planDistance,

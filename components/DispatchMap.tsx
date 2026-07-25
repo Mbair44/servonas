@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { RouteWarning } from "@/lib/routing/warnings";
 
 export type DispatchMapJob = {
   id: string;
@@ -32,6 +33,7 @@ export type DispatchMapRoute = {
   technicianStatus: string;
   color: string;
   encodedPolyline: string | null;
+  encodedPolylines: string[];
   stopCount: number;
   calculationStatus: string;
   originLabel: string;
@@ -122,10 +124,12 @@ export default function DispatchMap({
   apiKey,
   jobs,
   routes,
+  warnings,
 }: {
   apiKey?: string;
   jobs: DispatchMapJob[];
   routes: DispatchMapRoute[];
+  warnings: RouteWarning[];
 }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<InstanceType<MapsObject["Map"]> | null>(null);
@@ -164,13 +168,14 @@ export default function DispatchMap({
       if (assignment === "unassigned" && job.technicianId) return false;
       if (issue === "unmappable" && job.latitude !== null && job.longitude !== null) return false;
       if (issue === "conflict" && !job.hasConflict) return false;
+      if (issue === "risk" && !warnings.some((warning) => warning.jobId === job.id)) return false;
       if (!showCompleted && job.status === "completed") return false;
       if (!showUnassigned && !job.technicianId) return false;
       return !needle || [job.title, job.customerName, job.address, String(job.jobNumber)]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle));
     });
-  }, [assignment, issue, jobs, search, showCompleted, showUnassigned, status, technician]);
+  }, [assignment, issue, jobs, search, showCompleted, showUnassigned, status, technician, warnings]);
   const visibleRoutes = useMemo(
     () => routes.filter((route) => technician === "all" || route.technicianId === technician),
     [routes, technician],
@@ -202,20 +207,23 @@ export default function DispatchMap({
         infoWindow.current = info;
         markerIndex.clear();
         for (const route of visibleRoutes) {
-          if (!showLines || !route.encodedPolyline || !maps.geometry?.encoding) continue;
-          const path = maps.geometry.encoding.decodePath(route.encodedPolyline);
-          path.forEach((point) => bounds.extend({ lat: point.lat(), lng: point.lng() }));
-          const polyline = new maps.Polyline({
-            map,
-            path,
-            strokeColor: route.color,
-            strokeOpacity: technician === "all" ? 0.78 : 0.95,
-            strokeWeight: technician === "all" ? 5 : 7,
-          });
-          polyline.addListener("click", () => {
-            setTechnician(route.technicianId);
-          });
-          polylines.push(polyline);
+          if (!showLines || !maps.geometry?.encoding) continue;
+          const geometries = route.encodedPolyline ? [route.encodedPolyline] : route.encodedPolylines;
+          for (const geometry of geometries) {
+            const path = maps.geometry.encoding.decodePath(geometry);
+            path.forEach((point) => bounds.extend({ lat: point.lat(), lng: point.lng() }));
+            const polyline = new maps.Polyline({
+              map,
+              path,
+              strokeColor: route.color,
+              strokeOpacity: technician === "all" ? 0.78 : 0.95,
+              strokeWeight: technician === "all" ? 5 : 7,
+            });
+            polyline.addListener("click", () => {
+              setTechnician(route.technicianId);
+            });
+            polylines.push(polyline);
+          }
         }
         for (const job of visibleJobs) {
           if (job.latitude === null || job.longitude === null) continue;
@@ -273,13 +281,13 @@ export default function DispatchMap({
     if (!job || !marker || !map || !info || job.latitude === null || job.longitude === null) return;
     map.setCenter({ lat: job.latitude, lng: job.longitude });
     map.setZoom(14);
-    info.setContent(`<div class="dispatch-map-info"><strong>${escapeHtml(job.sequence ? `Stop ${job.sequence} · ${job.title}` : job.title)}</strong><span>${escapeHtml(job.customerName)}</span><span>${escapeHtml(job.address ?? "Address unavailable")}</span><span>${escapeHtml(job.scheduledLabel)} · ${escapeHtml(job.status.replaceAll("_", " "))}</span>${job.arrivalWindow ? `<span>Arrival window: ${escapeHtml(job.arrivalWindow)}</span>` : ""}${job.estimatedArrivalLabel ? `<span>Estimated arrival: ${escapeHtml(job.estimatedArrivalLabel)}</span>` : ""}${job.drivingDistanceMeters !== null ? `<span>${escapeHtml(distanceLabel(job.drivingDistanceMeters))} · ${escapeHtml(durationLabel(job.drivingDurationSeconds))}</span>` : ""}<a href="${escapeHtml(job.href)}">Open job</a></div>`);
+    const jobWarnings = warnings.filter((warning) => warning.jobId === job.id);
+    info.setContent(`<div class="dispatch-map-info"><strong>${escapeHtml(job.sequence ? `Stop ${job.sequence} · ${job.title}` : job.title)}</strong><span>${escapeHtml(job.customerName)}</span><span>${escapeHtml(job.address ?? "Address unavailable")}</span><span>${escapeHtml(job.scheduledLabel)} · ${escapeHtml(job.status.replaceAll("_", " "))}</span>${job.arrivalWindow ? `<span>Arrival window: ${escapeHtml(job.arrivalWindow)}</span>` : ""}${job.estimatedArrivalLabel ? `<span>Estimated arrival: ${escapeHtml(job.estimatedArrivalLabel)}</span>` : ""}${job.drivingDistanceMeters !== null ? `<span>${escapeHtml(distanceLabel(job.drivingDistanceMeters))} · ${escapeHtml(durationLabel(job.drivingDurationSeconds))}</span>` : ""}${jobWarnings.map((warning) => `<span class="dispatch-info-warning ${warning.severity}"><b>${escapeHtml(warning.severity)}</b> · ${escapeHtml(warning.title)}</span>`).join("")}<a href="${escapeHtml(job.href)}">Open job</a></div>`);
     info.open({ map, anchor: marker });
-  }, [jobs, mapRevision, selectedJobId]);
+  }, [jobs, mapRevision, selectedJobId, warnings]);
 
   const mappedCount = visibleJobs.filter((job) => job.latitude !== null && job.longitude !== null).length;
-  const missingJobs = visibleJobs.filter((job) => job.latitude === null || job.longitude === null);
-  const routeReady = visibleRoutes.some((route) => route.encodedPolyline);
+  const routeReady = visibleRoutes.some((route) => route.encodedPolyline || route.encodedPolylines.length);
 
   return (
     <section className={`dispatch-map-workspace ${fullScreen ? "is-fullscreen" : ""}`} aria-labelledby="dispatch-map-title">
@@ -287,7 +295,7 @@ export default function DispatchMap({
         <div>
           <small>Daily route workspace</small>
           <h2 id="dispatch-map-title">Dispatch map</h2>
-          <p>{mappedCount} mapped · {missingJobs.length} need address attention</p>
+          <p>{mappedCount} mapped · {warnings.filter((warning) => warning.severity === "critical").length} critical · {warnings.filter((warning) => warning.severity === "warning").length} warnings</p>
         </div>
         <div className="dispatch-map-buttons">
           <button type="button" className="sv-button sv-secondary" onClick={() => fitVisible.current?.()}>Fit visible</button>
@@ -298,7 +306,7 @@ export default function DispatchMap({
         <label>Technician<select value={technician} onChange={(event) => setTechnician(event.target.value)}><option value="all">All technicians</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{[...new Set(jobs.map((job) => job.status))].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</select></label>
         <label>Assignment<select value={assignment} onChange={(event) => setAssignment(event.target.value)}><option value="all">Assigned and unassigned</option><option value="assigned">Assigned</option><option value="unassigned">Unassigned</option></select></label>
-        <label>Route issue<select value={issue} onChange={(event) => setIssue(event.target.value)}><option value="all">All jobs</option><option value="unmappable">Missing coordinates</option><option value="conflict">Schedule conflict</option></select></label>
+        <label>Route issue<select value={issue} onChange={(event) => setIssue(event.target.value)}><option value="all">All jobs</option><option value="risk">Any route risk</option><option value="unmappable">Missing coordinates</option><option value="conflict">Schedule conflict</option></select></label>
         <label className="dispatch-map-search">Search<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Customer, job, or address"/></label>
       </div>
       <div className="dispatch-map-layout">
@@ -308,7 +316,8 @@ export default function DispatchMap({
             {routes.map((route) => {
               const routeJobs = jobs.filter((job) => job.technicianId === route.technicianId).sort((left,right) => (left.sequence ?? 999)-(right.sequence ?? 999));
               const expanded = expandedRoutes.has(route.technicianId);
-              const warningCount = routeJobs.filter((job) => job.hasConflict || job.latitude === null).length + (["partial","failed","stale"].includes(route.calculationStatus) ? 1 : 0);
+              const routeWarnings = warnings.filter((warning) => warning.technicianId === route.technicianId);
+              const warningCount = routeWarnings.filter((warning) => warning.severity !== "info").length;
               return <section key={route.technicianId} className={`dispatch-route-panel ${technician === route.technicianId ? "selected" : ""}`}>
                 <button type="button" className="dispatch-route-summary" aria-expanded={expanded} onClick={() => {
                   setTechnician(route.technicianId);
@@ -326,6 +335,7 @@ export default function DispatchMap({
                   <div className="dispatch-route-total"><span>{distanceLabel(route.drivingDistanceMeters)}</span><span>{durationLabel(route.drivingDurationSeconds)}</span></div>
                   <div className="dispatch-route-window"><span>First: {routeJobs[0]?.scheduledLabel ?? "No stops"}</span><span>Last: {routeJobs.at(-1)?.scheduledLabel ?? "No stops"}</span></div>
                   <div className="dispatch-route-endpoint"><b>Start</b><span>{route.originLabel}</span></div>
+                  {routeWarnings.length > 0 && <div className="dispatch-route-risks" aria-label={`${route.technicianName} route warnings`}>{routeWarnings.map((warning) => <div key={warning.id} className={warning.severity}><b>{warning.severity}</b><span><strong>{warning.title}</strong><small>{warning.message}</small></span></div>)}</div>}
                   <ol>
                     {routeJobs.map((job) => <li key={job.id} className={selectedJobId === job.id ? "selected" : ""}>
                       <button type="button" onClick={() => setSelectedJobId(job.id)} disabled={job.latitude === null} aria-label={`Focus stop ${job.sequence}, ${job.title}, on map`}>
@@ -358,7 +368,11 @@ export default function DispatchMap({
           <div ref={mapElement} className="dispatch-map-canvas" aria-label="Map of scheduled service jobs"/>
         </div>
       </div>
-      {missingJobs.length > 0 && <div className="dispatch-map-warnings"><h3>Locations needing attention</h3><div>{missingJobs.map((job) => <a href={job.href} key={job.id}><strong>#{job.jobNumber} · {job.title}</strong><span>{job.address || "No service address"} · {job.geocodingStatus?.replaceAll("_", " ") || "not verified"}</span></a>)}</div></div>}
+      {warnings.length > 0 && <div className="dispatch-map-warnings" aria-labelledby="route-risk-title"><h3 id="route-risk-title">Route warnings</h3><div>{warnings.map((warning) => {
+        const job = warning.jobId ? jobs.find((candidate) => candidate.id === warning.jobId) : null;
+        const content = <><strong><span className={`dispatch-warning-severity ${warning.severity}`}>{warning.severity}</span>{warning.title}</strong><span>{warning.message}</span></>;
+        return job ? <a href={job.href} key={warning.id}>{content}</a> : <article className={warning.severity} key={warning.id}>{content}</article>;
+      })}</div></div>}
     </section>
   );
 }
