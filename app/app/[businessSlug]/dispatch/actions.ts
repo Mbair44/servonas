@@ -12,6 +12,7 @@ import { calculateDailyRoutes } from "@/lib/routing/routeCalculationService";
 import { publicRouteCalculationError } from "@/lib/routing/errors";
 import { actualRouteImpactSummary, type RoadMetrics } from "@/lib/routing/impact";
 import { isRouteEditConflict, parseRoutePlanVersion, ROUTE_EDIT_CONFLICT_MESSAGE } from "@/lib/routing/concurrency";
+import { generateRouteOptimizationSuggestions } from "@/lib/routing/optimizationService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const dispatchPath = (slug: string, date: string, kind: "error" | "success", message: string) =>
@@ -49,6 +50,75 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
     ? `Routes updated with warnings: ${result.calculated} calculated, ${result.cached} cached, ${result.partial} partial, ${result.failed + result.skipped} need attention.`
     : `Routes ready: ${result.calculated} calculated, ${result.cached} reused.`;
   redirect(dispatchPath(slug, date, "success", message));
+}
+
+export async function optimizeDispatchRoutes(slug: string, formData: FormData) {
+  const { user, business, role } = await requireWorkspace(slug);
+  const date = text(formData, "date");
+  const routePlanId = text(formData, "routePlanId");
+  const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
+  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to optimize routes."));
+  if (!routePlanId || !planVersion) redirect(dispatchPath(slug, date, "error", "Calculate the current road routes before requesting suggestions."));
+  const admin = getSupabaseAdmin();
+  if (!admin || !process.env.GOOGLE_ROUTES_API_KEY) redirect(dispatchPath(slug, date, "error", "Google road routing is not configured."));
+  try {
+    const result = await generateRouteOptimizationSuggestions({
+      admin, businessId: business.id, routePlanId, actorUserId: user.id, expectedPlanVersion: planVersion,
+    });
+    revalidatePath(`/app/${slug}/dispatch`);
+    redirect(dispatchPath(slug, date, "success", result.suggestions
+      ? `${result.suggestions} road-based route suggestion${result.suggestions === 1 ? "" : "s"} ready for review.`
+      : "No safe road-based improvement was found. Current routes were not changed."));
+  } catch (error) {
+    console.error("Route optimization generation failed", {
+      businessId: business.id, routePlanId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    const message = error instanceof Error && error.message.includes("changed while you were editing")
+      ? ROUTE_EDIT_CONFLICT_MESSAGE : "Route suggestions could not be generated. Review routing configuration and logs.";
+    redirect(dispatchPath(slug, date, "error", message));
+  }
+}
+
+export async function decideDispatchRouteSuggestion(slug: string, suggestionId: string, formData: FormData) {
+  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const date = text(formData, "date");
+  const decision = text(formData, "decision");
+  const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
+  if (!canManageCustomers(role) || !planVersion || !["accepted", "dismissed"].includes(decision)) {
+    redirect(dispatchPath(slug, date, "error", "The route-suggestion decision was invalid."));
+  }
+  const { data: suggestion } = await supabase.from("route_suggestions").select("payload").eq("business_id", business.id).eq("id", suggestionId).eq("status", "pending").maybeSingle();
+  const { error } = await supabase.rpc("decide_route_suggestion", {
+    p_business_id: business.id, p_suggestion_id: suggestionId,
+    p_decision: decision, p_expected_plan_version: planVersion,
+  });
+  if (error) {
+    console.error("Route suggestion decision failed", { code: error.code, message: error.message, businessId: business.id, suggestionId });
+    redirect(dispatchPath(slug, date, "error", isRouteEditConflict(error) ? ROUTE_EDIT_CONFLICT_MESSAGE : "The route suggestion could not be updated."));
+  }
+  if (decision === "accepted") {
+    const technicianId = typeof suggestion?.payload === "object" && suggestion.payload
+      ? String((suggestion.payload as Record<string, unknown>).technicianId ?? "") : "";
+    const admin = getSupabaseAdmin();
+    if (technicianId && admin && process.env.GOOGLE_ROUTES_API_KEY) {
+      try {
+        await calculateDailyRoutes({
+          admin, businessId: business.id, serviceDate: date, businessTimeZone: business.timezone,
+          actorUserId: user.id, onlyTechnicianId: technicianId,
+        });
+      } catch (routeError) {
+        console.error("Accepted optimization recalculation failed", {
+          businessId: business.id, suggestionId,
+          reason: routeError instanceof Error ? routeError.message : String(routeError),
+        });
+        revalidatePath(`/app/${slug}/dispatch`);
+        redirect(dispatchPath(slug, date, "success", "Suggestion accepted. The affected route still needs recalculation."));
+      }
+    }
+  }
+  revalidatePath(`/app/${slug}/dispatch`);
+  redirect(dispatchPath(slug, date, "success", decision === "accepted" ? "Suggestion accepted and route recalculated." : "Suggestion dismissed."));
 }
 
 export async function reorderDispatchRoute(slug: string, formData: FormData) {
