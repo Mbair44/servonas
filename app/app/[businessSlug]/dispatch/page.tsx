@@ -9,7 +9,7 @@ import { evaluateRouteWarnings } from "@/lib/routing/warnings";
 import { requireWorkspace } from "@/lib/workspace";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { WorkspaceNav } from "../WorkspaceNav";
-import { assignDispatchJob, calculateDispatchRoutes, updateDispatchStatus } from "./actions";
+import { assignDispatchJob, calculateDispatchRoutes, reorderDispatchRoute, updateDispatchStatus } from "./actions";
 
 type Relation<T> = T | T[] | null;
 type DispatchJob = {
@@ -106,6 +106,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     .map((technician) => {
       const persisted = routeByTechnician.get(technician.id);
       return {
+        technicianRouteId: persisted?.id ?? null,
         technicianId: technician.id,
         technicianName: technician.display_name,
         technicianStatus: technician.technician_status,
@@ -199,7 +200,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     {persistedRouteError && <div className="workspace-notice error">Saved routes could not be loaded ({persistedRouteError.code}): {persistedRouteError.message}</div>}
     {!persistedRouteError && routePlan?.calculation_status === "ready" && (persistedRoutes?.length ?? 0) === 0 && <div className="workspace-notice error">The route plan is marked ready but contains no technician routes. Recalculate the selected date to rebuild its route records.</div>}
     <section className="workspace-panel dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date, -1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date, 1))}>›</Link></div><form><label>Date<input name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</strong>{canEdit&&<form action={calculateDispatchRoutes.bind(null,businessSlug)}><input type="hidden" name="date" value={date}/><button className="sv-button" type="submit">{routePlan?.calculation_status==="ready"?"Recalculate roads":"Calculate road routes"}</button></form>}</section>
-    <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes} warnings={routeWarnings}/>
+    <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes} warnings={routeWarnings} date={date} canReorder={canEdit} reorderAction={reorderDispatchRoute.bind(null,businessSlug)}/>
     <div className="dispatch-list-heading"><div><small>Map-independent controls</small><h2>Dispatch assignments</h2></div><p>Assignment, status, contact, and schedule controls remain available if the map provider is unavailable.</p></div>
     <div className="dispatch-board">
       <section className="dispatch-column unassigned"><header><div><span className="dispatch-avatar">?</span><div><h2>Unassigned</h2><small>{unassigned.length} jobs</small></div></div></header><div className="dispatch-card-list">{unassigned.length ? unassigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone}/>) : <div className="dispatch-empty">No unassigned jobs.</div>}</div></section>

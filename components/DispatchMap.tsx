@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RouteWarning } from "@/lib/routing/warnings";
+import { moveStop } from "@/lib/routing/reordering";
 
 export type DispatchMapJob = {
   id: string;
@@ -28,6 +29,7 @@ export type DispatchMapJob = {
 };
 
 export type DispatchMapRoute = {
+  technicianRouteId: string | null;
   technicianId: string;
   technicianName: string;
   technicianStatus: string;
@@ -125,11 +127,17 @@ export default function DispatchMap({
   jobs,
   routes,
   warnings,
+  date,
+  canReorder,
+  reorderAction,
 }: {
   apiKey?: string;
   jobs: DispatchMapJob[];
   routes: DispatchMapRoute[];
   warnings: RouteWarning[];
+  date: string;
+  canReorder: boolean;
+  reorderAction: (formData: FormData) => void | Promise<void>;
 }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<InstanceType<MapsObject["Map"]> | null>(null);
@@ -151,6 +159,8 @@ export default function DispatchMap({
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [mapRevision, setMapRevision] = useState(0);
   const [expandedRoutes, setExpandedRoutes] = useState<Set<string>>(() => new Set());
+  const [draftOrders, setDraftOrders] = useState<Record<string, string[]>>({});
+  const [draggedJobId, setDraggedJobId] = useState<string | null>(null);
 
   const technicians = useMemo(
     () =>
@@ -314,7 +324,13 @@ export default function DispatchMap({
           <button type="button" className={technician === "all" ? "selected" : ""} onClick={() => setTechnician("all")}><span className="dispatch-route-symbol all">A</span><span><strong>All routes</strong><small>{jobs.length} scheduled jobs</small></span></button>
           <div className="dispatch-route-panels">
             {routes.map((route) => {
-              const routeJobs = jobs.filter((job) => job.technicianId === route.technicianId).sort((left,right) => (left.sequence ?? 999)-(right.sequence ?? 999));
+              const persistedRouteJobs = jobs.filter((job) => job.technicianId === route.technicianId).sort((left,right) => (left.sequence ?? 999)-(right.sequence ?? 999));
+              const order = draftOrders[route.technicianId] ?? persistedRouteJobs.map((job) => job.id);
+              const routeJobs = order.flatMap((jobId) => {
+                const job = persistedRouteJobs.find((candidate) => candidate.id === jobId);
+                return job ? [job] : [];
+              });
+              const orderChanged = order.some((jobId, index) => jobId !== persistedRouteJobs[index]?.id);
               const expanded = expandedRoutes.has(route.technicianId);
               const routeWarnings = warnings.filter((warning) => warning.technicianId === route.technicianId);
               const warningCount = routeWarnings.filter((warning) => warning.severity !== "info").length;
@@ -337,15 +353,48 @@ export default function DispatchMap({
                   <div className="dispatch-route-endpoint"><b>Start</b><span>{route.originLabel}</span></div>
                   {routeWarnings.length > 0 && <div className="dispatch-route-risks" aria-label={`${route.technicianName} route warnings`}>{routeWarnings.map((warning) => <div key={warning.id} className={warning.severity}><b>{warning.severity}</b><span><strong>{warning.title}</strong><small>{warning.message}</small></span></div>)}</div>}
                   <ol>
-                    {routeJobs.map((job) => <li key={job.id} className={selectedJobId === job.id ? "selected" : ""}>
+                    {routeJobs.map((job, index) => <li key={job.id} className={selectedJobId === job.id ? "selected" : ""} draggable={canReorder && !job.isLocked && job.status !== "completed"} onDragStart={() => setDraggedJobId(job.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+                      if (!draggedJobId || draggedJobId === job.id) return;
+                      const from = routeJobs.findIndex((candidate) => candidate.id === draggedJobId);
+                      const to = routeJobs.findIndex((candidate) => candidate.id === job.id);
+                      if (from < 0 || to < 0) return;
+                      let next = routeJobs.map((candidate) => ({ id: candidate.id, isLocked: candidate.isLocked, status: candidate.status }));
+                      const direction = from < to ? 1 : -1;
+                      while (from < to ? next.findIndex((candidate) => candidate.id === draggedJobId) < to : next.findIndex((candidate) => candidate.id === draggedJobId) > to) {
+                        const current = next.findIndex((candidate) => candidate.id === draggedJobId);
+                        const moved = moveStop(next, current, direction);
+                        if (moved === next) break;
+                        next = moved;
+                      }
+                      setDraftOrders((current) => ({ ...current, [route.technicianId]: next.map((candidate) => candidate.id) }));
+                      setDraggedJobId(null);
+                    }}>
                       <button type="button" onClick={() => setSelectedJobId(job.id)} disabled={job.latitude === null} aria-label={`Focus stop ${job.sequence}, ${job.title}, on map`}>
-                        <span className="dispatch-stop-number">{job.sequence}</span>
+                        <span className="dispatch-stop-number">{index + 1}</span>
                         <span className="dispatch-stop-copy"><strong>{job.scheduledLabel} · {job.title}</strong><small>{job.customerName}</small><small>{job.address || "No service address"}</small><small>{job.drivingDistanceMeters === null ? "Drive calculation pending" : `${distanceLabel(job.drivingDistanceMeters)} · ${durationLabel(job.drivingDurationSeconds)}`}</small>{job.estimatedArrivalLabel && <small>ETA {job.estimatedArrivalLabel}</small>}</span>
                         <span className="dispatch-stop-icons">{job.isLocked && <b title="Stop position locked">L</b>}{job.hasConflict && <b className="warning" title="Schedule conflict">!</b>}{job.latitude === null && <b className="warning" title="Address cannot be mapped">?</b>}</span>
                       </button>
-                      <a href={job.href}>Open job</a>
+                      <div className="dispatch-stop-actions"><a href={job.href}>Open job</a>{canReorder && <><button type="button" disabled={index === 0 || job.isLocked || job.status === "completed"} onClick={() => {
+                        const next = moveStop(routeJobs.map((candidate) => ({ id: candidate.id, isLocked: candidate.isLocked, status: candidate.status })), index, -1);
+                        setDraftOrders((current) => ({ ...current, [route.technicianId]: next.map((candidate) => candidate.id) }));
+                      }} aria-label={`Move ${job.title} up one stop`}>↑ Up</button><button type="button" disabled={index === routeJobs.length - 1 || job.isLocked || job.status === "completed"} onClick={() => {
+                        const next = moveStop(routeJobs.map((candidate) => ({ id: candidate.id, isLocked: candidate.isLocked, status: candidate.status })), index, 1);
+                        setDraftOrders((current) => ({ ...current, [route.technicianId]: next.map((candidate) => candidate.id) }));
+                      }} aria-label={`Move ${job.title} down one stop`}>↓ Down</button></>}</div>
                     </li>)}
                   </ol>
+                  {canReorder && route.technicianRouteId && orderChanged && <form action={reorderAction} className="dispatch-reorder-preview">
+                    <input type="hidden" name="date" value={date}/>
+                    <input type="hidden" name="technicianRouteId" value={route.technicianRouteId}/>
+                    <input type="hidden" name="technicianId" value={route.technicianId}/>
+                    <input type="hidden" name="orderedJobIds" value={JSON.stringify(order)}/>
+                    <strong>Preview new stop order?</strong>
+                    <p>The affected route will be recalculated using actual driving roads. No savings are estimated until calculation finishes.</p>
+                    {routeJobs.some((job) => ["en_route","arrived","in_progress"].includes(job.status)) && <label><input type="checkbox" name="confirmActive" value="yes" required/> I confirm this changes an active route.</label>}
+                    <div><button type="button" className="text-button" onClick={() => setDraftOrders((current) => {
+                      const next = { ...current }; delete next[route.technicianId]; return next;
+                    })}>Cancel</button><button className="sv-button" type="submit">Save and recalculate</button></div>
+                  </form>}
                   <div className="dispatch-route-endpoint"><b>End</b><span>{route.destinationLabel}</span></div>
                 </div>}
               </section>;
