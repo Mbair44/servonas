@@ -65,23 +65,26 @@ export async function calculateDailyRoutes({
   serviceDate,
   businessTimeZone,
   actorUserId,
+  onlyTechnicianId,
 }: {
   admin: SupabaseClient;
   businessId: string;
   serviceDate: string;
   businessTimeZone: string;
   actorUserId: string;
+  onlyTechnicianId?: string;
 }): Promise<RouteCalculationSummary> {
   const provider = providerFromEnvironment();
   const start = zonedDateTimeToUtc(serviceDate, "00:00", businessTimeZone);
   const end = zonedDateTimeToUtc(addDays(serviceDate, 1), "00:00", businessTimeZone);
-  const { data: rows, error: jobsError } = await admin.from("jobs")
+  let jobsQuery = admin.from("jobs")
     .select("id,assigned_technician_id,starts_at,ends_at,arrival_window_start,arrival_window_end,estimated_duration_minutes,service_location_id,service_locations!jobs_service_location_tenant_fk(latitude,longitude,geocoding_status,street_address,unit,city,state,postal_code)")
     .eq("business_id", businessId).eq("is_deleted", false)
     .not("assigned_technician_id", "is", null)
     .not("status", "in", '("canceled","declined")')
-    .gte("starts_at", start.toISOString()).lt("starts_at", end.toISOString())
-    .order("starts_at");
+    .gte("starts_at", start.toISOString()).lt("starts_at", end.toISOString());
+  if (onlyTechnicianId) jobsQuery = jobsQuery.eq("assigned_technician_id", onlyTechnicianId);
+  const { data: rows, error: jobsError } = await jobsQuery.order("starts_at");
   if (jobsError) throw new Error(databaseFailure("Scheduled route jobs could not be loaded", jobsError));
   const jobs = (rows ?? []) as unknown as RouteJob[];
   const { data: plan, error: planError } = await admin.from("route_plans").upsert({
@@ -100,9 +103,22 @@ export async function calculateDailyRoutes({
 
   const groups = new Map<string, RouteJob[]>();
   for (const job of jobs) groups.set(job.assigned_technician_id, [...(groups.get(job.assigned_technician_id) ?? []), job]);
+  if (onlyTechnicianId) {
+    const { data: manualStops } = await admin.from("route_stops")
+      .select("job_id,sequence,technician_routes!inner(technician_id)")
+      .eq("business_id", businessId).eq("route_plan_id", plan.id)
+      .eq("technician_routes.technician_id", onlyTechnicianId)
+      .order("sequence");
+    const order = new Map((manualStops ?? []).map((stop) => [stop.job_id, stop.sequence]));
+    const technicianJobs = groups.get(onlyTechnicianId);
+    if (technicianJobs && order.size) {
+      technicianJobs.sort((left, right) => (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+    }
+  }
   const { data: previousRoutes } = await admin.from("technician_routes").select("id,technician_id")
     .eq("business_id", businessId).eq("route_plan_id", plan.id);
   const removedRouteIds = (previousRoutes ?? [])
+    .filter((route) => !onlyTechnicianId || route.technician_id === onlyTechnicianId)
     .filter((route) => !groups.has(route.technician_id))
     .map((route) => route.id);
   if (removedRouteIds.length) {
@@ -308,13 +324,27 @@ export async function calculateDailyRoutes({
   }
   const finalStatus = summary.failed || summary.skipped || summary.partial
     ? (summary.calculated || summary.cached || summary.partial ? "partial" : "failed") : "ready";
+  const { data: routeTotals } = await admin.from("technician_routes")
+    .select("driving_distance_meters,driving_duration_seconds")
+    .eq("business_id", businessId).eq("route_plan_id", plan.id)
+    .in("calculation_status", ["ready", "partial"]);
+  planDistance = (routeTotals ?? []).reduce((total, route) => total + Number(route.driving_distance_meters ?? 0), 0);
+  planDuration = (routeTotals ?? []).reduce((total, route) => total + Number(route.driving_duration_seconds ?? 0), 0);
+  const { data: routeStates } = await admin.from("technician_routes")
+    .select("calculation_status").eq("business_id", businessId).eq("route_plan_id", plan.id);
+  const hasFailed = (routeStates ?? []).some((route) => route.calculation_status === "failed");
+  const hasPartial = (routeStates ?? []).some((route) => route.calculation_status === "partial");
+  const hasReady = (routeStates ?? []).some((route) => route.calculation_status === "ready");
+  const aggregateStatus = hasFailed || hasPartial
+    ? (hasReady || hasPartial ? "partial" : "failed")
+    : finalStatus;
   await admin.from("route_plans").update({
-    calculation_status: finalStatus,
+    calculation_status: aggregateStatus,
     total_driving_distance_meters: planDistance,
     total_driving_duration_seconds: planDuration,
     calculated_at: new Date().toISOString(),
     calculation_signature: signature({ provider: provider.name, groups: [...groups.keys()] }),
-    error_code: finalStatus === "failed" ? "no_routes_calculated" : null,
+    error_code: aggregateStatus === "failed" ? "no_routes_calculated" : null,
     stale_at: null,
   }).eq("id", plan.id).eq("business_id", businessId);
   const { data: verifiedRoutes, error: verificationError } = await admin.from("technician_routes")

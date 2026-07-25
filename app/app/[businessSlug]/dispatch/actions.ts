@@ -49,6 +49,70 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
   redirect(dispatchPath(slug, date, "success", message));
 }
 
+export async function reorderDispatchRoute(slug: string, formData: FormData) {
+  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const date = text(formData, "date");
+  const technicianRouteId = text(formData, "technicianRouteId");
+  const technicianId = text(formData, "technicianId");
+  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to reorder routes."));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !technicianRouteId || !technicianId) {
+    redirect(dispatchPath(slug, date, "error", "The route reorder request was incomplete."));
+  }
+  let orderedJobIds: string[];
+  try {
+    const parsed: unknown = JSON.parse(text(formData, "orderedJobIds"));
+    orderedJobIds = Array.isArray(parsed) && parsed.every((value) => typeof value === "string") ? parsed : [];
+  } catch {
+    orderedJobIds = [];
+  }
+  if (!orderedJobIds.length) redirect(dispatchPath(slug, date, "error", "No route stops were supplied."));
+  const { data: previousRoute } = await supabase.from("technician_routes")
+    .select("driving_distance_meters,driving_duration_seconds")
+    .eq("business_id", business.id).eq("id", technicianRouteId).maybeSingle();
+  const { error } = await supabase.rpc("reorder_technician_route_stops", {
+    p_business_id: business.id,
+    p_technician_route_id: technicianRouteId,
+    p_ordered_job_ids: orderedJobIds,
+    p_confirm_active: text(formData, "confirmActive") === "yes",
+  });
+  if (error) {
+    console.error("Manual route reorder failed", { code: error.code, message: error.message, businessId: business.id, technicianRouteId });
+    const message = error.code === "55000" ? error.message : "The route order could not be saved.";
+    redirect(dispatchPath(slug, date, "error", message));
+  }
+  const admin = getSupabaseAdmin();
+  if (!admin || !process.env.GOOGLE_ROUTES_API_KEY) {
+    revalidatePath(`/app/${slug}/dispatch`);
+    redirect(dispatchPath(slug, date, "success", "Stop order saved. The affected route is stale and needs road recalculation."));
+  }
+  try {
+    await calculateDailyRoutes({
+      admin, businessId: business.id, serviceDate: date, businessTimeZone: business.timezone,
+      actorUserId: user.id, onlyTechnicianId: technicianId,
+    });
+    const { data: recalculatedRoute } = await admin.from("technician_routes")
+      .select("driving_distance_meters,driving_duration_seconds")
+      .eq("business_id", business.id).eq("id", technicianRouteId).maybeSingle();
+    const oldDistance = previousRoute?.driving_distance_meters;
+    const newDistance = recalculatedRoute?.driving_distance_meters;
+    const oldDuration = previousRoute?.driving_duration_seconds;
+    const newDuration = recalculatedRoute?.driving_duration_seconds;
+    const impact = oldDistance !== null && oldDistance !== undefined && newDistance !== null && newDistance !== undefined
+      && oldDuration !== null && oldDuration !== undefined && newDuration !== null && newDuration !== undefined
+      ? ` Actual road impact: ${Math.abs(oldDistance - newDistance) < 50 ? "no material mileage change" : `${(Math.abs(oldDistance - newDistance) / 1609.344).toFixed(1)} ${newDistance < oldDistance ? "fewer" : "additional"} miles`}; ${Math.abs(oldDuration - newDuration) < 30 ? "no material drive-time change" : `${Math.max(1, Math.round(Math.abs(oldDuration - newDuration) / 60))} ${newDuration < oldDuration ? "fewer" : "additional"} minutes`}.`
+      : "";
+    revalidatePath(`/app/${slug}/dispatch`);
+    redirect(dispatchPath(slug, date, "success", `Stop order saved and the affected technician route was recalculated.${impact}`));
+  } catch (calculationError) {
+    console.error("Reordered technician route calculation failed", {
+      businessId: business.id, technicianId,
+      reason: calculationError instanceof Error ? calculationError.message : String(calculationError),
+    });
+    revalidatePath(`/app/${slug}/dispatch`);
+    redirect(dispatchPath(slug, date, "success", "Stop order saved, but its road route could not be recalculated."));
+  }
+}
+
 async function updateTechnicianOperationalState(
   supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"],
   businessId: string,
