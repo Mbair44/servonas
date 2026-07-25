@@ -86,7 +86,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
     ? await Promise.all([
       routingSupabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
-      routingSupabase.from("route_legs").select("to_route_stop_id,driving_distance_meters,driving_duration_seconds,calculation_status").eq("business_id", business.id).in("technician_route_id", routeIds),
+      routingSupabase.from("route_legs").select("technician_route_id,to_route_stop_id,driving_distance_meters,driving_duration_seconds,encoded_polyline,calculation_status,sequence").eq("business_id", business.id).in("technician_route_id", routeIds).order("sequence"),
     ])
     : [{ data: null, error: null }, { data: null, error: null }];
   if (persistedStopError) {
@@ -110,6 +110,9 @@ export default async function DispatchPage({ params, searchParams }: { params: P
         technicianStatus: technician.technician_status,
         color: technician.schedule_color,
         encodedPolyline: persisted?.encoded_polyline ?? null,
+        encodedPolylines: persisted?.calculation_status === "partial"
+          ? (persistedLegs ?? []).filter((leg) => leg.technician_route_id === persisted.id && leg.calculation_status === "ready" && leg.encoded_polyline).map((leg) => leg.encoded_polyline!)
+          : [],
         stopCount: persisted?.stop_count ?? jobs.filter((job) => job.assigned_technician_id === technician.id).length,
         calculationStatus: persisted?.calculation_status ?? routePlan?.calculation_status ?? "not_calculated",
         originLabel: persisted?.origin_is_private ? "Private technician start" : persisted?.origin_label || "Start location not configured",

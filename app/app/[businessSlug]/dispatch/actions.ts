@@ -43,8 +43,8 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
     redirect(dispatchPath(slug, date, "error", publicRouteCalculationError(error)));
   }
   revalidatePath(`/app/${slug}/dispatch`);
-  const message = result.failed || result.skipped
-    ? `Routes updated with warnings: ${result.calculated} calculated, ${result.cached} cached, ${result.failed + result.skipped} need attention.`
+  const message = result.failed || result.skipped || result.partial
+    ? `Routes updated with warnings: ${result.calculated} calculated, ${result.cached} cached, ${result.partial} partial, ${result.failed + result.skipped} need attention.`
     : `Routes ready: ${result.calculated} calculated, ${result.cached} reused.`;
   redirect(dispatchPath(slug, date, "success", message));
 }

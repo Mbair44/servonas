@@ -32,6 +32,7 @@ export type DispatchMapRoute = {
   technicianStatus: string;
   color: string;
   encodedPolyline: string | null;
+  encodedPolylines: string[];
   stopCount: number;
   calculationStatus: string;
   originLabel: string;
@@ -202,20 +203,23 @@ export default function DispatchMap({
         infoWindow.current = info;
         markerIndex.clear();
         for (const route of visibleRoutes) {
-          if (!showLines || !route.encodedPolyline || !maps.geometry?.encoding) continue;
-          const path = maps.geometry.encoding.decodePath(route.encodedPolyline);
-          path.forEach((point) => bounds.extend({ lat: point.lat(), lng: point.lng() }));
-          const polyline = new maps.Polyline({
-            map,
-            path,
-            strokeColor: route.color,
-            strokeOpacity: technician === "all" ? 0.78 : 0.95,
-            strokeWeight: technician === "all" ? 5 : 7,
-          });
-          polyline.addListener("click", () => {
-            setTechnician(route.technicianId);
-          });
-          polylines.push(polyline);
+          if (!showLines || !maps.geometry?.encoding) continue;
+          const geometries = route.encodedPolyline ? [route.encodedPolyline] : route.encodedPolylines;
+          for (const geometry of geometries) {
+            const path = maps.geometry.encoding.decodePath(geometry);
+            path.forEach((point) => bounds.extend({ lat: point.lat(), lng: point.lng() }));
+            const polyline = new maps.Polyline({
+              map,
+              path,
+              strokeColor: route.color,
+              strokeOpacity: technician === "all" ? 0.78 : 0.95,
+              strokeWeight: technician === "all" ? 5 : 7,
+            });
+            polyline.addListener("click", () => {
+              setTechnician(route.technicianId);
+            });
+            polylines.push(polyline);
+          }
         }
         for (const job of visibleJobs) {
           if (job.latitude === null || job.longitude === null) continue;
@@ -279,7 +283,7 @@ export default function DispatchMap({
 
   const mappedCount = visibleJobs.filter((job) => job.latitude !== null && job.longitude !== null).length;
   const missingJobs = visibleJobs.filter((job) => job.latitude === null || job.longitude === null);
-  const routeReady = visibleRoutes.some((route) => route.encodedPolyline);
+  const routeReady = visibleRoutes.some((route) => route.encodedPolyline || route.encodedPolylines.length);
 
   return (
     <section className={`dispatch-map-workspace ${fullScreen ? "is-fullscreen" : ""}`} aria-labelledby="dispatch-map-title">
