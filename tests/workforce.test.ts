@@ -1,0 +1,39 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { normalizeOptional, validateEmployeeProfile } from "../lib/workforce.ts";
+import { validTimeZone, validateAvailabilityProfile, validateWeeklyIntervals } from "../lib/workforceAvailability.ts";
+
+test("employee profile supports minimal fast entry", () => {
+  assert.equal(validateEmployeeProfile({preferredName:"Sam",email:null,profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true}),null);
+  assert.equal(normalizeOptional("  "),null);
+});
+
+test("employee profile rejects invalid identity and lifecycle values", () => {
+  assert.match(validateEmployeeProfile({preferredName:"",email:null,profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true})!,/required/);
+  assert.match(validateEmployeeProfile({preferredName:"Sam",email:"bad",profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true})!,/valid employee email/);
+  assert.match(validateEmployeeProfile({preferredName:"Sam",email:null,profilePhotoUrl:null,hireDate:"2026-02-01",terminationDate:"2026-01-01",isActive:false})!,/before hire/);
+  assert.match(validateEmployeeProfile({preferredName:"Sam",email:null,profilePhotoUrl:null,hireDate:null,terminationDate:"2026-01-01",isActive:true})!,/must be inactive/);
+});
+
+test("employee availability accepts structured work and break intervals", () => {
+  assert.equal(validateAvailabilityProfile({
+    timeZone:"America/Phoenix", maximumDailyJobs:6,
+    maximumDailyMinutes:480, overtimePreference:"ask",
+  }), null);
+  assert.equal(validateWeeklyIntervals([
+    {weekday:1,interval_type:"working",starts_at:"08:00",ends_at:"17:00"},
+    {weekday:1,interval_type:"break",starts_at:"12:00",ends_at:"12:30"},
+  ]), null);
+  assert.equal(validTimeZone("America/Phoenix"), true);
+});
+
+test("employee availability rejects invalid capacity and breaks outside work", () => {
+  assert.match(validateAvailabilityProfile({
+    timeZone:"Not/AZone", maximumDailyJobs:0,
+    maximumDailyMinutes:10, overtimePreference:"sometimes",
+  })!, /time zone/i);
+  assert.match(validateWeeklyIntervals([
+    {weekday:2,interval_type:"working",starts_at:"09:00",ends_at:"17:00"},
+    {weekday:2,interval_type:"break",starts_at:"08:00",ends_at:"08:30"},
+  ])!, /break/i);
+});
