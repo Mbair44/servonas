@@ -26,6 +26,7 @@ export async function generateRouteOptimizationSuggestions({
     admin.from("route_stops").select("id,technician_route_id,job_id,sequence,is_locked,latitude,longitude,service_duration_seconds,appointment_window_start,appointment_window_end,jobs!route_stops_job_tenant_fk(status,starts_at,ends_at)").eq("route_plan_id", routePlanId).eq("business_id", businessId).order("sequence"),
   ]);
   if (!plan || plan.version !== expectedPlanVersion) throw new Error("This route changed while you were editing it. Refresh the route plan before applying your changes.");
+  const { data: routingPolicy } = await admin.from("business_routing_policies").select("imminent_job_lock_minutes").eq("business_id", businessId).maybeSingle();
   const stops = (stopRows ?? []) as unknown as StopRow[];
   const inputSnapshot = {
     planVersion: plan.version,
@@ -61,7 +62,7 @@ export async function generateRouteOptimizationSuggestions({
           serviceDurationSeconds: stop.service_duration_seconds,
         };
       });
-      const lockMinutes = Number(process.env.ROUTE_OPTIMIZATION_LOCK_MINUTES ?? 60);
+      const lockMinutes = Number(routingPolicy?.imminent_job_lock_minutes ?? process.env.ROUTE_OPTIMIZATION_LOCK_MINUTES ?? 60);
       const candidates = adjacentOptimizationCandidates(normalized, new Date(), Number.isFinite(lockMinutes) ? lockMinutes : 60);
       let best: { order: OptimizationStop[]; distance: number; duration: number; requestId: string | null } | null = null;
       for (const candidate of candidates) {

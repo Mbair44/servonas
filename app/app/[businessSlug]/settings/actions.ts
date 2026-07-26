@@ -67,6 +67,16 @@ export async function updateRouteEndpoints(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/dispatch`);
  redirect(`/app/${slug}/settings?success=${encodeURIComponent("Route endpoints saved. Existing routes are marked stale.")}#route-endpoints`);
 }
+export async function updateRoutingPolicy(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change routing policy.")}`);
+ const defaultDuration=Number(text(formData,"defaultDuration")),lockMinutes=Number(text(formData,"lockMinutes"));
+ if(!Number.isInteger(defaultDuration)||defaultDuration<1||defaultDuration>1440||!Number.isInteger(lockMinutes)||lockMinutes<0||lockMinutes>1440)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Enter valid routing duration and lock-period values.")}#route-endpoints`);
+ const {error}=await supabase.from("business_routing_policies").upsert({business_id:business.id,default_service_duration_minutes:defaultDuration,imminent_job_lock_minutes:lockMinutes,updated_by:user.id},{onConflict:"business_id"});
+ if(error){console.error("Business routing policy update failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/settings?error=${encodeURIComponent("Routing policy could not be saved.")}#route-endpoints`);}
+ revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/dispatch`);
+ redirect(`/app/${slug}/settings?success=${encodeURIComponent("Routing policy saved.")}#route-endpoints`);
+}
 
 const stripeResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings?${kind}=${encodeURIComponent(message)}#payments`;
 
