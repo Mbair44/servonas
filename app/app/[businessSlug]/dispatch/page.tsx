@@ -10,6 +10,7 @@ import { evaluateRouteWarnings } from "@/lib/routing/warnings";
 import { densityCounts, resolveServiceDuration } from "@/lib/routing/serviceDuration";
 import { formatEstimatedDuration, formatEstimatedMiles, routeMetrics } from "@/lib/routing/metrics";
 import { hasRouteCapability } from "@/lib/routing/permissions";
+import { safeRoadGeometries } from "@/lib/routing/geometrySelection";
 import { requireWorkspace } from "@/lib/workspace";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { WorkspaceNav } from "../WorkspaceNav";
@@ -116,16 +117,18 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     .filter((technician) => jobs.some((job) => job.assigned_technician_id === technician.id))
     .map((technician) => {
       const persisted = routeByTechnician.get(technician.id);
+      const geometry = safeRoadGeometries(
+        persisted?.encoded_polyline,
+        (persistedLegs ?? []).filter((leg) => leg.technician_route_id === persisted?.id),
+      );
       return {
         technicianRouteId: persisted?.id ?? null,
         technicianId: technician.id,
         technicianName: technician.display_name,
         technicianStatus: technician.technician_status,
         color: technician.schedule_color,
-        encodedPolyline: persisted?.encoded_polyline ?? null,
-        encodedPolylines: persisted?.calculation_status === "partial"
-          ? (persistedLegs ?? []).filter((leg) => leg.technician_route_id === persisted.id && leg.calculation_status === "ready" && leg.encoded_polyline).map((leg) => leg.encoded_polyline!)
-          : [],
+        encodedPolyline: geometry.encodedPolyline,
+        encodedPolylines: geometry.encodedPolylines,
         stopCount: persisted?.stop_count ?? jobs.filter((job) => job.assigned_technician_id === technician.id).length,
         calculationStatus: persisted?.calculation_status ?? routePlan?.calculation_status ?? "not_calculated",
         originLabel: persisted?.origin_is_private ? "Private technician start" : persisted?.origin_label || "Start location not configured",
