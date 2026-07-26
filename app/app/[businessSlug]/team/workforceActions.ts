@@ -2,7 +2,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
+import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { normalizeOptional, validateEmployeeProfile } from "@/lib/workforce";
+import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyIntervalInput } from "@/lib/workforceAvailability";
 import { requireWorkspace } from "@/lib/workspace";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
@@ -52,4 +54,85 @@ export async function setEmployeeActive(slug:string,employeeId:string,formData:F
  const {error}=await supabase.from("employees").update({is_active:active,termination_date:active?null:new Date().toISOString().slice(0,10),updated_by:user.id}).eq("business_id",business.id).eq("id",employeeId);
  if(error)redirect(path(slug,"error","Employee status could not be changed."));
  revalidatePath(`/app/${slug}/team`);redirect(path(slug,"success",active?"Employee activated.":"Employee deactivated."));
+}
+
+const employeePath=(slug:string,employeeId:string,kind:"success"|"error",message:string)=>
+ `/app/${slug}/team/${employeeId}?${kind}=${encodeURIComponent(message)}`;
+const formText=(formData:FormData,key:string)=>String(formData.get(key)??"").trim();
+
+export async function saveEmployeeAvailability(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Only owners and administrators can edit availability."));
+ const {data:employee}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",employeeId).maybeSingle();
+ if(!employee)redirect(employeePath(slug,employeeId,"error","Employee not found."));
+ const timeZone=formText(formData,"timeZone");
+ const jobsValue=formText(formData,"maximumDailyJobs"),hoursValue=formText(formData,"maximumDailyHours");
+ const maximumDailyJobs=jobsValue?Number(jobsValue):null;
+ const maximumDailyMinutes=hoursValue?Math.round(Number(hoursValue)*60):null;
+ const overtimePreference=formText(formData,"overtimePreference");
+ const profileError=validateAvailabilityProfile({timeZone,maximumDailyJobs,maximumDailyMinutes,overtimePreference});
+ if(profileError)redirect(employeePath(slug,employeeId,"error",profileError));
+ const intervals:WeeklyIntervalInput[]=[];
+ for(let weekday=0;weekday<7;weekday+=1){
+  if(formData.get(`day_${weekday}`)==="on"){
+   intervals.push({weekday,interval_type:"working",starts_at:formText(formData,`start_${weekday}`),ends_at:formText(formData,`end_${weekday}`)});
+   if(formData.get(`break_${weekday}`)==="on")intervals.push({weekday,interval_type:"break",starts_at:formText(formData,`breakStart_${weekday}`),ends_at:formText(formData,`breakEnd_${weekday}`)});
+  }
+ }
+ const scheduleError=validateWeeklyIntervals(intervals);
+ if(scheduleError)redirect(employeePath(slug,employeeId,"error",scheduleError));
+ const {error:saveError}=await supabase.rpc("save_employee_availability",{
+  p_business_id:business.id,p_employee_id:employeeId,p_time_zone:timeZone,
+  p_maximum_daily_jobs:maximumDailyJobs,p_maximum_daily_minutes:maximumDailyMinutes,
+  p_overtime_preference:overtimePreference,p_intervals:intervals,
+ });
+ if(saveError){
+  console.error("Employee availability save failed",{businessId:business.id,employeeId,code:saveError.code,actorUserId:user.id});
+  redirect(employeePath(slug,employeeId,"error","Employee availability could not be saved."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ revalidatePath(`/app/${slug}/schedule`);
+ redirect(employeePath(slug,employeeId,"success","Availability saved."));
+}
+
+export async function addEmployeeAvailabilityException(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const {data:profile}=await supabase.from("employee_availability_profiles").select("time_zone").eq("business_id",business.id).eq("employee_id",employeeId).maybeSingle();
+ if(!profile)redirect(employeePath(slug,employeeId,"error","Save availability settings before adding time off."));
+ const parse=(value:string)=>{const [date,time]=value.split("T");return date&&time?zonedDateTimeToUtc(date,time.slice(0,5),profile.time_zone):null;};
+ const startsAt=parse(formText(formData,"startsAt")),endsAt=parse(formText(formData,"endsAt"));
+ const exceptionType=formText(formData,"exceptionType"),availabilityEffect=formText(formData,"availabilityEffect");
+ if(!startsAt||!endsAt||Number.isNaN(startsAt.getTime())||endsAt<=startsAt
+  ||!["pto","vacation","holiday","sick","break","other"].includes(exceptionType)
+  ||!["available","unavailable"].includes(availabilityEffect)){
+  redirect(employeePath(slug,employeeId,"error","Enter a valid availability exception."));
+ }
+ const {error}=await supabase.from("employee_availability_exceptions").insert({
+  business_id:business.id,employee_id:employeeId,exception_type:exceptionType,
+  starts_at:startsAt.toISOString(),ends_at:endsAt.toISOString(),
+  availability_effect:availabilityEffect,approval_status:"approved",
+  reason:normalizeOptional(formData.get("reason")),created_by:user.id,updated_by:user.id,
+ });
+ if(error){
+  console.error("Employee availability exception save failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","The availability exception could not be saved."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ revalidatePath(`/app/${slug}/schedule`);
+ redirect(employeePath(slug,employeeId,"success","Availability exception added."));
+}
+
+export async function deleteEmployeeAvailabilityException(slug:string,employeeId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const {error}=await supabase.from("employee_availability_exceptions").delete()
+  .eq("business_id",business.id).eq("employee_id",employeeId).eq("id",formText(formData,"exceptionId"));
+ if(error){
+  console.error("Employee availability exception removal failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","The availability exception could not be removed."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ revalidatePath(`/app/${slug}/schedule`);
+ redirect(employeePath(slug,employeeId,"success","Availability exception removed."));
 }

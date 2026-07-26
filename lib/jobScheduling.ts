@@ -1,4 +1,4 @@
-import { dateInTimeZone } from "@/lib/bookingTime";
+import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { conflictingJobNumbers, effectiveJobWindow, intervalsOverlap, technicianWorksDuring, type ScheduleWindow, type WorkingHours } from "@/lib/schedulingRules";
 
 type SupabaseClient = Awaited<ReturnType<typeof import("@/lib/workspace").requireWorkspace>>["supabase"];
@@ -50,7 +50,7 @@ export async function checkJobSchedule({
       .lt("starts_at", candidateEnd.toISOString()).gt("ends_at", candidateStart.toISOString()),
     supabase.from("booking_settings").select("minimum_notice_hours,maximum_days_ahead").eq("business_id", businessId).maybeSingle(),
     technicianId
-      ? supabase.from("technician_profiles").select("default_working_hours,technician_status").eq("id", technicianId).eq("business_id", businessId).maybeSingle()
+      ? supabase.from("technician_profiles").select("default_working_hours,technician_status,employee_id").eq("id", technicianId).eq("business_id", businessId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     technicianId
       ? supabase.from("technician_time_off").select("starts_at,ends_at").eq("business_id", businessId).eq("technician_id", technicianId)
@@ -91,11 +91,75 @@ export async function checkJobSchedule({
   if (!technicianResult.data || technicianResult.data.technician_status === "off_duty") {
     return { available: false, code: "TECHNICIAN_HOURS", message: "The technician is not available for assignment." };
   }
-  if (!technicianWorksDuring(technicianResult.data.default_working_hours as WorkingHours, weekday, startTime, endTime)) {
+  const employeeId=technicianResult.data.employee_id;
+  const employeeProfileResult=employeeId
+    ?await supabase.from("employee_availability_profiles").select("time_zone,weekly_schedule_configured,maximum_daily_jobs,maximum_daily_minutes")
+      .eq("business_id",businessId).eq("employee_id",employeeId).maybeSingle()
+    :{data:null,error:null};
+  if(employeeProfileResult.error){
+    console.error("Employee availability profile lookup failed",{businessId,employeeId,code:employeeProfileResult.error.code});
+    return {available:false,code:"VERIFICATION_FAILED",message:"Employee availability could not be verified."};
+  }
+  const employeeTimeZone=employeeProfileResult.data?.time_zone??timeZone;
+  const employeeDate=dateInTimeZone(candidateStart,employeeTimeZone);
+  const employeeWeekday=new Date(`${employeeDate}T12:00:00Z`).getUTCDay();
+  const employeeTimeFormatter=new Intl.DateTimeFormat("en-GB",{
+    timeZone:employeeTimeZone,hour:"2-digit",minute:"2-digit",hourCycle:"h23",
+  });
+  const employeeStartTime=employeeTimeFormatter.format(candidateStart);
+  const employeeEndTime=employeeTimeFormatter.format(candidateEnd);
+  const dayStart=zonedDateTimeToUtc(employeeDate,"00:00",employeeTimeZone);
+  const dayEnd=zonedDateTimeToUtc(addDays(employeeDate,1),"00:00",employeeTimeZone);
+  const [employeeIntervalsResult,employeeExceptionsResult,dayJobsResult]=employeeId?await Promise.all([
+    supabase.from("employee_weekly_intervals").select("interval_type,starts_at,ends_at")
+      .eq("business_id",businessId).eq("employee_id",employeeId).eq("weekday",employeeWeekday),
+    supabase.from("employee_availability_exceptions").select("starts_at,ends_at,availability_effect")
+      .eq("business_id",businessId).eq("employee_id",employeeId).eq("approval_status","approved")
+      .lt("starts_at",candidateEnd.toISOString()).gt("ends_at",candidateStart.toISOString()),
+    supabase.from("jobs").select("id,starts_at,ends_at").eq("business_id",businessId)
+      .eq("assigned_technician_id",technicianId).eq("is_deleted",false)
+      .not("status","in",'("canceled","declined")').gte("starts_at",dayStart.toISOString()).lt("starts_at",dayEnd.toISOString()),
+  ]):[
+    {data:[],error:null},{data:[],error:null},{data:[],error:null},
+  ];
+  if(employeeIntervalsResult.error||employeeExceptionsResult.error||dayJobsResult.error){
+    console.error("Employee availability lookup failed",{
+      businessId,employeeId,
+      intervalCode:employeeIntervalsResult.error?.code,
+      exceptionCode:employeeExceptionsResult.error?.code,capacityCode:dayJobsResult.error?.code,
+    });
+    return {available:false,code:"VERIFICATION_FAILED",message:"Employee availability could not be verified."};
+  }
+  const approvedExceptions=(employeeExceptionsResult.data??[]) as Array<ScheduleWindow&{availability_effect:string}>;
+  const availableOverride=approvedExceptions.some(item=>item.availability_effect==="available"&&new Date(item.starts_at)<=candidateStart&&new Date(item.ends_at)>=candidateEnd);
+  if(approvedExceptions.some(item=>item.availability_effect==="unavailable"&&intervalsOverlap(candidateStart,candidateEnd,item))){
+    return {available:false,code:"TIME_OFF",message:"The employee is unavailable during that time."};
+  }
+  const employeeIntervals=(employeeIntervalsResult.data??[]) as Array<{interval_type:string;starts_at:string;ends_at:string}>;
+  const structuredHours=employeeProfileResult.data?.weekly_schedule_configured===true;
+  const withinWork=employeeIntervals.some(item=>item.interval_type==="working"&&item.starts_at.slice(0,5)<=employeeStartTime&&item.ends_at.slice(0,5)>=employeeEndTime);
+  const overlapsBreak=employeeIntervals.some(item=>item.interval_type==="break"&&item.starts_at.slice(0,5)<employeeEndTime&&item.ends_at.slice(0,5)>employeeStartTime);
+  if(!availableOverride&&structuredHours&&(!withinWork||overlapsBreak)){
+    return {available:false,code:"TECHNICIAN_HOURS",message:overlapsBreak?"The job overlaps the employee’s recurring break.":"The job falls outside the employee’s working hours."};
+  }
+  if (!structuredHours&&!technicianWorksDuring(technicianResult.data.default_working_hours as WorkingHours, weekday, startTime, endTime)) {
     return { available: false, code: "TECHNICIAN_HOURS", message: "The job falls outside the technician’s working hours." };
   }
   if ((timeOffResult.data as ScheduleWindow[] | null)?.some((window) => intervalsOverlap(candidateStart, candidateEnd, window))) {
     return { available: false, code: "TIME_OFF", message: "The technician has approved time off during that time." };
+  }
+  const capacity=employeeProfileResult.data;
+  const scheduledJobs=(dayJobsResult.data??[]).filter(item=>item.id!==excludeJobId);
+  if(capacity?.maximum_daily_jobs&&scheduledJobs.length>=capacity.maximum_daily_jobs){
+    return {available:false,code:"TECHNICIAN_HOURS",message:"The employee has reached their maximum daily job capacity."};
+  }
+  const scheduledMinutes=scheduledJobs.reduce((total,item)=>{
+    if(!item.starts_at||!item.ends_at)return total;
+    return total+Math.max(0,(new Date(item.ends_at).getTime()-new Date(item.starts_at).getTime())/60000);
+  },0);
+  const candidateMinutes=(candidateEnd.getTime()-candidateStart.getTime())/60000;
+  if(capacity?.maximum_daily_minutes&&scheduledMinutes+candidateMinutes>capacity.maximum_daily_minutes){
+    return {available:false,code:"TECHNICIAN_HOURS",message:"The job exceeds the employee’s maximum daily hours."};
   }
 
   let query = supabase.from("jobs")
