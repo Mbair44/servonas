@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RouteWarning } from "@/lib/routing/warnings";
 import { moveStop } from "@/lib/routing/reordering";
+import { requireGoogleMapsLibrary } from "@/lib/googleMapsLibrary";
 
 export type DispatchMapJob = {
   id: string;
@@ -47,6 +48,7 @@ export type DispatchMapRoute = {
 };
 
 type MapsObject = {
+  importLibrary?: (name: string) => Promise<unknown>;
   Map: new (element: HTMLElement, options: Record<string, unknown>) => {
     fitBounds: (bounds: unknown, padding?: number) => void;
     setCenter: (center: { lat: number; lng: number }) => void;
@@ -81,15 +83,20 @@ declare global {
   }
 }
 
+const requireGeometry = (maps: MapsObject) =>
+  requireGoogleMapsLibrary(maps, "geometry", (value) => Boolean(value.geometry?.encoding));
+
 function loadGoogleMaps(apiKey: string): Promise<MapsObject> {
   return new Promise((resolve, reject) => {
     const ready = window.google?.maps;
     if (ready) {
-      resolve(ready);
+      requireGeometry(ready).then(resolve, reject);
       return;
     }
-    const existing = document.querySelector<HTMLScriptElement>('script[data-servonas-dispatch-map="true"]');
-    const onLoad = () => window.google?.maps ? resolve(window.google.maps) : reject(new Error("Google Maps did not initialize."));
+    const existing = document.querySelector<HTMLScriptElement>('script[src^="https://maps.googleapis.com/maps/api/js"]');
+    const onLoad = () => window.google?.maps
+      ? requireGeometry(window.google.maps).then(resolve, reject)
+      : reject(new Error("Google Maps did not initialize."));
     if (existing) {
       existing.addEventListener("load", onLoad, { once: true });
       existing.addEventListener("error", () => reject(new Error("Google Maps could not load.")), { once: true });
@@ -225,10 +232,10 @@ export default function DispatchMap({
         infoWindow.current = info;
         markerIndex.clear();
         for (const route of visibleRoutes) {
-          if (!showLines || !maps.geometry?.encoding) continue;
+          if (!showLines) continue;
           const geometries = route.encodedPolyline ? [route.encodedPolyline] : route.encodedPolylines;
           for (const geometry of geometries) {
-            const path = maps.geometry.encoding.decodePath(geometry);
+            const path = maps.geometry!.encoding!.decodePath(geometry);
             path.forEach((point) => bounds.extend({ lat: point.lat(), lng: point.lng() }));
             const polyline = new maps.Polyline({
               map,
