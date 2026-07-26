@@ -42,6 +42,8 @@ export type DispatchMapRoute = {
   destinationLabel: string;
   drivingDistanceMeters: number | null;
   drivingDurationSeconds: number | null;
+  errorCode: string | null;
+  calculatedAt: string | null;
 };
 
 type MapsObject = {
@@ -352,11 +354,12 @@ export default function DispatchMap({
                   });
                 }}>
                   <span className="dispatch-route-symbol" style={{ background: route.color }}>{route.technicianName.slice(0,1)}</span>
-                  <span><strong>{route.technicianName}</strong><small>{route.technicianStatus.replaceAll("_", " ")} · {route.stopCount} stops</small><small>{distanceLabel(route.drivingDistanceMeters)}</small></span>
+                  <span><strong>{route.technicianName}</strong><small>{route.technicianStatus.replaceAll("_", " ")} · {route.stopCount} stops</small><small>{route.drivingDistanceMeters !== null ? distanceLabel(route.drivingDistanceMeters) : route.calculationStatus === "failed" ? `Route failed${route.errorCode ? ` · ${route.errorCode.replaceAll("_"," ")}` : ""}` : route.calculationStatus === "stale" ? "Route changed · recalculate" : route.calculationStatus === "calculating" ? "Route calculation in progress" : "Road route not calculated"}</small></span>
                   <span className="dispatch-route-expand">{warningCount > 0 && <b title={`${warningCount} route warnings`}>{warningCount}</b>}{expanded ? "−" : "+"}</span>
                 </button>
                 {expanded && <div className="dispatch-route-details">
                   <div className="dispatch-route-total"><span>{distanceLabel(route.drivingDistanceMeters)}</span><span>{durationLabel(route.drivingDurationSeconds)}</span></div>
+                  <div className="dispatch-route-window"><span>Calculation: {route.calculationStatus.replaceAll("_"," ")}</span><span>{route.calculatedAt ? `Updated ${new Intl.DateTimeFormat("en-US",{dateStyle:"short",timeStyle:"short"}).format(new Date(route.calculatedAt))}` : "Never calculated"}</span></div>
                   <div className="dispatch-route-window"><span>First: {routeJobs[0]?.scheduledLabel ?? "No stops"}</span><span>Last: {routeJobs.at(-1)?.scheduledLabel ?? "No stops"}</span></div>
                   <div className="dispatch-route-endpoint"><b>Start</b><span>{route.originLabel}</span></div>
                   {routeWarnings.length > 0 && <div className="dispatch-route-risks" aria-label={`${route.technicianName} route warnings`}>{routeWarnings.map((warning) => <div key={warning.id} className={warning.severity}><b>{warning.severity}</b><span><strong>{warning.title}</strong><small>{warning.message}</small></span></div>)}</div>}
