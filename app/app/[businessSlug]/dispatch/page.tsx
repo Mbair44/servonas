@@ -7,6 +7,7 @@ import { routableLocationCoordinates, scheduledStopSequence } from "@/lib/dispat
 import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransitions";
 import { evaluateRouteWarnings } from "@/lib/routing/warnings";
 import { densityCounts, resolveServiceDuration } from "@/lib/routing/serviceDuration";
+import { formatEstimatedDuration, formatEstimatedMiles, routeMetrics } from "@/lib/routing/metrics";
 import { requireWorkspace } from "@/lib/workspace";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { WorkspaceNav } from "../WorkspaceNav";
@@ -74,7 +75,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     console.error("Dispatch route plan query failed", { code: routePlanError.code, businessId: business.id });
   }
   const { data: persistedRoutes, error: persistedRouteError } = routePlan
-    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,calculation_status,origin_type,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
+    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,service_duration_seconds,calculation_status,origin_type,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
     : { data: null, error: null };
   if (persistedRouteError) {
     console.error("Dispatch technician routes query failed", {
@@ -93,7 +94,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const { data: densityPolicy } = await routingSupabase.from("business_routing_policies").select("default_service_duration_minutes").eq("business_id", business.id).maybeSingle();
   const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
     ? await Promise.all([
-      routingSupabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
+      routingSupabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,planned_departure_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
       routingSupabase.from("route_legs").select("technician_route_id,to_route_stop_id,driving_distance_meters,driving_duration_seconds,encoded_polyline,calculation_status,sequence").eq("business_id", business.id).in("technician_route_id", routeIds).order("sequence"),
     ])
     : [{ data: null, error: null }, { data: null, error: null }];
@@ -215,14 +216,54 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     { label: "Appointment window", values: jobs.map((job) => job.arrival_window_start ? new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, hour: "numeric" }).format(new Date(job.arrival_window_start)) : "No window") },
     { label: "Job duration", values: durationLabels },
   ];
+  const jobsAtRisk = new Set(routeWarnings.filter((warning) => warning.jobId && warning.severity !== "info").map((warning) => warning.jobId)).size;
+  const dailyMetrics = routeMetrics({
+    totalJobs: jobs.length,
+    assignedJobs: jobs.length - unassigned.length,
+    jobsAtRisk,
+    stopsMissingCoordinates: mapJobs.filter((job) => job.latitude === null || job.longitude === null).length,
+    routes: (persistedRoutes ?? []).map((route) => ({
+      calculationStatus: route.calculation_status,
+      drivingDistanceMeters: route.driving_distance_meters,
+      drivingDurationSeconds: route.driving_duration_seconds,
+      stopCount: route.stop_count,
+      serviceDurationSeconds: route.service_duration_seconds,
+      warningCount: routeWarnings.filter((warning) => warning.technicianId === route.technician_id).length,
+    })),
+    potentialDistanceSavingsMeters: (routeSuggestions ?? []).reduce((sum, suggestion) => sum + Number(suggestion.estimated_distance_saved_meters ?? 0), 0),
+    potentialTimeSavingsSeconds: (routeSuggestions ?? []).reduce((sum, suggestion) => sum + Number(suggestion.estimated_time_saved_seconds ?? 0), 0),
+  });
+  const routeTime = (value: string | null | undefined) => value
+    ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: business.timezone }).format(new Date(value))
+    : "Not available";
   const hrefFor = (nextDate: string) => `/app/${businessSlug}/dispatch?date=${nextDate}`;
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content dispatch-page">
-    <header className="epic3-header"><div><small>Field service operations</small><h1>Dispatch board</h1><p>Coordinate today’s field work in {business.timezone}.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/schedule?date=${date}&view=day`}>Open schedule</Link></header>
+    <header className="epic3-header"><div><small>Field service operations</small><h1>Dispatch board</h1><p>Coordinate today’s field work in {business.timezone}.</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/dispatch/reporting`}>Route reporting</Link><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/schedule?date=${date}&view=day`}>Open schedule</Link></div></header>
     {query.error && <div className="workspace-notice error">{query.error}{query.error.includes("changed while you were editing") && <> <Link href={`/app/${businessSlug}/dispatch?date=${date}`}>Refresh latest plan</Link></>}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     {persistedRouteError && <div className="workspace-notice error">Saved routes could not be loaded ({persistedRouteError.code}): {persistedRouteError.message}</div>}
     {!persistedRouteError && routePlan?.calculation_status === "ready" && (persistedRoutes?.length ?? 0) === 0 && <div className="workspace-notice error">The route plan is marked ready but contains no technician routes. Recalculate the selected date to rebuild its route records.</div>}
     <section className="workspace-panel dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date, -1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date, 1))}>›</Link></div><form><label>Date<input name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</strong>{canEdit&&<><form action={calculateDispatchRoutes.bind(null,businessSlug)}><input type="hidden" name="date" value={date}/><button className="sv-button" type="submit">{routePlan?.calculation_status==="ready"?"Recalculate roads":"Calculate road routes"}</button></form>{routePlan?.calculation_status==="ready"&&<form action={optimizeDispatchRoutes.bind(null,businessSlug)}><input type="hidden" name="date" value={date}/><input type="hidden" name="routePlanId" value={routePlan.id}/><input type="hidden" name="planVersion" value={routePlan.version}/><button className="sv-button sv-secondary" type="submit">Optimize routes</button></form>}</>}</section>
     {(routeSuggestions?.length ?? 0)>0&&<section className="workspace-panel dispatch-suggestions"><div className="panel-title"><div><small>Human approval required</small><h2>Route suggestions</h2></div><span>{routeSuggestions!.length}</span></div><div>{routeSuggestions!.map((suggestion)=><article key={suggestion.id}><div><strong>{suggestion.summary}</strong><p>Current plan remains unchanged until you accept. Based only on calculated Google road routes.</p><small>{suggestion.estimated_distance_saved_meters ? `${(suggestion.estimated_distance_saved_meters/1609.344).toFixed(1)} potential driving miles` : "No mileage savings claimed"} · {suggestion.estimated_time_saved_seconds ? `${Math.round(suggestion.estimated_time_saved_seconds/60)} potential driving minutes` : "No time savings claimed"}</small></div><form action={decideDispatchRouteSuggestion.bind(null,businessSlug,suggestion.id)}><input type="hidden" name="date" value={date}/><input type="hidden" name="planVersion" value={routePlan!.version}/><button name="decision" value="dismissed" className="sv-button sv-secondary">Dismiss</button><button name="decision" value="accepted" className="sv-button">Accept and recalculate</button></form></article>)}</div></section>}
+    <section className="workspace-panel route-metrics"><div className="panel-title"><div><small>Provider route estimates</small><h2>Daily route metrics</h2><p>Mileage and travel time are estimated from calculated road routes, not GPS or odometer readings.</p></div></div><div className="route-metric-grid">
+      <article><span>Total jobs</span><strong>{dailyMetrics.totalJobs}</strong><small>{dailyMetrics.assignedJobs} assigned · {dailyMetrics.unassignedJobs} unassigned</small></article>
+      <article><span>Estimated driving</span><strong>{formatEstimatedMiles(dailyMetrics.drivingDistanceMeters)}</strong><small>{formatEstimatedDuration(dailyMetrics.drivingDurationSeconds)} total</small></article>
+      <article><span>Average between stops</span><strong>{dailyMetrics.averageDriveSeconds === null ? "Not available" : formatEstimatedDuration(dailyMetrics.averageDriveSeconds)}</strong><small>Provider-calculated legs only</small></article>
+      <article><span>Needs attention</span><strong>{dailyMetrics.jobsAtRisk}</strong><small>{dailyMetrics.routesWithWarnings} routes with warnings · {dailyMetrics.stopsMissingCoordinates} unmapped</small></article>
+      <article><span>Potential savings</span><strong>{dailyMetrics.potentialDistanceSavingsMeters ? formatEstimatedMiles(dailyMetrics.potentialDistanceSavingsMeters) : "None identified"}</strong><small>{dailyMetrics.potentialTimeSavingsSeconds ? formatEstimatedDuration(dailyMetrics.potentialTimeSavingsSeconds) : "Pending suggestions only"}</small></article>
+    </div><div className="technician-metrics">{(persistedRoutes ?? []).map((route) => {
+      const technician = technicians.find((item) => item.id === route.technician_id);
+      const routeStops = (persistedStops ?? []).filter((stop) => stop.technician_route_id === route.id).sort((a,b) => a.sequence-b.sequence);
+      const warningCount = routeWarnings.filter((warning) => warning.technicianId === route.technician_id).length;
+      const workSeconds = route.service_duration_seconds + Number(route.driving_duration_seconds ?? 0);
+      return <article key={route.id}><header><strong>{technician?.display_name ?? "Technician"}</strong><span>{route.stop_count} stops</span></header><dl>
+        <div><dt>Estimated driving</dt><dd>{route.driving_distance_meters === null ? "Unavailable" : formatEstimatedMiles(route.driving_distance_meters)}</dd></div>
+        <div><dt>Estimated drive time</dt><dd>{route.driving_duration_seconds === null ? "Unavailable" : formatEstimatedDuration(route.driving_duration_seconds)}</dd></div>
+        <div><dt>Scheduled service</dt><dd>{formatEstimatedDuration(route.service_duration_seconds)}</dd></div>
+        <div><dt>Route window</dt><dd>{routeTime(routeStops[0]?.planned_arrival_at)}–{routeTime(routeStops.at(-1)?.planned_departure_at)}</dd></div>
+        <div><dt>Warnings</dt><dd>{warningCount}</dd></div>
+        <div><dt>Planned utilization</dt><dd>{workSeconds ? formatEstimatedDuration(workSeconds) : "Not available"}</dd></div>
+      </dl></article>;
+    })}</div></section>
     <section className="workspace-panel dispatch-density"><div className="panel-title"><div><small>Route concentration</small><h2>Today’s route density</h2><p>Operational counts only—no optimization savings are inferred.</p></div></div><div>{densityGroups.map((group)=><article key={group.label}><h3>{group.label}</h3>{densityCounts(group.values).slice(0,5).map(item=><div key={item.label}><span>{item.label}</span><b>{item.count}</b></div>)}</article>)}</div></section>
     <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes} warnings={routeWarnings} date={date} canReorder={canEdit} reorderAction={reorderDispatchRoute.bind(null,businessSlug)} planVersion={routePlan?.version ?? null} calculationRevision={routePlan?.calculation_revision ?? null} planUpdatedAt={routePlan?.updated_at ?? null}/>
     <div className="dispatch-list-heading"><div><small>Map-independent controls</small><h2>Dispatch assignments</h2></div><p>Assignment, status, contact, and schedule controls remain available if the map provider is unavailable.</p></div>
