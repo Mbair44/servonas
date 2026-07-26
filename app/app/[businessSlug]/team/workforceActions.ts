@@ -7,6 +7,7 @@ import { normalizeOptional, validateEmployeeProfile } from "@/lib/workforce";
 import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyIntervalInput } from "@/lib/workforceAvailability";
 import { validateQualification } from "@/lib/workforceQualifications";
 import { splitTerritoryValues, validateTerritory } from "@/lib/workforceTerritories";
+import { validateWorkforceAsset, WORKFORCE_ASSET_CONDITIONS } from "@/lib/workforceAssets";
 import { requireWorkspace } from "@/lib/workspace";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
@@ -237,4 +238,73 @@ export async function endEmployeeTerritory(slug:string,employeeId:string,formDat
  }
  revalidatePath(`/app/${slug}/team/${employeeId}`);revalidatePath(`/app/${slug}/dispatch`);
  redirect(employeePath(slug,employeeId,"success","Territory assignment ended."));
+}
+
+export async function createWorkforceAsset(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const name=formText(formData,"name"),assetType=formText(formData,"assetType");
+ const yearValue=formText(formData,"modelYear"),modelYear=yearValue?Number(yearValue):null;
+ const validationError=validateWorkforceAsset({name,type:assetType,year:modelYear});
+ if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
+ const condition=formText(formData,"condition");
+ if(!WORKFORCE_ASSET_CONDITIONS.includes(condition as typeof WORKFORCE_ASSET_CONDITIONS[number])){
+  redirect(employeePath(slug,employeeId,"error","Choose a valid asset condition."));
+ }
+ const {error}=await supabase.from("workforce_assets").insert({
+  business_id:business.id,name,asset_type:assetType,model_year:modelYear,condition,
+  status:condition==="out_of_service"?"maintenance":"available",
+  asset_number:normalizeOptional(formData.get("assetNumber")),serial_number:normalizeOptional(formData.get("serialNumber")),
+  manufacturer:normalizeOptional(formData.get("manufacturer")),model:normalizeOptional(formData.get("model")),
+  license_plate:normalizeOptional(formData.get("licensePlate")),vin:normalizeOptional(formData.get("vin")),
+  notes:normalizeOptional(formData.get("notes")),created_by:user.id,updated_by:user.id,
+ });
+ if(error){
+  console.error("Workforce asset creation failed",{businessId:business.id,code:error.code});
+  redirect(employeePath(slug,employeeId,"error",error.code==="23505"?"That asset number or serial number is already in use.":"The asset could not be created."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ redirect(employeePath(slug,employeeId,"success","Asset added."));
+}
+
+export async function assignWorkforceAsset(slug:string,employeeId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const assetId=formText(formData,"assetId");
+ if(!assetId)redirect(employeePath(slug,employeeId,"error","Choose an available asset."));
+ const expectedValue=formText(formData,"expectedReturnAt");
+ const [expectedDate,expectedTime]=expectedValue.split("T");
+ const expectedReturnAt=expectedValue&&expectedDate&&expectedTime
+  ?zonedDateTimeToUtc(expectedDate,expectedTime.slice(0,5),business.timezone):null;
+ if(expectedReturnAt&&Number.isNaN(expectedReturnAt.getTime()))redirect(employeePath(slug,employeeId,"error","Enter a valid expected return date."));
+ const {error}=await supabase.rpc("assign_workforce_asset",{
+  p_business_id:business.id,p_employee_id:employeeId,p_asset_id:assetId,
+  p_expected_return_at:expectedReturnAt?.toISOString()??null,
+  p_assignment_notes:formText(formData,"assignmentNotes"),
+ });
+ if(error){
+  console.error("Workforce asset assignment failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error",error.code==="23505"?"That asset is already assigned.":"The asset could not be assigned."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ redirect(employeePath(slug,employeeId,"success","Asset assigned."));
+}
+
+export async function returnWorkforceAsset(slug:string,employeeId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const returnCondition=formText(formData,"returnCondition");
+ if(!WORKFORCE_ASSET_CONDITIONS.includes(returnCondition as typeof WORKFORCE_ASSET_CONDITIONS[number])){
+  redirect(employeePath(slug,employeeId,"error","Choose a valid return condition."));
+ }
+ const {error}=await supabase.rpc("return_workforce_asset",{
+  p_business_id:business.id,p_assignment_id:formText(formData,"assignmentId"),
+  p_return_condition:returnCondition,p_return_notes:formText(formData,"returnNotes"),
+ });
+ if(error){
+  console.error("Workforce asset return failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","The asset could not be returned."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ redirect(employeePath(slug,employeeId,"success","Asset returned."));
 }
