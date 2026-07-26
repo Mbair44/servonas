@@ -319,6 +319,7 @@ export default function DispatchMap({
           <button type="button" className="sv-button sv-secondary" onClick={() => setFullScreen((value) => !value)}>{fullScreen ? "Exit full screen" : "Full screen"}</button>
         </div>
       </header>
+      <p className="sr-only" aria-live="polite">{Object.keys(draftOrders).length ? "Route order changed. Review and save the affected technician route." : "Route order matches the saved plan."}</p>
       <div className="dispatch-map-filters" aria-label="Dispatch map filters">
         <label>Technician<select value={technician} onChange={(event) => setTechnician(event.target.value)}><option value="all">All technicians</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{[...new Set(jobs.map((job) => job.status))].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</select></label>

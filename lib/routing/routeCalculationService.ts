@@ -79,6 +79,7 @@ export async function calculateDailyRoutes({
   actorUserId: string;
   onlyTechnicianId?: string;
 }): Promise<RouteCalculationSummary> {
+  const operationStartedAt = Date.now();
   const provider = providerFromEnvironment();
   const start = zonedDateTimeToUtc(serviceDate, "00:00", businessTimeZone);
   const end = zonedDateTimeToUtc(addDays(serviceDate, 1), "00:00", businessTimeZone);
@@ -426,6 +427,16 @@ export async function calculateDailyRoutes({
   }
   if (groups.size > 0 && (verifiedRoutes?.length ?? 0) === 0) {
     throw new Error("Route calculation persisted no technician route records.");
+  }
+  const durationMs = Date.now() - operationStartedAt;
+  const logContext = {
+    operation: "daily_route_calculation", businessId, serviceDate,
+    provider: provider.name, durationMs, ...summary,
+  };
+  if (durationMs >= Number(process.env.ROUTE_SLOW_CALCULATION_MS ?? 10000)) {
+    console.warn("Slow route calculation", logContext);
+  } else {
+    console.info("Route calculation completed", logContext);
   }
   return summary;
 }
