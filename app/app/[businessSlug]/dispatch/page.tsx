@@ -79,7 +79,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     console.error("Dispatch route plan query failed", { code: routePlanError.code, businessId: business.id });
   }
   const { data: persistedRoutes, error: persistedRouteError } = routePlan
-    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,service_duration_seconds,calculation_status,origin_type,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
+    ? await routingSupabase.from("technician_routes").select("id,technician_id,encoded_polyline,stop_count,service_duration_seconds,calculation_status,calculated_at,error_code,origin_type,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", business.id).eq("route_plan_id", routePlan.id)
     : { data: null, error: null };
   if (persistedRouteError) {
     console.error("Dispatch technician routes query failed", {
@@ -135,6 +135,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
         destinationLabel: persisted?.destination_is_private ? "Private technician end" : persisted?.destination_label || "End location not configured",
         drivingDistanceMeters: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_distance_meters : null,
         drivingDurationSeconds: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_duration_seconds : null,
+        errorCode: persisted?.error_code ?? null,
+        calculatedAt: persisted?.calculated_at ?? null,
       };
     });
   const sequenceByJob = scheduledStopSequence(
