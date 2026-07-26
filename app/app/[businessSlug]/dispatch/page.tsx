@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import DispatchMap, { type DispatchMapJob, type DispatchMapRoute } from "@/components/DispatchMap";
 import { canManageCustomers } from "@/lib/access";
 import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
@@ -8,6 +9,7 @@ import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransiti
 import { evaluateRouteWarnings } from "@/lib/routing/warnings";
 import { densityCounts, resolveServiceDuration } from "@/lib/routing/serviceDuration";
 import { formatEstimatedDuration, formatEstimatedMiles, routeMetrics } from "@/lib/routing/metrics";
+import { hasRouteCapability } from "@/lib/routing/permissions";
 import { requireWorkspace } from "@/lib/workspace";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { WorkspaceNav } from "../WorkspaceNav";
@@ -53,6 +55,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const { businessSlug } = await params;
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
+  if (!hasRouteCapability(role,"view_all_routes")) redirect("/tech/route");
   const canEdit = canManageCustomers(role);
   const routingSupabase = canEdit ? getSupabaseAdmin() ?? supabase : supabase;
   const today = dateInTimeZone(new Date(), business.timezone);

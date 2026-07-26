@@ -13,6 +13,7 @@ import { publicRouteCalculationError } from "@/lib/routing/errors";
 import { actualRouteImpactSummary, type RoadMetrics } from "@/lib/routing/impact";
 import { isRouteEditConflict, parseRoutePlanVersion, ROUTE_EDIT_CONFLICT_MESSAGE } from "@/lib/routing/concurrency";
 import { generateRouteOptimizationSuggestions } from "@/lib/routing/optimizationService";
+import { hasRouteCapability } from "@/lib/routing/permissions";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const dispatchPath = (slug: string, date: string, kind: "error" | "success", message: string) =>
@@ -21,7 +22,10 @@ const dispatchPath = (slug: string, date: string, kind: "error" | "success", mes
 export async function calculateDispatchRoutes(slug: string, formData: FormData) {
   const { user, business, role } = await requireWorkspace(slug);
   const date = text(formData, "date");
-  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to calculate routes."));
+  if (!hasRouteCapability(role,"recalculate_routes")) {
+    console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"recalculate_routes"});
+    redirect(dispatchPath(slug, date, "error", "You do not have permission to calculate routes."));
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) redirect(dispatchPath(slug, date, "error", "Choose a valid service date."));
   const admin = getSupabaseAdmin();
   if (!admin) redirect(dispatchPath(slug, date, "error", "Server routing persistence is not configured."));
@@ -57,7 +61,10 @@ export async function optimizeDispatchRoutes(slug: string, formData: FormData) {
   const date = text(formData, "date");
   const routePlanId = text(formData, "routePlanId");
   const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
-  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to optimize routes."));
+  if (!hasRouteCapability(role,"run_optimization")) {
+    console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"run_optimization"});
+    redirect(dispatchPath(slug, date, "error", "You do not have permission to optimize routes."));
+  }
   if (!routePlanId || !planVersion) redirect(dispatchPath(slug, date, "error", "Calculate the current road routes before requesting suggestions."));
   const admin = getSupabaseAdmin();
   if (!admin || !process.env.GOOGLE_ROUTES_API_KEY) redirect(dispatchPath(slug, date, "error", "Google road routing is not configured."));
@@ -85,7 +92,8 @@ export async function decideDispatchRouteSuggestion(slug: string, suggestionId: 
   const date = text(formData, "date");
   const decision = text(formData, "decision");
   const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
-  if (!canManageCustomers(role) || !planVersion || !["accepted", "dismissed"].includes(decision)) {
+  if (!hasRouteCapability(role,"apply_optimization") || !planVersion || !["accepted", "dismissed"].includes(decision)) {
+    if(!hasRouteCapability(role,"apply_optimization"))console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"apply_optimization"});
     redirect(dispatchPath(slug, date, "error", "The route-suggestion decision was invalid."));
   }
   const { data: suggestion } = await supabase.from("route_suggestions").select("payload").eq("business_id", business.id).eq("id", suggestionId).eq("status", "pending").maybeSingle();
@@ -127,7 +135,10 @@ export async function reorderDispatchRoute(slug: string, formData: FormData) {
   const technicianRouteId = text(formData, "technicianRouteId");
   const technicianId = text(formData, "technicianId");
   const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
-  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "You do not have permission to reorder routes."));
+  if (!hasRouteCapability(role,"reorder_stops")) {
+    console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"reorder_stops"});
+    redirect(dispatchPath(slug, date, "error", "You do not have permission to reorder routes."));
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !technicianRouteId || !technicianId || !planVersion) {
     redirect(dispatchPath(slug, date, "error", "The route reorder request was incomplete."));
   }
@@ -207,7 +218,10 @@ async function updateTechnicianOperationalState(
 export async function assignDispatchJob(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspace(slug);
   const date = text(formData, "date");
-  if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "Permission denied."));
+  if (!hasRouteCapability(role,"reassign_jobs")) {
+    console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"reassign_jobs"});
+    redirect(dispatchPath(slug, date, "error", "Permission denied."));
+  }
   const technicianId = text(formData, "technicianId") || null;
   const routePlanId = text(formData, "routePlanId") || null;
   const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
