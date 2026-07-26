@@ -11,6 +11,7 @@ import {
 } from "./segmentation";
 import { resolveRouteEndpoints } from "./endpoints";
 import { resolveServiceDuration, technicianMeetsRoutingRequirements } from "./serviceDuration";
+import { canReuseCalculatedRoute } from "./cacheValidity";
 
 type RouteJob = {
   id: string;
@@ -220,9 +221,23 @@ export async function calculateDailyRoutes({
       })),
     });
     const { data: existing } = await admin.from("technician_routes")
-      .select("id,calculation_signature,calculation_status,driving_distance_meters,driving_duration_seconds")
+      .select("id,calculation_signature,calculation_status,driving_distance_meters,driving_duration_seconds,encoded_polyline")
       .eq("business_id", businessId).eq("route_plan_id", plan.id).eq("technician_id", technicianId).maybeSingle();
-    if (existing?.calculation_signature === routeSignature && existing.calculation_status === "ready") {
+    let hasSafeLegGeometry = false;
+    if (existing?.calculation_signature === routeSignature && !existing.encoded_polyline && calculationWaypoints.length > 1) {
+      const { data: safeLeg } = await admin.from("route_legs").select("id")
+        .eq("business_id",businessId).eq("technician_route_id",existing.id)
+        .eq("calculation_status","ready").not("encoded_polyline","is",null).limit(1).maybeSingle();
+      hasSafeLegGeometry=Boolean(safeLeg);
+    }
+    if (existing?.calculation_signature === routeSignature && canReuseCalculatedRoute({
+      status:existing.calculation_status,
+      drivingDistanceMeters:existing.driving_distance_meters,
+      drivingDurationSeconds:existing.driving_duration_seconds,
+      geometryRequired:calculationWaypoints.length>1,
+      aggregatePolyline:existing.encoded_polyline,
+      hasSafeLegGeometry,
+    })) {
       summary.cached += 1;
       planDistance += existing.driving_distance_meters ?? 0;
       planDuration += existing.driving_duration_seconds ?? 0;
