@@ -14,6 +14,8 @@ import { resolveServiceDuration, technicianMeetsRoutingRequirements } from "./se
 
 type RouteJob = {
   id: string;
+  job_number: number;
+  title: string;
   assigned_technician_id: string;
   starts_at: string;
   ends_at: string | null;
@@ -27,6 +29,7 @@ type RouteJob = {
     latitude: number | string;
     longitude: number | string;
     geocoding_status: string;
+    location_name: string;
     street_address: string;
     unit: string | null;
     city: string;
@@ -36,13 +39,15 @@ type RouteJob = {
     latitude: number | string;
     longitude: number | string;
     geocoding_status: string;
+    location_name: string;
     street_address: string;
     unit: string | null;
     city: string;
     state: string;
     postal_code: string;
   }> | null;
-  services: { duration_minutes: number | null } | Array<{ duration_minutes: number | null }> | null;
+  services: { name: string; duration_minutes: number | null } | Array<{ name: string; duration_minutes: number | null }> | null;
+  customers: { first_name: string; last_name: string; company_name: string | null } | Array<{ first_name: string; last_name: string; company_name: string | null }> | null;
 };
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
@@ -84,7 +89,7 @@ export async function calculateDailyRoutes({
   const start = zonedDateTimeToUtc(serviceDate, "00:00", businessTimeZone);
   const end = zonedDateTimeToUtc(addDays(serviceDate, 1), "00:00", businessTimeZone);
   let jobsQuery = admin.from("jobs")
-    .select("id,assigned_technician_id,starts_at,ends_at,arrival_window_start,arrival_window_end,estimated_duration_minutes,service_id,service_location_id,routing_requirements,service_locations!jobs_service_location_tenant_fk(latitude,longitude,geocoding_status,street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(duration_minutes)")
+    .select("id,job_number,title,assigned_technician_id,starts_at,ends_at,arrival_window_start,arrival_window_end,estimated_duration_minutes,service_id,service_location_id,routing_requirements,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(location_name,latitude,longitude,geocoding_status,street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(name,duration_minutes)")
     .eq("business_id", businessId).eq("is_deleted", false)
     .not("assigned_technician_id", "is", null)
     .not("status", "in", '("canceled","declined")')
@@ -100,7 +105,7 @@ export async function calculateDailyRoutes({
     serviceIds.length
       ? admin.from("price_book_items").select("service_id,estimated_duration_minutes").eq("business_id", businessId).in("service_id", serviceIds).eq("is_active", true).eq("is_deleted", false).not("estimated_duration_minutes", "is", null)
       : Promise.resolve({ data: [] as Array<{ service_id: string; estimated_duration_minutes: number }> }),
-    admin.from("technician_profiles").select("id,skills,service_areas,routing_capabilities").eq("business_id", businessId).in("id", technicianIds),
+    admin.from("technician_profiles").select("id,display_name,skills,service_areas,routing_capabilities").eq("business_id", businessId).in("id", technicianIds),
   ]);
   const priceDurationByService = new Map((priceDurations ?? []).map((item) => [item.service_id, item.estimated_duration_minutes]));
   const capabilityByTechnician = new Map((technicianCapabilities ?? []).map((technician) => [technician.id, technician]));
@@ -237,6 +242,7 @@ export async function calculateDailyRoutes({
       destination_is_private: endpoints.destination.isPrivate,
       stop_count: routable.length,
       service_duration_seconds: routable.reduce((total, item) => total + item.duration.minutes * 60, 0),
+      technician_display_name_snapshot: technicianCapability?.display_name ?? "Technician",
       provider: provider.name, calculation_status: "calculating", calculation_signature: routeSignature,
       encoded_polyline: null, driving_distance_meters: null, driving_duration_seconds: null,
       error_code: null, updated_by: actorUserId,
@@ -246,16 +252,23 @@ export async function calculateDailyRoutes({
       continue;
     }
     await admin.from("route_stops").delete().eq("business_id", businessId).eq("technician_route_id", technicianRoute.id);
-    const { data: stops, error: stopsError } = await admin.from("route_stops").insert(routable.map(({ job, location, duration }, index) => ({
+    const { data: stops, error: stopsError } = await admin.from("route_stops").insert(routable.map(({ job, location, duration }, index) => {
+      const customer = relation(job.customers);
+      const service = relation(job.services) as { name?: string; duration_minutes: number | null } | null;
+      return ({
       business_id: businessId, route_plan_id: plan.id, technician_route_id: technicianRoute.id,
       job_id: job.id, service_location_id: job.service_location_id, sequence: index + 1,
+      job_number_snapshot: job.job_number, job_title_snapshot: job.title,
+      customer_display_name_snapshot: customer?.company_name || [customer?.first_name,customer?.last_name].filter(Boolean).join(" ") || "Customer",
+      service_name_snapshot: service?.name ?? "Custom work",
+      service_location_label_snapshot: location.location_name ?? "Service location",
       planned_arrival_at: job.starts_at, planned_departure_at: job.ends_at,
       appointment_window_start: job.arrival_window_start, appointment_window_end: job.arrival_window_end,
       service_duration_seconds: duration.minutes * 60, service_duration_source: duration.source,
       latitude: Number(location.latitude), longitude: Number(location.longitude),
       address_snapshot: [location.street_address, location.unit, location.city, location.state, location.postal_code].filter(Boolean).join(", "),
       calculation_status: "calculating", created_by: actorUserId, updated_by: actorUserId,
-    }))).select("id,job_id,sequence");
+    });})).select("id,job_id,sequence");
     if (stopsError || !stops) {
       await admin.from("technician_routes").update({ calculation_status: "failed", error_code: stopsError?.code ?? "stop_write_failed" }).eq("id", technicianRoute.id);
       summary.failed += 1;
