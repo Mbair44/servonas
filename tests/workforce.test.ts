@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeOptional, validateEmployeeProfile } from "../lib/workforce.ts";
 import { validTimeZone, validateAvailabilityProfile, validateWeeklyIntervals } from "../lib/workforceAvailability.ts";
+import { validateQualification } from "../lib/workforceQualifications.ts";
 
 test("employee profile supports minimal fast entry", () => {
   assert.equal(validateEmployeeProfile({preferredName:"Sam",email:null,profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true}),null);
@@ -36,4 +37,11 @@ test("employee availability rejects invalid capacity and breaks outside work", (
     {weekday:2,interval_type:"working",starts_at:"09:00",ends_at:"17:00"},
     {weekday:2,interval_type:"break",starts_at:"08:00",ends_at:"08:30"},
   ])!, /break/i);
+});
+
+test("workforce qualifications remain business-defined and date-valid",()=>{
+ assert.equal(validateQualification({type:"skill",name:"Commercial service",issuedOn:null,expiresOn:null}),null);
+ assert.equal(validateQualification({type:"certification",name:"EPA Certification",issuedOn:"2026-01-01",expiresOn:"2027-01-01"}),null);
+ assert.match(validateQualification({type:"industry_type",name:"Other",issuedOn:null,expiresOn:null})!,/type/i);
+ assert.match(validateQualification({type:"license",name:"Electrical License",issuedOn:"2027-01-01",expiresOn:"2026-01-01"})!,/Expiration/i);
 });

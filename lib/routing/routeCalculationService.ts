@@ -106,8 +106,28 @@ export async function calculateDailyRoutes({
     serviceIds.length
       ? admin.from("price_book_items").select("service_id,estimated_duration_minutes").eq("business_id", businessId).in("service_id", serviceIds).eq("is_active", true).eq("is_deleted", false).not("estimated_duration_minutes", "is", null)
       : Promise.resolve({ data: [] as Array<{ service_id: string; estimated_duration_minutes: number }> }),
-    admin.from("technician_profiles").select("id,display_name,skills,service_areas,routing_capabilities").eq("business_id", businessId).in("id", technicianIds),
+    admin.from("technician_profiles").select("id,display_name,skills,service_areas,routing_capabilities,employee_id").eq("business_id", businessId).in("id", technicianIds),
   ]);
+  const employeeIds=[...new Set((technicianCapabilities??[]).map(item=>item.employee_id).filter((value):value is string=>Boolean(value)))];
+  const {data:structuredQualifications,error:structuredQualificationError}=employeeIds.length
+    ?await admin.from("employee_qualifications")
+      .select("employee_id,workforce_qualifications!employee_qualifications_definition_tenant_fk(name,is_active)")
+      .eq("business_id",businessId).in("employee_id",employeeIds).eq("status","active")
+      .or(`expires_on.is.null,expires_on.gte.${serviceDate}`)
+    :{data:[],error:null};
+  if(structuredQualificationError){
+    console.warn("Structured workforce qualifications unavailable; using technician compatibility skills",{
+      businessId,code:structuredQualificationError.code,
+    });
+  }
+  const structuredSkillsByEmployee=new Map<string,string[]>();
+  for(const assignment of structuredQualifications??[]){
+    const definition=relation(assignment.workforce_qualifications) as {name:string;is_active:boolean}|null;
+    if(!definition?.is_active)continue;
+    structuredSkillsByEmployee.set(assignment.employee_id,[
+      ...(structuredSkillsByEmployee.get(assignment.employee_id)??[]),definition.name,
+    ]);
+  }
   const priceDurationByService = new Map((priceDurations ?? []).map((item) => [item.service_id, item.estimated_duration_minutes]));
   const capabilityByTechnician = new Map((technicianCapabilities ?? []).map((technician) => [technician.id, technician]));
   const { data: plan, error: planError } = await admin.from("route_plans").upsert({
@@ -155,7 +175,9 @@ export async function calculateDailyRoutes({
     const technicianCapability = capabilityByTechnician.get(technicianId);
     if (technicianJobs.some((job) => !technicianMeetsRoutingRequirements({
       requirements: job.routing_requirements,
-      skills: technicianCapability?.skills ?? [],
+      skills: technicianCapability?.employee_id&&structuredQualifications
+        ? structuredSkillsByEmployee.get(technicianCapability.employee_id)??[]
+        : technicianCapability?.skills ?? [],
       serviceAreas: technicianCapability?.service_areas ?? [],
       capabilities: technicianCapability?.routing_capabilities ?? {},
     }))) {
