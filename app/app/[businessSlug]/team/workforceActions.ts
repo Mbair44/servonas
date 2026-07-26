@@ -182,12 +182,20 @@ export async function createEmployeeTerritory(slug:string,employeeId:string,form
  const name=formText(formData,"name"),territoryType=formText(formData,"territoryType");
  const postalCodes=splitTerritoryValues(formText(formData,"postalCodes"));
  const neighborhoods=splitTerritoryValues(formText(formData,"neighborhoods"));
- const boundary=formText(formData,"boundaryGeojson");
- const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary});
+ const boundary=formText(formData,"boundaryGeojson"),color=formText(formData,"color");
+ const description=formText(formData,"description"),notes=formText(formData,"notes");
+ const parentTerritoryId=formText(formData,"parentTerritoryId");
+ const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary,color,description,notes});
  if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
+ if(parentTerritoryId){
+  const {data:parent}=await supabase.from("workforce_territories").select("id").eq("business_id",business.id).eq("id",parentTerritoryId).maybeSingle();
+  if(!parent)redirect(employeePath(slug,employeeId,"error","The selected parent territory is not available."));
+ }
  const {error}=await supabase.from("workforce_territories").insert({
   business_id:business.id,name,territory_type:territoryType,postal_codes:postalCodes,
-  neighborhoods,boundary_geojson:boundary?JSON.parse(boundary):null,created_by:user.id,updated_by:user.id,
+  neighborhoods,boundary_geojson:boundary?JSON.parse(boundary):null,color,
+  description:description||null,notes:notes||null,parent_territory_id:parentTerritoryId||null,
+  created_by:user.id,updated_by:user.id,
  });
  if(error){
   console.error("Workforce territory creation failed",{businessId:business.id,code:error.code});
