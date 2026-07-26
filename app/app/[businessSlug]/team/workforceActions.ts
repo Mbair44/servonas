@@ -6,6 +6,7 @@ import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { normalizeOptional, validateEmployeeProfile } from "@/lib/workforce";
 import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyIntervalInput } from "@/lib/workforceAvailability";
 import { validateQualification } from "@/lib/workforceQualifications";
+import { splitTerritoryValues, validateTerritory } from "@/lib/workforceTerritories";
 import { requireWorkspace } from "@/lib/workspace";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
@@ -171,4 +172,69 @@ export async function endEmployeeQualification(slug:string,employeeId:string,for
  }
  revalidatePath(`/app/${slug}/team/${employeeId}`);revalidatePath(`/app/${slug}/dispatch`);
  redirect(employeePath(slug,employeeId,"success","Qualification removed."));
+}
+
+export async function createEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const name=formText(formData,"name"),territoryType=formText(formData,"territoryType");
+ const postalCodes=splitTerritoryValues(formText(formData,"postalCodes"));
+ const neighborhoods=splitTerritoryValues(formText(formData,"neighborhoods"));
+ const boundary=formText(formData,"boundaryGeojson");
+ const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary});
+ if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
+ const {error}=await supabase.from("workforce_territories").insert({
+  business_id:business.id,name,territory_type:territoryType,postal_codes:postalCodes,
+  neighborhoods,boundary_geojson:boundary?JSON.parse(boundary):null,created_by:user.id,updated_by:user.id,
+ });
+ if(error){
+  console.error("Workforce territory creation failed",{businessId:business.id,code:error.code});
+  redirect(employeePath(slug,employeeId,"error",error.code==="23505"?"A territory with that name already exists.":"The territory could not be created."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ redirect(employeePath(slug,employeeId,"success","Territory created."));
+}
+
+export async function assignEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const territoryId=formText(formData,"territoryId"),assignmentType=formText(formData,"assignmentType");
+ const effectiveFrom=formText(formData,"effectiveFrom"),effectiveThrough=normalizeOptional(formData.get("effectiveThrough"));
+ if(!territoryId||!effectiveFrom||!["primary","secondary","temporary"].includes(assignmentType)
+  ||(assignmentType==="temporary"&&!effectiveThrough)||(effectiveThrough&&effectiveThrough<effectiveFrom)){
+  redirect(employeePath(slug,employeeId,"error","Enter valid territory coverage dates. Temporary coverage requires an end date."));
+ }
+ const {data:territory}=await supabase.from("workforce_territories").select("id").eq("business_id",business.id).eq("id",territoryId).eq("is_active",true).maybeSingle();
+ if(!territory)redirect(employeePath(slug,employeeId,"error","That territory is not available."));
+ if(assignmentType==="primary"){
+  const {error:endError}=await supabase.from("employee_territory_assignments").update({ended_at:new Date().toISOString(),ended_by:user.id})
+   .eq("business_id",business.id).eq("employee_id",employeeId).eq("assignment_type","primary").is("ended_at",null);
+  if(endError){
+   console.error("Existing primary territory close failed",{businessId:business.id,employeeId,code:endError.code});
+   redirect(employeePath(slug,employeeId,"error","The primary territory could not be changed."));
+  }
+ }
+ const {error}=await supabase.from("employee_territory_assignments").insert({
+  business_id:business.id,employee_id:employeeId,territory_id:territoryId,assignment_type:assignmentType,
+  effective_from:effectiveFrom,effective_through:effectiveThrough,notes:normalizeOptional(formData.get("notes")),created_by:user.id,
+ });
+ if(error){
+  console.error("Employee territory assignment failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error",error.code==="23505"?"That coverage is already assigned.":"The territory could not be assigned."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);revalidatePath(`/app/${slug}/dispatch`);
+ redirect(employeePath(slug,employeeId,"success","Territory assigned."));
+}
+
+export async function endEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const {error}=await supabase.from("employee_territory_assignments").update({ended_at:new Date().toISOString(),ended_by:user.id})
+  .eq("business_id",business.id).eq("employee_id",employeeId).eq("id",formText(formData,"assignmentId")).is("ended_at",null);
+ if(error){
+  console.error("Employee territory removal failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","The territory assignment could not be ended."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);revalidatePath(`/app/${slug}/dispatch`);
+ redirect(employeePath(slug,employeeId,"success","Territory assignment ended."));
 }

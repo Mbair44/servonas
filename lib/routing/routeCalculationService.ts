@@ -139,10 +139,13 @@ export async function calculateDailyRoutes({
     updated_by: actorUserId,
   }, { onConflict: "business_id,service_date" }).select("id,travel_mode").single();
   if (planError || !plan) throw new Error(databaseFailure("Route plan could not be prepared", planError));
-  await admin.from("route_plans").update({
+  const {error:calculationStartError}=await admin.from("route_plans").update({
     calculation_status: "calculating",
     error_code: null,
   }).eq("id", plan.id).eq("business_id", businessId);
+  if(calculationStartError){
+    throw new Error(databaseFailure("Route calculation state could not be started",calculationStartError));
+  }
 
   const groups = new Map<string, RouteJob[]>();
   for (const job of jobs) groups.set(job.assigned_technician_id, [...(groups.get(job.assigned_technician_id) ?? []), job]);
@@ -285,8 +288,7 @@ export async function calculateDailyRoutes({
       error_code: null, updated_by: actorUserId,
     }, { onConflict: "business_id,route_plan_id,technician_id" }).select("id").single();
     if (routeError || !technicianRoute) {
-      summary.failed += 1;
-      continue;
+      throw new Error(databaseFailure("Technician route could not be saved",routeError));
     }
     await admin.from("route_stops").delete().eq("business_id", businessId).eq("technician_route_id", technicianRoute.id);
     const { data: stops, error: stopsError } = await admin.from("route_stops").insert(routable.map(({ job, location, duration }, index) => {
