@@ -8,6 +8,7 @@ import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyInterv
 import { validateQualification } from "@/lib/workforceQualifications";
 import { splitTerritoryValues, validateTerritory } from "@/lib/workforceTerritories";
 import { validateWorkforceAsset, WORKFORCE_ASSET_CONDITIONS } from "@/lib/workforceAssets";
+import { parseWorkTypes, validateWorkforcePreferences } from "@/lib/workforcePreferences";
 import { requireWorkspace } from "@/lib/workspace";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
@@ -181,12 +182,20 @@ export async function createEmployeeTerritory(slug:string,employeeId:string,form
  const name=formText(formData,"name"),territoryType=formText(formData,"territoryType");
  const postalCodes=splitTerritoryValues(formText(formData,"postalCodes"));
  const neighborhoods=splitTerritoryValues(formText(formData,"neighborhoods"));
- const boundary=formText(formData,"boundaryGeojson");
- const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary});
+ const boundary=formText(formData,"boundaryGeojson"),color=formText(formData,"color");
+ const description=formText(formData,"description"),notes=formText(formData,"notes");
+ const parentTerritoryId=formText(formData,"parentTerritoryId");
+ const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary,color,description,notes});
  if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
+ if(parentTerritoryId){
+  const {data:parent}=await supabase.from("workforce_territories").select("id").eq("business_id",business.id).eq("id",parentTerritoryId).maybeSingle();
+  if(!parent)redirect(employeePath(slug,employeeId,"error","The selected parent territory is not available."));
+ }
  const {error}=await supabase.from("workforce_territories").insert({
   business_id:business.id,name,territory_type:territoryType,postal_codes:postalCodes,
-  neighborhoods,boundary_geojson:boundary?JSON.parse(boundary):null,created_by:user.id,updated_by:user.id,
+  neighborhoods,boundary_geojson:boundary?JSON.parse(boundary):null,color,
+  description:description||null,notes:notes||null,parent_territory_id:parentTerritoryId||null,
+  created_by:user.id,updated_by:user.id,
  });
  if(error){
   console.error("Workforce territory creation failed",{businessId:business.id,code:error.code});
@@ -307,4 +316,27 @@ export async function returnWorkforceAsset(slug:string,employeeId:string,formDat
  }
  revalidatePath(`/app/${slug}/team/${employeeId}`);
  redirect(employeePath(slug,employeeId,"success","Asset returned."));
+}
+
+export async function saveEmployeePreferences(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const preferred=parseWorkTypes(formText(formData,"preferredWorkTypes"));
+ const avoided=parseWorkTypes(formText(formData,"avoidedWorkTypes"));
+ const start=formText(formData,"preferredStartTime"),end=formText(formData,"preferredEndTime");
+ const validationError=validateWorkforcePreferences({preferred,avoided,start,end});
+ if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
+ const {error}=await supabase.from("employee_scheduling_preferences").upsert({
+  business_id:business.id,employee_id:employeeId,preferred_work_types:preferred,
+  avoided_work_types:avoided,preferred_start_time:start||null,preferred_end_time:end||null,
+  workload_preference:formText(formData,"workloadPreference"),
+  customer_interaction_preference:formText(formData,"customerInteractionPreference"),
+  notes:normalizeOptional(formData.get("notes")),updated_by:user.id,
+ },{onConflict:"employee_id"});
+ if(error){
+  console.error("Employee preference save failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","Employee preferences could not be saved."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ redirect(employeePath(slug,employeeId,"success","Work preferences saved."));
 }

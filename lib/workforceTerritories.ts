@@ -1,9 +1,12 @@
 export const splitTerritoryValues=(value:string)=>
  [...new Set(value.split(/[\n,]/).map(item=>item.trim()).filter(Boolean))];
 
-export function validateTerritory(input:{name:string;type:string;postalCodes:string[];neighborhoods:string[];boundary:string}){
+export function validateTerritory(input:{name:string;type:string;postalCodes:string[];neighborhoods:string[];boundary:string;color?:string;description?:string;notes?:string}){
  if(!input.name||input.name.length>150)return "Enter a territory name up to 150 characters.";
  if(!["postal_codes","neighborhoods","polygon","mixed"].includes(input.type))return "Choose a valid territory type.";
+ if(input.color&&!/^#[0-9a-f]{6}$/i.test(input.color))return "Choose a valid six-digit territory color.";
+ if((input.description?.length??0)>2000)return "Territory descriptions must be 2,000 characters or fewer.";
+ if((input.notes?.length??0)>4000)return "Territory notes must be 4,000 characters or fewer.";
  if(input.postalCodes.some(code=>code.length>20))return "ZIP or postal codes must be 20 characters or fewer.";
  if(input.neighborhoods.some(name=>name.length>150))return "Neighborhood names must be 150 characters or fewer.";
  if(input.boundary){
