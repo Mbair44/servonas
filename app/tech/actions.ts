@@ -24,13 +24,15 @@ async function technicianJob(jobId: string) {
 export async function transitionTechnicianJob(jobId: string, formData: FormData) {
   const { supabase } = await technicianJob(jobId);
   const status = text(formData, "status");
+  const requestedReturn = text(formData, "returnTo");
+  const returnTo = requestedReturn.startsWith("/tech/route") ? requestedReturn : `/tech/jobs/${jobId}`;
   const { error } = await supabase.rpc("transition_assigned_job_status", { p_job_id: jobId, p_status: status });
   if (error) {
     console.error("Technician status transition failed", { code: error.code, jobId });
-    redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent("That status change is not available.")}`);
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("That status change is not available.")}`);
   }
-  revalidatePath("/tech"); revalidatePath(`/tech/jobs/${jobId}`);
-  redirect(`/tech/jobs/${jobId}?success=${encodeURIComponent("Job status updated.")}`);
+  revalidatePath("/tech"); revalidatePath("/tech/route"); revalidatePath(`/tech/jobs/${jobId}`);
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}success=${encodeURIComponent("Job status updated.")}`);
 }
 
 export async function addTechnicianNote(jobId: string, formData: FormData) {

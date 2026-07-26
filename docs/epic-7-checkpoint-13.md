@@ -14,7 +14,7 @@ Private home configuration lives in `technician_route_endpoint_overrides`, not t
 
 Home data is stored only when an owner/admin explicitly selects a home route mode. Switching away clears its address and coordinates. A non-sensitive label is stored separately.
 
-The server resolves private coordinates only in memory while calling the routing provider. `technician_routes` stores `origin_is_private` or `destination_is_private`, a generic private label, and null address/coordinate fields. Route legs contain endpoint type and road metrics but no home location. Logs use IDs and error codes, never full private addresses.
+The server resolves private coordinates only in memory while calling the routing provider. `technician_routes` stores `origin_is_private` or `destination_is_private`, a generic private label, and null address/coordinate fields. Geometry for private endpoint legs and the full route polyline is not persisted because it could reveal the private coordinates. Route legs retain endpoint type and road metrics but no home location. Logs use IDs and error codes, never full private addresses.
 
 ## Routing behavior
 
