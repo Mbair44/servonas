@@ -5,6 +5,7 @@ import { canManageBusiness } from "@/lib/access";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { normalizeOptional, validateEmployeeProfile } from "@/lib/workforce";
 import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyIntervalInput } from "@/lib/workforceAvailability";
+import { validateQualification } from "@/lib/workforceQualifications";
 import { requireWorkspace } from "@/lib/workspace";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
@@ -135,4 +136,39 @@ export async function deleteEmployeeAvailabilityException(slug:string,employeeId
  revalidatePath(`/app/${slug}/team/${employeeId}`);
  revalidatePath(`/app/${slug}/schedule`);
  redirect(employeePath(slug,employeeId,"success","Availability exception removed."));
+}
+
+export async function addEmployeeQualification(slug:string,employeeId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const qualificationType=formText(formData,"qualificationType"),name=formText(formData,"name");
+ const issuedOn=normalizeOptional(formData.get("issuedOn")),expiresOn=normalizeOptional(formData.get("expiresOn"));
+ const validationError=validateQualification({type:qualificationType,name,issuedOn,expiresOn});
+ if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
+ const {error}=await supabase.rpc("assign_employee_qualification",{
+  p_business_id:business.id,p_employee_id:employeeId,p_qualification_type:qualificationType,p_name:name,
+  p_proficiency_level:formText(formData,"proficiencyLevel"),p_credential_number:formText(formData,"credentialNumber"),
+  p_issuing_authority:formText(formData,"issuingAuthority"),p_issued_on:issuedOn,p_expires_on:expiresOn,
+  p_notes:formText(formData,"notes"),
+ });
+ if(error){
+  console.error("Employee qualification assignment failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error",error.code==="23505"?"That employee already has this active qualification.":"The qualification could not be added."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);revalidatePath(`/app/${slug}/dispatch`);
+ redirect(employeePath(slug,employeeId,"success","Qualification added."));
+}
+
+export async function endEmployeeQualification(slug:string,employeeId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
+ const {error}=await supabase.from("employee_qualifications").update({
+  status:"revoked",ended_at:new Date().toISOString(),ended_by:user.id,
+ }).eq("business_id",business.id).eq("employee_id",employeeId).eq("id",formText(formData,"assignmentId")).eq("status","active");
+ if(error){
+  console.error("Employee qualification removal failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","The qualification could not be removed."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);revalidatePath(`/app/${slug}/dispatch`);
+ redirect(employeePath(slug,employeeId,"success","Qualification removed."));
 }
