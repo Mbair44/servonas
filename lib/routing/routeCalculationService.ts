@@ -460,7 +460,7 @@ export async function calculateDailyRoutes({
   const aggregateStatus = hasFailed || hasPartial
     ? (hasReady || hasPartial ? "partial" : "failed")
     : finalStatus;
-  await admin.from("route_plans").update({
+  const {error:finalPlanError}=await admin.from("route_plans").update({
     calculation_status: aggregateStatus,
     total_driving_distance_meters: planDistance,
     total_driving_duration_seconds: planDuration,
@@ -469,6 +469,9 @@ export async function calculateDailyRoutes({
     error_code: aggregateStatus === "failed" ? "no_routes_calculated" : null,
     stale_at: null,
   }).eq("id", plan.id).eq("business_id", businessId);
+  if(finalPlanError){
+    throw new Error(databaseFailure("Final route plan state could not be saved",finalPlanError));
+  }
   const { data: verifiedRoutes, error: verificationError } = await admin.from("technician_routes")
     .select("id,calculation_status,encoded_polyline,stop_count")
     .eq("business_id", businessId).eq("route_plan_id", plan.id);
