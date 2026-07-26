@@ -27,3 +27,11 @@ where id='bcfb0a4e-841c-43d3-9a00-d4b176dbae06';
 
 The known plan should be `ready`, revision should be non-null, and the totals
 should be `17763` meters and `1436` seconds.
+
+## Related Epic 7.5 migration
+
+Route calculation also requires the historical snapshot columns in
+`20260725000800_epic_7_5_decision_history_readiness.sql`. Deployments missing
+that migration reject the technician-route upsert. The application now treats
+that write failure as an operation failure and exposes its safe database code
+instead of returning a generic `need attention` result.

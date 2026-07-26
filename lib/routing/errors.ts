@@ -22,7 +22,7 @@ export function publicRouteCalculationError(error: unknown): string {
   }
   if (/Unsupported routing provider/i.test(message)) return message;
   const databaseCode = message.match(/\(([0-9A-Z]{5}|PGRST\d+|missing)\)/i)?.[1];
-  if (/route plan|scheduled route jobs|route legs|route stops|calculated routes/i.test(message)) {
+  if (/route plan|technician route|scheduled route jobs|route legs|route stops|calculated routes/i.test(message)) {
     const undefinedColumn = message.match(/column\s+(?:"?[\w.]+"?)\s+does not exist/i)?.[0];
     return undefinedColumn
       ? `Routing database operation failed${databaseCode ? ` (${databaseCode})` : ""}: ${undefinedColumn}.`
