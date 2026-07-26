@@ -77,7 +77,12 @@ create trigger operational_decisions_updated_at before update on public.operatio
 for each row execute function public.set_routing_updated_at();
 
 alter table public.job_assignments add column assignment_source text;
+-- The primary-assignment guard protects all active-primary row updates. This
+-- backfill changes provenance metadata only, so use the same transaction-local
+-- synchronization flag as set_job_primary_technician().
+select set_config('servonas.assignment_sync','on',true);
 update public.job_assignments set assignment_source='legacy' where assignment_source is null;
+select set_config('servonas.assignment_sync','off',true);
 alter table public.job_assignments alter column assignment_source set default 'manual';
 alter table public.job_assignments alter column assignment_source set not null;
 alter table public.job_assignments
