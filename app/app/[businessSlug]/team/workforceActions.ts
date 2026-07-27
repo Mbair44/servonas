@@ -6,7 +6,7 @@ import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { normalizeOptional, validateEmployeeProfile } from "@/lib/workforce";
 import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyIntervalInput } from "@/lib/workforceAvailability";
 import { validateQualification } from "@/lib/workforceQualifications";
-import { splitTerritoryValues, validateTerritory } from "@/lib/workforceTerritories";
+import { splitTerritoryValues, validateTerritory, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
 import { validateWorkforceAsset, WORKFORCE_ASSET_CONDITIONS } from "@/lib/workforceAssets";
 import { parseWorkTypes, validateWorkforcePreferences } from "@/lib/workforcePreferences";
 import { requireWorkspace } from "@/lib/workspace";
@@ -185,7 +185,14 @@ export async function createEmployeeTerritory(slug:string,employeeId:string,form
  const boundary=formText(formData,"boundaryGeojson"),color=formText(formData,"color");
  const description=formText(formData,"description"),notes=formText(formData,"notes");
  const parentTerritoryId=formText(formData,"parentTerritoryId");
- const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary,color,description,notes});
+ const cities=splitTerritoryValues(formText(formData,"cities"));
+ const formNumber=(key:string)=>{const raw=formText(formData,key);return raw?Number(raw):Number.NaN;};
+ const radiusMiles=formNumber("radiusMiles");
+ const strategyConfig:TerritoryStrategyConfig={
+  ...(cities.length?{cities}:{}),
+  ...(territoryType==="radius"?{center:{latitude:formNumber("radiusLatitude"),longitude:formNumber("radiusLongitude")},radius_meters:Math.round(radiusMiles*1609.344)}:{}),
+ };
+ const validationError=validateTerritory({name,type:territoryType,postalCodes,neighborhoods,boundary,color,description,notes,strategyConfig});
  if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
  if(parentTerritoryId){
   const {data:parent}=await supabase.from("workforce_territories").select("id").eq("business_id",business.id).eq("id",parentTerritoryId).maybeSingle();
@@ -194,6 +201,7 @@ export async function createEmployeeTerritory(slug:string,employeeId:string,form
  const {error}=await supabase.from("workforce_territories").insert({
   business_id:business.id,name,territory_type:territoryType,postal_codes:postalCodes,
   neighborhoods,boundary_geojson:boundary?JSON.parse(boundary):null,color,
+  strategy_config:strategyConfig,
   description:description||null,notes:notes||null,parent_territory_id:parentTerritoryId||null,
   created_by:user.id,updated_by:user.id,
  });

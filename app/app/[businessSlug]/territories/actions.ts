@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
-import { splitTerritoryValues, validateTerritory } from "@/lib/workforceTerritories";
+import { splitTerritoryValues, validateTerritory, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
 import { requireWorkspace } from "@/lib/workspace";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
+const number = (formData: FormData, key: string) => {
+  const raw = text(formData, key);
+  return raw ? Number(raw) : Number.NaN;
+};
 const route = (slug: string, kind: "success" | "error", message: string) =>
   `/app/${slug}/territories?${kind}=${encodeURIComponent(message)}`;
 
@@ -20,8 +24,19 @@ function payload(formData: FormData, userId: string) {
   const description = text(formData, "description");
   const notes = text(formData, "notes");
   const parentTerritoryId = text(formData, "parentTerritoryId");
+  const cities = splitTerritoryValues(text(formData, "cities"));
+  const radiusLatitude = number(formData, "radiusLatitude");
+  const radiusLongitude = number(formData, "radiusLongitude");
+  const radiusMiles = number(formData, "radiusMiles");
+  const strategyConfig: TerritoryStrategyConfig = {
+    ...(cities.length ? { cities } : {}),
+    ...(territoryType === "radius" ? {
+      center: { latitude: radiusLatitude, longitude: radiusLongitude },
+      radius_meters: Math.round(radiusMiles * 1609.344),
+    } : {}),
+  };
   const error = validateTerritory({
-    name, type: territoryType, postalCodes, neighborhoods, boundary, color, description, notes,
+    name, type: territoryType, postalCodes, neighborhoods, boundary, color, description, notes, strategyConfig,
   });
   return {
     error,
@@ -35,6 +50,7 @@ function payload(formData: FormData, userId: string) {
       description: description || null,
       notes: notes || null,
       parent_territory_id: parentTerritoryId || null,
+      strategy_config: strategyConfig,
       updated_by: userId,
     },
   };
