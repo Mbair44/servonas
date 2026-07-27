@@ -46,3 +46,21 @@ export async function uploadEmployeeImport(businessSlug:string,formData:FormData
     redirect(`/app/${businessSlug}/team/imports?error=${encodeURIComponent(safeMessage(error))}`);
   }
 }
+
+export async function cancelEmployeeImport(businessSlug:string,importId:string,formData:FormData){
+  const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug);
+  if(!isPlatformAdmin&&!["owner","admin"].includes(role)) redirect(`/app/${businessSlug}/team/imports/${importId}?error=${encodeURIComponent("Only owners and admins can cancel imports.")}`);
+  const version=Number(formData.get("version"));
+  const stage=String(formData.get("stage")??"mapping");
+  if(!Number.isSafeInteger(version)||version<1) redirect(`/app/${businessSlug}/team/imports/${importId}?error=${encodeURIComponent("Refresh this import and try again.")}`);
+  const {error}=await supabase.rpc("transition_employee_import",{
+    p_import_id:importId,p_expected_version:version,p_next_status:"canceled",
+    p_next_stage:stage,p_event_type:"session_canceled",p_metadata:{source:"import_session_ui"},
+  });
+  if(error){
+    console.error("Employee import cancellation failed",{businessId:business.id,importId,code:error.code});
+    const message=error.code==="40001"?"This import changed. Refresh and try again.":"The import could not be canceled.";
+    redirect(`/app/${businessSlug}/team/imports/${importId}?error=${encodeURIComponent(message)}`);
+  }
+  redirect(`/app/${businessSlug}/team/imports/${importId}?success=${encodeURIComponent("Import canceled. No employee records were created.")}`);
+}
