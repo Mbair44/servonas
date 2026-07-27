@@ -2,6 +2,7 @@
 import {createHash,randomUUID} from "node:crypto";
 import {redirect} from "next/navigation";
 import {EmployeeImportFileError,parseEmployeeImportFile} from "@/lib/employeeImport/file";
+import {suggestEmployeeImportMapping,validateEmployeeColumnMappings,type EmployeeColumnMapping} from "@/lib/employeeImport/mapping";
 import {requireWorkspace} from "@/lib/workspace";
 
 const safeMessage=(error:unknown)=>error instanceof EmployeeImportFileError
@@ -63,4 +64,37 @@ export async function cancelEmployeeImport(businessSlug:string,importId:string,f
     redirect(`/app/${businessSlug}/team/imports/${importId}?error=${encodeURIComponent(message)}`);
   }
   redirect(`/app/${businessSlug}/team/imports/${importId}?success=${encodeURIComponent("Import canceled. No employee records were created.")}`);
+}
+
+export async function saveEmployeeImportMappings(businessSlug:string,importId:string,formData:FormData){
+  const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug);
+  const target=`/app/${businessSlug}/team/imports/${importId}`;
+  if(!isPlatformAdmin&&!["owner","admin"].includes(role)) redirect(`${target}?error=${encodeURIComponent("Only owners and admins can map employee imports.")}`);
+  const {data:session,error:loadError}=await supabase.from("employee_imports").select("id,version,status,source_columns").eq("business_id",business.id).eq("id",importId).maybeSingle();
+  if(loadError||!session){
+    console.error("Employee import mapping session load failed",{businessId:business.id,importId,code:loadError?.code});
+    redirect(`${target}?error=${encodeURIComponent("The import session could not be loaded.")}`);
+  }
+  const sources=(session.source_columns as {name:string}[])??[];
+  const mappings:EmployeeColumnMapping[]=sources.map((source,sourceOrdinal)=>{
+    const destinationField=String(formData.get(`destination_${sourceOrdinal}`)??"").trim()||null;
+    const suggestion=suggestEmployeeImportMapping(source.name);
+    return {sourceColumn:source.name,sourceOrdinal,destinationField,isIgnored:!destinationField,
+      transformation:destinationField==="full_name"?"split_name":"none",
+      confidence:destinationField===suggestion.destinationField?suggestion.confidence:destinationField?"manual":"unmatched"};
+  });
+  const validationError=validateEmployeeColumnMappings(mappings);
+  if(validationError) redirect(`${target}?error=${encodeURIComponent(validationError)}`);
+  const profileName=String(formData.get("profileName")??"").trim();
+  const appliedProfileId=String(formData.get("appliedProfileId")??"").trim();
+  const {error}=await supabase.rpc("save_employee_import_mappings",{
+    p_import_id:importId,p_expected_version:session.version,p_mappings:mappings,
+    p_profile_name:profileName||null,p_applied_profile_id:appliedProfileId||null,
+  });
+  if(error){
+    console.error("Employee import mappings save failed",{businessId:business.id,importId,code:error.code});
+    const message=error.code==="40001"?"This import changed. Refresh and review your mappings again.":"The column mappings could not be saved.";
+    redirect(`${target}?error=${encodeURIComponent(message)}`);
+  }
+  redirect(`${target}?success=${encodeURIComponent(profileName?"Mappings confirmed and profile saved.":"Column mappings confirmed.")}`);
 }
