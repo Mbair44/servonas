@@ -25,8 +25,8 @@ export default async function InvoiceDetail({params,searchParams}:{params:Promis
     .select("id,payment_id,amount_cents,status,refund_method,reason,offline_reference,requested_by,requested_at,completed_at,failure_message")
     .eq("business_id",business.id).in("payment_id",paymentIds).order("requested_at",{ascending:false}):{data:[]};
   const userIds=[...new Set([...(payments??[]).map(payment=>payment.recorded_by),...(refunds??[]).map(refund=>refund.requested_by)].filter(Boolean) as string[])];
-  const {data:actors}=userIds.length?await supabase.from("profiles").select("id,full_name,email").in("id",userIds):{data:[]};
-  const actorById=new Map((actors??[]).map(actor=>[actor.id,actor.full_name||actor.email]));
+  const {data:actors}=userIds.length?await supabase.from("employees").select("auth_user_id,preferred_name").eq("business_id",business.id).in("auth_user_id",userIds):{data:[]};
+  const actorById=new Map((actors??[]).map(actor=>[actor.auth_user_id,actor.preferred_name]));
   const customer=Array.isArray(invoice.customers)?invoice.customers[0]:invoice.customers;
   const location=Array.isArray(invoice.service_locations)?invoice.service_locations[0]:invoice.service_locations;
   const job=Array.isArray(invoice.jobs)?invoice.jobs[0]:invoice.jobs;

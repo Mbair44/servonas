@@ -20,12 +20,12 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/tech/route");
-  let profileQuery = supabase.from("technician_profiles").select("id,business_id,display_name,businesses(name,timezone)").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
+  let profileQuery = supabase.from("technician_directory").select("id,business_id,preferred_name").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
   if (query.business) profileQuery = profileQuery.eq("business_id", query.business);
   const { data: profiles } = await profileQuery.limit(1);
   const profile = profiles?.[0];
   if (!profile) redirect("/tech?error=Technician+profile+not+found");
-  const business = relation(profile.businesses);
+  const { data: business } = await supabase.from("businesses").select("name,timezone").eq("id", profile.business_id).maybeSingle();
   const timezone = business?.timezone ?? "UTC";
   const today = dateInTimeZone(new Date(), timezone);
   const { data: plan, error: planError } = await supabase.from("route_plans").select("id,version,updated_at,calculation_status").eq("business_id", profile.business_id).eq("service_date", today).maybeSingle();
@@ -69,7 +69,7 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
   const mapStops = stops.filter((stop) => stop.latitude !== null && stop.longitude !== null).map((stop) => ({ id: stop.id, sequence: stop.sequence, latitude: Number(stop.latitude), longitude: Number(stop.longitude), title: stop.job.title, completed: stop.job.status === "completed" }));
   return <main className="tech-shell tech-route-shell"><header className="tech-detail-header"><Link href="/tech">← Technician home</Link><Link href={`/tech/route${routeQuery}`}>Refresh route</Link></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
-    <section className="tech-route-heading"><span className="sv-kicker">Today’s planned route</span><h1>{new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long", month: "long", day: "numeric" }).format(new Date())}</h1><p>{business?.name} · {profile.display_name}</p>{plan && <small>Plan v{plan.version} · updated {new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(plan.updated_at))}. This is a planned route, not live GPS tracking.</small>}</section>
+    <section className="tech-route-heading"><span className="sv-kicker">Today’s planned route</span><h1>{new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long", month: "long", day: "numeric" }).format(new Date())}</h1><p>{business?.name} · {profile.preferred_name}</p>{plan && <small>Plan v{plan.version} · updated {new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(plan.updated_at))}. This is a planned route, not live GPS tracking.</small>}</section>
     {!plan || !route ? <section className="tech-empty-inline"><strong>No calculated route for today.</strong><p>Your assigned jobs remain available on the technician home screen.</p></section> : <>
       <TechnicianRouteMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} encodedPolyline={route.encoded_polyline} stops={mapStops}/>
       {current && <section className="tech-section current"><span className="sv-kicker">Current stop</span><StopCard stop={current} prominent/></section>}

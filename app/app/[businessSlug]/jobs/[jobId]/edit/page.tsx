@@ -22,7 +22,7 @@ export default async function EditJob({ params }: { params: Promise<{ businessSl
     supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id", business.id).eq("is_deleted", false).order("last_name"),
     supabase.from("service_locations").select("id,customer_id,location_name,street_address,city,state").eq("business_id", business.id).eq("is_deleted", false).order("location_name"),
     supabase.from("services").select("id,name,duration_minutes").eq("business_id", business.id).eq("is_deleted", false).order("name"),
-    supabase.from("technician_profiles").select("id,display_name").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("display_name"),
+    supabase.from("technician_directory").select("id,preferred_name").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("preferred_name"),
   ]);
   if (!job) notFound();
   const formJob = {

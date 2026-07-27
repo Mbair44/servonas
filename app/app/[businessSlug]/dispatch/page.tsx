@@ -25,7 +25,7 @@ type DispatchJob = {
   service_locations: Relation<{ street_address: string; unit: string | null; city: string; state: string; postal_code: string; latitude: number | string | null; longitude: number | string | null; geocoding_status: string | null }>;
   services: Relation<{ name: string; duration_minutes: number | null }>;
 };
-type Technician = { id: string; display_name: string; phone: string | null; technician_status: string; schedule_color: string; service_areas: string[] };
+type Technician = { id: string; preferred_name: string; phone: string | null; technician_status: string; schedule_color: string; service_areas: string[] };
 const relation = <T,>(value: Relation<T>) => Array.isArray(value) ? value[0] ?? null : value;
 const validDate = (value: string | undefined, fallback: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
 
@@ -48,7 +48,7 @@ function DispatchCard({ job, slug, date, technicians, conflict, canEdit, timeZon
     {address && <small className="dispatch-address">{address}</small>}
     <div className="dispatch-flags">{late && <b>Late</b>}{conflict && <b>Schedule conflict</b>}</div>
     <div className="dispatch-contact">{customer?.phone && <a href={`tel:${customer.phone}`}>Call customer</a>}{address && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`} target="_blank" rel="noreferrer">Directions</a>}</div>
-    {canEdit && <div className="dispatch-controls"><form action={assignDispatchJob.bind(null, slug, job.id)}><input type="hidden" name="date" value={date}/><input type="hidden" name="routePlanId" value={routePlanId ?? ""}/><input type="hidden" name="planVersion" value={planVersion ?? ""}/><label>Assign<select name="technicianId" defaultValue={job.assigned_technician_id ?? ""}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id} disabled={technician.technician_status === "off_duty"}>{technician.display_name}{technician.technician_status === "off_duty" ? " (off duty)" : ""}</option>)}</select></label><button className="text-button">Save</button></form>{transitions.length > 0 && <form action={updateDispatchStatus.bind(null, slug, job.id)}><input type="hidden" name="date" value={date}/><label>Next status<select name="status" defaultValue={transitions[0]}>{transitions.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label><button className="text-button">Update</button></form>}</div>}
+    {canEdit && <div className="dispatch-controls"><form action={assignDispatchJob.bind(null, slug, job.id)}><input type="hidden" name="date" value={date}/><input type="hidden" name="routePlanId" value={routePlanId ?? ""}/><input type="hidden" name="planVersion" value={planVersion ?? ""}/><label>Assign<select name="technicianId" defaultValue={job.assigned_technician_id ?? ""}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id} disabled={technician.technician_status === "off_duty"}>{technician.preferred_name}{technician.technician_status === "off_duty" ? " (off duty)" : ""}</option>)}</select></label><button className="text-button">Save</button></form>{transitions.length > 0 && <form action={updateDispatchStatus.bind(null, slug, job.id)}><input type="hidden" name="date" value={date}/><label>Next status<select name="status" defaultValue={transitions[0]}>{transitions.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label><button className="text-button">Update</button></form>}</div>}
   </article>;
 }
 
@@ -66,7 +66,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const [{ data: jobRows, error }, { data: technicianRows }, { data: routePlan, error: routePlanError }] = await Promise.all([
     supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name,phone),service_locations!jobs_service_location_tenant_fk(street_address,unit,city,state,postal_code,latitude,longitude,geocoding_status),services!jobs_service_tenant_fk(name,duration_minutes)")
       .eq("business_id", business.id).eq("is_deleted", false).gte("starts_at", start).lt("starts_at", end).not("status", "in", '("canceled","declined")').order("starts_at"),
-    supabase.from("technician_profiles").select("id,display_name,phone,technician_status,schedule_color,service_areas").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).order("display_name"),
+    supabase.from("technician_directory").select("id,preferred_name,phone,technician_status,schedule_color,service_areas").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).order("preferred_name"),
     routingSupabase.from("route_plans").select("id,calculation_status,version,calculation_revision,updated_at,updated_by").eq("business_id", business.id).eq("service_date", date).maybeSingle(),
   ]);
   if (error) {
@@ -124,7 +124,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       return {
         technicianRouteId: persisted?.id ?? null,
         technicianId: technician.id,
-        technicianName: technician.display_name,
+        technicianName: technician.preferred_name,
         technicianStatus: technician.technician_status,
         color: technician.schedule_color,
         encodedPolyline: geometry.encodedPolyline,
@@ -170,7 +170,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       longitude: coordinates?.longitude ?? null,
       geocodingStatus: location?.geocoding_status ?? null,
       technicianId: technician?.id ?? null,
-      technicianName: technician?.display_name ?? null,
+      technicianName: technician?.preferred_name ?? null,
       technicianColor: technician?.schedule_color ?? null,
       sequence: persistedStop?.sequence ?? sequenceByJob.get(job.id) ?? null,
       estimatedArrivalLabel: persistedStop?.planned_arrival_at ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: business.timezone }).format(new Date(persistedStop.planned_arrival_at)) : null,
@@ -185,7 +185,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     routes: technicians.filter((technician) => jobs.some((job) => job.assigned_technician_id === technician.id)).map((technician) => {
       const persisted = routeByTechnician.get(technician.id);
       return {
-        technicianId: technician.id, technicianName: technician.display_name,
+        technicianId: technician.id, technicianName: technician.preferred_name,
         calculationStatus: persisted?.calculation_status ?? routePlan?.calculation_status ?? "not_calculated",
         originType: persisted?.origin_type ?? null,
         drivingDistanceMeters: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_distance_meters : null,
@@ -220,7 +220,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     { label: "ZIP code", values: jobs.map((job) => relation(job.service_locations)?.postal_code) },
     { label: "City", values: jobs.map((job) => relation(job.service_locations)?.city) },
     { label: "Service area", values: jobs.map((job) => technicians.find((technician) => technician.id === job.assigned_technician_id)?.service_areas?.join(", ")) },
-    { label: "Technician", values: jobs.map((job) => technicians.find((technician) => technician.id === job.assigned_technician_id)?.display_name ?? "Unassigned") },
+    { label: "Technician", values: jobs.map((job) => technicians.find((technician) => technician.id === job.assigned_technician_id)?.preferred_name ?? "Unassigned") },
     { label: "Appointment window", values: jobs.map((job) => job.arrival_window_start ? new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, hour: "numeric" }).format(new Date(job.arrival_window_start)) : "No window") },
     { label: "Job duration", values: durationLabels },
   ];
@@ -264,7 +264,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       const routeStops = (persistedStops ?? []).filter((stop) => stop.technician_route_id === route.id).sort((a,b) => a.sequence-b.sequence);
       const warningCount = routeWarnings.filter((warning) => warning.technicianId === route.technician_id).length;
       const workSeconds = route.service_duration_seconds + Number(route.driving_duration_seconds ?? 0);
-      return <article key={route.id}><header><strong>{technician?.display_name ?? "Technician"}</strong><span>{route.stop_count} stops</span></header><dl>
+      return <article key={route.id}><header><strong>{technician?.preferred_name ?? "Technician"}</strong><span>{route.stop_count} stops</span></header><dl>
         <div><dt>Estimated driving</dt><dd>{route.driving_distance_meters === null ? "Unavailable" : formatEstimatedMiles(route.driving_distance_meters)}</dd></div>
         <div><dt>Estimated drive time</dt><dd>{route.driving_duration_seconds === null ? "Unavailable" : formatEstimatedDuration(route.driving_duration_seconds)}</dd></div>
         <div><dt>Scheduled service</dt><dd>{formatEstimatedDuration(route.service_duration_seconds)}</dd></div>
@@ -281,7 +281,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       {technicians.map((technician) => {
         const assigned = jobs.filter((job) => job.assigned_technician_id === technician.id);
         const state = dispatchTechnicianState(technician.technician_status, assigned.map((job) => job.status));
-        return <section className="dispatch-column" key={technician.id}><header style={{ borderTopColor: technician.schedule_color }}><div><span className="dispatch-avatar" style={{ background: technician.schedule_color }}>{technician.display_name.slice(0, 1)}</span><div><h2>{technician.display_name}</h2><small>{assigned.length} jobs</small></div></div><span className={`technician-state ${state}`}>{state.replaceAll("_", " ")}</span></header><div className="dispatch-card-list">{assigned.length ? assigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone} routePlanId={routePlan?.id ?? null} planVersion={routePlan?.version ?? null}/>) : <div className="dispatch-empty">No jobs assigned.</div>}</div></section>;
+        return <section className="dispatch-column" key={technician.id}><header style={{ borderTopColor: technician.schedule_color }}><div><span className="dispatch-avatar" style={{ background: technician.schedule_color }}>{technician.preferred_name.slice(0, 1)}</span><div><h2>{technician.preferred_name}</h2><small>{assigned.length} jobs</small></div></div><span className={`technician-state ${state}`}>{state.replaceAll("_", " ")}</span></header><div className="dispatch-card-list">{assigned.length ? assigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone} routePlanId={routePlan?.id ?? null} planVersion={routePlan?.version ?? null}/>) : <div className="dispatch-empty">No jobs assigned.</div>}</div></section>;
       })}
     </div>
   </section></main>;

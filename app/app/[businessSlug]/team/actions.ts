@@ -333,20 +333,28 @@ export async function enableTechnician(businessSlug: string, formData: FormData)
   const { supabase, user, business } = await invitationContext(businessSlug);
   const memberUserId = value(formData, "memberUserId");
   const { data: member } = await supabase.from("business_members")
-    .select("user_id,profiles!business_members_user_profile_fk(email,full_name)")
+    .select("user_id")
     .eq("business_id", business.id).eq("user_id", memberUserId).maybeSingle();
   if (!member) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Team member not found.")}`);
-  const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
-  const displayName = profile?.full_name?.trim() || profile?.email?.split("@")[0] || "Technician";
+  const { data: employee, error: employeeError } = await supabase.from("employees")
+    .select("id,preferred_name")
+    .eq("business_id", business.id).eq("auth_user_id", memberUserId).maybeSingle();
+  if (employeeError || !employee) {
+    console.error("Technician employee identity lookup failed", {
+      code: employeeError?.code, businessId: business.id, memberUserId,
+    });
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Create an employee record with a preferred name before enabling technician access.")}`);
+  }
   const { data: existing } = await supabase.from("technician_profiles").select("id")
     .eq("business_id", business.id).eq("member_user_id", memberUserId).maybeSingle();
   const result = existing
     ? await supabase.from("technician_profiles").update({
-        display_name: displayName, is_active: true, is_technician: true,
+        employee_id: employee.id, display_name: employee.preferred_name, is_active: true, is_technician: true,
         can_be_assigned_jobs: true, technician_status: "available", updated_by: user.id,
       }).eq("id", existing.id).eq("business_id", business.id)
     : await supabase.from("technician_profiles").insert({
-        business_id: business.id, member_user_id: memberUserId, display_name: displayName,
+        business_id: business.id, member_user_id: memberUserId, employee_id: employee.id,
+        display_name: employee.preferred_name,
         is_active: true, is_technician: true, can_be_assigned_jobs: true,
         technician_status: "available", created_by: user.id, updated_by: user.id,
       });

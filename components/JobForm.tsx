@@ -7,7 +7,7 @@ import { jobPriorities, jobStatuses, paymentStatuses } from "@/lib/jobValidation
 type Customer = { id: string; first_name: string; last_name: string; company_name?: string | null };
 type Location = { id: string; customer_id: string; location_name: string; street_address: string; city: string; state: string };
 type Service = { id: string; name: string; duration_minutes?: number | null };
-type Technician = { id: string; display_name: string };
+type Technician = { id: string; preferred_name: string };
 type Job = Record<string, string | number | null | undefined>;
 
 export default function JobForm({
@@ -35,7 +35,7 @@ export default function JobForm({
     <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
     <label>Service location<select name="serviceLocationId" defaultValue={value("serviceLocationId", String(job?.service_location_id ?? ""))}><option value="">No saved location</option>{customerLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}, {location.city}</option>)}</select>{error("serviceLocationId")}</label>
     <label>Service<select name="serviceId" defaultValue={value("serviceId", String(job?.service_id ?? ""))}><option value="">Custom work</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{error("serviceId")}</label>
-    <label>Primary technician<select name="technicianId" defaultValue={value("technicianId", String(job?.assigned_technician_id ?? ""))}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.display_name}</option>)}</select>{error("technicianId")}</label>
+    <label>Primary technician<select name="technicianId" defaultValue={value("technicianId", String(job?.assigned_technician_id ?? ""))}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.preferred_name}</option>)}</select>{error("technicianId")}</label>
     <label>Scheduled start<input name="startsAt" type="datetime-local" defaultValue={value("startsAt", String(job?.starts_at_local ?? ""))}/>{error("startsAt")}</label>
     <label>Scheduled end<input name="endsAt" type="datetime-local" defaultValue={value("endsAt", String(job?.ends_at_local ?? ""))}/></label>
     <label>Arrival window start<input name="arrivalWindowStart" type="datetime-local" defaultValue={value("arrivalWindowStart", String(job?.arrival_window_start_local ?? ""))}/></label>

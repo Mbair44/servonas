@@ -48,19 +48,20 @@ export default async function Workspace({ params, searchParams }: {
     { data: technicians },
     { data: activity },
     { data: invites },
+    { data: employees },
   ] = await Promise.all([
     supabase.from("jobs")
-      .select("id,job_number,title,status,starts_at,work_completed_at,assigned_technician_id,booking_source,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),technician_profiles!jobs_technician_tenant_fk(display_name)")
+      .select("id,job_number,title,status,starts_at,work_completed_at,assigned_technician_id,booking_source,customers!jobs_customer_tenant_fk(first_name,last_name,company_name)")
       .eq("business_id", business.id).eq("is_deleted", false)
       .order("starts_at", { ascending: true, nullsFirst: false }).limit(5000),
     supabase.from("customers").select("id,first_name,last_name,company_name,created_at")
       .eq("business_id", business.id).eq("is_deleted", false)
       .order("created_at", { ascending: false }).limit(1000),
     supabase.from("business_members")
-      .select("user_id,role,created_at,profiles!business_members_user_profile_fk(email,full_name)")
+      .select("user_id,role,created_at,profiles!business_members_user_profile_fk(email)")
       .eq("business_id", business.id).order("created_at"),
-    supabase.from("technician_profiles")
-      .select("id,member_user_id,display_name,technician_status,is_active,is_technician,can_be_assigned_jobs")
+    supabase.from("technician_directory")
+      .select("id,member_user_id,preferred_name,technician_status,is_active,is_technician,can_be_assigned_jobs")
       .eq("business_id", business.id),
     supabase.from("business_activity").select("id,summary,created_at")
       .eq("business_id", business.id).order("created_at", { ascending: false }).limit(10),
@@ -68,6 +69,8 @@ export default async function Workspace({ params, searchParams }: {
       ? supabase.from("business_invitations").select("id,email,role,token,expires_at")
           .eq("business_id", business.id).is("accepted_at", null).order("created_at", { ascending: false })
       : Promise.resolve({ data: [] as Array<{ id: string; email: string; role: string; token: string; expires_at: string }> }),
+    supabase.from("employees").select("auth_user_id,preferred_name")
+      .eq("business_id", business.id).eq("employment_status", "active"),
   ]);
   if (jobsError || customersError) {
     console.error("Executive dashboard query failed", { jobsCode: jobsError?.code, customersCode: customersError?.code, businessId: business.id });
@@ -95,8 +98,8 @@ export default async function Workspace({ params, searchParams }: {
     tech.is_active && tech.is_technician && tech.can_be_assigned_jobs &&
     (["assigned","en_route","on_site"].includes(tech.technician_status) || todayJobs.some((job) => job.assigned_technician_id === tech.id))
   );
-  const profile = relation((members ?? []).find((member) => member.user_id === user.id)?.profiles ?? null);
-  const firstName = profile?.full_name?.trim().split(/\s+/)[0] || user.email?.split("@")[0] || "there";
+  const employeeByUser = new Map((employees ?? []).filter((employee) => employee.auth_user_id).map((employee) => [employee.auth_user_id!, employee.preferred_name]));
+  const firstName = employeeByUser.get(user.id)?.trim().split(/\s+/)[0] || "there";
   const greetingHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, hour: "numeric", hourCycle: "h23" }).format(now));
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 18 ? "Good afternoon" : "Good evening";
   const todayLabel = new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, weekday: "long", month: "long", day: "numeric" }).format(now);
@@ -124,13 +127,13 @@ export default async function Workspace({ params, searchParams }: {
     <section className="executive-two-column" aria-label="Today at a glance">
       <article className="executive-card schedule-card"><div className="section-heading compact"><div><span>Today&apos;s activity</span><h2>Today&apos;s schedule</h2></div><Link href={`/app/${businessSlug}/schedule`}>Full schedule</Link></div>
         <div className="today-schedule">{todaySchedule.length ? todaySchedule.map((job) => {
-          const customer = relation(job.customers); const tech = relation(job.technician_profiles);
+          const customer = relation(job.customers); const tech = technicians?.find(item=>item.id===job.assigned_technician_id);
           const time = new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(job.starts_at!));
-          return <Link href={`/app/${businessSlug}/jobs/${job.id}`} key={job.id}><time>{time}</time><span><strong>{job.title}</strong><small>{customer?.company_name || [customer?.first_name,customer?.last_name].filter(Boolean).join(" ") || "Customer"}{tech?.display_name ? ` · ${tech.display_name}` : " · Unassigned"}</small></span><em className={`estimate-status ${job.status}`}>{job.status.replaceAll("_"," ")}</em></Link>;
+          return <Link href={`/app/${businessSlug}/jobs/${job.id}`} key={job.id}><time>{time}</time><span><strong>{job.title}</strong><small>{customer?.company_name || [customer?.first_name,customer?.last_name].filter(Boolean).join(" ") || "Customer"}{tech?.preferred_name ? ` · ${tech.preferred_name}` : " · Unassigned"}</small></span><em className={`estimate-status ${job.status}`}>{job.status.replaceAll("_"," ")}</em></Link>;
         }) : <div className="dashboard-empty"><span aria-hidden="true">◷</span><strong>No scheduled work today.</strong><p>New appointments will appear here automatically.</p></div>}</div>
       </article>
       <article className="executive-card technician-card"><div className="section-heading compact"><div><span>Field team</span><h2>Technicians working</h2></div><Link href={`/app/${businessSlug}/dispatch?date=${today}`}>Dispatch</Link></div>
-        <div className="working-techs">{workingTechnicians.length ? workingTechnicians.map((tech) => <div key={tech.id}><span className="tech-avatar">{tech.display_name.slice(0,2).toUpperCase()}</span><p><strong>{tech.display_name}</strong><small>{tech.technician_status.replaceAll("_"," ")}</small></p><i className={`tech-presence ${tech.technician_status}`}/></div>) : <div className="dashboard-empty"><span aria-hidden="true">◇</span><strong>No technicians working right now.</strong><p>Assignments and field status will appear here.</p></div>}</div>
+        <div className="working-techs">{workingTechnicians.length ? workingTechnicians.map((tech) => <div key={tech.id}><span className="tech-avatar">{tech.preferred_name.slice(0,2).toUpperCase()}</span><p><strong>{tech.preferred_name}</strong><small>{tech.technician_status.replaceAll("_"," ")}</small></p><i className={`tech-presence ${tech.technician_status}`}/></div>) : <div className="dashboard-empty"><span aria-hidden="true">◇</span><strong>No technicians working right now.</strong><p>Assignments and field status will appear here.</p></div>}</div>
       </article>
     </section>
 
@@ -161,7 +164,8 @@ export default async function Workspace({ params, searchParams }: {
 
     <section className="workspace-panel team-management" id="team"><div className="panel-title"><div><span className="sv-kicker">Team</span><h2>Access and technician capability</h2><p>Workspace role and field-technician access are managed separately.</p></div></div><div className="team-list">{(members ?? []).map((member) => {
       const memberProfile=relation(member.profiles); const technician=technicianByUser.get(member.user_id); const assignable=Boolean(technician?.is_active&&technician.is_technician&&technician.can_be_assigned_jobs);
-      return <article key={member.user_id}><div><strong>{memberProfile?.full_name||memberProfile?.email||"Team member"}</strong><span>{memberProfile?.email} · {member.role} · {assignable?"technician":"not a technician"}</span></div>{canManage&&member.role!=="owner"&&<form action={updateTeamMemberRole.bind(null,businessSlug)}><input type="hidden" name="memberUserId" value={member.user_id}/><select name="role" defaultValue={member.role} aria-label={`Workspace role for ${memberProfile?.full_name||memberProfile?.email||"team member"}`}><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select><button className="text-button">Save role</button></form>}{canManage&&<form action={(assignable?disableTechnician:enableTechnician).bind(null,businessSlug)}><input type="hidden" name="memberUserId" value={member.user_id}/><button className="text-button">{assignable?"Disable technician":"Enable as technician"}</button></form>}</article>;
+      const employeeName=employeeByUser.get(member.user_id)||"Team member";
+      return <article key={member.user_id}><div><strong>{employeeName}</strong><span>{memberProfile?.email} · {member.role} · {assignable?"technician":"not a technician"}</span></div>{canManage&&member.role!=="owner"&&<form action={updateTeamMemberRole.bind(null,businessSlug)}><input type="hidden" name="memberUserId" value={member.user_id}/><select name="role" defaultValue={member.role} aria-label={`Workspace role for ${employeeName}`}><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select><button className="text-button">Save role</button></form>}{canManage&&<form action={(assignable?disableTechnician:enableTechnician).bind(null,businessSlug)}><input type="hidden" name="memberUserId" value={member.user_id}/><button className="text-button">{assignable?"Disable technician":"Enable as technician"}</button></form>}</article>;
     })}</div></section>
     {canManage&&<section className="workspace-panel"><div><span className="sv-kicker">Invite employees</span><h2>Add someone to {business.name}</h2><p>Invitations expire after seven days. Their role will not automatically make them a technician.</p></div>{query.inviteLink&&<div className="invite-link"><code>{query.inviteLink}</code><CopyInvitationLink url={query.inviteLink}/></div>}<form action={inviteTeamMember.bind(null,businessSlug)} className="team-invite-form"><label>Email<input required name="email" type="email" placeholder="employee@company.com"/></label><label>Role<select name="role" defaultValue="staff"><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label><button className="sv-button">Send invitation</button></form>{(invites??[]).length>0&&<div className="pending-invites"><h3>Pending invitations</h3>{(invites??[]).map(invite=><article key={invite.id}><div><strong>{invite.email}</strong><span>{invite.role} · expires {formatBusinessDateTime(invite.expires_at,business.timezone)}</span></div><div className="pending-invite-actions"><CopyInvitationLink url={`${invitationOrigin}/invite/accept?token=${invite.token}`}/><form action={resendInvitation.bind(null,businessSlug)}><input type="hidden" name="invitationId" value={invite.id}/><button className="text-button">Resend</button></form><form action={revokeInvitation.bind(null,businessSlug)}><input type="hidden" name="invitationId" value={invite.id}/><button className="text-button">Revoke</button></form></div></article>)}</div>}</section>}
   </section></main>;
