@@ -2,7 +2,7 @@ import { canManageBusiness } from "@/lib/access";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../WorkspaceNav";
 import TerritoryManager, { type TerritoryManagerRecord } from "@/components/TerritoryManager";
-import { createTerritory, setTerritoryActive, updateTerritory } from "./actions";
+import { assignTerritoryEmployee, createTerritory, endTerritoryEmployeeAssignment, setTerritoryActive, updateTerritory } from "./actions";
 
 export default async function TerritoriesPage({
   params, searchParams,
@@ -13,9 +13,15 @@ export default async function TerritoriesPage({
   const { businessSlug } = await params;
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
-  const { data: territories, error } = await supabase.from("workforce_territories")
-    .select("id,name,description,territory_type,postal_codes,neighborhoods,boundary_geojson,is_active,color,notes,parent_territory_id,strategy_config,version,updated_at")
-    .eq("business_id", business.id).order("is_active", { ascending: false }).order("name");
+  const [{data:territories,error},{data:employees},{data:assignments}]=await Promise.all([
+    supabase.from("workforce_territories")
+      .select("id,name,description,territory_type,postal_codes,neighborhoods,boundary_geojson,is_active,color,notes,parent_territory_id,strategy_config,version,updated_at")
+      .eq("business_id", business.id).order("is_active", { ascending: false }).order("name"),
+    supabase.from("employees").select("id,preferred_name").eq("business_id",business.id).eq("is_active",true).order("preferred_name"),
+    supabase.from("employee_territory_assignments")
+      .select("id,territory_id,employee_id,assignment_type,effective_from,effective_through,notes,employees!employee_territories_employee_fk(id,preferred_name)")
+      .eq("business_id",business.id).is("ended_at",null).order("assignment_type"),
+  ]);
   if (error) {
     console.error("Territory manager load failed", { businessId: business.id, code: error.code });
   }
@@ -30,10 +36,14 @@ export default async function TerritoriesPage({
             apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
             businessName={business.name}
             territories={(territories ?? []) as TerritoryManagerRecord[]}
+            employees={employees??[]}
+            assignments={assignments??[]}
             canEdit={canManageBusiness(role)}
             createAction={createTerritory.bind(null, businessSlug)}
             updateAction={updateTerritory.bind(null, businessSlug)}
             statusAction={setTerritoryActive.bind(null, businessSlug)}
+            assignAction={assignTerritoryEmployee.bind(null,businessSlug)}
+            endAssignmentAction={endTerritoryEmployeeAssignment.bind(null,businessSlug)}
           />}
     </section>
   </main>;

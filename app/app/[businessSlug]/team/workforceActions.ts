@@ -6,7 +6,7 @@ import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { normalizeOptional, validateEmployeeProfile } from "@/lib/workforce";
 import { validateAvailabilityProfile, validateWeeklyIntervals, type WeeklyIntervalInput } from "@/lib/workforceAvailability";
 import { validateQualification } from "@/lib/workforceQualifications";
-import { splitTerritoryValues, validateTerritory, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
+import { splitTerritoryValues, validateTerritory, validateTerritoryAssignment, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
 import { validateWorkforceAsset, WORKFORCE_ASSET_CONDITIONS } from "@/lib/workforceAssets";
 import { parseWorkTypes, validateWorkforcePreferences } from "@/lib/workforcePreferences";
 import { requireWorkspace } from "@/lib/workspace";
@@ -214,27 +214,18 @@ export async function createEmployeeTerritory(slug:string,employeeId:string,form
 }
 
 export async function assignEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspace(slug);
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const territoryId=formText(formData,"territoryId"),assignmentType=formText(formData,"assignmentType");
  const effectiveFrom=formText(formData,"effectiveFrom"),effectiveThrough=normalizeOptional(formData.get("effectiveThrough"));
- if(!territoryId||!effectiveFrom||!["primary","secondary","temporary"].includes(assignmentType)
-  ||(assignmentType==="temporary"&&!effectiveThrough)||(effectiveThrough&&effectiveThrough<effectiveFrom)){
-  redirect(employeePath(slug,employeeId,"error","Enter valid territory coverage dates. Temporary coverage requires an end date."));
- }
+ const validationError=validateTerritoryAssignment({territoryId,employeeId,assignmentType,effectiveFrom,effectiveThrough});
+ if(validationError)redirect(employeePath(slug,employeeId,"error",validationError));
  const {data:territory}=await supabase.from("workforce_territories").select("id").eq("business_id",business.id).eq("id",territoryId).eq("is_active",true).maybeSingle();
  if(!territory)redirect(employeePath(slug,employeeId,"error","That territory is not available."));
- if(assignmentType==="primary"){
-  const {error:endError}=await supabase.from("employee_territory_assignments").update({ended_at:new Date().toISOString(),ended_by:user.id})
-   .eq("business_id",business.id).eq("employee_id",employeeId).eq("assignment_type","primary").is("ended_at",null);
-  if(endError){
-   console.error("Existing primary territory close failed",{businessId:business.id,employeeId,code:endError.code});
-   redirect(employeePath(slug,employeeId,"error","The primary territory could not be changed."));
-  }
- }
- const {error}=await supabase.from("employee_territory_assignments").insert({
-  business_id:business.id,employee_id:employeeId,territory_id:territoryId,assignment_type:assignmentType,
-  effective_from:effectiveFrom,effective_through:effectiveThrough,notes:normalizeOptional(formData.get("notes")),created_by:user.id,
+ const {error}=await supabase.rpc("assign_territory_employee",{
+  p_business_id:business.id,p_employee_id:employeeId,p_territory_id:territoryId,
+  p_assignment_type:assignmentType,p_effective_from:effectiveFrom,
+  p_effective_through:effectiveThrough,p_notes:normalizeOptional(formData.get("notes")),
  });
  if(error){
   console.error("Employee territory assignment failed",{businessId:business.id,employeeId,code:error.code});

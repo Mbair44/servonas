@@ -7,6 +7,8 @@ export type TerritoryStrategyConfig={
  center?:{latitude:number;longitude:number};
  radius_meters?:number;
 };
+export const TERRITORY_ASSIGNMENT_TYPES=["primary","backup","secondary","temporary"] as const;
+export type TerritoryAssignmentType=(typeof TERRITORY_ASSIGNMENT_TYPES)[number];
 
 export const splitTerritoryValues=(value:string)=>
  [...new Set(value.split(/[\n,]/).map(item=>item.trim()).filter(Boolean))];
@@ -36,5 +38,14 @@ export function validateTerritory(input:{name:string;type:string;postalCodes:str
    if(geometryError)return geometryError;
   }catch{return "Boundary must contain valid GeoJSON.";}
  }
+ return null;
+}
+
+export function validateTerritoryAssignment(input:{employeeId:string;territoryId:string;assignmentType:string;effectiveFrom:string;effectiveThrough:string|null}){
+ if(!input.employeeId||!input.territoryId)return "Choose an employee and territory.";
+ if(!TERRITORY_ASSIGNMENT_TYPES.includes(input.assignmentType as TerritoryAssignmentType))return "Choose a valid coverage type.";
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(input.effectiveFrom))return "Choose a valid coverage start date.";
+ if(input.effectiveThrough&&(!/^\d{4}-\d{2}-\d{2}$/.test(input.effectiveThrough)||input.effectiveThrough<input.effectiveFrom))return "Coverage end must be on or after its start.";
+ if(input.assignmentType==="temporary"&&!input.effectiveThrough)return "Temporary coverage requires an end date.";
  return null;
 }

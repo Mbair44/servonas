@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
-import { splitTerritoryValues, validateTerritory, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
+import { splitTerritoryValues, validateTerritory, validateTerritoryAssignment, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
 import { requireWorkspace } from "@/lib/workspace";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
@@ -123,4 +123,40 @@ export async function setTerritoryActive(slug: string, formData: FormData) {
   }
   revalidatePath(`/app/${slug}/territories`);
   redirect(route(slug, "success", active ? "Territory restored." : "Territory archived."));
+}
+
+export async function assignTerritoryEmployee(slug:string,formData:FormData){
+  const {supabase,business,role}=await requireWorkspace(slug);
+  if(!canManageBusiness(role))redirect(route(slug,"error","Only owners and administrators can assign territory coverage."));
+  const territoryId=text(formData,"territoryId"),employeeId=text(formData,"employeeId");
+  const assignmentType=text(formData,"assignmentType"),effectiveFrom=text(formData,"effectiveFrom");
+  const effectiveThrough=text(formData,"effectiveThrough")||null;
+  const validationError=validateTerritoryAssignment({territoryId,employeeId,assignmentType,effectiveFrom,effectiveThrough});
+  if(validationError)redirect(route(slug,"error",validationError));
+  const {error}=await supabase.rpc("assign_territory_employee",{
+    p_business_id:business.id,p_territory_id:territoryId,p_employee_id:employeeId,
+    p_assignment_type:assignmentType,p_effective_from:effectiveFrom,
+    p_effective_through:effectiveThrough,p_notes:text(formData,"assignmentNotes")||null,
+  });
+  if(error){
+    console.error("Territory employee assignment failed",{businessId:business.id,territoryId,employeeId,code:error.code});
+    redirect(route(slug,"error",error.code==="23505"?"That employee already has this coverage.":"Territory coverage could not be assigned."));
+  }
+  revalidatePath(`/app/${slug}/territories`);revalidatePath(`/app/${slug}/team`);revalidatePath(`/app/${slug}/dispatch`);
+  redirect(route(slug,"success","Territory coverage assigned."));
+}
+
+export async function endTerritoryEmployeeAssignment(slug:string,formData:FormData){
+  const {supabase,user,business,role}=await requireWorkspace(slug);
+  if(!canManageBusiness(role))redirect(route(slug,"error","Only owners and administrators can end territory coverage."));
+  const assignmentId=text(formData,"assignmentId");
+  const {error}=await supabase.from("employee_territory_assignments")
+    .update({ended_at:new Date().toISOString(),ended_by:user.id})
+    .eq("business_id",business.id).eq("id",assignmentId).is("ended_at",null);
+  if(error){
+    console.error("Territory employee assignment end failed",{businessId:business.id,assignmentId,code:error.code});
+    redirect(route(slug,"error","Territory coverage could not be ended."));
+  }
+  revalidatePath(`/app/${slug}/territories`);revalidatePath(`/app/${slug}/team`);revalidatePath(`/app/${slug}/dispatch`);
+  redirect(route(slug,"success","Territory coverage ended."));
 }
