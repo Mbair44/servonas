@@ -7,6 +7,7 @@ import {requireWorkspace} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
 import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
 import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
+import {verifyGooglePlace} from "@/lib/googleAddress";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -32,6 +33,13 @@ export async function createGuidedWorkspace(_:OnboardingState,formData:FormData)
   addressLine1:text(formData,"addressLine1"),addressLine2:text(formData,"addressLine2"),city:text(formData,"city"),region:text(formData,"region"),
   postalCode:text(formData,"postalCode"),country:text(formData,"country")||"US",phone:text(formData,"phone"),email:text(formData,"email"),
   website:text(formData,"website"),timezone:text(formData,"timezone")};
+ const googlePlaceId=text(formData,"googlePlaceId");
+ if(process.env.GOOGLE_MAPS_API_KEY){
+  if(!googlePlaceId)return {error:"Choose the business address from Google’s suggestions.",fieldErrors:{addressLine1:"Select a verified Google address."},values};
+  const verified=await verifyGooglePlace(googlePlaceId);
+  if(!verified)return {error:"The selected Google address could not be verified. Search for it again.",fieldErrors:{addressLine1:"Choose a valid Google suggestion."},values};
+  values.addressLine1=verified.streetAddress;values.addressLine2=verified.unit||values.addressLine2;values.city=verified.city;values.region=verified.state;values.postalCode=verified.postalCode;values.country=verified.country;
+ }
  const fieldErrors=validateOnboardingCompany(values);
  if(Object.keys(fieldErrors).length)return {error:"Review the highlighted company information.",fieldErrors,values};
  const {data,error}=await s.rpc("create_guided_business_workspace",{p_name:values.name,p_display_name:values.displayName,p_slug:values.slug,
