@@ -13,6 +13,7 @@ export type EmployeeImportPreview = {
   headers: string[];
   sourceColumns: {name:string; sampleValues:string[]}[];
   rowCount: number;
+  rows: string[][];
 };
 
 export class EmployeeImportFileError extends Error {
@@ -63,6 +64,7 @@ function validateRows(rows:string[][], extension:"csv"|"xlsx"):EmployeeImportPre
     extension,
     headers,
     rowCount:dataRows.length,
+    rows:dataRows.map(row=>headers.map((_,index)=>row[index]?.trim()??"")),
     sourceColumns:headers.map((name,index)=>({name,sampleValues:dataRows.map(row=>row[index]?.trim()??"").filter(Boolean).slice(0,3)})),
   };
 }
