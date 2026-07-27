@@ -2,7 +2,7 @@ import { canManageBusiness } from "@/lib/access";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../WorkspaceNav";
 import TerritoryManager, { type TerritoryManagerRecord } from "@/components/TerritoryManager";
-import type { TerritoryOverlayPoint, TerritoryOverlayRoute } from "@/lib/territoryOverlays";
+import type { TerritoryHeatPoint, TerritoryOverlayPoint, TerritoryOverlayRoute } from "@/lib/territoryOverlays";
 import { assignTerritoryEmployee, createTerritory, endTerritoryEmployeeAssignment, setTerritoryActive, updateTerritory } from "./actions";
 
 export default async function TerritoriesPage({
@@ -15,7 +15,7 @@ export default async function TerritoriesPage({
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
   const canViewPrivateHomes=canManageBusiness(role);
-  const [{data:territories,error},{data:employees},{data:assignments},{data:locations},{data:jobs},{data:recurring},{data:office},{data:homes},{data:routePlan}]=await Promise.all([
+  const [{data:territories,error},{data:employees},{data:assignments},{data:locations},{data:jobs},{data:recurring},{data:office},{data:homes},{data:routePlan},{data:invoices},{data:metricFacts}]=await Promise.all([
     supabase.from("workforce_territories")
       .select("id,name,description,territory_type,postal_codes,neighborhoods,boundary_geojson,is_active,color,notes,parent_territory_id,strategy_config,version,updated_at")
       .eq("business_id", business.id).order("is_active", { ascending: false }).order("name"),
@@ -37,6 +37,10 @@ export default async function TerritoriesPage({
       ? supabase.from("technician_route_endpoint_overrides").select("technician_id,home_label,home_latitude,home_longitude").eq("business_id",business.id).not("home_latitude","is",null).not("home_longitude","is",null)
       : Promise.resolve({data:[]}),
     supabase.from("route_plans").select("id").eq("business_id",business.id).eq("calculation_status","ready").order("service_date",{ascending:false}).limit(1).maybeSingle(),
+    supabase.from("invoices").select("id,service_location_id,grand_total_cents,status").eq("business_id",business.id).eq("is_deleted",false).not("service_location_id","is",null).limit(10000),
+    supabase.from("workforce_metric_facts")
+      .select("id,metric_type,count_value,duration_seconds,jobs!workforce_metric_job_fk(service_location_id)")
+      .eq("business_id",business.id).in("metric_type",["callback","drive_time_actual","drive_time_estimated"]).limit(10000),
   ]);
   const {data:routes}=routePlan?.id
     ? await supabase.from("technician_routes").select("id,encoded_polyline").eq("business_id",business.id).eq("route_plan_id",routePlan.id).eq("calculation_status","ready").not("encoded_polyline","is",null)
@@ -46,17 +50,27 @@ export default async function TerritoriesPage({
   const jobsByLocation=new Map<string,typeof jobs>();
   for(const job of jobs??[])jobsByLocation.set(job.service_location_id,[...(jobsByLocation.get(job.service_location_id)??[]),job]);
   const overlayPoints:TerritoryOverlayPoint[]=[];
+  const heatPoints:TerritoryHeatPoint[]=[];
+  const locationCoordinates=new Map<string,{latitude:number;longitude:number;label:string}>();
   for(const location of locations??[]){
     const customer=relation(location.customers),latitude=Number(location.latitude),longitude=Number(location.longitude);
     const name=customer?.company_name||[customer?.first_name,customer?.last_name].filter(Boolean).join(" ")||location.location_name;
     const isProspect=(customer?.tags??[]).some((tag:string)=>tag.toLowerCase()==="prospect");
+    locationCoordinates.set(location.id,{latitude,longitude,label:name});
     overlayPoints.push({id:`customer-${location.id}`,layer:isProspect?"prospects":"customers",latitude,longitude,label:name,detail:location.location_name});
+    heatPoints.push({id:`customer-${location.id}`,layer:"customer_density",latitude,longitude,weight:1,label:name});
+    if(isProspect)heatPoints.push({id:`growth-${location.id}`,layer:"growth_opportunities",latitude,longitude,weight:1,label:name});
     if(recurringLocations.has(location.id))overlayPoints.push({id:`recurring-${location.id}`,layer:"recurring_customers",latitude,longitude,label:name,detail:"Recurring customer"});
-    for(const job of jobsByLocation.get(location.id)??[])overlayPoints.push({
-      id:`job-${job.id}`,layer:job.starts_at?"scheduled_appointments":"active_jobs",latitude,longitude,
-      label:job.title,detail:job.starts_at?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(job.starts_at)):job.status,
-    });
+    const locationJobs=jobsByLocation.get(location.id)??[];
+    if(locationJobs.length)heatPoints.push({id:`jobs-${location.id}`,layer:"job_density",latitude,longitude,weight:locationJobs.length,label:name});
+    for(const job of locationJobs)overlayPoints.push({id:`job-${job.id}`,layer:job.starts_at?"scheduled_appointments":"active_jobs",latitude,longitude,label:job.title,detail:job.starts_at?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(job.starts_at)):job.status});
   }
+  const revenueByLocation=new Map<string,number>();
+  for(const invoice of invoices??[])if(invoice.service_location_id&&invoice.status!=="void"&&recurringLocations.has(invoice.service_location_id))revenueByLocation.set(invoice.service_location_id,(revenueByLocation.get(invoice.service_location_id)??0)+Number(invoice.grand_total_cents));
+  for(const [locationId,weight] of revenueByLocation){const point=locationCoordinates.get(locationId);if(point&&weight>0)heatPoints.push({id:`revenue-${locationId}`,layer:"recurring_revenue",...point,weight,label:point.label});}
+  const factWeights=new Map<string,{callback:number;drive:number}>();
+  for(const fact of metricFacts??[]){const factJob=relation(fact.jobs),locationId=factJob?.service_location_id;if(!locationId)continue;const current=factWeights.get(locationId)??{callback:0,drive:0};if(fact.metric_type==="callback")current.callback+=Math.abs(fact.count_value??1);else current.drive+=fact.duration_seconds??0;factWeights.set(locationId,current);}
+  for(const [locationId,weights] of factWeights){const point=locationCoordinates.get(locationId);if(!point)continue;if(weights.callback)heatPoints.push({id:`callbacks-${locationId}`,layer:"callback_density",...point,weight:weights.callback,label:point.label});if(weights.drive)heatPoints.push({id:`drive-${locationId}`,layer:"drive_time_density",...point,weight:weights.drive,label:point.label});}
   if(office?.office_latitude!=null&&office.office_longitude!=null)overlayPoints.push({id:"office",layer:"offices",latitude:Number(office.office_latitude),longitude:Number(office.office_longitude),label:office.office_label});
   for(const home of homes??[])overlayPoints.push({id:`home-${home.technician_id}`,layer:"technician_homes",latitude:Number(home.home_latitude),longitude:Number(home.home_longitude),label:home.home_label,detail:"Private technician endpoint"});
   const overlayRoutes:TerritoryOverlayRoute[]=(routes??[]).map(route=>({id:route.id,encodedPolyline:route.encoded_polyline!}));
@@ -78,6 +92,7 @@ export default async function TerritoriesPage({
             assignments={assignments??[]}
             overlayPoints={overlayPoints}
             overlayRoutes={overlayRoutes}
+            heatPoints={heatPoints}
             canViewPrivateHomes={canViewPrivateHomes}
             canEdit={canManageBusiness(role)}
             createAction={createTerritory.bind(null, businessSlug)}

@@ -93,9 +93,7 @@ declare
 begin
   select tp.id into v_technician_id
   from public.technician_profiles tp
-  join public.employees e
-    on e.business_id=tp.business_id and e.user_id=tp.user_id
-  where e.business_id=p_business_id and e.id=p_employee_id;
+  where tp.business_id=p_business_id and tp.employee_id=p_employee_id;
 
   if v_technician_id is null then return; end if;
 

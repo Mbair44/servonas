@@ -8,6 +8,11 @@ export type TerritoryOverlayPoint={
  label:string;detail?:string;
 };
 export type TerritoryOverlayRoute={id:string;encodedPolyline:string};
+export const TERRITORY_HEAT_LAYERS=[
+ "customer_density","recurring_revenue","job_density","callback_density","drive_time_density","growth_opportunities",
+] as const;
+export type TerritoryHeatLayer=(typeof TERRITORY_HEAT_LAYERS)[number];
+export type TerritoryHeatPoint={id:string;layer:TerritoryHeatLayer;latitude:number;longitude:number;weight:number;label:string};
 
 export function validOverlayPoint(latitude:number,longitude:number){
  return Number.isFinite(latitude)&&latitude>=-90&&latitude<=90
@@ -23,4 +28,9 @@ export function decodeEncodedPolyline(value:string){
   points.push({lat:latitude/1e5,lng:longitude/1e5});
  }
  return points;
+}
+
+export function heatScale(weight:number,maxWeight:number){
+ if(!Number.isFinite(weight)||weight<=0||!Number.isFinite(maxWeight)||maxWeight<=0)return 0;
+ return Math.max(.18,Math.min(1,Math.sqrt(weight/maxWeight)));
 }

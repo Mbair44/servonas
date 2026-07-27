@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { territoryMapPolygons, visibleTerritories, type TerritoryGeometry } from "@/lib/territoryMap";
 import TerritoryBoundaryEditor from "@/components/TerritoryBoundaryEditor";
-import {decodeEncodedPolyline,type TerritoryOverlayLayer,type TerritoryOverlayPoint,type TerritoryOverlayRoute} from "@/lib/territoryOverlays";
+import {decodeEncodedPolyline,heatScale,type TerritoryHeatLayer,type TerritoryHeatPoint,type TerritoryOverlayLayer,type TerritoryOverlayPoint,type TerritoryOverlayRoute} from "@/lib/territoryOverlays";
 
 export type TerritoryManagerRecord = {
   id: string;
@@ -105,7 +105,7 @@ function TerritoryCoverage({territoryId,employees,assignments,canEdit,assignActi
 }
 
 export default function TerritoryManager({
-  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
+  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
 }: {
   apiKey?: string;
   businessName: string;
@@ -114,6 +114,7 @@ export default function TerritoryManager({
   assignments:TerritoryAssignment[];
   overlayPoints:TerritoryOverlayPoint[];
   overlayRoutes:TerritoryOverlayRoute[];
+  heatPoints:TerritoryHeatPoint[];
   canViewPrivateHomes:boolean;
   canEdit: boolean;
   createAction: (formData: FormData) => void | Promise<void>;
@@ -126,6 +127,7 @@ export default function TerritoryManager({
   const map = useRef<MapInstance | null>(null);
   const polygons = useRef<PolygonInstance[]>([]);
   const operationOverlays=useRef<MapOverlayInstance[]>([]);
+  const heatOverlays=useRef<MapOverlayInstance[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(territories.find((item) => item.is_active)?.id ?? territories[0]?.id ?? null);
   const [showInactive, setShowInactive] = useState(false);
   const [showBoundaries, setShowBoundaries] = useState(true);
@@ -137,6 +139,7 @@ export default function TerritoryManager({
     customers:true,prospects:true,active_jobs:true,scheduled_appointments:true,recurring_customers:false,
     technician_homes:false,offices:true,current_routes:true,vehicles:false,
   });
+  const [heatLayer,setHeatLayer]=useState<TerritoryHeatLayer|null>(null);
   const selected = territories.find((item) => item.id === selectedId) ?? null;
   const visible = useMemo(() => visibleTerritories(territories, showInactive), [territories, showInactive]);
   const selectedNeedsBoundary = selected?.territory_type === "polygon" && !selected.boundary_geojson;
@@ -227,6 +230,24 @@ export default function TerritoryManager({
     return()=>{operationOverlays.current.forEach(item=>item.setMap(null));operationOverlays.current=[];};
   },[overlayPoints,overlayRoutes,layers,mapLoading]);
 
+  useEffect(()=>{
+    const maps=browserMaps();if(!maps||!map.current)return;
+    heatOverlays.current.forEach(item=>item.setMap(null));heatOverlays.current=[];
+    if(!heatLayer)return;
+    const points=heatPoints.filter(item=>item.layer===heatLayer);
+    const maxWeight=Math.max(0,...points.map(item=>item.weight));
+    for(const point of points){
+      const intensity=heatScale(point.weight,maxWeight);if(!intensity)continue;
+      heatOverlays.current.push(new maps.Circle({
+        map:map.current,center:{lat:point.latitude,lng:point.longitude},radius:550+intensity*2200,
+        strokeColor:"#dc2626",strokeOpacity:.2+intensity*.45,strokeWeight:1,
+        fillColor:intensity>.7?"#dc2626":intensity>.4?"#f97316":"#facc15",
+        fillOpacity:.12+intensity*.28,clickable:false,zIndex:1,
+      }));
+    }
+    return()=>{heatOverlays.current.forEach(item=>item.setMap(null));heatOverlays.current=[];};
+  },[heatLayer,heatPoints,mapLoading]);
+
   const toggleLayer=(layer:TerritoryOverlayLayer)=>setLayers(value=>({...value,[layer]:!value[layer]}));
 
   const locate = () => {
@@ -257,6 +278,17 @@ export default function TerritoryManager({
         <input type="checkbox" checked={layers[layer]} disabled={(layer==="technician_homes"&&!canViewPrivateHomes)||layer==="vehicles"} onChange={()=>toggleLayer(layer)}/>{label}
         <span>{layer==="current_routes"?overlayRoutes.length:overlayPoints.filter(item=>item.layer===layer).length}</span>
       </label>)}
+    </section>
+    <section className="territory-heat-controls" aria-label="Heat maps">
+      <strong>Heat maps</strong>
+      {([
+        ["customer_density","Customer density"],["recurring_revenue","Recurring revenue"],["job_density","Job density"],
+        ["callback_density","Callback density"],["drive_time_density","Drive-time density"],["growth_opportunities","Growth opportunities"],
+      ] as [TerritoryHeatLayer,string][]).map(([layer,label])=>{
+        const count=heatPoints.filter(item=>item.layer===layer).length;
+        return <button key={layer} type="button" className={heatLayer===layer?"active":""} disabled={!count} onClick={()=>setHeatLayer(value=>value===layer?null:layer)}>{label}<span>{count}</span></button>;
+      })}
+      {heatLayer&&<div className="territory-heat-legend"><span>Lower</span><i/><span>Higher</span></div>}
     </section>
     {mapError && <div className="workspace-notice error">{mapError}</div>}
     {creating && canEdit && <section className="territory-create-panel"><div><h2>Create territory</h2><p>Start simply with a name, then draw a boundary or add ZIP codes when ready.</p></div><form action={createAction}><TerritoryFields territories={territories} apiKey={apiKey}/><button className="sv-button">Create territory</button></form></section>}

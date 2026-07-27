@@ -139,8 +139,14 @@ export async function assignTerritoryEmployee(slug:string,formData:FormData){
     p_effective_through:effectiveThrough,p_notes:text(formData,"assignmentNotes")||null,
   });
   if(error){
-    console.error("Territory employee assignment failed",{businessId:business.id,territoryId,employeeId,code:error.code});
-    redirect(route(slug,"error",error.code==="23505"?"That employee already has this coverage.":"Territory coverage could not be assigned."));
+    console.error("Territory employee assignment failed",{businessId:business.id,territoryId,employeeId,code:error.code,message:error.message,details:error.details,hint:error.hint});
+    const message=error.code==="23505"?"That employee already has this coverage."
+      :error.code==="42703"?"Territory assignment synchronization is out of date. Apply the territory assignment repair migration."
+      :["42883","PGRST202"].includes(error.code)?"Apply the Epic 8.5 Checkpoint 5 territory assignment migration."
+      :error.code==="42501"?"You do not have permission to assign territory coverage."
+      :error.code==="23503"?"The selected employee or territory is no longer available."
+      :"Territory coverage could not be assigned. Review the server log for the database error code.";
+    redirect(route(slug,"error",message));
   }
   revalidatePath(`/app/${slug}/territories`);revalidatePath(`/app/${slug}/team`);revalidatePath(`/app/${slug}/dispatch`);
   redirect(route(slug,"success","Territory coverage assigned."));
