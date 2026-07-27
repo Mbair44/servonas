@@ -10,14 +10,17 @@ import { splitTerritoryValues, validateTerritory, validateTerritoryAssignment, t
 import { validateWorkforceAsset, WORKFORCE_ASSET_CONDITIONS } from "@/lib/workforceAssets";
 import { parseWorkTypes, validateWorkforcePreferences } from "@/lib/workforcePreferences";
 import { requireWorkspace } from "@/lib/workspace";
+import {createAndDeliverEmployeeInvitation} from "./actions";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
 const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/team?${kind}=${encodeURIComponent(message)}`;
 const employeePayload=(formData:FormData,userId:string)=>{
- const preferredName=String(formData.get("preferredName")??"").trim();
+ const firstName=String(formData.get("firstName")??"").trim(),lastName=String(formData.get("lastName")??"").trim();
+ const preferredName=String(formData.get("preferredName")??"").trim()||firstName;
  const terminationDate=normalizeOptional(formData.get("terminationDate"));
- const payload={preferred_name:preferredName,legal_name:normalizeOptional(formData.get("legalName")),email:normalizeOptional(formData.get("email"))?.toLowerCase()??null,phone:normalizeOptional(formData.get("phone")),employee_number:normalizeOptional(formData.get("employeeNumber")),profile_photo_url:normalizeOptional(formData.get("profilePhotoUrl")),hire_date:normalizeOptional(formData.get("hireDate")),termination_date:terminationDate,notes:normalizeOptional(formData.get("notes")),is_active:formData.get("isActive")==="on",updated_by:userId};
- return {payload,error:validateEmployeeProfile({preferredName,email:payload.email,profilePhotoUrl:payload.profile_photo_url,hireDate:payload.hire_date,terminationDate,isActive:payload.is_active})};
+ const employmentStatus=String(formData.get("employmentStatus")??"active");
+ const payload={first_name:firstName,last_name:lastName,preferred_name:preferredName,legal_name:normalizeOptional(formData.get("legalName")),email:normalizeOptional(formData.get("email"))?.toLowerCase()??null,phone:normalizeOptional(formData.get("phone")),employee_number:normalizeOptional(formData.get("employeeNumber")),job_title:normalizeOptional(formData.get("jobTitle")),employee_type:normalizeOptional(formData.get("employeeType")),employment_status:employmentStatus,manager_employee_id:normalizeOptional(formData.get("managerEmployeeId")),profile_photo_url:normalizeOptional(formData.get("profilePhotoUrl")),hire_date:normalizeOptional(formData.get("hireDate")),termination_date:terminationDate,notes:normalizeOptional(formData.get("notes")),is_active:employmentStatus==="active",updated_by:userId};
+ return {payload,error:validateEmployeeProfile({preferredName,firstName,lastName,email:payload.email,employeeType:payload.employee_type,employmentStatus,profilePhotoUrl:payload.profile_photo_url,hireDate:payload.hire_date,terminationDate,isActive:payload.is_active})};
 };
 
 async function replaceRoles(supabase:Awaited<ReturnType<typeof requireWorkspace>>["supabase"],businessId:string,employeeId:string,roleIds:string[],userId:string){
@@ -36,16 +39,30 @@ export async function createEmployee(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspace(slug);
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can add employees."));
  const {payload,error}=employeePayload(formData,user.id);if(error)redirect(path(slug,"error",error));
+ if(payload.manager_employee_id){const {data:manager}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",payload.manager_employee_id).eq("is_active",true).maybeSingle();if(!manager)redirect(path(slug,"error","Choose an active manager from this business."));}
+ const inviteNow=formData.get("inviteNow")==="on",accessRole=String(formData.get("accessRole")??"staff");
+ if(inviteNow&&!payload.email)redirect(path(slug,"error","An email address is required when inviting an employee."));
+ if(inviteNow&&!["staff","manager","admin"].includes(accessRole))redirect(path(slug,"error","Choose a valid workspace access role."));
+ if(inviteNow&&["manager","admin"].includes(accessRole)&&formData.get("confirmElevatedAccess")!=="on")redirect(path(slug,"error","Confirm elevated workspace access before inviting this employee."));
  const {data:employee,error:insertError}=await supabase.from("employees").insert({...payload,business_id:business.id,created_by:user.id}).select("id").single();
  if(insertError||!employee){console.error("Employee creation failed",{businessId:business.id,code:insertError?.code});redirect(path(slug,"error",insertError?.code==="23505"?"That employee email or number is already in use.":"Employee could not be created."));}
  try{await replaceRoles(supabase,business.id,employee.id,values(formData,"roleIds"),user.id);}catch(roleError){await supabase.from("employees").delete().eq("business_id",business.id).eq("id",employee.id);console.error("Employee role initialization failed",{businessId:business.id,errorName:roleError instanceof Error?roleError.name:"unknown"});redirect(path(slug,"error","Employee roles could not be saved."));}
- revalidatePath(`/app/${slug}/team`);redirect(path(slug,"success","Employee added."));
+ if(inviteNow){
+  const invitation=await createAndDeliverEmployeeInvitation(slug,payload.email!,accessRole);
+  revalidatePath(`/app/${slug}/team`);
+  if(invitation.error)redirect(path(slug,"success",`Employee added. ${invitation.error}`));
+  const outcome=invitation.outcome==="sent"?"Invitation email sent.":invitation.outcome==="not_configured"?"Invitation saved, but email delivery is not configured.":"Invitation saved, but email delivery failed.";
+  redirect(path(slug,"success",`Employee added. ${outcome}`));
+ }
+ revalidatePath(`/app/${slug}/team`);redirect(path(slug,"success","Employee added without login access."));
 }
 
 export async function updateEmployee(slug:string,employeeId:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspace(slug);
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can edit employees."));
  const {payload,error}=employeePayload(formData,user.id);if(error)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent(error)}`);
+ if(payload.manager_employee_id===employeeId)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("An employee cannot manage themselves.")}`);
+ if(payload.manager_employee_id){const {data:manager}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",payload.manager_employee_id).eq("is_active",true).maybeSingle();if(!manager)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("Choose an active manager from this business.")}`);}
  const {error:updateError}=await supabase.from("employees").update(payload).eq("business_id",business.id).eq("id",employeeId);
  if(updateError){console.error("Employee update failed",{businessId:business.id,employeeId,code:updateError.code});redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent(updateError.code==="23505"?"That employee email or number is already in use.":"Employee could not be updated.")}`);}
  try{await replaceRoles(supabase,business.id,employeeId,values(formData,"roleIds"),user.id);}catch(roleError){console.error("Employee role update failed",{businessId:business.id,employeeId,errorName:roleError instanceof Error?roleError.name:"unknown"});redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("Employee saved, but roles could not be updated.")}`);}
@@ -55,7 +72,7 @@ export async function updateEmployee(slug:string,employeeId:string,formData:Form
 export async function setEmployeeActive(slug:string,employeeId:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const active=formData.get("active")==="true";
- const {error}=await supabase.from("employees").update({is_active:active,termination_date:active?null:new Date().toISOString().slice(0,10),updated_by:user.id}).eq("business_id",business.id).eq("id",employeeId);
+ const {error}=await supabase.from("employees").update({employment_status:active?"active":"inactive",is_active:active,termination_date:active?null:undefined,updated_by:user.id}).eq("business_id",business.id).eq("id",employeeId);
  if(error)redirect(path(slug,"error","Employee status could not be changed."));
  revalidatePath(`/app/${slug}/team`);redirect(path(slug,"success",active?"Employee activated.":"Employee deactivated."));
 }
