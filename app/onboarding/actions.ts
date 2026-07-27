@@ -71,3 +71,9 @@ export async function createFirstService(slug:string,_:FirstServiceState,formDat
  if(error){console.error("Onboarding first service creation failed",{businessId:business.id,code:error.code,message:error.message});return {error:"The first service could not be created.",values};}
  redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=service`);
 }
+export async function completeOnboarding(slug:string){
+ const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent("Only owners and administrators can complete onboarding.")}`);
+ const {error}=await supabase.rpc("complete_guided_onboarding",{p_business_id:business.id});
+ if(error){console.error("Guided onboarding completion failed",{businessId:business.id,code:error.code,message:error.message});redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent(error.message||"Readiness could not be verified.")}`);}
+ redirect(`/app/${slug}?onboarding=complete`);
+}
