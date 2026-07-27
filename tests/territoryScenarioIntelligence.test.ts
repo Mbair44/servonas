@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {analyzeCustomerImpact,analyzeFinancialImpact,analyzeTechnicianImpact,customerImpactCsv,explainScenario} from "../lib/territoryScenarioIntelligence.ts";
+import {analyzeCustomerImpact,analyzeFinancialImpact,analyzeTechnicianImpact,customerImpactCsv,explainScenario,scoreScenario} from "../lib/territoryScenarioIntelligence.ts";
 const territory=(id:string,zip:string)=>({id,territory_type:"postal_codes",postal_codes:[zip],neighborhoods:[],boundary_geojson:null,strategy_config:{}});
 const location={id:"l",customerId:"c",customerName:"Acme contact",companyName:"Acme",tags:["VIP"],latitude:33,longitude:-111,postalCode:"85296",recurring:true,upcomingAppointments:2};
 test("customer impact identifies coverage loss and priority account facts",()=>{
  const [impact]=analyzeCustomerImpact([territory("old","85296")],[],[location]);
  assert.equal(impact.change,"coverage_lost");assert.equal(impact.commercial,true);assert.equal(impact.vip,true);
  assert.match(customerImpactCsv([impact]),/Acme contact/);
+});
+test("optimization score exposes weights and excludes unavailable categories",()=>{
+ const result=scoreScenario({currentDriveSeconds:100,proposedDriveSeconds:80,affectedCustomers:1,totalCustomers:10,coverageGaps:0,currentDensity:2,proposedDensity:3});
+ assert.equal(result.categories.find(item=>item.key==="balance")?.score,null);
+ assert.equal(result.scoredWeight,75);assert.ok((result.score??0)>0);
 });
 test("decision rules never recommend a scenario with coverage loss",()=>{
  const customerImpact=analyzeCustomerImpact([territory("old","85296")],[],[location]);
