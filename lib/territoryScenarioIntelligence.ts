@@ -11,6 +11,7 @@ export type CustomerImpact={
  currentTerritories:string[];proposedTerritories:string[];change:"territory_changed"|"coverage_lost"|"coverage_gained";
 };
 export type TechnicianImpact={employeeId:string;employeeName:string;customersGained:number;customersLost:number;netCustomers:number;revenueResponsibility:null;weeklyWorkload:null;estimatedOvertime:null;driveTime:null;territoryGrowth:number;futureCapacity:null};
+export type FinancialImpact={recurringRevenueCoveredDifferenceCents:number;weeklyDriveMetersDifference:number;weeklyDriveSecondsDifference:number;fuelSavingsCents:null;laborSavingsCents:null;additionalAppointmentCapacity:null;truckUtilization:null};
 const matching=(definitions:TerritoryStatisticDefinition[],location:ImpactLocation)=>
  definitions.filter(item=>territoryContainsLocation(item,location)).map(item=>item.id).sort();
 export function analyzeCustomerImpact(current:TerritoryStatisticDefinition[],proposed:TerritoryStatisticDefinition[],locations:ImpactLocation[]):CustomerImpact[]{
@@ -44,4 +45,10 @@ export function analyzeTechnicianImpact(rows:CustomerImpact[],assignments:Array<
    revenueResponsibility:null,weeklyWorkload:null,estimatedOvertime:null,driveTime:null,
    territoryGrowth:customersGained-customersLost,futureCapacity:null};
  }).filter(item=>item.customersGained||item.customersLost);
+}
+export function analyzeFinancialImpact(current:{recurringRevenueCents:number;weeklyDriveMeters:number;weeklyDriveSeconds:number},proposed:{recurringRevenueCents:number;weeklyDriveMeters:number;weeklyDriveSeconds:number}):FinancialImpact{
+ return {recurringRevenueCoveredDifferenceCents:proposed.recurringRevenueCents-current.recurringRevenueCents,
+  weeklyDriveMetersDifference:proposed.weeklyDriveMeters-current.weeklyDriveMeters,
+  weeklyDriveSecondsDifference:proposed.weeklyDriveSeconds-current.weeklyDriveSeconds,
+  fuelSavingsCents:null,laborSavingsCents:null,additionalAppointmentCapacity:null,truckUtilization:null};
 }
