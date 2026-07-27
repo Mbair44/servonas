@@ -5,6 +5,7 @@ import {validateOnboardingCompany,type OnboardingCompanyInput} from "@/lib/onboa
 import {validateBusinessProfile,type BusinessProfileInput} from "@/lib/onboardingProfile";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
+import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -48,4 +49,13 @@ export async function saveBusinessProfile(slug:string,_:BusinessProfileState,for
  const {error}=await supabase.rpc("save_onboarding_business_profile",{p_business_id:business.id,p_operating_model:values.operatingModel,p_industry_profile:values.industryProfile,p_industry_other:values.otherIndustry||null});
  if(error){console.error("Onboarding business profile save failed",{businessId:business.id,code:error.code,message:error.message});return {error:error.code==="P0002"?"This onboarding session is no longer active.":"The business profile could not be saved.",values};}
  redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=profile`);
+}
+export type BusinessHoursState={error?:string;dayErrors?:Record<number,string>};
+export async function saveBusinessHours(slug:string,_:BusinessHoursState,formData:FormData):Promise<BusinessHoursState>{
+ const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))return {error:"Only owners and administrators can change business hours."};
+ const rows:DayHours[]=defaultBusinessHours().map((row)=>({weekday:row.weekday,open:formData.get(`open_${row.weekday}`)==="on",start:text(formData,`start_${row.weekday}`),end:text(formData,`end_${row.weekday}`)}));
+ const validation=validateBusinessHours(rows);if(validation.form||Object.keys(validation.days).length)return {error:validation.form??"Review the highlighted hours.",dayErrors:validation.days};
+ const {error}=await supabase.rpc("save_onboarding_business_hours",{p_business_id:business.id,p_hours:rows});
+ if(error){console.error("Onboarding business hours save failed",{businessId:business.id,code:error.code,message:error.message});return {error:"Business hours could not be saved."};}
+ redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=hours`);
 }
