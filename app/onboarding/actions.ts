@@ -2,6 +2,9 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {validateOnboardingCompany,type OnboardingCompanyInput} from "@/lib/onboardingCompany";
+import {validateBusinessProfile,type BusinessProfileInput} from "@/lib/onboardingProfile";
+import {requireWorkspace} from "@/lib/workspace";
+import {canManageBusiness} from "@/lib/access";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -35,4 +38,14 @@ export async function createGuidedWorkspace(_:OnboardingState,formData:FormData)
  if(error){console.error("Guided workspace creation failed",{provider:"supabase",operation:"create_guided_business_workspace",code:error.code,message:error.message,userId:user.id});
   return {error:error.code==="23505"?"That workspace URL is already taken.":"Your company could not be saved. Please review the information and try again.",values};}
  const created=Array.isArray(data)?data[0]:data;redirect(`/onboarding?business=${encodeURIComponent(created?.slug??values.slug)}&saved=company`);
+}
+export type BusinessProfileState={error?:string;fieldErrors?:ReturnType<typeof validateBusinessProfile>;values?:BusinessProfileInput};
+export async function saveBusinessProfile(slug:string,_:BusinessProfileState,formData:FormData):Promise<BusinessProfileState>{
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))return {error:"Only owners and administrators can continue company onboarding."};
+ const values={operatingModel:text(formData,"operatingModel"),industryProfile:text(formData,"industryProfile"),otherIndustry:text(formData,"otherIndustry")};
+ const fieldErrors=validateBusinessProfile(values);if(Object.keys(fieldErrors).length)return {error:"Choose the profile that best describes your business.",fieldErrors,values};
+ const {error}=await supabase.rpc("save_onboarding_business_profile",{p_business_id:business.id,p_operating_model:values.operatingModel,p_industry_profile:values.industryProfile,p_industry_other:values.otherIndustry||null});
+ if(error){console.error("Onboarding business profile save failed",{businessId:business.id,code:error.code,message:error.message});return {error:error.code==="P0002"?"This onboarding session is no longer active.":"The business profile could not be saved.",values};}
+ redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=profile`);
 }
