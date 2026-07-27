@@ -7,9 +7,11 @@ test("territory domain accepts progressive optional setup",()=>assert.equal(vali
 test("territory domain rejects unsafe colors",()=>assert.match(validateTerritory({...valid,color:"blue"})!,/color/i));
 test("territory domain normalizes ZIP and neighborhood lists",()=>assert.deepEqual(splitTerritoryValues("85234, 85296\n85234"),["85234","85296"]));
 test("territory domain validates polygon geometry type",()=>assert.match(validateTerritory({...valid,boundary:'{\"type\":\"Point\",\"coordinates\":[1,2]}'})!,/Polygon/i));
+test("polygon territories cannot be saved without drawable geometry",()=>assert.match(validateTerritory({...valid,type:"polygon",boundary:""})!,/boundary/i));
 test("territory domain supports every operating strategy",()=>{
  for(const type of ["postal_codes","neighborhoods","polygon","city_boundaries","delivery_zone","service_area","mixed"]){
-  assert.equal(validateTerritory({...valid,type}),null);
+  const boundary=type==="polygon"?'{"type":"Polygon","coordinates":[[[-112.1,33.4],[-112,33.5],[-111.9,33.4],[-112.1,33.4]]]}':valid.boundary;
+  assert.equal(validateTerritory({...valid,type,boundary}),null);
  }
  assert.equal(validateTerritory({...valid,type:"radius",strategyConfig:{center:{latitude:33.35,longitude:-111.79},radius_meters:16093}}),null);
 });

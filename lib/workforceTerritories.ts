@@ -20,6 +20,7 @@ export function validateTerritory(input:{name:string;type:string;postalCodes:str
  if(input.postalCodes.some(code=>code.length>20))return "ZIP or postal codes must be 20 characters or fewer.";
  if(input.neighborhoods.some(name=>name.length>150))return "Neighborhood names must be 150 characters or fewer.";
  if((input.strategyConfig?.cities??[]).some(name=>!name||name.length>150))return "City names must be 150 characters or fewer.";
+ if(input.type==="polygon"&&!input.boundary)return "Draw a boundary before saving a polygon territory.";
  if(input.type==="radius"){
   const center=input.strategyConfig?.center,radius=input.strategyConfig?.radius_meters;
   if(!center||!Number.isFinite(center.latitude)||center.latitude < -90||center.latitude > 90
