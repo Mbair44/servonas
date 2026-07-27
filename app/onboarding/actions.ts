@@ -5,6 +5,9 @@ import {validateOnboardingCompany,type OnboardingCompanyInput} from "@/lib/onboa
 import {validateBusinessProfile,type BusinessProfileInput} from "@/lib/onboardingProfile";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
+import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
+import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
+import {verifyGooglePlace} from "@/lib/googleAddress";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -30,6 +33,13 @@ export async function createGuidedWorkspace(_:OnboardingState,formData:FormData)
   addressLine1:text(formData,"addressLine1"),addressLine2:text(formData,"addressLine2"),city:text(formData,"city"),region:text(formData,"region"),
   postalCode:text(formData,"postalCode"),country:text(formData,"country")||"US",phone:text(formData,"phone"),email:text(formData,"email"),
   website:text(formData,"website"),timezone:text(formData,"timezone")};
+ const googlePlaceId=text(formData,"googlePlaceId");
+ if(process.env.GOOGLE_MAPS_API_KEY){
+  if(!googlePlaceId)return {error:"Choose the business address from Google’s suggestions.",fieldErrors:{addressLine1:"Select a verified Google address."},values};
+  const verified=await verifyGooglePlace(googlePlaceId);
+  if(!verified)return {error:"The selected Google address could not be verified. Search for it again.",fieldErrors:{addressLine1:"Choose a valid Google suggestion."},values};
+  values.addressLine1=verified.streetAddress;values.addressLine2=verified.unit||values.addressLine2;values.city=verified.city;values.region=verified.state;values.postalCode=verified.postalCode;values.country=verified.country;
+ }
  const fieldErrors=validateOnboardingCompany(values);
  if(Object.keys(fieldErrors).length)return {error:"Review the highlighted company information.",fieldErrors,values};
  const {data,error}=await s.rpc("create_guided_business_workspace",{p_name:values.name,p_display_name:values.displayName,p_slug:values.slug,
@@ -48,4 +58,30 @@ export async function saveBusinessProfile(slug:string,_:BusinessProfileState,for
  const {error}=await supabase.rpc("save_onboarding_business_profile",{p_business_id:business.id,p_operating_model:values.operatingModel,p_industry_profile:values.industryProfile,p_industry_other:values.otherIndustry||null});
  if(error){console.error("Onboarding business profile save failed",{businessId:business.id,code:error.code,message:error.message});return {error:error.code==="P0002"?"This onboarding session is no longer active.":"The business profile could not be saved.",values};}
  redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=profile`);
+}
+export type BusinessHoursState={error?:string;dayErrors?:Record<number,string>};
+export async function saveBusinessHours(slug:string,_:BusinessHoursState,formData:FormData):Promise<BusinessHoursState>{
+ const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))return {error:"Only owners and administrators can change business hours."};
+ const rows:DayHours[]=defaultBusinessHours().map((row)=>({weekday:row.weekday,open:formData.get(`open_${row.weekday}`)==="on",start:text(formData,`start_${row.weekday}`),end:text(formData,`end_${row.weekday}`)}));
+ const validation=validateBusinessHours(rows);if(validation.form||Object.keys(validation.days).length)return {error:validation.form??"Review the highlighted hours.",dayErrors:validation.days};
+ const {error}=await supabase.rpc("save_onboarding_business_hours",{p_business_id:business.id,p_hours:rows});
+ if(error){console.error("Onboarding business hours save failed",{businessId:business.id,code:error.code,message:error.message});return {error:"Business hours could not be saved."};}
+ redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=hours`);
+}
+export type FirstServiceState={error?:string;fieldErrors?:ReturnType<typeof validateOnboardingService>;values?:Partial<OnboardingServiceInput>};
+export async function createFirstService(slug:string,_:FirstServiceState,formData:FormData):Promise<FirstServiceState>{
+ const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))return {error:"Only owners and administrators can create the first service."};
+ const values:OnboardingServiceInput={name:text(formData,"name"),description:text(formData,"description"),durationMinutes:Number(text(formData,"durationMinutes")),
+  price:text(formData,"price"),recurringAllowed:formData.get("recurringAllowed")==="on",requiredSkills:normalizeSkills(text(formData,"requiredSkills")),active:formData.get("active")==="on"};
+ const fieldErrors=validateOnboardingService(values);if(Object.keys(fieldErrors).length)return {error:"Review the highlighted service details.",fieldErrors,values};
+ const {error}=await supabase.rpc("create_onboarding_first_service",{p_business_id:business.id,p_name:values.name,p_description:values.description||null,
+  p_duration_minutes:values.durationMinutes,p_price_amount:values.price?Number(values.price):null,p_recurring_allowed:values.recurringAllowed,p_required_skills:values.requiredSkills,p_active:values.active});
+ if(error){console.error("Onboarding first service creation failed",{businessId:business.id,code:error.code,message:error.message});return {error:"The first service could not be created.",values};}
+ redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=service`);
+}
+export async function completeOnboarding(slug:string){
+ const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent("Only owners and administrators can complete onboarding.")}`);
+ const {error}=await supabase.rpc("complete_guided_onboarding",{p_business_id:business.id});
+ if(error){console.error("Guided onboarding completion failed",{businessId:business.id,code:error.code,message:error.message});redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent(error.message||"Readiness could not be verified.")}`);}
+ redirect(`/app/${slug}?onboarding=complete`);
 }

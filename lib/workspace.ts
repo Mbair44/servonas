@@ -20,6 +20,15 @@ export async function requireWorkspace(slug: string) {
     });
     return { supabase, user, business, role: platformAdminRole, isPlatformAdmin: true };
   }
+  const now = new Date().toISOString();
+  const { data: entitlement, error: entitlementError } = await sessionSupabase
+    .from("business_entitlements").select("id").eq("business_id", business.id)
+    .eq("status", "active").lte("starts_at", now).or(`ends_at.is.null,ends_at.gt.${now}`).limit(1).maybeSingle();
+  if (entitlementError) {
+    console.error("Workspace entitlement verification failed", { businessId: business.id, code: entitlementError.code });
+    throw new Error("Workspace access could not be verified.");
+  }
+  if (!entitlement) redirect("/app?access=inactive");
   if (business.owner_user_id === user.id) {
     const { data: ownerMembership } = await supabase.from("business_members").select("role")
       .eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
