@@ -60,7 +60,13 @@ export async function createTerritory(slug: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspace(slug);
   if (!canManageBusiness(role)) redirect(route(slug, "error", "Only owners and administrators can create territories."));
   const parsed = payload(formData, user.id);
-  if (parsed.error) redirect(route(slug, "error", parsed.error));
+  if (parsed.error) {
+    console.warn("Territory create validation rejected", {
+      businessId: business.id, territoryType: parsed.data.territory_type,
+      boundaryPresent: Boolean(parsed.data.boundary_geojson), reason: parsed.error,
+    });
+    redirect(route(slug, "error", parsed.error));
+  }
   if (parsed.data.parent_territory_id) {
     const { data: parent } = await supabase.from("workforce_territories").select("id")
       .eq("business_id", business.id).eq("id", parsed.data.parent_territory_id).maybeSingle();
@@ -84,6 +90,11 @@ export async function updateTerritory(slug: string, formData: FormData) {
   const version = Number(text(formData, "version"));
   const parsed = payload(formData, user.id);
   if (!territoryId || !Number.isSafeInteger(version) || version < 1 || parsed.error) {
+    console.warn("Territory update validation rejected", {
+      businessId: business.id, territoryId: territoryId || null,
+      territoryType: parsed.data.territory_type, boundaryPresent: Boolean(parsed.data.boundary_geojson),
+      validVersion: Number.isSafeInteger(version)&&version>0, reason: parsed.error,
+    });
     redirect(route(slug, "error", parsed.error || "The territory version is invalid. Refresh and try again."));
   }
   if (parsed.data.parent_territory_id === territoryId) redirect(route(slug, "error", "A territory cannot be its own parent."));
