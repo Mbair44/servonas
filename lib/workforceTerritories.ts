@@ -13,7 +13,10 @@ export function validateTerritory(input:{name:string;type:string;postalCodes:str
   try{
    const geometry=JSON.parse(input.boundary) as {type?:string;coordinates?:unknown};
    if(!["Polygon","MultiPolygon"].includes(geometry.type??"")||!Array.isArray(geometry.coordinates))return "Boundary must be a GeoJSON Polygon or MultiPolygon.";
+   const geometryError=validateTerritoryGeometry(geometry as TerritoryGeometry);
+   if(geometryError)return geometryError;
   }catch{return "Boundary must contain valid GeoJSON.";}
  }
  return null;
 }
+import {validateTerritoryGeometry,type TerritoryGeometry} from "./territoryMap.ts";
