@@ -253,11 +253,17 @@ export async function updateTeamMemberRole(businessSlug: string, formData: FormD
 }
 
 export async function inviteTeamMember(businessSlug: string, formData: FormData) {
+  const result=await createAndDeliverEmployeeInvitation(businessSlug,value(formData,"email"),value(formData,"role"));
+  if(result.error)redirect(`/app/${businessSlug}?teamError=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/app/${businessSlug}`);
+  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(result.outcome!))}&inviteLink=${encodeURIComponent(result.invitationLink!)}`);
+}
+
+export async function createAndDeliverEmployeeInvitation(businessSlug:string,emailInput:string,roleInput:string) {
   const { supabase, user, business } = await invitationContext(businessSlug);
-  const email = value(formData, "email").toLowerCase();
-  const role = value(formData, "role");
+  const email=emailInput.trim().toLowerCase(),role=roleInput.trim();
   if (!email.includes("@") || !["admin", "manager", "staff"].includes(role)) {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Enter a valid email and role.")}`);
+    return {error:"Enter a valid email and role."};
   }
   const userId = await existingUserId(email);
   if (userId) {
@@ -266,10 +272,10 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
       .select("user_id").eq("business_id", business.id).eq("user_id", userId).maybeSingle();
     if (membershipError) {
       console.error("Invitation membership lookup failed", { code: membershipError.code, businessId: business.id });
-      redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Existing membership could not be checked.")}`);
+      return {error:"Existing membership could not be checked."};
     }
     if (existingMembership) {
-      redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("That user is already a member of this business.")}`);
+      return {error:"That user is already a member of this business."};
     }
   }
   const { data: invitation, error } = await supabase.from("business_invitations").upsert({
@@ -279,7 +285,7 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
   }, { onConflict: "business_id,email" }).select("id,token").single();
   if (error || !invitation) {
     console.error("Business invitation save failed", { code: error?.code, businessId: business.id });
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be saved.")}`);
+    return {error:"The invitation could not be saved."};
   }
   const origin = await siteOrigin();
   const next = `/invite/accept?token=${invitation.token}`;
@@ -289,8 +295,7 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
     email, businessName: business.name, redirectTo, invitationLink,
     businessId: business.id, invitationId: invitation.id, userAlreadyExists: Boolean(userId),
   });
-  revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(delivery.outcome))}&inviteLink=${encodeURIComponent(invitationLink)}`);
+  return {outcome:delivery.outcome,invitationLink};
 }
 
 export async function resendInvitation(businessSlug: string, formData: FormData) {

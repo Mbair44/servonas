@@ -16,6 +16,12 @@ test("employee profile rejects invalid identity and lifecycle values", () => {
   assert.match(validateEmployeeProfile({preferredName:"Sam",email:null,profilePhotoUrl:null,hireDate:null,terminationDate:"2026-01-01",isActive:true})!,/must be inactive/);
 });
 
+test("structured employee identity and lifecycle values are validated",()=>{
+ assert.equal(validateEmployeeProfile({preferredName:"Sam",firstName:"Sam",lastName:"Rivera",email:"sam@example.com",employeeType:"dispatcher",employmentStatus:"active",profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true}),null);
+ assert.equal(validateEmployeeProfile({preferredName:"Sam",firstName:"",lastName:"Rivera",email:null,employeeType:"dispatcher",employmentStatus:"active",profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true}),"First name is required.");
+ assert.equal(validateEmployeeProfile({preferredName:"Sam",firstName:"Sam",lastName:"Rivera",email:null,employeeType:"unknown",employmentStatus:"active",profilePhotoUrl:null,hireDate:null,terminationDate:null,isActive:true}),"Choose a valid employee type.");
+});
+
 test("employee availability accepts structured work and break intervals", () => {
   assert.equal(validateAvailabilityProfile({
     timeZone:"America/Phoenix", maximumDailyJobs:6,
