@@ -46,7 +46,7 @@ export async function setScenarioStatus(slug:string,formData:FormData){
  const id=text(formData,"scenarioId"),status=text(formData,"status");
  if(!["draft","archived"].includes(status))redirect(path(slug,"error","Invalid scenario status.",id));
  const now=new Date().toISOString(),{error}=await supabase.from("territory_scenarios").update({status,archived_at:status==="archived"?now:null,updated_at:now,updated_by:user.id})
-  .eq("business_id",business.id).eq("id",id).is("deleted_at",null);
+  .eq("business_id",business.id).eq("id",id).eq("status",status==="archived"?"draft":"archived").is("deleted_at",null);
  if(error){console.error("Territory scenario status failed",{businessId:business.id,scenarioId:id,code:error.code});redirect(path(slug,"error","The scenario status could not be changed.",id));}
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success",status==="archived"?"Scenario archived.":"Scenario restored.",id));
 }
@@ -87,4 +87,16 @@ export async function setScenarioTerritoryRemoved(slug:string,formData:FormData)
   .eq("business_id",business.id).eq("scenario_id",scenarioId).eq("id",id);
  if(error){console.error("Scenario territory coverage toggle failed",{businessId:business.id,scenarioId,scenarioTerritoryId:id,code:error.code});redirect(path(slug,"error","The scenario territory could not be changed.",scenarioId));}
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success",removed?"Territory removed from the scenario.":"Territory restored to the scenario.",scenarioId));
+}
+export async function approveScenario(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug),scenarioId=text(formData,"scenarioId");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied.",scenarioId));
+ const {error}=await supabase.rpc("approve_territory_scenario",{p_business_id:business.id,p_scenario_id:scenarioId});
+ if(error){console.error("Territory scenario approval failed",{businessId:business.id,scenarioId,code:error.code});redirect(path(slug,"error",error.message||"The scenario could not be approved.",scenarioId));}
+ revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario approved. Review once more before applying.",scenarioId));
+}
+export async function applyScenario(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug),scenarioId=text(formData,"scenarioId");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied.",scenarioId));
+ const {error}=await supabase.rpc("apply_territory_scenario",{p_business_id:business.id,p_scenario_id:scenarioId});
+ if(error){console.error("Territory scenario apply failed",{businessId:business.id,scenarioId,code:error.code});redirect(path(slug,"error",error.message||"The scenario could not be applied.",scenarioId));}
+ revalidatePath(`/app/${slug}/territories`);revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario applied atomically. Live territories are updated.",scenarioId));
 }
