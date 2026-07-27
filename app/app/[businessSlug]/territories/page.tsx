@@ -124,6 +124,7 @@ export default async function TerritoriesPage({
         : <TerritoryManager
             apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
             businessName={business.name}
+            scenarioHref={`/app/${businessSlug}/territories/scenarios`}
             territories={(territories ?? []) as TerritoryManagerRecord[]}
             employees={employees??[]}
             assignments={assignments??[]}
