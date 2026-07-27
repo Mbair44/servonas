@@ -6,6 +6,7 @@ import {validateBusinessProfile,type BusinessProfileInput} from "@/lib/onboardin
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
 import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
+import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -58,4 +59,15 @@ export async function saveBusinessHours(slug:string,_:BusinessHoursState,formDat
  const {error}=await supabase.rpc("save_onboarding_business_hours",{p_business_id:business.id,p_hours:rows});
  if(error){console.error("Onboarding business hours save failed",{businessId:business.id,code:error.code,message:error.message});return {error:"Business hours could not be saved."};}
  redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=hours`);
+}
+export type FirstServiceState={error?:string;fieldErrors?:ReturnType<typeof validateOnboardingService>;values?:Partial<OnboardingServiceInput>};
+export async function createFirstService(slug:string,_:FirstServiceState,formData:FormData):Promise<FirstServiceState>{
+ const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))return {error:"Only owners and administrators can create the first service."};
+ const values:OnboardingServiceInput={name:text(formData,"name"),description:text(formData,"description"),durationMinutes:Number(text(formData,"durationMinutes")),
+  price:text(formData,"price"),recurringAllowed:formData.get("recurringAllowed")==="on",requiredSkills:normalizeSkills(text(formData,"requiredSkills")),active:formData.get("active")==="on"};
+ const fieldErrors=validateOnboardingService(values);if(Object.keys(fieldErrors).length)return {error:"Review the highlighted service details.",fieldErrors,values};
+ const {error}=await supabase.rpc("create_onboarding_first_service",{p_business_id:business.id,p_name:values.name,p_description:values.description||null,
+  p_duration_minutes:values.durationMinutes,p_price_amount:values.price?Number(values.price):null,p_recurring_allowed:values.recurringAllowed,p_required_skills:values.requiredSkills,p_active:values.active});
+ if(error){console.error("Onboarding first service creation failed",{businessId:business.id,code:error.code,message:error.message});return {error:"The first service could not be created.",values};}
+ redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=service`);
 }
