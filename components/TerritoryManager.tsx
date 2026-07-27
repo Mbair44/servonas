@@ -31,6 +31,10 @@ type TerritoryAssignment={
   effective_from:string;effective_through:string|null;notes:string|null;
   employees:TerritoryEmployee|TerritoryEmployee[]|null;
 };
+export type TerritoryStatistics={
+ territoryId:string;customerCount:number;recurringCustomers:number;revenueCents:number;jobsPerWeek:number;
+ averageDriveSeconds:number|null;weeklyMileage:number|null;assignedTechnicians:number;growthPercent:number|null;
+};
 const relation=<T,>(value:T|T[]|null)=>Array.isArray(value)?value[0]??null:value;
 
 type MapInstance = {
@@ -104,8 +108,23 @@ function TerritoryCoverage({territoryId,employees,assignments,canEdit,assignActi
   </section>;
 }
 
+function TerritoryMetrics({statistics}:{statistics:TerritoryStatistics}){
+ const money=new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+ const duration=statistics.averageDriveSeconds==null?"No measured data":`${Math.round(statistics.averageDriveSeconds/60)} min`;
+ return <section className="territory-statistics"><div><span className="territory-field-label">Territory statistics</span><small>Measured operational data</small></div><div className="territory-stat-grid">
+  <article><strong>{statistics.customerCount}</strong><span>Customers</span></article>
+  <article><strong>{statistics.recurringCustomers}</strong><span>Recurring</span></article>
+  <article><strong>{money.format(statistics.revenueCents/100)}</strong><span>Recorded revenue</span></article>
+  <article><strong>{statistics.jobsPerWeek}</strong><span>Jobs / week</span></article>
+  <article><strong>{duration}</strong><span>Average drive</span></article>
+  <article><strong>{statistics.weeklyMileage==null?"No measured data":`${statistics.weeklyMileage} mi`}</strong><span>Weekly mileage</span></article>
+  <article><strong>{statistics.assignedTechnicians}</strong><span>Assigned technicians</span></article>
+  <article><strong>{statistics.growthPercent==null?"Not enough history":`${statistics.growthPercent>0?"+":""}${statistics.growthPercent}%`}</strong><span>4-week job growth</span></article>
+ </div><div className="territory-future-metrics"><span>Utilization · retention · fuel usage</span><strong>Awaiting authoritative data</strong><span>AI Health Score</span><strong>Coming Soon</strong></div></section>;
+}
+
 export default function TerritoryManager({
-  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
+  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, territoryStatistics, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
 }: {
   apiKey?: string;
   businessName: string;
@@ -115,6 +134,7 @@ export default function TerritoryManager({
   overlayPoints:TerritoryOverlayPoint[];
   overlayRoutes:TerritoryOverlayRoute[];
   heatPoints:TerritoryHeatPoint[];
+  territoryStatistics:TerritoryStatistics[];
   canViewPrivateHomes:boolean;
   canEdit: boolean;
   createAction: (formData: FormData) => void | Promise<void>;
@@ -141,6 +161,7 @@ export default function TerritoryManager({
   });
   const [heatLayer,setHeatLayer]=useState<TerritoryHeatLayer|null>(null);
   const selected = territories.find((item) => item.id === selectedId) ?? null;
+  const selectedStatistics=territoryStatistics.find(item=>item.territoryId===selectedId);
   const visible = useMemo(() => visibleTerritories(territories, showInactive), [territories, showInactive]);
   const selectedNeedsBoundary = selected?.territory_type === "polygon" && !selected.boundary_geojson;
 
@@ -295,7 +316,7 @@ export default function TerritoryManager({
     <div className="territory-workspace">
       <aside className="territory-list" aria-label="Territories"><header><strong>{visible.length} territories</strong><span>{visible.filter((item) => item.is_active).length} active</span></header>{visible.length ? visible.map((territory) => <button className={territory.id === selectedId ? "selected" : ""} type="button" key={territory.id} onClick={() => setSelectedId(territory.id)}><i style={{ background: territory.color }}/><span><strong>{territory.name}</strong><small>{territory.territory_type.replaceAll("_", " ")} · {territory.territory_type==="polygon"&&!territory.boundary_geojson?"Needs boundary":territory.is_active ? "Active" : "Archived"}</small></span><b>›</b></button>) : <div className="territory-empty"><strong>No territories yet</strong><p>Create your first operating area to get started.</p></div>}</aside>
       <section className="territory-map-panel"><div ref={mapElement} className="territory-map" aria-label="Interactive territory map"/>{mapLoading && <div className="territory-map-state">Loading territory map…</div>}{!apiKey && <div className="territory-map-state">Map configuration required</div>}{apiKey&&!mapLoading&&selectedNeedsBoundary&&<div className="territory-map-callout"><strong>{selected?.name} needs a boundary</strong><span>Use the boundary editor in the details panel, then save changes.</span></div>}</section>
-      <aside className="territory-inspector">{selected ? <><header><i style={{ background: selected.color }}/><div><span>{selected.is_active ? "Active territory" : "Archived territory"}</span><h2>{selected.name}</h2></div></header>{canEdit ? <form key={`${selected.id}-${selected.version}`} action={updateAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="version" value={selected.version}/><TerritoryFields territory={selected} territories={territories} apiKey={apiKey}/><button className="sv-button">Save changes</button></form> : <div className="territory-readonly"><p>{selected.description || "No description."}</p><strong>{selected.postal_codes.length} postal codes</strong><strong>{selected.neighborhoods.length} neighborhoods</strong></div>}<TerritoryCoverage territoryId={selected.id} employees={employees} assignments={assignments} canEdit={canEdit&&selected.is_active} assignAction={assignAction} endAction={endAssignmentAction}/>{canEdit && <form className="territory-archive" action={statusAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="active" value={String(!selected.is_active)}/><button type="submit">{selected.is_active ? "Archive territory" : "Restore territory"}</button><small>Archived territories remain in audit history.</small></form>}<footer>Version {selected.version} · updated {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(selected.updated_at))}</footer></> : <div className="territory-empty"><strong>Select a territory</strong><p>Details and editing controls will appear here.</p></div>}</aside>
+      <aside className="territory-inspector">{selected ? <><header><i style={{ background: selected.color }}/><div><span>{selected.is_active ? "Active territory" : "Archived territory"}</span><h2>{selected.name}</h2></div></header>{selectedStatistics&&<TerritoryMetrics statistics={selectedStatistics}/>} {canEdit ? <form key={`${selected.id}-${selected.version}`} action={updateAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="version" value={selected.version}/><TerritoryFields territory={selected} territories={territories} apiKey={apiKey}/><button className="sv-button">Save changes</button></form> : <div className="territory-readonly"><p>{selected.description || "No description."}</p><strong>{selected.postal_codes.length} postal codes</strong><strong>{selected.neighborhoods.length} neighborhoods</strong></div>}<TerritoryCoverage territoryId={selected.id} employees={employees} assignments={assignments} canEdit={canEdit&&selected.is_active} assignAction={assignAction} endAction={endAssignmentAction}/>{canEdit && <form className="territory-archive" action={statusAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="active" value={String(!selected.is_active)}/><button type="submit">{selected.is_active ? "Archive territory" : "Restore territory"}</button><small>Archived territories remain in audit history.</small></form>}<footer>Version {selected.version} · updated {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(selected.updated_at))}</footer></> : <div className="territory-empty"><strong>Select a territory</strong><p>Details and editing controls will appear here.</p></div>}</aside>
     </div>
   </div>;
 }
