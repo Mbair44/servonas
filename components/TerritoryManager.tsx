@@ -129,10 +129,11 @@ function TerritoryHistory({events,available}:{events:TerritoryHistoryEvent[];ava
 }
 
 export default function TerritoryManager({
-  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, territoryStatistics, history, historyAvailable, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
+  apiKey, businessName, scenarioHref, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, territoryStatistics, history, historyAvailable, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
 }: {
   apiKey?: string;
   businessName: string;
+  scenarioHref:string;
   territories: TerritoryManagerRecord[];
   employees:TerritoryEmployee[];
   assignments:TerritoryAssignment[];
@@ -292,7 +293,7 @@ export default function TerritoryManager({
   };
 
   return <div className="territory-manager">
-    <header className="territory-header"><div><span className="sv-kicker">Territory intelligence</span><h1>Territory manager</h1><p>Design and maintain the operating areas for {businessName}.</p></div>{canEdit && <button className="sv-button" type="button" onClick={() => setCreating((value) => !value)}>{creating ? "Close" : "New territory"}</button>}</header>
+    <header className="territory-header"><div><span className="sv-kicker">Territory intelligence</span><h1>Territory manager</h1><p>Design and maintain the operating areas for {businessName}.</p></div><nav><a className="sv-button sv-secondary" href={scenarioHref}>Scenario planner</a>{canEdit && <button className="sv-button" type="button" onClick={() => setCreating((value) => !value)}>{creating ? "Close" : "New territory"}</button>}</nav></header>
     <div className="territory-toolbar">
       <form onSubmit={(event) => { event.preventDefault(); locate(); }}><label className="sr-only" htmlFor="territory-search">Search an address</label><input id="territory-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search an address or place"/><button type="submit">Search</button></form>
       <label><input type="checkbox" checked={showBoundaries} onChange={(event) => setShowBoundaries(event.target.checked)}/> Territory boundaries</label>
