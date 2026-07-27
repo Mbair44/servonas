@@ -5,6 +5,8 @@ import {redirect} from "next/navigation";
 import {canManageBusiness} from "@/lib/access";
 import {requireWorkspace} from "@/lib/workspace";
 import {validateScenarioDetails} from "@/lib/territoryScenarios";
+import {splitTerritoryValues} from "@/lib/workforceTerritories";
+import {validateTerritoryGeometry,type TerritoryGeometry} from "@/lib/territoryMap";
 const text=(formData:FormData,key:string)=>String(formData.get(key)??"").trim();
 const path=(slug:string,kind:"success"|"error",message:string,scenarioId?:string)=>
  `/app/${slug}/territories/scenarios?${scenarioId?`scenario=${encodeURIComponent(scenarioId)}&`:""}${kind}=${encodeURIComponent(message)}`;
@@ -55,4 +57,34 @@ export async function deleteScenario(slug:string,formData:FormData){
  const {error}=await supabase.from("territory_scenarios").update({deleted_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("id",id).eq("status","archived").is("deleted_at",null);
  if(error){console.error("Territory scenario delete failed",{businessId:business.id,scenarioId:id,code:error.code});redirect(path(slug,"error","The archived scenario could not be deleted.",id));}
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario deleted."));
+}
+export async function updateScenarioTerritory(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
+ const scenarioId=text(formData,"scenarioId"),id=text(formData,"scenarioTerritoryId"),version=Number(text(formData,"version"));
+ const name=text(formData,"name"),boundary=text(formData,"boundaryGeojson");
+ let currentStrategy:Record<string,unknown>={};
+ try{currentStrategy=JSON.parse(text(formData,"strategyConfig")||"{}") as Record<string,unknown>;}catch{currentStrategy={};}
+ let geometry:TerritoryGeometry|null=null;
+ try{geometry=boundary?JSON.parse(boundary) as TerritoryGeometry:null;}catch{redirect(path(slug,"error","Boundary must contain valid GeoJSON.",scenarioId));}
+ const geometryError=validateTerritoryGeometry(geometry);
+ if(!name||name.length>150||!Number.isSafeInteger(version)||geometryError)redirect(path(slug,"error",geometryError||"Enter valid scenario territory details.",scenarioId));
+ const cities=splitTerritoryValues(text(formData,"cities"));
+ const {data,error}=await supabase.from("territory_scenario_territories").update({
+  name,postal_codes:splitTerritoryValues(text(formData,"postalCodes")),
+  neighborhoods:splitTerritoryValues(text(formData,"neighborhoods")),boundary_geojson:geometry,
+  strategy_config:{...currentStrategy,cities},change_type:"modified",version:version+1,updated_at:new Date().toISOString(),
+ }).eq("business_id",business.id).eq("scenario_id",scenarioId).eq("id",id).eq("version",version).select("id").maybeSingle();
+ if(error){console.error("Scenario territory update failed",{businessId:business.id,scenarioId,scenarioTerritoryId:id,code:error.code});redirect(path(slug,"error","The scenario territory could not be updated.",scenarioId));}
+ if(!data)redirect(path(slug,"error","This scenario territory changed in another session. Refresh and try again.",scenarioId));
+ revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario recalculated.",scenarioId));
+}
+export async function setScenarioTerritoryRemoved(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
+ const scenarioId=text(formData,"scenarioId"),id=text(formData,"scenarioTerritoryId"),removed=text(formData,"removed")==="true";
+ const {error}=await supabase.from("territory_scenario_territories").update({change_type:removed?"removed":"modified",updated_at:new Date().toISOString()})
+  .eq("business_id",business.id).eq("scenario_id",scenarioId).eq("id",id);
+ if(error){console.error("Scenario territory coverage toggle failed",{businessId:business.id,scenarioId,scenarioTerritoryId:id,code:error.code});redirect(path(slug,"error","The scenario territory could not be changed.",scenarioId));}
+ revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success",removed?"Territory removed from the scenario.":"Territory restored to the scenario.",scenarioId));
 }
