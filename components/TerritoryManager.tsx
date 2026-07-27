@@ -16,6 +16,11 @@ export type TerritoryManagerRecord = {
   color: string;
   notes: string | null;
   parent_territory_id: string | null;
+  strategy_config: {
+    cities?: string[];
+    center?: { latitude: number; longitude: number };
+    radius_meters?: number;
+  };
   version: number;
   updated_at: string;
 };
@@ -26,9 +31,11 @@ type MapInstance = {
   setZoom: (zoom: number) => void;
 };
 type PolygonInstance = { setMap: (map: MapInstance | null) => void; addListener: (event: string, listener: () => void) => void };
+type CircleInstance = PolygonInstance & { getBounds: () => { getNorthEast: () => { lat: () => number; lng: () => number }; getSouthWest: () => { lat: () => number; lng: () => number } } | null };
 type MapsApi = {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance;
   Polygon: new (options: Record<string, unknown>) => PolygonInstance;
+  Circle: new (options: Record<string, unknown>) => CircleInstance;
   LatLngBounds: new () => { extend: (point: { lat: number; lng: number }) => void; isEmpty: () => boolean };
   Geocoder: new () => { geocode: (request: { address: string }, callback: (results: Array<{ geometry: { location: { lat: () => number; lng: () => number } } }> | null, status: string) => void) => void };
 };
@@ -57,14 +64,19 @@ function loadMaps(apiKey: string): Promise<MapsApi> {
 }
 
 function TerritoryFields({ territory, territories, apiKey }: { territory?: TerritoryManagerRecord; territories: TerritoryManagerRecord[]; apiKey?: string }) {
+  const config=territory?.strategy_config??{};
   return <>
     <label>Name<input required name="name" maxLength={150} defaultValue={territory?.name ?? ""}/></label>
     <label>Color<input name="color" type="color" defaultValue={territory?.color ?? "#4F46E5"}/></label>
-    <label>Strategy<select name="territoryType" defaultValue={territory?.territory_type ?? "mixed"}><option value="mixed">Mixed</option><option value="postal_codes">ZIP / postal codes</option><option value="neighborhoods">Neighborhoods</option><option value="polygon">Polygon boundary</option></select></label>
+    <label>Strategy<select name="territoryType" defaultValue={territory?.territory_type ?? "mixed"}><option value="mixed">Mixed</option><option value="postal_codes">ZIP / postal codes</option><option value="neighborhoods">Neighborhoods</option><option value="polygon">Polygon boundary</option><option value="radius">Radius</option><option value="city_boundaries">City boundaries</option><option value="delivery_zone">Delivery zone</option><option value="service_area">Service area</option></select></label>
     <label>Parent territory<select name="parentTerritoryId" defaultValue={territory?.parent_territory_id ?? ""}><option value="">No parent</option>{territories.filter((item) => item.id !== territory?.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label className="territory-field-wide">Description<textarea name="description" maxLength={2000} rows={2} defaultValue={territory?.description ?? ""}/></label>
     <label>ZIP / postal codes<textarea name="postalCodes" rows={3} placeholder="85234, 85296" defaultValue={territory?.postal_codes.join(", ") ?? ""}/></label>
     <label>Neighborhoods<textarea name="neighborhoods" rows={3} placeholder="Downtown, Northside" defaultValue={territory?.neighborhoods.join(", ") ?? ""}/></label>
+    <label className="territory-field-wide">Cities<textarea name="cities" rows={2} placeholder="Gilbert, Chandler" defaultValue={config.cities?.join(", ")??""}/></label>
+    <label>Radius latitude<input name="radiusLatitude" type="number" min="-90" max="90" step="any" defaultValue={config.center?.latitude??""}/></label>
+    <label>Radius longitude<input name="radiusLongitude" type="number" min="-180" max="180" step="any" defaultValue={config.center?.longitude??""}/></label>
+    <label className="territory-field-wide">Radius miles<input name="radiusMiles" type="number" min=".1" max="500" step=".1" defaultValue={config.radius_meters?Number((config.radius_meters/1609.344).toFixed(2)):""}/><small>Required only for the Radius strategy. Distances are saved in meters.</small></label>
     <div className="territory-field-wide"><span className="territory-field-label">Boundary</span><TerritoryBoundaryEditor apiKey={apiKey} name="boundaryGeojson" initialGeometry={territory?.boundary_geojson ?? null}/></div>
     <label className="territory-field-wide">Internal notes<textarea name="notes" maxLength={4000} rows={2} defaultValue={territory?.notes ?? ""}/></label>
   </>;
@@ -126,6 +138,22 @@ export default function TerritoryManager({
     polygons.current = [];
     const bounds = new maps.LatLngBounds();
     if (showBoundaries) visible.forEach((territory) => {
+      if (territory.territory_type==="radius"&&territory.strategy_config.center&&territory.strategy_config.radius_meters) {
+        const circle=new maps.Circle({
+          map:map.current,center:{lat:territory.strategy_config.center.latitude,lng:territory.strategy_config.center.longitude},
+          radius:territory.strategy_config.radius_meters,strokeColor:territory.color,
+          strokeOpacity:territory.is_active ? .95 : .45,strokeWeight:territory.id===selectedId?4:2,
+          fillColor:territory.color,fillOpacity:territory.id===selectedId ? .28 : .14,clickable:true,
+        });
+        circle.addListener("click",()=>setSelectedId(territory.id));
+        const circleBounds=circle.getBounds();
+        if(circleBounds){
+          const northEast=circleBounds.getNorthEast(),southWest=circleBounds.getSouthWest();
+          bounds.extend({lat:northEast.lat(),lng:northEast.lng()});
+          bounds.extend({lat:southWest.lat(),lng:southWest.lng()});
+        }
+        polygons.current.push(circle);
+      }
       if (!territory.boundary_geojson) return;
       territoryMapPolygons(territory.boundary_geojson).forEach((paths) => {
         paths.flat().forEach((point) => bounds.extend(point));

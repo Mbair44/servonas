@@ -14,7 +14,7 @@ export default async function TerritoriesPage({
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
   const { data: territories, error } = await supabase.from("workforce_territories")
-    .select("id,name,description,territory_type,postal_codes,neighborhoods,boundary_geojson,is_active,color,notes,parent_territory_id,version,updated_at")
+    .select("id,name,description,territory_type,postal_codes,neighborhoods,boundary_geojson,is_active,color,notes,parent_territory_id,strategy_config,version,updated_at")
     .eq("business_id", business.id).order("is_active", { ascending: false }).order("name");
   if (error) {
     console.error("Territory manager load failed", { businessId: business.id, code: error.code });
