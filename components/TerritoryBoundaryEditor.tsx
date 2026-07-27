@@ -13,41 +13,38 @@ type Path = {
 type Polygon = {
   setMap: (map: Map | null) => void;
   setEditable: (editable: boolean) => void;
+  setPath: (path: Array<{ lat: number; lng: number }>) => void;
   getPath: () => Path;
   addListener: (event: string, callback: (event?: { vertex?: number }) => void) => void;
 };
-type Map = { fitBounds: (bounds: unknown, padding?: number) => void };
-type DrawingManager = {
-  setMap: (map: Map | null) => void;
-  setDrawingMode: (mode: string | null) => void;
-  addListener: (event: string, callback: (event: { overlay: Polygon; type: string }) => void) => void;
+type Map = {
+  fitBounds: (bounds: unknown, padding?: number) => void;
+  addListener: (event: string, callback: (event: { latLng?: Point }) => void) => void;
+  setOptions: (options: Record<string, unknown>) => void;
 };
 type Maps = {
-  importLibrary?: (library: string) => Promise<unknown>;
   Map: new (node: HTMLElement, options: Record<string, unknown>) => Map;
   Polygon: new (options: Record<string, unknown>) => Polygon;
   LatLngBounds: new () => { extend: (point: { lat: number; lng: number }) => void; isEmpty: () => boolean };
-  drawing?: {
-    DrawingManager: new (options: Record<string, unknown>) => DrawingManager;
-    OverlayType: { POLYGON: string };
-  };
 };
 const mapsApi = () => (window as unknown as { google?: { maps?: Maps } }).google?.maps;
 
-async function drawingMaps(apiKey: string) {
+async function loadMaps(apiKey: string) {
   const current = mapsApi();
-  if (current) {
-    if (!current.drawing && current.importLibrary) await current.importLibrary("drawing");
-    if (!current.drawing) throw new Error("Google Maps drawing tools are unavailable.");
-    return current;
-  }
+  if (current) return current;
   return new Promise<Maps>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src^="https://maps.googleapis.com/maps/api/js"]');
+    if (existing) {
+      existing.addEventListener("load", () => mapsApi() ? resolve(mapsApi()!) : reject(new Error("Google Maps did not initialize.")), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Google Maps could not load.")), { once: true });
+      return;
+    }
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=drawing`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}`;
     script.async = true;
     script.defer = true;
-    script.addEventListener("load", () => mapsApi()?.drawing ? resolve(mapsApi()!) : reject(new Error("Google Maps drawing tools did not initialize.")), { once: true });
-    script.addEventListener("error", () => reject(new Error("Google Maps drawing tools could not load.")), { once: true });
+    script.addEventListener("load", () => mapsApi() ? resolve(mapsApi()!) : reject(new Error("Google Maps did not initialize.")), { once: true });
+    script.addEventListener("error", () => reject(new Error("Google Maps could not load.")), { once: true });
     document.head.appendChild(script);
   });
 }
@@ -82,8 +79,10 @@ export default function TerritoryBoundaryEditor({
 }) {
   const node = useRef<HTMLDivElement>(null);
   const map = useRef<Map | null>(null);
-  const drawing = useRef<DrawingManager | null>(null);
   const overlays = useRef<Polygon[]>([]);
+  const drawingActive = useRef(false);
+  const drawingPoints = useRef<Array<{ lat: number; lng: number }>>([]);
+  const drawingPreview = useRef<Polygon | null>(null);
   const wireOverlayRef = useRef<(overlay: Polygon, index: number) => void>(() => {});
   const selectedIndex = useRef<number | null>(null);
   const history = useRef<(TerritoryGeometry | null)[]>([initialGeometry]);
@@ -93,6 +92,7 @@ export default function TerritoryBoundaryEditor({
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [hint, setHint] = useState("Draw a polygon or click a boundary to edit its vertices.");
+  const [isDrawing, setIsDrawing] = useState(false);
 
   const capture = (next: TerritoryGeometry | null) => {
     const validation = validateTerritoryGeometry(next);
@@ -112,26 +112,24 @@ export default function TerritoryBoundaryEditor({
       return;
     }
     let cancelled = false;
-    drawingMaps(apiKey).then((maps) => {
-      if (cancelled || !node.current || !maps.drawing) return;
+    loadMaps(apiKey).then((maps) => {
+      if (cancelled || !node.current) return;
       map.current = new maps.Map(node.current, {
         center: { lat: 33.4484, lng: -112.074 }, zoom: 9, streetViewControl: false,
         mapTypeControl: false, fullscreenControl: true, gestureHandling: "greedy",
       });
-      drawing.current = new maps.drawing.DrawingManager({
-        drawingControl: false,
-        drawingMode: null,
-        polygonOptions: { fillColor: "#4F46E5", fillOpacity: .2, strokeColor: "#4F46E5", strokeWeight: 3, editable: true },
-      });
-      drawing.current.setMap(map.current);
-      drawing.current.addListener("overlaycomplete", ({ overlay, type }) => {
-        if (type !== maps.drawing!.OverlayType.POLYGON) return;
-        overlays.current.push(overlay);
-        selectedIndex.current = overlays.current.length - 1;
-        drawing.current?.setDrawingMode(null);
-        setHint("Polygon added. Drag solid vertices to move them; drag midpoint handles to add vertices.");
-        wireOverlayRef.current(overlay, overlays.current.length - 1);
-        readOverlays();
+      map.current.addListener("click", (event) => {
+        if (!drawingActive.current || !event.latLng) return;
+        drawingPoints.current.push({ lat: event.latLng.lat(), lng: event.latLng.lng() });
+        if (!drawingPreview.current) {
+          drawingPreview.current = new maps.Polygon({
+            paths: drawingPoints.current, map: map.current, clickable: false,
+            fillColor: "#4F46E5", fillOpacity: .15, strokeColor: "#4F46E5", strokeWeight: 3,
+          });
+        } else {
+          drawingPreview.current.setPath(drawingPoints.current);
+        }
+        setHint(`${drawingPoints.current.length} vertices placed. Add at least three, then choose Finish polygon.`);
       });
 
       const wirePath = (path: Path) => {
@@ -170,7 +168,7 @@ export default function TerritoryBoundaryEditor({
     }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Boundary editor could not load."));
     return () => {
       cancelled = true;
-      drawing.current?.setMap(null);
+      drawingPreview.current?.setMap(null);
       overlays.current.forEach((overlay) => overlay.setMap(null));
       overlays.current = [];
     };
@@ -218,7 +216,7 @@ export default function TerritoryBoundaryEditor({
     selectedIndex.current = null;
   };
   const startSplit = () => {
-    drawing.current?.setDrawingMode(mapsApi()?.drawing?.OverlayType.POLYGON ?? "polygon");
+    startDrawing();
     setHint("Split mode: draw a replacement part, then select and remove the original shape when both replacement parts are ready.");
   };
   const mergeShapes = () => {
@@ -239,11 +237,54 @@ export default function TerritoryBoundaryEditor({
       return overlay;
     });
   };
+  const startDrawing = () => {
+    if (!map.current || drawingActive.current) return;
+    drawingActive.current = true;
+    drawingPoints.current = [];
+    setIsDrawing(true);
+    map.current.setOptions({ draggableCursor: "crosshair", disableDoubleClickZoom: true });
+    setHint("Click the map to place polygon vertices. Add at least three, then choose Finish polygon.");
+  };
+  const cancelDrawing = () => {
+    drawingActive.current = false;
+    drawingPoints.current = [];
+    drawingPreview.current?.setMap(null);
+    drawingPreview.current = null;
+    setIsDrawing(false);
+    map.current?.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+    setHint("Drawing cancelled.");
+  };
+  const finishDrawing = () => {
+    const maps = mapsApi();
+    if (!maps || !map.current || drawingPoints.current.length < 3) {
+      setError("Add at least three vertices before finishing the polygon.");
+      return;
+    }
+    const overlay = new maps.Polygon({
+      paths: drawingPoints.current, map: map.current, fillColor: "#4F46E5", fillOpacity: .2,
+      strokeColor: "#4F46E5", strokeWeight: 3, editable: true,
+    });
+    overlays.current.push(overlay);
+    selectedIndex.current = overlays.current.length - 1;
+    wireOverlayRef.current(overlay, overlays.current.length - 1);
+    drawingPreview.current?.setMap(null);
+    drawingPreview.current = null;
+    drawingActive.current = false;
+    drawingPoints.current = [];
+    setIsDrawing(false);
+    map.current.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+    setError("");
+    setHint("Polygon added. Drag vertices or midpoint handles to refine its boundary.");
+    readOverlays();
+  };
 
   return <div className="territory-boundary-editor">
     <input type="hidden" name={name} value={geometry ? JSON.stringify(geometry) : ""}/>
     <div className="boundary-editor-toolbar">
-      <button type="button" onClick={() => drawing.current?.setDrawingMode(mapsApi()?.drawing?.OverlayType.POLYGON ?? "polygon")}>Draw polygon</button>
+      {!isDrawing ? <button type="button" onClick={startDrawing}>Draw polygon</button> : <>
+        <button type="button" onClick={finishDrawing}>Finish polygon</button>
+        <button type="button" onClick={cancelDrawing}>Cancel drawing</button>
+      </>}
       <button type="button" onClick={() => restore(historyIndex.current - 1)} disabled={historyIndex.current === 0}>Undo</button>
       <button type="button" onClick={() => restore(historyIndex.current + 1)} disabled={historyIndex.current >= history.current.length - 1}>Redo</button>
       <button type="button" onClick={duplicate}>Duplicate shape</button>
