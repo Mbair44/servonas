@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { territoryMapPolygons, visibleTerritories, type TerritoryGeometry } from "@/lib/territoryMap";
 import TerritoryBoundaryEditor from "@/components/TerritoryBoundaryEditor";
+import {decodeEncodedPolyline,type TerritoryOverlayLayer,type TerritoryOverlayPoint,type TerritoryOverlayRoute} from "@/lib/territoryOverlays";
 
 export type TerritoryManagerRecord = {
   id: string;
@@ -39,10 +40,13 @@ type MapInstance = {
 };
 type PolygonInstance = { setMap: (map: MapInstance | null) => void; addListener: (event: string, listener: () => void) => void };
 type CircleInstance = PolygonInstance & { getBounds: () => { getNorthEast: () => { lat: () => number; lng: () => number }; getSouthWest: () => { lat: () => number; lng: () => number } } | null };
+type MapOverlayInstance={setMap:(map:MapInstance|null)=>void};
 type MapsApi = {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => MapInstance;
   Polygon: new (options: Record<string, unknown>) => PolygonInstance;
   Circle: new (options: Record<string, unknown>) => CircleInstance;
+  Marker:new(options:Record<string,unknown>)=>MapOverlayInstance;
+  Polyline:new(options:Record<string,unknown>)=>MapOverlayInstance;
   LatLngBounds: new () => { extend: (point: { lat: number; lng: number }) => void; isEmpty: () => boolean };
   Geocoder: new () => { geocode: (request: { address: string }, callback: (results: Array<{ geometry: { location: { lat: () => number; lng: () => number } } }> | null, status: string) => void) => void };
 };
@@ -101,13 +105,16 @@ function TerritoryCoverage({territoryId,employees,assignments,canEdit,assignActi
 }
 
 export default function TerritoryManager({
-  apiKey, businessName, territories, employees, assignments, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
+  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
 }: {
   apiKey?: string;
   businessName: string;
   territories: TerritoryManagerRecord[];
   employees:TerritoryEmployee[];
   assignments:TerritoryAssignment[];
+  overlayPoints:TerritoryOverlayPoint[];
+  overlayRoutes:TerritoryOverlayRoute[];
+  canViewPrivateHomes:boolean;
   canEdit: boolean;
   createAction: (formData: FormData) => void | Promise<void>;
   updateAction: (formData: FormData) => void | Promise<void>;
@@ -118,6 +125,7 @@ export default function TerritoryManager({
   const mapElement = useRef<HTMLDivElement>(null);
   const map = useRef<MapInstance | null>(null);
   const polygons = useRef<PolygonInstance[]>([]);
+  const operationOverlays=useRef<MapOverlayInstance[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(territories.find((item) => item.is_active)?.id ?? territories[0]?.id ?? null);
   const [showInactive, setShowInactive] = useState(false);
   const [showBoundaries, setShowBoundaries] = useState(true);
@@ -125,6 +133,10 @@ export default function TerritoryManager({
   const [mapError, setMapError] = useState("");
   const [mapLoading, setMapLoading] = useState(Boolean(apiKey));
   const [creating, setCreating] = useState(false);
+  const [layers,setLayers]=useState<Record<TerritoryOverlayLayer,boolean>>({
+    customers:true,prospects:true,active_jobs:true,scheduled_appointments:true,recurring_customers:false,
+    technician_homes:false,offices:true,current_routes:true,vehicles:false,
+  });
   const selected = territories.find((item) => item.id === selectedId) ?? null;
   const visible = useMemo(() => visibleTerritories(territories, showInactive), [territories, showInactive]);
   const selectedNeedsBoundary = selected?.territory_type === "polygon" && !selected.boundary_geojson;
@@ -197,6 +209,26 @@ export default function TerritoryManager({
     if (!bounds.isEmpty()) map.current.fitBounds(bounds, 70);
   }, [visible, showBoundaries, selectedId, mapLoading]);
 
+  useEffect(()=>{
+    const maps=browserMaps();if(!maps||!map.current)return;
+    operationOverlays.current.forEach(item=>item.setMap(null));operationOverlays.current=[];
+    const colors:Record<string,string>={customers:"#2563eb",prospects:"#f59e0b",active_jobs:"#dc2626",scheduled_appointments:"#7c3aed",recurring_customers:"#059669",technician_homes:"#334155",offices:"#0f172a",vehicles:"#64748b"};
+    for(const point of overlayPoints){
+      if(!layers[point.layer])continue;
+      operationOverlays.current.push(new maps.Marker({
+        map:map.current,position:{lat:point.latitude,lng:point.longitude},title:`${point.label}${point.detail?` — ${point.detail}`:""}`,
+        icon:{path:0,scale:7,fillColor:colors[point.layer],fillOpacity:.95,strokeColor:"#ffffff",strokeWeight:2},
+      }));
+    }
+    if(layers.current_routes)for(const route of overlayRoutes){
+      const path=decodeEncodedPolyline(route.encodedPolyline);if(path.length<2)continue;
+      operationOverlays.current.push(new maps.Polyline({map:map.current,path,strokeColor:"#0f766e",strokeOpacity:.8,strokeWeight:4,zIndex:2}));
+    }
+    return()=>{operationOverlays.current.forEach(item=>item.setMap(null));operationOverlays.current=[];};
+  },[overlayPoints,overlayRoutes,layers,mapLoading]);
+
+  const toggleLayer=(layer:TerritoryOverlayLayer)=>setLayers(value=>({...value,[layer]:!value[layer]}));
+
   const locate = () => {
     const maps = browserMaps();
     if (!maps || !map.current || !search.trim()) return;
@@ -216,6 +248,16 @@ export default function TerritoryManager({
       <label><input type="checkbox" checked={showBoundaries} onChange={(event) => setShowBoundaries(event.target.checked)}/> Territory boundaries</label>
       <label><input type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)}/> Archived territories</label>
     </div>
+    <section className="territory-layers" aria-label="Map layers">
+      <strong>Operations</strong>
+      {([
+        ["customers","Customers"],["prospects","Prospects"],["active_jobs","Active jobs"],["scheduled_appointments","Scheduled"],
+        ["recurring_customers","Recurring"],["technician_homes","Technician homes"],["offices","Offices"],["current_routes","Current routes"],["vehicles","Vehicles"],
+      ] as [TerritoryOverlayLayer,string][]).map(([layer,label])=><label key={layer} title={layer==="vehicles"?"Vehicle location tracking is future ready.":undefined}>
+        <input type="checkbox" checked={layers[layer]} disabled={(layer==="technician_homes"&&!canViewPrivateHomes)||layer==="vehicles"} onChange={()=>toggleLayer(layer)}/>{label}
+        <span>{layer==="current_routes"?overlayRoutes.length:overlayPoints.filter(item=>item.layer===layer).length}</span>
+      </label>)}
+    </section>
     {mapError && <div className="workspace-notice error">{mapError}</div>}
     {creating && canEdit && <section className="territory-create-panel"><div><h2>Create territory</h2><p>Start simply with a name, then draw a boundary or add ZIP codes when ready.</p></div><form action={createAction}><TerritoryFields territories={territories} apiKey={apiKey}/><button className="sv-button">Create territory</button></form></section>}
     <div className="territory-workspace">
