@@ -31,6 +31,13 @@ function signupErrorMessage(message: string) {
   if (normalized.includes("invalid email")) {
     return "Enter a valid email address.";
   }
+  if (
+    normalized.includes("error sending confirmation") ||
+    normalized.includes("smtp") ||
+    normalized.includes("email provider")
+  ) {
+    return "Your account was created, but the verification email could not be sent. Use the resend option or contact support.";
+  }
 
   return "We couldn’t create your account. Please try again.";
 }
@@ -68,12 +75,66 @@ export async function signUp(formData: FormData) {
   });
 
   if (error) {
-    console.error("Signup failed", { code: error.code, status: error.status });
+    console.error("Signup failed", {
+      provider: "supabase_auth",
+      operation: "signup_confirmation",
+      code: error.code,
+      status: error.status,
+      message: error.message,
+      name: error.name,
+      redirectTo: `${origin}/auth/callback`,
+    });
     redirectWithError(signupPath, signupErrorMessage(error.message));
   }
 
+  console.info("Signup accepted by Supabase Auth", {
+    provider: "supabase_auth",
+    operation: "signup_confirmation",
+    userId: data.user?.id ?? null,
+    confirmationSentAt: data.user?.confirmation_sent_at ?? null,
+    hasSession: Boolean(data.session),
+    identityCount: data.user?.identities?.length ?? null,
+    redirectTo: `${origin}/auth/callback`,
+  });
   if (data.session) redirect(safeNext);
   redirect(`/auth/confirm?email=${encodeURIComponent(email)}`);
+}
+
+export async function resendSignupVerification(formData: FormData) {
+  const email = value(formData, "email");
+  if (!email) redirectWithError("/auth/confirm", "Enter the email address used to sign up.");
+  const origin =
+    (await headers()).get("origin") ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    "http://localhost:3000";
+  const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/onboarding")}`;
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: redirectTo },
+  });
+  if (error) {
+    console.error("Signup verification resend failed", {
+      provider: "supabase_auth",
+      operation: "resend_signup_confirmation",
+      code: error.code,
+      status: error.status,
+      message: error.message,
+      name: error.name,
+      redirectTo: `${origin}/auth/callback`,
+    });
+    redirectWithError(
+      `/auth/confirm?email=${encodeURIComponent(email)}`,
+      signupErrorMessage(error.message),
+    );
+  }
+  console.info("Signup verification resend accepted by Supabase Auth", {
+    provider: "supabase_auth",
+    operation: "resend_signup_confirmation",
+    redirectTo: `${origin}/auth/callback`,
+  });
+  redirect(`/auth/confirm?email=${encodeURIComponent(email)}&sent=1`);
 }
 
 export async function signIn(formData: FormData) {
