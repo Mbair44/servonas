@@ -1,11 +1,18 @@
 begin;
 
+-- A manually interrupted prior attempt can leave these triggers behind in
+-- environments that execute pasted statements independently. Remove them
+-- before altering the tables so the migration is safe to restart.
+drop trigger if exists job_notes_link_employee on public.job_notes;
+drop trigger if exists job_timeline_link_employee on public.job_timeline_events;
+
 -- Ordinary employees need read access to their own identity so technician
 -- screens can resolve the same preferred-name foreign record as office screens.
+drop policy if exists "employees read own employee identity" on public.employees;
 create policy "employees read own employee identity" on public.employees
   for select to authenticated using(auth_user_id=auth.uid());
 
-create view public.technician_directory
+create or replace view public.technician_directory
 with (security_invoker=true) as
 select
   profile.id,
@@ -47,6 +54,7 @@ begin
     and display_name is distinct from new.preferred_name;
   return new;
 end $$;
+drop trigger if exists employees_sync_technician_legacy_name on public.employees;
 create trigger employees_sync_technician_legacy_name
 after update of preferred_name on public.employees
 for each row execute function public.sync_employee_preferred_name();
@@ -56,22 +64,26 @@ revoke all on function public.sync_employee_preferred_name() from public;
 -- integrity. It still prevents new active technician records from being
 -- created without their employee foreign record.
 alter table public.technician_profiles
+  drop constraint if exists technician_profiles_employee_required_check;
+alter table public.technician_profiles
   add constraint technician_profiles_employee_required_check
   check(not is_technician or employee_id is not null) not valid;
 
-alter table public.job_notes add column author_employee_id uuid;
+alter table public.job_notes add column if not exists author_employee_id uuid;
+alter table public.job_notes drop constraint if exists job_notes_author_employee_fk;
 alter table public.job_notes add constraint job_notes_author_employee_fk
   foreign key(business_id,author_employee_id)
   references public.employees(business_id,id) on delete restrict;
-create index job_notes_author_employee_idx
+create index if not exists job_notes_author_employee_idx
   on public.job_notes(business_id,author_employee_id)
   where author_employee_id is not null;
 
-alter table public.job_timeline_events add column actor_employee_id uuid;
+alter table public.job_timeline_events add column if not exists actor_employee_id uuid;
+alter table public.job_timeline_events drop constraint if exists job_timeline_actor_employee_fk;
 alter table public.job_timeline_events add constraint job_timeline_actor_employee_fk
   foreign key(business_id,actor_employee_id)
   references public.employees(business_id,id) on delete restrict;
-create index job_timeline_actor_employee_idx
+create index if not exists job_timeline_actor_employee_idx
   on public.job_timeline_events(business_id,actor_employee_id)
   where actor_employee_id is not null;
 
@@ -101,9 +113,11 @@ begin
   end if;
   return new;
 end $$;
+drop trigger if exists job_notes_link_employee on public.job_notes;
 create trigger job_notes_link_employee
 before insert or update of author_id,business_id on public.job_notes
 for each row execute function public.link_job_event_employee();
+drop trigger if exists job_timeline_link_employee on public.job_timeline_events;
 create trigger job_timeline_link_employee
 before insert or update of actor_id,business_id on public.job_timeline_events
 for each row execute function public.link_job_event_employee();
