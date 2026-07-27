@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { territoryMapPolygons, visibleTerritories, type TerritoryGeometry } from "@/lib/territoryMap";
+import TerritoryBoundaryEditor from "@/components/TerritoryBoundaryEditor";
 
 export type TerritoryManagerRecord = {
   id: string;
@@ -55,7 +56,7 @@ function loadMaps(apiKey: string): Promise<MapsApi> {
   });
 }
 
-function TerritoryFields({ territory, territories }: { territory?: TerritoryManagerRecord; territories: TerritoryManagerRecord[] }) {
+function TerritoryFields({ territory, territories, apiKey }: { territory?: TerritoryManagerRecord; territories: TerritoryManagerRecord[]; apiKey?: string }) {
   return <>
     <label>Name<input required name="name" maxLength={150} defaultValue={territory?.name ?? ""}/></label>
     <label>Color<input name="color" type="color" defaultValue={territory?.color ?? "#4F46E5"}/></label>
@@ -64,7 +65,7 @@ function TerritoryFields({ territory, territories }: { territory?: TerritoryMana
     <label className="territory-field-wide">Description<textarea name="description" maxLength={2000} rows={2} defaultValue={territory?.description ?? ""}/></label>
     <label>ZIP / postal codes<textarea name="postalCodes" rows={3} placeholder="85234, 85296" defaultValue={territory?.postal_codes.join(", ") ?? ""}/></label>
     <label>Neighborhoods<textarea name="neighborhoods" rows={3} placeholder="Downtown, Northside" defaultValue={territory?.neighborhoods.join(", ") ?? ""}/></label>
-    <label className="territory-field-wide">Boundary GeoJSON<textarea name="boundaryGeojson" rows={5} spellCheck={false} placeholder='{"type":"Polygon","coordinates":[...]}' defaultValue={territory?.boundary_geojson ? JSON.stringify(territory.boundary_geojson) : ""}/><small>Checkpoint 3 will add visual polygon drawing. Existing GeoJSON is rendered now.</small></label>
+    <div className="territory-field-wide"><span className="territory-field-label">Boundary</span><TerritoryBoundaryEditor apiKey={apiKey} name="boundaryGeojson" initialGeometry={territory?.boundary_geojson ?? null}/></div>
     <label className="territory-field-wide">Internal notes<textarea name="notes" maxLength={4000} rows={2} defaultValue={territory?.notes ?? ""}/></label>
   </>;
 }
@@ -165,11 +166,11 @@ export default function TerritoryManager({
       <label><input type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)}/> Archived territories</label>
     </div>
     {mapError && <div className="workspace-notice error">{mapError}</div>}
-    {creating && canEdit && <section className="territory-create-panel"><div><h2>Create territory</h2><p>Start simply with a name, then add ZIP codes or GeoJSON when ready.</p></div><form action={createAction}><TerritoryFields territories={territories}/><button className="sv-button">Create territory</button></form></section>}
+    {creating && canEdit && <section className="territory-create-panel"><div><h2>Create territory</h2><p>Start simply with a name, then draw a boundary or add ZIP codes when ready.</p></div><form action={createAction}><TerritoryFields territories={territories} apiKey={apiKey}/><button className="sv-button">Create territory</button></form></section>}
     <div className="territory-workspace">
       <aside className="territory-list" aria-label="Territories"><header><strong>{visible.length} territories</strong><span>{visible.filter((item) => item.is_active).length} active</span></header>{visible.length ? visible.map((territory) => <button className={territory.id === selectedId ? "selected" : ""} type="button" key={territory.id} onClick={() => setSelectedId(territory.id)}><i style={{ background: territory.color }}/><span><strong>{territory.name}</strong><small>{territory.territory_type.replaceAll("_", " ")} · {territory.is_active ? "Active" : "Archived"}</small></span><b>›</b></button>) : <div className="territory-empty"><strong>No territories yet</strong><p>Create your first operating area to get started.</p></div>}</aside>
       <section className="territory-map-panel"><div ref={mapElement} className="territory-map" aria-label="Interactive territory map"/>{mapLoading && <div className="territory-map-state">Loading territory map…</div>}{!apiKey && <div className="territory-map-state">Map configuration required</div>}</section>
-      <aside className="territory-inspector">{selected ? <><header><i style={{ background: selected.color }}/><div><span>{selected.is_active ? "Active territory" : "Archived territory"}</span><h2>{selected.name}</h2></div></header>{canEdit ? <form key={`${selected.id}-${selected.version}`} action={updateAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="version" value={selected.version}/><TerritoryFields territory={selected} territories={territories}/><button className="sv-button">Save changes</button></form> : <div className="territory-readonly"><p>{selected.description || "No description."}</p><strong>{selected.postal_codes.length} postal codes</strong><strong>{selected.neighborhoods.length} neighborhoods</strong></div>}{canEdit && <form className="territory-archive" action={statusAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="active" value={String(!selected.is_active)}/><button type="submit">{selected.is_active ? "Archive territory" : "Restore territory"}</button><small>Archived territories remain in audit history.</small></form>}<footer>Version {selected.version} · updated {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(selected.updated_at))}</footer></> : <div className="territory-empty"><strong>Select a territory</strong><p>Details and editing controls will appear here.</p></div>}</aside>
+      <aside className="territory-inspector">{selected ? <><header><i style={{ background: selected.color }}/><div><span>{selected.is_active ? "Active territory" : "Archived territory"}</span><h2>{selected.name}</h2></div></header>{canEdit ? <form key={`${selected.id}-${selected.version}`} action={updateAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="version" value={selected.version}/><TerritoryFields territory={selected} territories={territories} apiKey={apiKey}/><button className="sv-button">Save changes</button></form> : <div className="territory-readonly"><p>{selected.description || "No description."}</p><strong>{selected.postal_codes.length} postal codes</strong><strong>{selected.neighborhoods.length} neighborhoods</strong></div>}{canEdit && <form className="territory-archive" action={statusAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="active" value={String(!selected.is_active)}/><button type="submit">{selected.is_active ? "Archive territory" : "Restore territory"}</button><small>Archived territories remain in audit history.</small></form>}<footer>Version {selected.version} · updated {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(selected.updated_at))}</footer></> : <div className="territory-empty"><strong>Select a territory</strong><p>Details and editing controls will appear here.</p></div>}</aside>
     </div>
   </div>;
 }
