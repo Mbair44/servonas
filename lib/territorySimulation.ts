@@ -8,6 +8,10 @@ export type TerritorySimulation={
  jobsPerWeek:number;weeklyDriveMeters:number;weeklyDriveSeconds:number;routeDensity:number|null;
  technicianUtilization:null;estimatedFuelUsage:null;estimatedLaborSavings:null;
 };
+export type SimulationComparisonMetric={
+ key:string;label:string;current:number|null;proposed:number|null;difference:number|null;
+ unit:"count"|"currency"|"miles"|"minutes"|"decimal";lowerIsBetter?:boolean;
+};
 const memberships=(territories:TerritoryStatisticDefinition[],location:SimulationLocation)=>
  territories.filter(territory=>territoryContainsLocation(territory,location)).map(territory=>territory.id).sort();
 export function simulateTerritories(live:TerritoryStatisticDefinition[],proposed:TerritoryStatisticDefinition[],locations:SimulationLocation[]):TerritorySimulation{
@@ -24,4 +28,20 @@ export function simulateTerritories(live:TerritoryStatisticDefinition[],proposed
   routeDensity:proposed.length?Number((covered.reduce((sum,item)=>sum+item.jobsPerWeek,0)/proposed.length).toFixed(1)):null,
   technicianUtilization:null,estimatedFuelUsage:null,estimatedLaborSavings:null,
  };
+}
+export function compareSimulations(current:TerritorySimulation,proposed:TerritorySimulation):SimulationComparisonMetric[]{
+ const metric=(key:string,label:string,currentValue:number|null,proposedValue:number|null,unit:SimulationComparisonMetric["unit"],lowerIsBetter=false):SimulationComparisonMetric=>({
+  key,label,current:currentValue,proposed:proposedValue,
+  difference:currentValue===null||proposedValue===null?null:Number((proposedValue-currentValue).toFixed(1)),unit,lowerIsBetter,
+ });
+ return [
+  metric("customers","Customers covered",current.customerCount,proposed.customerCount,"count"),
+  metric("coverage","Coverage gaps",current.coverageGaps,proposed.coverageGaps,"count",true),
+  metric("revenue","Recurring revenue",current.recurringRevenueCents/100,proposed.recurringRevenueCents/100,"currency"),
+  metric("jobs","Jobs per week",current.jobsPerWeek,proposed.jobsPerWeek,"decimal"),
+  metric("miles","Weekly drive miles",current.weeklyDriveMeters/1609.344,proposed.weeklyDriveMeters/1609.344,"miles",true),
+  metric("drive","Weekly drive time",current.weeklyDriveSeconds/60,proposed.weeklyDriveSeconds/60,"minutes",true),
+  metric("density","Jobs per territory",current.routeDensity,proposed.routeDensity,"decimal"),
+  metric("utilization","Technician utilization",current.technicianUtilization,proposed.technicianUtilization,"decimal"),
+ ];
 }
