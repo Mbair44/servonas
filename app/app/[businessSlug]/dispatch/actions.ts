@@ -247,11 +247,11 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
   const routeMetrics = async (technician: string) => {
     if (!admin) return null;
     const { data } = await admin.from("technician_routes")
-      .select("driving_distance_meters,driving_duration_seconds,technician_profiles!inner(display_name),route_plans!inner(service_date)")
+      .select("driving_distance_meters,driving_duration_seconds,technician_id,route_plans!inner(service_date)")
       .eq("business_id", business.id).eq("technician_id", technician).eq("route_plans.service_date", date).maybeSingle();
-    const profile = Array.isArray(data?.technician_profiles) ? data?.technician_profiles[0] : data?.technician_profiles;
+    const {data:profile}=data?.technician_id?await supabase.from("technician_directory").select("preferred_name").eq("business_id",business.id).eq("id",data.technician_id).maybeSingle():{data:null};
     return data ? {
-      name: profile?.display_name ?? "Technician",
+      name: profile?.preferred_name ?? "Technician",
       metrics: {
         drivingDistanceMeters: data.driving_distance_meters,
         drivingDurationSeconds: data.driving_duration_seconds,

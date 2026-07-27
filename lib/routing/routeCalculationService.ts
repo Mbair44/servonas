@@ -106,7 +106,7 @@ export async function calculateDailyRoutes({
     serviceIds.length
       ? admin.from("price_book_items").select("service_id,estimated_duration_minutes").eq("business_id", businessId).in("service_id", serviceIds).eq("is_active", true).eq("is_deleted", false).not("estimated_duration_minutes", "is", null)
       : Promise.resolve({ data: [] as Array<{ service_id: string; estimated_duration_minutes: number }> }),
-    admin.from("technician_profiles").select("id,display_name,skills,service_areas,routing_capabilities,employee_id").eq("business_id", businessId).in("id", technicianIds),
+    admin.from("technician_directory").select("id,preferred_name,skills,service_areas,routing_capabilities,employee_id").eq("business_id", businessId).in("id", technicianIds),
   ]);
   const employeeIds=[...new Set((technicianCapabilities??[]).map(item=>item.employee_id).filter((value):value is string=>Boolean(value)))];
   const {data:structuredQualifications,error:structuredQualificationError}=employeeIds.length
@@ -282,7 +282,7 @@ export async function calculateDailyRoutes({
       destination_is_private: endpoints.destination.isPrivate,
       stop_count: routable.length,
       service_duration_seconds: routable.reduce((total, item) => total + item.duration.minutes * 60, 0),
-      technician_display_name_snapshot: technicianCapability?.display_name ?? "Technician",
+      technician_display_name_snapshot: technicianCapability?.preferred_name ?? "Technician",
       provider: provider.name, calculation_status: "calculating", calculation_signature: routeSignature,
       encoded_polyline: null, driving_distance_meters: null, driving_duration_seconds: null,
       error_code: null, updated_by: actorUserId,

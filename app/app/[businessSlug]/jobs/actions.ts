@@ -289,10 +289,11 @@ export async function addJobNote(slug: string, jobId: string, formData: FormData
   if (!["internal", "customer_visible"].includes(noteType)) redirect(`/app/${slug}/jobs/${jobId}?error=Choose+a+valid+note+type`);
   const { data: job } = await supabase.from("jobs").select("id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!job) redirect(`/app/${slug}/jobs/${jobId}?error=Job+not+found`);
-  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+  const { data: employee } = await supabase.from("employees").select("id,preferred_name").eq("business_id",business.id).eq("auth_user_id",user.id).maybeSingle();
   const { error } = await supabase.from("job_notes").insert({
     business_id: business.id, job_id: jobId, body: note, note_type: noteType,
-    author_id: user.id, author_name: profile?.full_name?.trim() || "Office team",
+    author_id: user.id, author_employee_id:employee?.id??null,
+    author_name: employee?.preferred_name?.trim() || "Office team",
   });
   if (error) {
     console.error("Job note insert failed", { code: error.code, businessId: business.id, jobId });

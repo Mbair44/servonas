@@ -14,7 +14,6 @@ type JobRow = {
   customers: { first_name: string; last_name: string; company_name: string | null } | { first_name: string; last_name: string; company_name: string | null }[] | null;
   service_locations: { city: string; state: string } | { city: string; state: string }[] | null;
   services: { name: string } | { name: string }[] | null;
-  technician_profiles: { display_name: string; schedule_color: string | null } | { display_name: string; schedule_color: string | null }[] | null;
 };
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const validDate = (value: string | undefined, fallback: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
@@ -26,18 +25,18 @@ const localInput = (value: string | null, timeZone: string) => {
 };
 
 function ScheduleJobCard({ job, slug, timeZone, technicians, returnPath, compact = false, canEdit }: {
-  job: JobRow; slug: string; timeZone: string; technicians: { id: string; display_name: string }[]; returnPath: string; compact?: boolean; canEdit: boolean;
+  job: JobRow; slug: string; timeZone: string; technicians: { id: string; preferred_name: string; schedule_color:string|null }[]; returnPath: string; compact?: boolean; canEdit: boolean;
 }) {
-  const customer = relation(job.customers), service = relation(job.services), technician = relation(job.technician_profiles), location = relation(job.service_locations);
+  const customer = relation(job.customers), service = relation(job.services), technician = technicians.find(item=>item.id===job.assigned_technician_id), location = relation(job.service_locations);
   const duration = job.estimated_duration_minutes || (job.starts_at && job.ends_at ? Math.round((new Date(job.ends_at).getTime() - new Date(job.starts_at).getTime()) / 60_000) : 60);
   const time = job.starts_at ? new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(new Date(job.starts_at)) : "Unscheduled";
   return <details className={`schedule-job ${job.status} ${compact ? "compact" : ""}`} style={{ borderLeftColor: technician?.schedule_color || "#6255d9" }}>
-    <summary><span>{time}</span><strong>#{job.job_number} · {job.title}</strong><small>{customer?.company_name || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || "No customer"}</small><small>{service?.name || "Custom work"} · {technician?.display_name || "Unassigned"}</small>{!compact && <small>{location ? `${location.city}, ${location.state}` : job.service_address || "No address"} · {job.priority}</small>}</summary>
+    <summary><span>{time}</span><strong>#{job.job_number} · {job.title}</strong><small>{customer?.company_name || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || "No customer"}</small><small>{service?.name || "Custom work"} · {technician?.preferred_name || "Unassigned"}</small>{!compact && <small>{location ? `${location.city}, ${location.state}` : job.service_address || "No address"} · {job.priority}</small>}</summary>
     <div className="schedule-popover"><Link href={`/app/${slug}/jobs/${job.id}`}>Open job details</Link>{canEdit ? <form action={updateScheduledJob.bind(null, slug, job.id)}>
       <input type="hidden" name="returnPath" value={returnPath}/>
       <label>Start<input required name="startsAt" type="datetime-local" defaultValue={localInput(job.starts_at, timeZone)}/></label>
       <label>Duration<input required name="durationMinutes" type="number" min="15" step="15" defaultValue={duration}/></label>
-      <label>Technician<select name="technicianId" defaultValue={job.assigned_technician_id ?? ""}><option value="">Unassigned</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+      <label>Technician<select name="technicianId" defaultValue={job.assigned_technician_id ?? ""}><option value="">Unassigned</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.preferred_name}</option>)}</select></label>
       <button className="sv-button">Save schedule</button>
     </form> : <p>Your role has read-only schedule access.</p>}</div>
   </details>;
@@ -54,16 +53,16 @@ export default async function SchedulePage({ params, searchParams }: { params: P
   const rangeEndDate = addDays(days.at(-1) ?? selectedDate, 1);
   const rangeStart = zonedDateTimeToUtc(days[0], "00:00", business.timezone).toISOString();
   const rangeEnd = zonedDateTimeToUtc(rangeEndDate, "00:00", business.timezone).toISOString();
-  let jobsQuery = supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(city,state),services!jobs_service_tenant_fk(name),technician_profiles!jobs_technician_tenant_fk(display_name,schedule_color)")
+  let jobsQuery = supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(city,state),services!jobs_service_tenant_fk(name)")
     .eq("business_id", business.id).eq("is_deleted", false).gte("starts_at", rangeStart).lt("starts_at", rangeEnd).neq("status", "canceled");
   if (query.status && query.status !== "all") jobsQuery = jobsQuery.eq("status", query.status);
   if (query.technician === "unassigned") jobsQuery = jobsQuery.is("assigned_technician_id", null);
   else if (query.technician) jobsQuery = jobsQuery.eq("assigned_technician_id", query.technician);
   const [{ data: jobs, error }, { data: technicians }, { data: availability }, { data: unassigned }] = await Promise.all([
     jobsQuery.order("starts_at"),
-    supabase.from("technician_profiles").select("id,display_name,schedule_color").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("display_name"),
+    supabase.from("technician_directory").select("id,preferred_name,schedule_color").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("preferred_name"),
     supabase.from("booking_availability").select("start_time,end_time").eq("business_id", business.id).eq("active", true),
-    supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(city,state),services!jobs_service_tenant_fk(name),technician_profiles!jobs_technician_tenant_fk(display_name,schedule_color)")
+    supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,estimated_duration_minutes,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(city,state),services!jobs_service_tenant_fk(name)")
       .eq("business_id", business.id).eq("is_deleted", false).is("assigned_technician_id", null).not("status", "in", '("completed","canceled","declined")').order("starts_at", { ascending: true, nullsFirst: true }).limit(30),
   ]);
   if (error) {
@@ -91,7 +90,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     {!canEdit && <div className="workspace-notice">Your {role.replaceAll("_", " ")} role can view this schedule but cannot change assignments. Ask an owner or admin to grant manager access.</div>}
     <section className="workspace-panel schedule-toolbar"><div className="schedule-navigation"><Link aria-label={`Previous ${view}`} href={hrefFor(addDays(selectedDate, -navigationStep))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label={`Next ${view}`} href={hrefFor(addDays(selectedDate, navigationStep))}>›</Link></div>
-      <form><label>Date<input name="date" type="date" defaultValue={selectedDate}/></label><label>View<select name="view" defaultValue={view}><option value="day">Day</option><option value="week">Week</option></select></label><label>Technician<select name="technician" defaultValue={query.technician ?? ""}><option value="">All technicians</option><option value="unassigned">Unassigned only</option>{technicians?.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label><label>Status<select name="status" defaultValue={query.status ?? "all"}><option value="all">All active statuses</option>{jobStatuses.filter((status) => status !== "canceled").map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label><button className="sv-button">Apply</button></form>
+      <form><label>Date<input name="date" type="date" defaultValue={selectedDate}/></label><label>View<select name="view" defaultValue={view}><option value="day">Day</option><option value="week">Week</option></select></label><label>Technician<select name="technician" defaultValue={query.technician ?? ""}><option value="">All technicians</option><option value="unassigned">Unassigned only</option>{technicians?.map((item) => <option key={item.id} value={item.id}>{item.preferred_name}</option>)}</select></label><label>Status<select name="status" defaultValue={query.status ?? "all"}><option value="all">All active statuses</option>{jobStatuses.filter((status) => status !== "canceled").map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label><button className="sv-button">Apply</button></form>
     </section>
     <div className="schedule-layout"><section className="workspace-panel schedule-calendar-panel"><div className={`schedule-calendar ${view}`}>
       <div className="schedule-corner"/>{days.map((day) => <div className={`schedule-day-heading ${day === today ? "today" : ""}`} key={day}><strong>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" }).format(new Date(`${day}T12:00:00Z`))}</strong><span>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(new Date(`${day}T12:00:00Z`))}</span></div>)}
