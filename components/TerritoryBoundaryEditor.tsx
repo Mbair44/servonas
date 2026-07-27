@@ -83,6 +83,7 @@ export default function TerritoryBoundaryEditor({
   const drawingActive = useRef(false);
   const drawingPoints = useRef<Array<{ lat: number; lng: number }>>([]);
   const drawingPreview = useRef<Polygon | null>(null);
+  const geometryBeforeDrawing = useRef<TerritoryGeometry | null>(initialGeometry);
   const wireOverlayRef = useRef<(overlay: Polygon, index: number) => void>(() => {});
   const selectedIndex = useRef<number | null>(null);
   const history = useRef<(TerritoryGeometry | null)[]>([initialGeometry]);
@@ -128,6 +129,13 @@ export default function TerritoryBoundaryEditor({
           });
         } else {
           drawingPreview.current.setPath(drawingPoints.current);
+        }
+        if (drawingPoints.current.length >= 3) {
+          const coordinates=drawingPoints.current.map((point)=>[point.lng,point.lat]);
+          coordinates.push([...coordinates[0]]);
+          const draft=geometryFromParts([...geometryParts(geometryBeforeDrawing.current),[coordinates]]);
+          setGeometry(draft);
+          setError(validateTerritoryGeometry(draft)??"");
         }
         setHint(`${drawingPoints.current.length} vertices placed. Add at least three, then choose Finish polygon.`);
       });
@@ -239,6 +247,7 @@ export default function TerritoryBoundaryEditor({
   };
   const startDrawing = () => {
     if (!map.current || drawingActive.current) return;
+    geometryBeforeDrawing.current=geometry;
     drawingActive.current = true;
     drawingPoints.current = [];
     setIsDrawing(true);
@@ -250,6 +259,8 @@ export default function TerritoryBoundaryEditor({
     drawingPoints.current = [];
     drawingPreview.current?.setMap(null);
     drawingPreview.current = null;
+    setGeometry(geometryBeforeDrawing.current);
+    setError(validateTerritoryGeometry(geometryBeforeDrawing.current)??"");
     setIsDrawing(false);
     map.current?.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
     setHint("Drawing cancelled.");
@@ -294,6 +305,7 @@ export default function TerritoryBoundaryEditor({
     </div>
     <div ref={node} className="territory-boundary-map" aria-label="Visual polygon boundary editor"/>
     <p className={error ? "boundary-error" : ""} key={revision}>{error || hint}</p>
+    <div className={`boundary-save-state ${geometry&&!error?"ready":"waiting"}`}><strong>{geometry&&!error?"Boundary ready to save":"Boundary not ready"}</strong><span>{geometryParts(geometry).length} shape{geometryParts(geometry).length===1?"":"s"} serialized with the form</span></div>
     <details><summary>Split and merge guidance</summary><p>To split a territory, draw each replacement shape and remove the original. Multiple shapes are saved together as one MultiPolygon territory. To merge shapes, keep the shapes that should operate as one territory and save—the boundary is stored as a single MultiPolygon without inventing area between disconnected shapes.</p></details>
   </div>;
 }
