@@ -35,6 +35,7 @@ export type TerritoryStatistics={
  territoryId:string;customerCount:number;recurringCustomers:number;revenueCents:number;jobsPerWeek:number;
  averageDriveSeconds:number|null;weeklyMileage:number|null;assignedTechnicians:number;growthPercent:number|null;
 };
+export type TerritoryHistoryEvent={id:string;territoryId:string;eventType:string;occurredAt:string;detail:string};
 const relation=<T,>(value:T|T[]|null)=>Array.isArray(value)?value[0]??null:value;
 
 type MapInstance = {
@@ -122,9 +123,13 @@ function TerritoryMetrics({statistics}:{statistics:TerritoryStatistics}){
   <article><strong>{statistics.growthPercent==null?"Not enough history":`${statistics.growthPercent>0?"+":""}${statistics.growthPercent}%`}</strong><span>4-week job growth</span></article>
  </div><div className="territory-future-metrics"><span>Utilization · retention · fuel usage</span><strong>Awaiting authoritative data</strong><span>AI Health Score</span><strong>Coming Soon</strong></div></section>;
 }
+function TerritoryHistory({events,available}:{events:TerritoryHistoryEvent[];available:boolean}){
+ const labels:Record<string,string>={bootstrap:"History initialized",created:"Territory created",updated:"Territory updated",renamed:"Territory renamed",activated:"Territory restored",deactivated:"Territory archived",reparented:"Parent changed",boundary_created:"Boundary created",boundary_updated:"Boundary edited",split:"Boundary split",merged:"Boundaries merged",assigned:"Coverage assigned",coverage_changed:"Coverage changed",coverage_ended:"Coverage ended"};
+ return <section className="territory-history"><div><span className="territory-field-label">History</span><strong>Immutable</strong></div>{!available?<p>Apply the Epic 8.5 Checkpoint 9 migration to view assignment history.</p>:events.length?<ol>{events.slice(0,20).map(event=><li key={event.id}><i/><div><strong>{labels[event.eventType]??event.eventType.replaceAll("_"," ")}</strong><span>{event.detail}</span><time>{new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(event.occurredAt))}</time></div></li>)}</ol>:<p>No history has been recorded for this territory yet.</p>}</section>;
+}
 
 export default function TerritoryManager({
-  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, territoryStatistics, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
+  apiKey, businessName, territories, employees, assignments, overlayPoints, overlayRoutes, heatPoints, territoryStatistics, history, historyAvailable, canViewPrivateHomes, canEdit, createAction, updateAction, statusAction,assignAction,endAssignmentAction,
 }: {
   apiKey?: string;
   businessName: string;
@@ -135,6 +140,8 @@ export default function TerritoryManager({
   overlayRoutes:TerritoryOverlayRoute[];
   heatPoints:TerritoryHeatPoint[];
   territoryStatistics:TerritoryStatistics[];
+  history:TerritoryHistoryEvent[];
+  historyAvailable:boolean;
   canViewPrivateHomes:boolean;
   canEdit: boolean;
   createAction: (formData: FormData) => void | Promise<void>;
@@ -162,6 +169,7 @@ export default function TerritoryManager({
   const [heatLayer,setHeatLayer]=useState<TerritoryHeatLayer|null>(null);
   const selected = territories.find((item) => item.id === selectedId) ?? null;
   const selectedStatistics=territoryStatistics.find(item=>item.territoryId===selectedId);
+  const selectedHistory=history.filter(item=>item.territoryId===selectedId);
   const visible = useMemo(() => visibleTerritories(territories, showInactive), [territories, showInactive]);
   const selectedNeedsBoundary = selected?.territory_type === "polygon" && !selected.boundary_geojson;
 
@@ -316,7 +324,7 @@ export default function TerritoryManager({
     <div className="territory-workspace">
       <aside className="territory-list" aria-label="Territories"><header><strong>{visible.length} territories</strong><span>{visible.filter((item) => item.is_active).length} active</span></header>{visible.length ? visible.map((territory) => <button className={territory.id === selectedId ? "selected" : ""} type="button" key={territory.id} onClick={() => setSelectedId(territory.id)}><i style={{ background: territory.color }}/><span><strong>{territory.name}</strong><small>{territory.territory_type.replaceAll("_", " ")} · {territory.territory_type==="polygon"&&!territory.boundary_geojson?"Needs boundary":territory.is_active ? "Active" : "Archived"}</small></span><b>›</b></button>) : <div className="territory-empty"><strong>No territories yet</strong><p>Create your first operating area to get started.</p></div>}</aside>
       <section className="territory-map-panel"><div ref={mapElement} className="territory-map" aria-label="Interactive territory map"/>{mapLoading && <div className="territory-map-state">Loading territory map…</div>}{!apiKey && <div className="territory-map-state">Map configuration required</div>}{apiKey&&!mapLoading&&selectedNeedsBoundary&&<div className="territory-map-callout"><strong>{selected?.name} needs a boundary</strong><span>Use the boundary editor in the details panel, then save changes.</span></div>}</section>
-      <aside className="territory-inspector">{selected ? <><header><i style={{ background: selected.color }}/><div><span>{selected.is_active ? "Active territory" : "Archived territory"}</span><h2>{selected.name}</h2></div></header>{selectedStatistics&&<TerritoryMetrics statistics={selectedStatistics}/>} {canEdit ? <form key={`${selected.id}-${selected.version}`} action={updateAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="version" value={selected.version}/><TerritoryFields territory={selected} territories={territories} apiKey={apiKey}/><button className="sv-button">Save changes</button></form> : <div className="territory-readonly"><p>{selected.description || "No description."}</p><strong>{selected.postal_codes.length} postal codes</strong><strong>{selected.neighborhoods.length} neighborhoods</strong></div>}<TerritoryCoverage territoryId={selected.id} employees={employees} assignments={assignments} canEdit={canEdit&&selected.is_active} assignAction={assignAction} endAction={endAssignmentAction}/>{canEdit && <form className="territory-archive" action={statusAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="active" value={String(!selected.is_active)}/><button type="submit">{selected.is_active ? "Archive territory" : "Restore territory"}</button><small>Archived territories remain in audit history.</small></form>}<footer>Version {selected.version} · updated {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(selected.updated_at))}</footer></> : <div className="territory-empty"><strong>Select a territory</strong><p>Details and editing controls will appear here.</p></div>}</aside>
+      <aside className="territory-inspector">{selected ? <><header><i style={{ background: selected.color }}/><div><span>{selected.is_active ? "Active territory" : "Archived territory"}</span><h2>{selected.name}</h2></div></header>{selectedStatistics&&<TerritoryMetrics statistics={selectedStatistics}/>} {canEdit ? <form key={`${selected.id}-${selected.version}`} action={updateAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="version" value={selected.version}/><TerritoryFields territory={selected} territories={territories} apiKey={apiKey}/><button className="sv-button">Save changes</button></form> : <div className="territory-readonly"><p>{selected.description || "No description."}</p><strong>{selected.postal_codes.length} postal codes</strong><strong>{selected.neighborhoods.length} neighborhoods</strong></div>}<TerritoryCoverage territoryId={selected.id} employees={employees} assignments={assignments} canEdit={canEdit&&selected.is_active} assignAction={assignAction} endAction={endAssignmentAction}/><TerritoryHistory events={selectedHistory} available={historyAvailable}/>{canEdit && <form className="territory-archive" action={statusAction}><input type="hidden" name="territoryId" value={selected.id}/><input type="hidden" name="active" value={String(!selected.is_active)}/><button type="submit">{selected.is_active ? "Archive territory" : "Restore territory"}</button><small>Archived territories remain in audit history.</small></form>}<footer>Version {selected.version} · updated {new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(selected.updated_at))}</footer></> : <div className="territory-empty"><strong>Select a territory</strong><p>Details and editing controls will appear here.</p></div>}</aside>
     </div>
   </div>;
 }

@@ -1,7 +1,7 @@
 import { canManageBusiness } from "@/lib/access";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "../WorkspaceNav";
-import TerritoryManager, { type TerritoryManagerRecord, type TerritoryStatistics } from "@/components/TerritoryManager";
+import TerritoryManager, { type TerritoryHistoryEvent, type TerritoryManagerRecord, type TerritoryStatistics } from "@/components/TerritoryManager";
 import type { TerritoryHeatPoint, TerritoryOverlayPoint, TerritoryOverlayRoute } from "@/lib/territoryOverlays";
 import {territoryContainsLocation} from "@/lib/territoryStatistics";
 import { assignTerritoryEmployee, createTerritory, endTerritoryEmployeeAssignment, setTerritoryActive, updateTerritory } from "./actions";
@@ -17,7 +17,7 @@ export default async function TerritoriesPage({
   const { supabase, business, role } = await requireWorkspace(businessSlug);
   const canViewPrivateHomes=canManageBusiness(role);
   const eightWeeksAgo=new Date(Date.now()-56*86400000).toISOString();
-  const [{data:territories,error},{data:employees},{data:assignments},{data:locations},{data:jobs},{data:recurring},{data:office},{data:homes},{data:routePlan},{data:invoices},{data:metricFacts},{data:recentJobs}]=await Promise.all([
+  const [{data:territories,error},{data:employees},{data:assignments},{data:locations},{data:jobs},{data:recurring},{data:office},{data:homes},{data:routePlan},{data:invoices},{data:metricFacts},{data:recentJobs},{data:territoryHistory},{data:assignmentHistory,error:historyError}]=await Promise.all([
     supabase.from("workforce_territories")
       .select("id,name,description,territory_type,postal_codes,neighborhoods,boundary_geojson,is_active,color,notes,parent_territory_id,strategy_config,version,updated_at")
       .eq("business_id", business.id).order("is_active", { ascending: false }).order("name"),
@@ -45,6 +45,10 @@ export default async function TerritoriesPage({
       .eq("business_id",business.id).in("metric_type",["callback","drive_time_actual","drive_time_estimated"]).limit(10000),
     supabase.from("jobs").select("id,service_location_id,starts_at").eq("business_id",business.id).eq("is_deleted",false)
       .not("service_location_id","is",null).gte("starts_at",eightWeeksAgo).limit(10000),
+    supabase.from("territory_audit_events").select("id,territory_id,event_type,territory_version,occurred_at,actor_user_id")
+      .eq("business_id",business.id).order("occurred_at",{ascending:false}).limit(1000),
+    supabase.from("territory_assignment_audit_events").select("id,territory_id,employee_id,event_type,assignment_type,occurred_at,actor_user_id")
+      .eq("business_id",business.id).order("occurred_at",{ascending:false}).limit(1000),
   ]);
   const {data:routes}=routePlan?.id
     ? await supabase.from("technician_routes").select("id,encoded_polyline").eq("business_id",business.id).eq("route_plan_id",routePlan.id).eq("calculation_status","ready").not("encoded_polyline","is",null)
@@ -101,6 +105,12 @@ export default async function TerritoriesPage({
       assignedTechnicians:(assignments??[]).filter(item=>item.territory_id===territory.id).length,
       growthPercent:priorJobs?Math.round((currentJobs-priorJobs)/priorJobs*100):null};
   });
+  const employeeNames=new Map((employees??[]).map(employee=>[employee.id,employee.preferred_name]));
+  const history:TerritoryHistoryEvent[]=[
+    ...(territoryHistory??[]).map(event=>({id:event.id,territoryId:event.territory_id,eventType:event.event_type,occurredAt:event.occurred_at,detail:`Territory version ${event.territory_version}`})),
+    ...(assignmentHistory??[]).map(event=>({id:event.id,territoryId:event.territory_id,eventType:event.event_type,occurredAt:event.occurred_at,detail:`${employeeNames.get(event.employee_id)??"Employee"} · ${event.assignment_type}`})),
+  ].sort((a,b)=>b.occurredAt.localeCompare(a.occurredAt));
+  if(historyError)console.error("Territory assignment history load failed",{businessId:business.id,code:historyError.code});
   if (error) {
     console.error("Territory manager load failed", { businessId: business.id, code: error.code });
   }
@@ -121,6 +131,8 @@ export default async function TerritoriesPage({
             overlayRoutes={overlayRoutes}
             heatPoints={heatPoints}
             territoryStatistics={territoryStatistics}
+            history={history}
+            historyAvailable={!historyError}
             canViewPrivateHomes={canViewPrivateHomes}
             canEdit={canManageBusiness(role)}
             createAction={createTerritory.bind(null, businessSlug)}
