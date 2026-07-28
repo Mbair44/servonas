@@ -1,6 +1,5 @@
 {
   "crons": [
-    { "path": "/api/cron/customer-imports", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/messages", "schedule": "0 16 * * *" },
     { "path": "/api/cron/financial", "schedule": "15 16 * * *" }
   ]

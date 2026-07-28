@@ -93,8 +93,10 @@ export async function prepareCustomerImportReview(businessSlug:string,importId:s
 }
 export async function commitCustomerImport(businessSlug:string,importId:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to import customers.")}`);
- const version=Number(formData.get("version")),{error}=await supabase.from("customer_imports").update({status:"queued",current_stage:"commit",version:version+1,last_activity_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("id",importId).eq("version",version).in("status",["ready","completed_with_errors","failed"]);if(error){console.error("Customer import queue failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The import could not be queued. Refresh and try again.")}`);}
- redirect(`${target}?success=${encodeURIComponent("Customer migration queued. You can leave this page; progress and results are saved.")}`);
+ const {data,error}=await supabase.rpc("commit_customer_import",{p_import_id:importId,p_expected_version:Number(formData.get("version")),p_ready_only:true});
+ if(error){console.error("Customer import commit failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh before importing.":"The import could not be completed. Successful records will not be duplicated when you retry.")}`);}
+ const result=data as {created_customers:number;updated_customers:number;created_locations:number;failed:number};
+ redirect(`${target}?success=${encodeURIComponent(`Migration finished: ${result.created_customers} customers created, ${result.updated_customers} updated, ${result.created_locations} locations created${result.failed?`, and ${result.failed} need attention`:""}.`)}`);
 }
 export async function retryCustomerImport(businessSlug:string,importId:string,formData:FormData){return commitCustomerImport(businessSlug,importId,formData);}
 export async function rollbackCustomerImport(businessSlug:string,importId:string,formData:FormData){
