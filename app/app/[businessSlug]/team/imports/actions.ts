@@ -235,3 +235,10 @@ export async function assignEmployeeImportOperations(businessSlug:string,importI
  if(error){console.error("Employee import operational assignment failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and try again.":error.code==="P0002"?"A selected manager, territory, or qualification is no longer available.":"Operational assignments could not be saved.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
  redirect(`${target}?success=${encodeURIComponent(formData.get("defer")==="true"?"Operational assignments deferred safely.":`Operational assignments saved for ${rowIds.length} employees.`)}`);
 }
+
+export async function prepareEmployeeImportCommit(businessSlug:string,importId:string,mode:"ready_rows"|"fix_all",invitationMode:"send"|"without",formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {error}=await supabase.rpc("prepare_employee_import_commit",{p_import_id:importId,p_expected_version:Number(formData.get("version")),p_mode:mode,p_invitation_mode:invitationMode});
+ if(error){console.error("Employee import review confirmation failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and review it again.":error.message.includes("Fix blocking")?"Correct every blocking error or choose Import Ready Rows.":error.message.includes("No employee")?"No employee rows are ready to import.":"The final import review could not be confirmed.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
+ redirect(`${target}?success=${encodeURIComponent("Import review confirmed. The employees have not been created yet.")}`);
+}
