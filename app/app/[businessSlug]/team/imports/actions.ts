@@ -279,3 +279,11 @@ export async function reopenFailedEmployeeImportRows(businessSlug:string,importI
  if(error){console.error("Employee import failed-row reopen failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh and try again.":"Failed rows could not be reopened.")}`);}
  redirect(`${target}?success=${encodeURIComponent("Failed rows reopened. Successful employees remain protected from duplicate import.")}`);
 }
+
+export async function rollbackEmployeeImport(businessSlug:string,importId:string,formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ if(formData.get("confirm")!=="on")redirect(`${target}?error=${encodeURIComponent("Confirm the rollback preview before continuing.")}`);
+ const {error}=await supabase.rpc("rollback_employee_import",{p_import_id:importId,p_expected_version:Number(formData.get("version"))});
+ if(error){console.error("Employee import rollback failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh the rollback preview.":"The import could not be rolled back safely.")}`);}
+ redirect(`${target}?success=${encodeURIComponent("Rollback completed. Safe employees were deactivated, pending invitations revoked, and protected records preserved.")}`);
+}
