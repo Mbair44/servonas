@@ -54,8 +54,6 @@ do $$ declare t text;begin foreach t in array array['customer_imports','customer
  execute format('drop policy if exists "customer managers update %1$s" on public.%1$I',t);
  execute format('create policy "customer managers update %1$s" on public.%1$I for update to authenticated using(public.has_business_role(business_id,array[''owner'',''admin'',''manager''])) with check(public.has_business_role(business_id,array[''owner'',''admin'',''manager'']))',t);
 end loop;end$$;
-drop policy if exists "customer managers delete import rows" on public.customer_import_rows;
-create policy "customer managers delete import rows" on public.customer_import_rows for delete to authenticated using(public.has_business_role(business_id,array['owner','admin','manager']));
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('customer-imports','customer-imports',false,26214400,array['text/csv','application/csv','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
 on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
 drop policy if exists "customer managers read import files" on storage.objects;
