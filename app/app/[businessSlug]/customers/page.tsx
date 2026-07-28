@@ -62,7 +62,7 @@ export default async function Customers({
   return <main className="epic3-shell">
     <WorkspaceNav slug={businessSlug} name={business.name}/>
     <section className="epic3-content">
-      <header className="epic3-header"><div><small>Customer CRM</small><h1>Customers</h1><p>Contacts, service locations, and job history in one place.</p></div>{canEdit && <Link className="sv-button" href={`/app/${businessSlug}/customers/new`}>Add customer</Link>}</header>
+      <header className="epic3-header"><div><small>Customer CRM</small><h1>Customers</h1><p>Contacts, service locations, and job history in one place.</p></div>{canEdit && <div className="header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/customers/imports`}>Import customers</Link><Link className="sv-button" href={`/app/${businessSlug}/customers/new`}>Add customer</Link></div>}</header>
       {q.error && <div className="workspace-notice error">{q.error}</div>}
       {q.success && <div className="workspace-notice success">{q.success}</div>}
       <form className="crm-toolbar">
