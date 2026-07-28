@@ -6,6 +6,7 @@ import {suggestEmployeeImportMapping,validateEmployeeColumnMappings,type Employe
 import {validateEmployeeImportRow,validateNormalizedEmployeeValues} from "@/lib/employeeImport/validation";
 import {findEmployeeDuplicate} from "@/lib/employeeImport/duplicates";
 import {requireWorkspace} from "@/lib/workspace";
+import {createAndDeliverEmployeeInvitation} from "../actions";
 
 const safeMessage=(error:unknown)=>error instanceof EmployeeImportFileError
   ? error.message
@@ -249,4 +250,24 @@ export async function commitEmployeeImport(businessSlug:string,importId:string,f
  if(error){console.error("Employee import commit failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh before importing.":"The employee import could not be completed. No successful row will be duplicated when you retry.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
  const failed=Number(data?.failed_row_count??0);
  redirect(`${target}?success=${encodeURIComponent(failed?`Import completed with ${failed} row${failed===1?"":"s"} needing correction.`:"Employee import completed.")}`);
+}
+
+export async function sendEmployeeImportInvitations(businessSlug:string,importId:string,formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`,version=Number(formData.get("version"));
+ const {data:rows,error:rowsError}=await supabase.from("employee_import_rows").select("id,normalized_values,access_role,invitation_attempted_at").eq("business_id",business.id).eq("import_id",importId).eq("invite_requested",true).not("committed_employee_id","is",null).in("invitation_status",["not_invited","pending","failed","expired"]);
+ if(rowsError){console.error("Employee import invitation rows failed",{businessId:business.id,importId,code:rowsError.code});redirect(`${target}?error=${encodeURIComponent("Invitation candidates could not be loaded.")}`);}
+ const results=[] as {rowId:string;invitationId:string|null;status:string;failureReason:string|null}[];
+ for(const row of rows??[]){
+  if(row.invitation_attempted_at&&Date.now()-new Date(row.invitation_attempted_at).getTime()<60_000)continue;
+  const values=row.normalized_values as Record<string,string>,email=values.email??"";
+  if(!email||!row.access_role){results.push({rowId:row.id,invitationId:null,status:"failed",failureReason:"Add a valid email and login role before inviting."});continue;}
+  const delivery=await createAndDeliverEmployeeInvitation(businessSlug,email,row.access_role);
+  const {data:invitation}=await supabase.from("business_invitations").select("id").eq("business_id",business.id).ilike("email",email).maybeSingle();
+  results.push({rowId:row.id,invitationId:invitation?.id??null,status:delivery.outcome==="sent"?"sent":delivery.outcome==="not_configured"?"pending":"failed",failureReason:delivery.error??null});
+ }
+ if(!results.length)redirect(`${target}?error=${encodeURIComponent("No invitations are ready to send. Recently attempted invitations can be retried after one minute.")}`);
+ const {error}=await supabase.rpc("record_employee_import_invitation_results",{p_import_id:importId,p_expected_version:version,p_results:results});
+ if(error){console.error("Employee import invitation result save failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("Invitations were processed, but their status could not be saved. Refresh before retrying.")}`);}
+ const sent=results.filter(result=>result.status==="sent").length,failed=results.filter(result=>result.status==="failed").length;
+ redirect(`${target}?success=${encodeURIComponent(`${sent} invitation email${sent===1?"":"s"} sent${failed?`; ${failed} need attention`:""}.`)}`);
 }
