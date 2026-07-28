@@ -221,3 +221,17 @@ export async function assignEmployeeImportAccess(businessSlug:string,importId:st
  if(error){console.error("Employee import role assignment failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and try again.":"Role and access settings could not be saved.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
  redirect(`${target}?success=${encodeURIComponent(`Role and access settings saved for ${rowIds.length} employee${rowIds.length===1?"":"s"}.`)}`);
 }
+
+export async function assignEmployeeImportOperations(businessSlug:string,importId:string,rowId:string|null,formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ let rowIds=rowId?[rowId]:[];if(!rowId){const {data}=await supabase.from("employee_import_rows").select("id").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false).neq("validation_status","error");rowIds=(data??[]).map(row=>row.id);}
+ if(!rowIds.length)redirect(`${target}?error=${encodeURIComponent("No eligible employee rows are available for operational assignments.")}`);
+ const {error}=await supabase.rpc("assign_employee_import_operations",{
+  p_import_id:importId,p_expected_version:Number(formData.get("version")),p_row_ids:rowIds,
+  p_manager_employee_id:String(formData.get("managerEmployeeId")??"")||null,
+  p_territory_id:String(formData.get("territoryId")??"")||null,
+  p_qualification_ids:formData.getAll("qualificationIds").map(String),p_defer:formData.get("defer")==="true",
+ });
+ if(error){console.error("Employee import operational assignment failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and try again.":error.code==="P0002"?"A selected manager, territory, or qualification is no longer available.":"Operational assignments could not be saved.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
+ redirect(`${target}?success=${encodeURIComponent(formData.get("defer")==="true"?"Operational assignments deferred safely.":`Operational assignments saved for ${rowIds.length} employees.`)}`);
+}
