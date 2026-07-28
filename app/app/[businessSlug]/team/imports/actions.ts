@@ -4,6 +4,7 @@ import {redirect} from "next/navigation";
 import {EmployeeImportFileError,parseEmployeeImportFile} from "@/lib/employeeImport/file";
 import {suggestEmployeeImportMapping,validateEmployeeColumnMappings,type EmployeeColumnMapping} from "@/lib/employeeImport/mapping";
 import {validateEmployeeImportRow,validateNormalizedEmployeeValues} from "@/lib/employeeImport/validation";
+import {findEmployeeDuplicate} from "@/lib/employeeImport/duplicates";
 import {requireWorkspace} from "@/lib/workspace";
 
 const safeMessage=(error:unknown)=>error instanceof EmployeeImportFileError
@@ -161,4 +162,50 @@ export async function correctEmployeeImportRow(businessSlug:string,importId:stri
  const {error}=await supabase.rpc("revalidate_employee_import_row",{p_import_id:importId,p_row_id:rowId,p_expected_version:version,p_normalized_values:values,p_status:result.status,p_errors:result.errors,p_warnings:result.warnings,p_ignore:ignore});
  if(error){console.error("Employee import row correction failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh and try again.":"The row could not be updated.")}`);}
  redirect(`${target}?success=${encodeURIComponent(ignore?"Row ignored.":"Row updated and revalidated.")}`);
+}
+
+export async function bulkFixEmployeeImport(businessSlug:string,importId:string,formData:FormData){
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`,operation=String(formData.get("operation")??"");
+ if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can correct imports.")}`);
+ const {data:session}=await supabase.from("employee_imports").select("version").eq("business_id",business.id).eq("id",importId).maybeSingle();
+ const {data:rows}=await supabase.from("employee_import_rows").select("id,normalized_values,validation_errors,validation_warnings").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false);
+ if(!session||!rows)redirect(`${target}?error=${encodeURIComponent("The import rows could not be loaded.")}`);
+ const updates=rows.flatMap(row=>{const values={...(row.normalized_values as Record<string,string>)},errors=[...(row.validation_errors as string[])],warnings=[...(row.validation_warnings as string[])];
+  if(operation==="blank_status_active"&&!values.employment_status)values.employment_status="active";
+  else if(operation==="all_do_not_invite"&&(values.invite??"").toLowerCase()!=="no"){values.invite="no";const index=errors.indexOf("Invite must be Yes or No.");if(index>=0)errors.splice(index,1);}
+  else return [];
+  return [{id:row.id,normalizedValues:values,errors,warnings,status:errors.length?"error":warnings.length?"warning":"ready"}];
+ });
+ if(!updates.length)redirect(`${target}?success=${encodeURIComponent("No rows needed that bulk change.")}`);
+ const {error}=await supabase.rpc("bulk_revalidate_employee_import_rows",{p_import_id:importId,p_expected_version:session.version,p_rows:updates,p_operation:operation});
+ if(error){console.error("Employee import bulk correction failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The bulk correction could not be applied.")}`);}
+ redirect(`${target}?success=${encodeURIComponent(`Bulk correction applied to ${updates.length} rows.`)}`);
+}
+
+export async function detectEmployeeImportDuplicates(businessSlug:string,importId:string){
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can review duplicates.")}`);
+ const [{data:session},{data:rows},{data:employees}]=await Promise.all([
+  supabase.from("employee_imports").select("version").eq("business_id",business.id).eq("id",importId).maybeSingle(),
+  supabase.from("employee_import_rows").select("id,normalized_values").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false).order("source_row_number"),
+  supabase.from("employees").select("id,first_name,last_name,email,phone,employee_number,hire_date").eq("business_id",business.id),
+ ]);
+ if(!session||!rows||!employees)redirect(`${target}?error=${encodeURIComponent("Duplicate detection could not be started.")}`);
+ const seen=new Map<string,string>(),matches=rows.map(row=>{const values=row.normalized_values as Record<string,string>,keys=[values.employee_number&&`id:${values.employee_number.toLowerCase()}`,values.email&&`email:${values.email.toLowerCase()}`].filter(Boolean) as string[];
+  const matchedImportRowId=keys.map(key=>seen.get(key)).find(Boolean)??null;for(const key of keys)if(!seen.has(key))seen.set(key,row.id);
+  if(matchedImportRowId)return{rowId:row.id,matchType:"definite",reason:"Employee ID or email appears earlier in this file",existingEmployeeId:null,matchedImportRowId,resolution:"skip"};
+  return{rowId:row.id,...findEmployeeDuplicate(values,employees),matchedImportRowId:null};
+ });
+ const {error}=await supabase.rpc("save_employee_import_duplicate_matches",{p_import_id:importId,p_expected_version:session.version,p_matches:matches});
+ if(error){console.error("Employee import duplicate detection failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("Duplicate detection could not be completed.")}`);}
+ redirect(`${target}?success=${encodeURIComponent("Duplicate review is ready. Definite and possible matches default to Skip.")}`);
+}
+
+export async function resolveEmployeeImportDuplicate(businessSlug:string,importId:string,rowId:string,formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const resolution=String(formData.get("resolution")??"skip"),version=Number(formData.get("version"));
+ const mergeFields=formData.getAll("mergeFields").map(String);
+ const {error}=await supabase.rpc("resolve_employee_import_duplicate",{p_import_id:importId,p_row_id:rowId,p_expected_version:version,p_resolution:resolution,p_merge_fields:mergeFields});
+ if(error){console.error("Employee import duplicate resolution failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The duplicate choice could not be saved.")}`);}
+ redirect(`${target}?success=${encodeURIComponent("Duplicate resolution saved.")}`);
 }
