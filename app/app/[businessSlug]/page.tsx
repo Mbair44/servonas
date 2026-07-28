@@ -8,6 +8,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "./WorkspaceNav";
 import { formatCents } from "@/lib/financial/priceBook";
 import { disableTechnician, enableTechnician, inviteTeamMember, resendInvitation, revokeInvitation, updateTeamMemberRole } from "./team/actions";
+import { EntitlementBanner } from "./EntitlementBanner";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const activeStatuses = new Set(["pending","confirmed","scheduled","dispatched","en_route","arrived","in_progress"]);
@@ -28,7 +29,7 @@ export default async function Workspace({ params, searchParams }: {
 }) {
   const { businessSlug } = await params;
   const query = await searchParams;
-  const { supabase, user, business, role } = await requireWorkspace(businessSlug);
+  const { supabase, user, business, role, entitlementSummary } = await requireWorkspace(businessSlug);
   const canManage = canManageBusiness(role);
   const now = new Date();
   const nowMs = now.getTime();
@@ -113,7 +114,7 @@ export default async function Workspace({ params, searchParams }: {
 
   return <main className="epic3-shell executive-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content executive-dashboard">
     <header className="executive-header"><div><span className="executive-workspace">{business.name} · {role.replaceAll("_"," ")} workspace</span><h1>{greeting}, {firstName}</h1><p>Today is {todayLabel}. Here&apos;s what&apos;s happening in your business.</p></div><Link className="workspace-switcher" href="/app">Switch workspace <span aria-hidden="true">⌄</span></Link></header>
-    {query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}{query.teamError && <div className="workspace-notice error">{query.teamError}</div>}{query.teamSuccess && <div className="workspace-notice success">{query.teamSuccess}</div>}
+    <EntitlementBanner summary={entitlementSummary}/>{query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}{query.teamError && <div className="workspace-notice error">{query.teamError}</div>}{query.teamSuccess && <div className="workspace-notice success">{query.teamSuccess}</div>}
 
     <section aria-labelledby="overview-heading"><h2 className="sr-only" id="overview-heading">Business overview</h2><div className="executive-kpis">
       <article className="executive-card kpi-card"><div className="card-icon blue" aria-hidden="true">↗</div><div><span>Jobs today</span><strong>{todayJobs.length}</strong></div><p>{scheduledToday} Scheduled · {progressingToday} In progress · {waitingToday} Waiting</p><Link href={`/app/${businessSlug}/dispatch?date=${today}`}>Open dispatch <span aria-hidden="true">→</span></Link></article>
