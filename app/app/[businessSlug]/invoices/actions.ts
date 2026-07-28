@@ -7,7 +7,7 @@ import { canManageCustomers } from "@/lib/access";
 import { calculateFinancialDocument, type Discount } from "@/lib/financial/calculations";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import { stripeClient,stripeProviderError } from "@/lib/stripeConnect";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
@@ -26,7 +26,7 @@ function discount(type:string,raw:string):Discount|null{
   return Number.isFinite(value)&&value>=0&&value<=100?{type:"percentage",value:Math.round(value*100)}:null;
 }
 
-async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWorkspace>>){
+async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWorkspaceCapability>>){
   const values=valuesFrom(data),errors:Record<string,string>={};
   const lines=safeJson<EstimateLineDraft[]>(text(data,"linesJson"),[]);
   const fees=safeJson<EstimateFeeDraft[]>(text(data,"feesJson"),[]);
@@ -77,7 +77,7 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   }};
 }
 
-async function replaceChildren(context:Awaited<ReturnType<typeof requireWorkspace>>,invoiceId:string,prepared:Extract<Awaited<ReturnType<typeof prepare>>,{payload:object}>){
+async function replaceChildren(context:Awaited<ReturnType<typeof requireWorkspaceCapability>>,invoiceId:string,prepared:Extract<Awaited<ReturnType<typeof prepare>>,{payload:object}>){
   const {supabase,business}=context;
   const [lineDelete,feeDelete]=await Promise.all([
     supabase.from("invoice_line_items").delete().eq("business_id",business.id).eq("invoice_id",invoiceId),
@@ -106,7 +106,7 @@ async function replaceChildren(context:Awaited<ReturnType<typeof requireWorkspac
 }
 
 export async function createInvoice(slug:string,_state:InvoiceActionState,data:FormData):Promise<InvoiceActionState>{
-  const context=await requireWorkspace(slug),values=valuesFrom(data);
+  const context=await requireWorkspaceCapability(slug,"invoices"),values=valuesFrom(data);
   if(!canManageCustomers(context.role))return {error:"You do not have permission to create invoices.",values};
   const requestKey=text(data,"requestKey");
   if(!/^[0-9a-f-]{36}$/i.test(requestKey))return {error:"Refresh the page before submitting.",values};
@@ -133,7 +133,7 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
 }
 
 export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceActionState,data:FormData):Promise<InvoiceActionState>{
-  const context=await requireWorkspace(slug);
+  const context=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(context.role))return {error:"You do not have permission to edit invoices."};
   const {data:current}=await context.supabase.from("invoices").select("status").eq("id",invoiceId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle();
   if(!current)return {error:"Invoice not found."};
@@ -149,7 +149,7 @@ export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceA
 }
 
 export async function sendInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspace(slug);
+  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const token=generatePublicDocumentToken(),tokenHash=await publicDocumentTokenHash(token);
   const expiresAt=new Date(Date.now()+365*24*60*60*1000).toISOString();
@@ -167,7 +167,7 @@ export async function sendInvoice(slug:string,invoiceId:string){
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspace(slug);
+  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const {data:invoice}=await supabase.from("invoices").select("status").eq("id",invoiceId).eq("business_id",business.id).maybeSingle();
   if(!invoice||!["sent","viewed","partially_paid","overdue"].includes(invoice.status))redirect(path(slug,invoiceId,"error","This invoice cannot be resent"));
@@ -184,7 +184,7 @@ export async function resendInvoice(slug:string,invoiceId:string){
 }
 
 export async function duplicateInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspace(slug);
+  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const [{data:source},{data:lines},{data:fees}]=await Promise.all([
     supabase.from("invoices").select("*").eq("id",invoiceId).eq("business_id",business.id).maybeSingle(),
@@ -212,7 +212,7 @@ export async function duplicateInvoice(slug:string,invoiceId:string){
 }
 
 export async function voidInvoice(slug:string,invoiceId:string,data:FormData){
-  const {supabase,business,user,role}=await requireWorkspace(slug);
+  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const reason=text(data,"reason");
   if(!reason)redirect(path(slug,invoiceId,"error","Enter a reason before voiding the invoice"));
@@ -224,7 +224,7 @@ export async function voidInvoice(slug:string,invoiceId:string,data:FormData){
 }
 
 export async function recordOfflinePayment(slug:string,invoiceId:string,data:FormData){
-  const {supabase,business,role}=await requireWorkspace(slug);
+  const {supabase,business,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const amount=parseCurrencyToCents(text(data,"amount")),requestKey=text(data,"requestKey");
   if(amount===null||amount<=0)redirect(path(slug,invoiceId,"error","Enter a valid payment amount"));
@@ -246,7 +246,7 @@ export async function recordOfflinePayment(slug:string,invoiceId:string,data:For
 }
 
 export async function voidOfflinePayment(slug:string,invoiceId:string,paymentId:string,data:FormData){
-  const {supabase,business,role}=await requireWorkspace(slug);
+  const {supabase,business,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const reason=text(data,"reason");
   if(reason.length<3)redirect(path(slug,invoiceId,"error","Enter a payment void reason"));
@@ -262,7 +262,7 @@ export async function voidOfflinePayment(slug:string,invoiceId:string,paymentId:
 }
 
 export async function refundInvoicePayment(slug:string,invoiceId:string,paymentId:string,data:FormData){
-  const {supabase,business,role}=await requireWorkspace(slug);
+  const {supabase,business,role}=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const amount=parseCurrencyToCents(text(data,"amount")),reason=text(data,"reason");
   const method=text(data,"refundMethod"),requestKey=text(data,"requestKey");

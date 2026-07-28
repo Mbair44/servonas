@@ -2,8 +2,9 @@ import { notFound, redirect } from "next/navigation";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { createSupabaseServerClient } from "./supabaseServer";
 import { isServonasPlatformAdmin, platformAdminRole } from "./platformAccess";
-import { assertCanAccess } from "./entitlements/service";
+import { assertCanAccess, getEntitlementSummary } from "./entitlements/service";
 import type { CapabilityCode } from "./entitlements/catalog";
+import { EntitlementAccessError, entitlementAccessMessage } from "./entitlements/errors";
 export async function requireWorkspace(slug: string) {
   const sessionSupabase = await createSupabaseServerClient();
   const { data: { user } } = await sessionSupabase.auth.getUser();
@@ -20,17 +21,9 @@ export async function requireWorkspace(slug: string) {
       businessId: business.id,
       businessSlug: slug,
     });
-    return { supabase, user, business, role: platformAdminRole, isPlatformAdmin: true };
+    const entitlementSummary = await getEntitlementSummary(supabase, business.id);
+    return { supabase, user, business, role: platformAdminRole, isPlatformAdmin: true, entitlementSummary };
   }
-  const now = new Date().toISOString();
-  const { data: entitlement, error: entitlementError } = await sessionSupabase
-    .from("business_entitlements").select("id").eq("business_id", business.id)
-    .eq("status", "active").lte("starts_at", now).or(`ends_at.is.null,ends_at.gt.${now}`).limit(1).maybeSingle();
-  if (entitlementError) {
-    console.error("Workspace entitlement verification failed", { businessId: business.id, code: entitlementError.code });
-    throw new Error("Workspace access could not be verified.");
-  }
-  if (!entitlement) redirect("/app?access=inactive");
   if (business.owner_user_id === user.id) {
     const { data: ownerMembership } = await supabase.from("business_members").select("role")
       .eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
@@ -60,18 +53,27 @@ export async function requireWorkspace(slug: string) {
         businessId: business.id,
       });
     }
-    return { supabase, user, business, role: "owner", isPlatformAdmin: false };
+    const entitlementSummary = await getEntitlementSummary(sessionSupabase, business.id);
+    return { supabase, user, business, role: "owner", isPlatformAdmin: false, entitlementSummary };
   }
   const { data: membership, error: membershipError } = await supabase.from("business_members").select("role").eq("business_id", business.id).eq("user_id", user.id).maybeSingle();
   if (membershipError) throw new Error(`Unable to verify workspace access: ${membershipError.message}`);
   if (!membership) notFound();
-  return { supabase, user, business, role: membership.role as string, isPlatformAdmin: false };
+  const entitlementSummary = await getEntitlementSummary(sessionSupabase, business.id);
+  return { supabase, user, business, role: membership.role as string, isPlatformAdmin: false, entitlementSummary };
 }
 
 export async function requireWorkspaceCapability(slug: string, capability: CapabilityCode) {
   const context = await requireWorkspace(slug);
   if (!context.isPlatformAdmin) {
-    await assertCanAccess(context.supabase, context.business.id, capability);
+    try {
+      await assertCanAccess(context.supabase, context.business.id, capability);
+    } catch (error) {
+      if (error instanceof EntitlementAccessError) {
+        redirect(`/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent(entitlementAccessMessage(error.access))}#plan-access`);
+      }
+      throw error;
+    }
   }
   return context;
 }

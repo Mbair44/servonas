@@ -6,7 +6,7 @@ import { headers } from "next/headers";
 import { canManageCustomers } from "@/lib/access";
 import { calculateFinancialDocument, type Discount } from "@/lib/financial/calculations";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 import { generatePublicDocumentToken, publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import { EstimateEmailService } from "@/lib/communications/estimateEmailService";
 
@@ -64,7 +64,7 @@ function discount(type: string, raw: string): Discount | null {
     ? { type: "percentage", value: Math.round(percent * 100) } : null;
 }
 
-async function prepareEstimate(formData: FormData, context: Awaited<ReturnType<typeof requireWorkspace>>) {
+async function prepareEstimate(formData: FormData, context: Awaited<ReturnType<typeof requireWorkspaceCapability>>) {
   const values = valuesFrom(formData);
   const errors: Record<string, string> = {};
   const lines = safeJson<EstimateLineDraft[]>(text(formData, "linesJson"), []);
@@ -132,7 +132,7 @@ async function prepareEstimate(formData: FormData, context: Awaited<ReturnType<t
 }
 
 async function replaceEstimateChildren(
-  context: Awaited<ReturnType<typeof requireWorkspace>>, estimateId: string,
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>, estimateId: string,
   prepared: Extract<Awaited<ReturnType<typeof prepareEstimate>>, { payload: object }>,
 ) {
   const { supabase, business } = context;
@@ -169,7 +169,7 @@ async function replaceEstimateChildren(
 }
 
 export async function createEstimate(slug: string, _state: EstimateActionState, formData: FormData): Promise<EstimateActionState> {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"estimates");
   const values = valuesFrom(formData);
   if (!canManageCustomers(context.role)) return { error: "You do not have permission to create estimates.", values };
   const requestKey = text(formData, "requestKey");
@@ -218,7 +218,7 @@ export async function createEstimate(slug: string, _state: EstimateActionState, 
 }
 
 export async function updateEstimate(slug: string, estimateId: string, _state: EstimateActionState, formData: FormData): Promise<EstimateActionState> {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(context.role)) return { error: "You do not have permission to edit estimates." };
   const { data: current } = await context.supabase.from("estimates").select("id,status").eq("id", estimateId).eq("business_id", context.business.id).eq("is_deleted", false).maybeSingle();
   if (!current) return { error: "Estimate not found." };
@@ -234,7 +234,7 @@ export async function updateEstimate(slug: string, estimateId: string, _state: E
   redirect(resultPath(slug, estimateId, "success", "Estimate updated"));
 }
 
-async function estimateSnapshot(supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"], businessId: string, estimateId: string) {
+async function estimateSnapshot(supabase: Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"], businessId: string, estimateId: string) {
   const [{ data: estimate }, { data: lines }, { data: fees }] = await Promise.all([
     supabase.from("estimates").select("*").eq("id", estimateId).eq("business_id", businessId).maybeSingle(),
     supabase.from("estimate_line_items").select("*").eq("estimate_id", estimateId).eq("business_id", businessId).order("sort_order"),
@@ -244,7 +244,7 @@ async function estimateSnapshot(supabase: Awaited<ReturnType<typeof requireWorks
 }
 
 export async function sendEstimate(slug: string, estimateId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const snapshot = await estimateSnapshot(supabase, business.id, estimateId);
   if (!snapshot.estimate || snapshot.estimate.status !== "draft" || !snapshot.lines.length) redirect(resultPath(slug, estimateId, "error", "Only complete draft estimates can be sent"));
@@ -277,7 +277,7 @@ export async function sendEstimate(slug: string, estimateId: string) {
 }
 
 export async function resendEstimateEmail(slug:string,estimateId:string){
-  const {supabase,business,role}=await requireWorkspace(slug);
+  const {supabase,business,role}=await requireWorkspaceCapability(slug,"estimates");
   if(!canManageCustomers(role))redirect(resultPath(slug,estimateId,"error","Permission denied"));
   const {data:estimate}=await supabase.from("estimates").select("id,status")
     .eq("id",estimateId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
@@ -303,7 +303,7 @@ export async function resendEstimateEmail(slug:string,estimateId:string){
 }
 
 export async function reviseEstimate(slug: string, estimateId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const { data: current } = await supabase.from("estimates").select("version_number,status").eq("id", estimateId).eq("business_id", business.id).maybeSingle();
   if (!current || !["sent", "viewed"].includes(current.status)) redirect(resultPath(slug, estimateId, "error", "Only sent or viewed estimates can be revised"));
@@ -316,7 +316,7 @@ export async function reviseEstimate(slug: string, estimateId: string) {
 }
 
 export async function voidEstimate(slug: string, estimateId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const { error } = await supabase.from("estimates").update({
     status: "void", voided_at: new Date().toISOString(), voided_by: user.id, updated_by: user.id,
@@ -328,7 +328,7 @@ export async function voidEstimate(slug: string, estimateId: string) {
 }
 
 export async function duplicateEstimate(slug: string, estimateId: string) {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(context.role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const snapshot = await estimateSnapshot(context.supabase, context.business.id, estimateId);
   if (!snapshot.estimate) redirect(`/app/${slug}/estimates?error=Estimate+not+found`);
@@ -356,7 +356,7 @@ export async function duplicateEstimate(slug: string, estimateId: string) {
 }
 
 export async function convertEstimateToJob(slug: string, estimateId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const { data: estimate } = await supabase.from("estimates").select("*").eq("id", estimateId).eq("business_id", business.id).maybeSingle();
   if (!estimate || !["accepted", "sent", "viewed"].includes(estimate.status)) redirect(resultPath(slug, estimateId, "error", "This estimate cannot be converted"));
@@ -380,7 +380,7 @@ export async function convertEstimateToJob(slug: string, estimateId: string) {
 }
 
 export async function convertEstimateToInvoice(slug: string, estimateId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(resultPath(slug, estimateId, "error", "Permission denied"));
   const snapshot = await estimateSnapshot(supabase, business.id, estimateId);
   if (!snapshot.estimate || !["accepted", "converted"].includes(snapshot.estimate.status)) redirect(resultPath(slug, estimateId, "error", "Only accepted estimates can be invoiced"));

@@ -96,6 +96,10 @@ export async function assertCanAccess(
 ) {
   const access = await getCapabilityAccess(supabase, businessId, capability);
   if (!access.allowed) {
+    const {error:auditError}=await supabase.rpc("record_entitlement_access_denied",{
+      p_business_id:businessId,p_capability:capability,p_reason:access.reason,
+    });
+    if(auditError)console.error("Entitlement denial audit failed",{businessId,capability,code:auditError.code});
     console.warn("Entitlement capability access denied", {
       businessId,
       capability,

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
 import { splitTerritoryValues, validateTerritory, validateTerritoryAssignment, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const number = (formData: FormData, key: string) => {
@@ -57,7 +57,7 @@ function payload(formData: FormData, userId: string) {
 }
 
 export async function createTerritory(slug: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"territory_management");
   if (!canManageBusiness(role)) redirect(route(slug, "error", "Only owners and administrators can create territories."));
   const parsed = payload(formData, user.id);
   if (parsed.error) {
@@ -84,7 +84,7 @@ export async function createTerritory(slug: string, formData: FormData) {
 }
 
 export async function updateTerritory(slug: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"territory_management");
   if (!canManageBusiness(role)) redirect(route(slug, "error", "Only owners and administrators can edit territories."));
   const territoryId = text(formData, "territoryId");
   const version = Number(text(formData, "version"));
@@ -110,7 +110,7 @@ export async function updateTerritory(slug: string, formData: FormData) {
 }
 
 export async function setTerritoryActive(slug: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"territory_management");
   if (!canManageBusiness(role)) redirect(route(slug, "error", "Only owners and administrators can change territory status."));
   const territoryId = text(formData, "territoryId");
   const active = text(formData, "active") === "true";
@@ -126,7 +126,7 @@ export async function setTerritoryActive(slug: string, formData: FormData) {
 }
 
 export async function assignTerritoryEmployee(slug:string,formData:FormData){
-  const {supabase,business,role}=await requireWorkspace(slug);
+  const {supabase,business,role}=await requireWorkspaceCapability(slug,"territory_management");
   if(!canManageBusiness(role))redirect(route(slug,"error","Only owners and administrators can assign territory coverage."));
   const territoryId=text(formData,"territoryId"),employeeId=text(formData,"employeeId");
   const assignmentType=text(formData,"assignmentType"),effectiveFrom=text(formData,"effectiveFrom");
@@ -153,7 +153,7 @@ export async function assignTerritoryEmployee(slug:string,formData:FormData){
 }
 
 export async function endTerritoryEmployeeAssignment(slug:string,formData:FormData){
-  const {supabase,user,business,role}=await requireWorkspace(slug);
+  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"territory_management");
   if(!canManageBusiness(role))redirect(route(slug,"error","Only owners and administrators can end territory coverage."));
   const assignmentId=text(formData,"assignmentId");
   const {error}=await supabase.from("employee_territory_assignments")

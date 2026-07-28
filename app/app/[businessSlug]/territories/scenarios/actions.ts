@@ -3,7 +3,7 @@
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {canManageBusiness} from "@/lib/access";
-import {requireWorkspace} from "@/lib/workspace";
+import {requireWorkspaceCapability} from "@/lib/workspace";
 import {validateScenarioDetails} from "@/lib/territoryScenarios";
 import {splitTerritoryValues} from "@/lib/workforceTerritories";
 import {validateTerritoryGeometry,type TerritoryGeometry} from "@/lib/territoryMap";
@@ -12,7 +12,7 @@ const path=(slug:string,kind:"success"|"error",message:string,scenarioId?:string
  `/app/${slug}/territories/scenarios?${scenarioId?`scenario=${encodeURIComponent(scenarioId)}&`:""}${kind}=${encodeURIComponent(message)}`;
 
 export async function createScenario(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can create scenarios."));
  const name=text(formData,"name"),description=text(formData,"description");
  const validationError=validateScenarioDetails(name,description);if(validationError)redirect(path(slug,"error",validationError));
@@ -21,7 +21,7 @@ export async function createScenario(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario created.",data));
 }
 export async function renameScenario(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const id=text(formData,"scenarioId"),name=text(formData,"name"),description=text(formData,"description"),version=Number(text(formData,"version"));
  const validationError=validateScenarioDetails(name,description);if(validationError||!Number.isSafeInteger(version))redirect(path(slug,"error",validationError||"The scenario version is invalid.",id));
@@ -32,7 +32,7 @@ export async function renameScenario(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario updated.",id));
 }
 export async function duplicateScenario(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const id=text(formData,"scenarioId"),name=text(formData,"name");
  const validationError=validateScenarioDetails(name,"");if(validationError)redirect(path(slug,"error",validationError,id));
@@ -41,7 +41,7 @@ export async function duplicateScenario(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario duplicated.",data));
 }
 export async function setScenarioStatus(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const id=text(formData,"scenarioId"),status=text(formData,"status");
  if(!["draft","archived"].includes(status))redirect(path(slug,"error","Invalid scenario status.",id));
@@ -51,7 +51,7 @@ export async function setScenarioStatus(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success",status==="archived"?"Scenario archived.":"Scenario restored.",id));
 }
 export async function deleteScenario(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const id=text(formData,"scenarioId"),now=new Date().toISOString();
  const {error}=await supabase.from("territory_scenarios").update({deleted_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("id",id).eq("status","archived").is("deleted_at",null);
@@ -59,7 +59,7 @@ export async function deleteScenario(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario deleted."));
 }
 export async function updateScenarioTerritory(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const scenarioId=text(formData,"scenarioId"),id=text(formData,"scenarioTerritoryId"),version=Number(text(formData,"version"));
  const name=text(formData,"name"),boundary=text(formData,"boundaryGeojson");
@@ -80,7 +80,7 @@ export async function updateScenarioTerritory(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario recalculated.",scenarioId));
 }
 export async function setScenarioTerritoryRemoved(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"scenario_planning");
  if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const scenarioId=text(formData,"scenarioId"),id=text(formData,"scenarioTerritoryId"),removed=text(formData,"removed")==="true";
  const {error}=await supabase.from("territory_scenario_territories").update({change_type:removed?"removed":"modified",updated_at:new Date().toISOString()})
@@ -89,13 +89,13 @@ export async function setScenarioTerritoryRemoved(slug:string,formData:FormData)
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success",removed?"Territory removed from the scenario.":"Territory restored to the scenario.",scenarioId));
 }
 export async function approveScenario(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug),scenarioId=text(formData,"scenarioId");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied.",scenarioId));
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"scenario_planning"),scenarioId=text(formData,"scenarioId");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied.",scenarioId));
  const {error}=await supabase.rpc("approve_territory_scenario",{p_business_id:business.id,p_scenario_id:scenarioId});
  if(error){console.error("Territory scenario approval failed",{businessId:business.id,scenarioId,code:error.code});redirect(path(slug,"error",error.message||"The scenario could not be approved.",scenarioId));}
  revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario approved. Review once more before applying.",scenarioId));
 }
 export async function applyScenario(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug),scenarioId=text(formData,"scenarioId");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied.",scenarioId));
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"scenario_planning"),scenarioId=text(formData,"scenarioId");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied.",scenarioId));
  const {error}=await supabase.rpc("apply_territory_scenario",{p_business_id:business.id,p_scenario_id:scenarioId});
  if(error){console.error("Territory scenario apply failed",{businessId:business.id,scenarioId,code:error.code});redirect(path(slug,"error",error.message||"The scenario could not be applied.",scenarioId));}
  revalidatePath(`/app/${slug}/territories`);revalidatePath(`/app/${slug}/territories/scenarios`);redirect(path(slug,"success","Scenario applied atomically. Live territories are updated.",scenarioId));

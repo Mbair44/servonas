@@ -6,7 +6,7 @@ import { canManageCustomers } from "@/lib/access";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { validateJobSchedule } from "@/lib/jobScheduling";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const localDate = (value: string, timeZone: string) => {
@@ -24,7 +24,7 @@ const resultUrl = (path: string, kind: "error" | "success", message: string) => 
 };
 
 export async function updateScheduledJob(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"schedule_management");
   const back = returnPath(slug, text(formData, "returnPath"));
   if (!canManageCustomers(role)) redirect(resultUrl(back, "error", "You do not have permission to schedule jobs."));
   const { data: job } = await supabase.from("jobs").select("id,arrival_window_start,arrival_window_end").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
