@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { classifyInvitationDelivery, invitationDeliveryMessage, type InvitationDeliveryOutcome } from "@/lib/invitationDelivery";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 
 const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const escapeHtml = (input: string) => input.replace(/[&<>"']/g, (character) => ({
@@ -222,16 +222,16 @@ async function deliverInvitation({
   }
 }
 
-async function invitationContext(businessSlug: string) {
-  const { supabase, user, business, role } = await requireWorkspace(businessSlug);
+async function teamContext(businessSlug: string, capability: "team_management" | "employee_invitations") {
+  const { supabase, user, business, role } = await requireWorkspaceCapability(businessSlug, capability);
   if (!["owner", "admin", "platform_admin"].includes(role)) {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Only owners and admins can invite team members.")}`);
+    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Only owners and admins can manage team access.")}`);
   }
   return { supabase, user, business };
 }
 
 export async function updateTeamMemberRole(businessSlug: string, formData: FormData) {
-  const { supabase, business } = await invitationContext(businessSlug);
+  const { supabase, business } = await teamContext(businessSlug, "team_management");
   const memberUserId = value(formData, "memberUserId");
   const role = value(formData, "role");
   if (!memberUserId || !["admin", "manager", "staff"].includes(role)) {
@@ -260,7 +260,7 @@ export async function inviteTeamMember(businessSlug: string, formData: FormData)
 }
 
 export async function createAndDeliverEmployeeInvitation(businessSlug:string,emailInput:string,roleInput:string) {
-  const { supabase, user, business } = await invitationContext(businessSlug);
+  const { supabase, user, business } = await teamContext(businessSlug, "employee_invitations");
   const email=emailInput.trim().toLowerCase(),role=roleInput.trim();
   if (!email.includes("@") || !["admin", "manager", "staff"].includes(role)) {
     return {error:"Enter a valid email and role."};
@@ -299,7 +299,7 @@ export async function createAndDeliverEmployeeInvitation(businessSlug:string,ema
 }
 
 export async function resendInvitation(businessSlug: string, formData: FormData) {
-  const { supabase, business } = await invitationContext(businessSlug);
+  const { supabase, business } = await teamContext(businessSlug, "employee_invitations");
   const invitationId = value(formData, "invitationId");
   const { data: invitation } = await supabase.from("business_invitations").select("id,email,token,accepted_at").eq("id", invitationId).eq("business_id", business.id).maybeSingle();
   if (!invitation || invitation.accepted_at) {
@@ -323,7 +323,7 @@ export async function resendInvitation(businessSlug: string, formData: FormData)
 }
 
 export async function revokeInvitation(businessSlug: string, formData: FormData) {
-  const { supabase, business } = await invitationContext(businessSlug);
+  const { supabase, business } = await teamContext(businessSlug, "employee_invitations");
   const invitationId = value(formData, "invitationId");
   const { error } = await supabase.from("business_invitations").delete().eq("id", invitationId).eq("business_id", business.id);
   if (error) {
@@ -335,7 +335,7 @@ export async function revokeInvitation(businessSlug: string, formData: FormData)
 }
 
 export async function enableTechnician(businessSlug: string, formData: FormData) {
-  const { supabase, user, business } = await invitationContext(businessSlug);
+  const { supabase, user, business } = await teamContext(businessSlug, "team_management");
   const memberUserId = value(formData, "memberUserId");
   const { data: member } = await supabase.from("business_members")
     .select("user_id")
@@ -375,7 +375,7 @@ export async function enableTechnician(businessSlug: string, formData: FormData)
 }
 
 export async function disableTechnician(businessSlug: string, formData: FormData) {
-  const { supabase, user, business } = await invitationContext(businessSlug);
+  const { supabase, user, business } = await teamContext(businessSlug, "team_management");
   const memberUserId = value(formData, "memberUserId");
   const { data: technician } = await supabase.from("technician_profiles").select("id")
     .eq("business_id", business.id).eq("member_user_id", memberUserId).maybeSingle();

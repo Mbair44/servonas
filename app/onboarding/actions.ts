@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {validateOnboardingCompany,type OnboardingCompanyInput} from "@/lib/onboardingCompany";
 import {validateBusinessProfile,type BusinessProfileInput} from "@/lib/onboardingProfile";
-import {requireWorkspace} from "@/lib/workspace";
+import {requireWorkspaceCapability} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
 import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
 import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
@@ -67,7 +67,7 @@ export async function createGuidedWorkspace(_:OnboardingState,formData:FormData)
 }
 export type BusinessProfileState={error?:string;fieldErrors?:ReturnType<typeof validateBusinessProfile>;values?:BusinessProfileInput};
 export async function saveBusinessProfile(slug:string,_:BusinessProfileState,formData:FormData):Promise<BusinessProfileState>{
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))return {error:"Only owners and administrators can continue company onboarding."};
  const values={operatingModel:text(formData,"operatingModel"),industryProfile:text(formData,"industryProfile"),otherIndustry:text(formData,"otherIndustry")};
  const fieldErrors=validateBusinessProfile(values);if(Object.keys(fieldErrors).length)return {error:"Choose the profile that best describes your business.",fieldErrors,values};
@@ -81,7 +81,7 @@ export async function saveBusinessProfile(slug:string,_:BusinessProfileState,for
 }
 export type BusinessHoursState={error?:string;dayErrors?:Record<number,string>};
 export async function saveBusinessHours(slug:string,_:BusinessHoursState,formData:FormData):Promise<BusinessHoursState>{
- const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))return {error:"Only owners and administrators can change business hours."};
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))return {error:"Only owners and administrators can change business hours."};
  const rows:DayHours[]=defaultBusinessHours().map((row)=>({weekday:row.weekday,open:formData.get(`open_${row.weekday}`)==="on",start:text(formData,`start_${row.weekday}`),end:text(formData,`end_${row.weekday}`)}));
  const validation=validateBusinessHours(rows);if(validation.form||Object.keys(validation.days).length)return {error:validation.form??"Review the highlighted hours.",dayErrors:validation.days};
  const {error}=await supabase.rpc("save_onboarding_business_hours",{p_business_id:business.id,p_hours:rows});
@@ -90,7 +90,7 @@ export async function saveBusinessHours(slug:string,_:BusinessHoursState,formDat
 }
 export type FirstServiceState={error?:string;fieldErrors?:ReturnType<typeof validateOnboardingService>;values?:Partial<OnboardingServiceInput>};
 export async function createFirstService(slug:string,_:FirstServiceState,formData:FormData):Promise<FirstServiceState>{
- const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))return {error:"Only owners and administrators can create the first service."};
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))return {error:"Only owners and administrators can create the first service."};
  const values:OnboardingServiceInput={name:text(formData,"name"),description:text(formData,"description"),durationMinutes:Number(text(formData,"durationMinutes")),
   price:text(formData,"price"),recurringAllowed:formData.get("recurringAllowed")==="on",requiredSkills:normalizeSkills(text(formData,"requiredSkills")),active:formData.get("active")==="on"};
  const fieldErrors=validateOnboardingService(values);if(Object.keys(fieldErrors).length)return {error:"Review the highlighted service details.",fieldErrors,values};
@@ -100,7 +100,7 @@ export async function createFirstService(slug:string,_:FirstServiceState,formDat
  redirect(`/onboarding?business=${encodeURIComponent(slug)}&saved=service`);
 }
 export async function completeOnboarding(slug:string){
- const {supabase,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent("Only owners and administrators can complete onboarding.")}`);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent("Only owners and administrators can complete onboarding.")}`);
  const {error}=await supabase.rpc("complete_guided_onboarding",{p_business_id:business.id});
  if(error){console.error("Guided onboarding completion failed",{businessId:business.id,code:error.code,message:error.message});redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent(error.message||"Readiness could not be verified.")}`);}
  redirect(`/app/${slug}?onboarding=complete`);
