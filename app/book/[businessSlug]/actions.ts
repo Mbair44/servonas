@@ -13,6 +13,7 @@ import { resolveGoogleAddress } from "@/lib/googleAddress";
 import { GoogleGeocodingProvider } from "@/lib/geocoding/googleProvider";
 import { resolveServiceLocationAddress } from "@/lib/geocoding/service";
 import type { ResolveAddressResult } from "@/lib/geocoding/domain";
+import { getCapabilityAccess } from "@/lib/entitlements/service";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const normalizePhone = (value: string) => {
@@ -47,6 +48,11 @@ export async function submitPublicBooking(
     .eq("enabled", true)
     .maybeSingle();
   if (!settings) return fail("This booking page is not available.");
+  const bookingAccess=await getCapabilityAccess(supabase,settings.business_id,"online_booking");
+  if(!bookingAccess.allowed){
+    console.warn("Public booking blocked by entitlement",{businessId:settings.business_id,reason:bookingAccess.reason});
+    return fail("Online booking is temporarily unavailable for this business.");
+  }
 
   const serviceId = text(formData, "serviceId");
   const startRaw = text(formData, "startsAt");

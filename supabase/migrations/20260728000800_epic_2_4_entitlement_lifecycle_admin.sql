@@ -3,7 +3,8 @@ create or replace function public.is_servonas_platform_admin()
 returns boolean language sql stable security definer set search_path=public as $$
   select coalesce(auth.jwt()->>'email','') ~* '^[^@\s]+@servonas[.]com$'
     and ((auth.jwt()->>'email_confirmed_at') is not null
-      or coalesce((auth.jwt()->>'email_verified')::boolean,false));
+      or coalesce((auth.jwt()->>'email_verified')::boolean,false)
+      or coalesce((auth.jwt()->'user_metadata'->>'email_verified')::boolean,false));
 $$;
 revoke all on function public.is_servonas_platform_admin() from public;
 grant execute on function public.is_servonas_platform_admin() to authenticated;
@@ -97,3 +98,36 @@ begin
 end$$;
 revoke all on function public.grant_pilot_entitlement_admin(uuid,text) from public;
 grant execute on function public.grant_pilot_entitlement_admin(uuid,text) to authenticated;
+
+create or replace function public.complete_guided_onboarding(p_business_id uuid)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_business public.businesses%rowtype;
+begin
+ if not public.has_business_role(p_business_id,array['owner','admin']) then raise exception 'Permission denied' using errcode='42501';end if;
+ select * into v_business from public.businesses where id=p_business_id for update;
+ if v_business.id is null or nullif(btrim(v_business.name),'') is null or nullif(btrim(v_business.display_name),'') is null or nullif(btrim(v_business.email),'') is null or nullif(btrim(v_business.phone),'') is null or nullif(btrim(v_business.address_line1),'') is null or v_business.industry_profile is null or v_business.operating_model is null then raise exception 'Company or business profile is incomplete' using errcode='22023';end if;
+ if not exists(select 1 from public.booking_availability where business_id=p_business_id and active) then raise exception 'Business hours are incomplete' using errcode='22023';end if;
+ if not exists(select 1 from public.services where business_id=p_business_id and not is_deleted) then raise exception 'First service is incomplete' using errcode='22023';end if;
+ if not exists(select 1 from public.business_entitlements where business_id=p_business_id and entitlement_key in('pilot','starter','growth','business','enterprise') and status in('active','grace_period') and starts_at<=now() and (ends_at is null or ends_at>now() or(grace_period_ends_at is not null and grace_period_ends_at>now()))) then raise exception 'Servonas access is inactive' using errcode='42501';end if;
+ update public.business_onboarding_states set status='completed',current_step=6,completed_steps=array['welcome','company','profile','hours','service','readiness'],completed_at=now(),last_activity_at=now(),updated_at=now(),updated_by=auth.uid() where business_id=p_business_id and status in('in_progress','reopened');
+ if not found then raise exception 'Active onboarding state not found' using errcode='P0002';end if;
+ update public.businesses set onboarding_completed_at=now(),updated_at=now() where id=p_business_id;
+ insert into public.business_onboarding_audit_events(business_id,event_type,actor_user_id,step_key,status,metadata) values(p_business_id,'completed',auth.uid(),'readiness','completed',jsonb_build_object('servonas_access_active',true,'employee_import_blocking',false,'customer_import_blocking',false));
+end$$;
+revoke all on function public.complete_guided_onboarding(uuid) from public;
+grant execute on function public.complete_guided_onboarding(uuid) to authenticated;
+
+create or replace function public.record_entitlement_access_denied(p_business_id uuid,p_capability text,p_reason text)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_entitlement public.business_entitlements;
+begin
+ if auth.role()<>'service_role' and not public.is_business_member(p_business_id) then raise exception 'Permission denied' using errcode='42501';end if;
+ if p_capability not in('business_onboarding','team_management','employee_import','employee_invitations','customer_management','customer_migration','schedule_management','dispatch','job_management','territory_management','estimates','invoices','online_booking','reporting','inventory','advanced_workforce_intelligence','scenario_planning') then raise exception 'Invalid capability' using errcode='22023';end if;
+ if p_reason not in('no_entitlement','scheduled','expired','suspended','canceled','superseded','capability_not_included','limit_reached','evaluation_failed') then raise exception 'Invalid denial reason' using errcode='22023';end if;
+ select * into v_entitlement from public.business_entitlements where business_id=p_business_id order by starts_at desc,created_at desc limit 1;
+ if v_entitlement.id is null then return;end if;
+ insert into public.business_entitlement_audit_events(business_id,entitlement_id,event_type,actor_user_id,entitlement_key,status,metadata)
+ values(p_business_id,v_entitlement.id,'capability_access_denied',auth.uid(),v_entitlement.entitlement_key,v_entitlement.status,jsonb_build_object('capability',p_capability,'reason',p_reason));
+end$$;
+revoke all on function public.record_entitlement_access_denied(uuid,text,text) from public;
+grant execute on function public.record_entitlement_access_denied(uuid,text,text) to authenticated,service_role;
