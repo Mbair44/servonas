@@ -8,6 +8,7 @@ import {canManageBusiness} from "@/lib/access";
 import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
 import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
 import {verifyGooglePlace} from "@/lib/googleAddress";
+import {sendBusinessSetupNotification} from "@/lib/communications/businessSetupEmailService";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -25,6 +26,13 @@ export async function createWorkspace(_:OnboardingState,formData:FormData):Promi
   const {data,error}=await s.rpc("create_business_workspace",{p_name:name,p_slug:slug,p_email:email,p_business_model:businessModel,p_primary_color:text(formData,"color")||"#2563eb",p_enabled_modules:modules});
   if(error) return {error:error.message.includes("duplicate")?"That workspace URL is already taken.":error.message};
   const created=Array.isArray(data)?data[0]:data;
+  await sendBusinessSetupNotification({
+    businessId:created?.id,
+    businessName:name,
+    businessSlug:created?.slug??slug,
+    businessEmail:email,
+    creatorEmail:user.email,
+  });
   redirect(`/app/${created?.slug??slug}?created=1`);
 }
 export async function createGuidedWorkspace(_:OnboardingState,formData:FormData):Promise<OnboardingState>{
@@ -47,7 +55,15 @@ export async function createGuidedWorkspace(_:OnboardingState,formData:FormData)
   p_city:values.city,p_state:values.region,p_postal_code:values.postalCode,p_country:values.country,p_timezone:values.timezone});
  if(error){console.error("Guided workspace creation failed",{provider:"supabase",operation:"create_guided_business_workspace",code:error.code,message:error.message,userId:user.id});
   return {error:error.code==="23505"?"That workspace URL is already taken.":"Your company could not be saved. Please review the information and try again.",values};}
- const created=Array.isArray(data)?data[0]:data;redirect(`/onboarding?business=${encodeURIComponent(created?.slug??values.slug)}&saved=company`);
+ const created=Array.isArray(data)?data[0]:data;
+ await sendBusinessSetupNotification({
+  businessId:created?.id,
+  businessName:values.displayName||values.name,
+  businessSlug:created?.slug??values.slug,
+  businessEmail:values.email,
+  creatorEmail:user.email,
+ });
+ redirect(`/onboarding?business=${encodeURIComponent(created?.slug??values.slug)}&saved=company`);
 }
 export type BusinessProfileState={error?:string;fieldErrors?:ReturnType<typeof validateBusinessProfile>;values?:BusinessProfileInput};
 export async function saveBusinessProfile(slug:string,_:BusinessProfileState,formData:FormData):Promise<BusinessProfileState>{
