@@ -9,6 +9,7 @@ import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { formatPerformance, workloadLabel, workforceStatus } from "@/lib/workforceDashboard";
 import {teamSetupSummary} from "@/lib/teamSetup";
 import {TeamSetupLanding} from "@/components/TeamSetupLanding";
+import {TeamActivationDashboard} from "@/components/TeamActivationDashboard";
 
 const relation=<T,>(value:T|T[]|null)=>Array.isArray(value)?value[0]??null:value;
 export default async function TeamPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<Record<string,string|undefined>>}){
@@ -18,7 +19,7 @@ export default async function TeamPage({params,searchParams}:{params:Promise<{bu
  const tomorrowStart=zonedDateTimeToUtc(tomorrow,"00:00",business.timezone).toISOString();
  const futureEnd=zonedDateTimeToUtc(future,"23:59",business.timezone).toISOString();
  const weekday=new Date(`${today}T12:00:00Z`).getUTCDay();
- const [{data:employees,error},{data:roles},{data:workIntervals},{data:exceptions},{data:jobs},{data:technicians},{data:qualifications},{data:capacityProfiles},{data:features},{count:pendingInvitations}]=await Promise.all([
+ const [{data:employees,error},{data:roles},{data:workIntervals},{data:exceptions},{data:jobs},{data:technicians},{data:qualifications},{data:capacityProfiles},{data:features},{count:pendingInvitations},{data:invitations},{data:importInvitationRows}]=await Promise.all([
   supabase.from("employees").select("id,preferred_name,legal_name,email,phone,employee_number,profile_photo_url,hire_date,termination_date,is_active,auth_user_id,employee_role_assignments!employee_roles_employee_tenant_fk(is_active,workforce_roles!employee_roles_role_tenant_fk(id,name))").eq("business_id",business.id).order("preferred_name"),
   supabase.from("workforce_roles").select("id,name").eq("business_id",business.id).eq("is_active",true).order("name"),
   supabase.from("employee_weekly_intervals").select("employee_id").eq("business_id",business.id).eq("weekday",weekday).eq("interval_type","working"),
@@ -29,6 +30,8 @@ export default async function TeamPage({params,searchParams}:{params:Promise<{bu
   supabase.from("employee_availability_profiles").select("employee_id,maximum_daily_jobs").eq("business_id",business.id),
   supabase.from("employee_workforce_feature_summary").select("employee_id,historical_jobs_completed,average_completion_seconds,historical_revenue_cents").eq("business_id",business.id),
   canEdit?supabase.from("business_invitations").select("id",{head:true,count:"exact"}).eq("business_id",business.id).is("accepted_at",null).gt("expires_at",new Date().toISOString()):Promise.resolve({count:0}),
+  canEdit?supabase.from("business_invitations").select("email,accepted_at,expires_at").eq("business_id",business.id):Promise.resolve({data:[]}),
+  canEdit?supabase.from("employee_import_rows").select("invitation_status").eq("business_id",business.id).in("invitation_status",["failed","revoked"]):Promise.resolve({data:[]}),
  ]);
  const workingIds=new Set((workIntervals??[]).map(item=>item.employee_id));
  const currentTimeOff=(exceptions??[]).filter(item=>item.starts_at<tomorrowStart&&item.ends_at>todayStart);
@@ -54,11 +57,18 @@ export default async function TeamPage({params,searchParams}:{params:Promise<{bu
    &&(!roleFilter||employeeRoles.some((item:any)=>item?.id===roleFilter));
  });
  const setupSummary=teamSetupSummary(employees??[],business.owner_user_id,pendingInvitations??0);
+ const pendingEmails=new Set((invitations??[]).filter(invitation=>!invitation.accepted_at&&invitation.expires_at>now.toISOString()).map(invitation=>invitation.email.toLowerCase()));
+ const activationCounts={total:(employees??[]).length,active:(employees??[]).filter(employee=>employee.is_active).length,withoutEmail:(employees??[]).filter(employee=>!employee.email).length,
+  notInvited:(employees??[]).filter(employee=>employee.email&&!employee.auth_user_id&&!pendingEmails.has(employee.email.toLowerCase())).length,pending:pendingInvitations??0,
+  accepted:(employees??[]).filter(employee=>employee.auth_user_id).length,expired:(invitations??[]).filter(invitation=>!invitation.accepted_at&&invitation.expires_at<=now.toISOString()).length,
+  failed:(importInvitationRows??[]).filter(row=>row.invitation_status==="failed").length,
+  missingRoles:(employees??[]).filter(employee=>!(employee.employee_role_assignments??[]).some((assignment:any)=>assignment.is_active)).length};
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content workforce-page">
   <header className="epic3-header"><div><small>Workforce intelligence</small><h1>Team</h1><p>Understand who works here, what they do, and whether they are active.</p></div>{canEdit&&<a className="sv-button sv-secondary" href="#invite-employee">Invite employee</a>}</header>
   {q.success&&<div className="workspace-notice success">{q.success}</div>}{q.error&&<div className="workspace-notice error">{q.error}</div>}
   {error&&<div className="workspace-notice error">The workforce migration must be applied before Team can load.</div>}
   <TeamSetupLanding businessSlug={businessSlug} summary={setupSummary} canEdit={canEdit}/>
+  <TeamActivationDashboard businessSlug={businessSlug} counts={activationCounts} canEdit={canEdit}/>
   <section className="workforce-summary workforce-daily-summary"><article><span>Working today</span><strong>{dashboard.filter(item=>item.active&&item.worksToday&&!item.unavailableToday).length}</strong><small>Based on weekly availability</small></article><article><span>On time off</span><strong>{dashboard.filter(item=>item.unavailableToday).length}</strong><small>Approved exceptions today</small></article><article><span>Jobs assigned today</span><strong>{jobs?.length??0}</strong><small>Across the active team</small></article><article><span>Current certifications</span><strong>{[...qualificationsByEmployee.values()].reduce((sum,value)=>sum+value,0)}</strong><small>Active, unexpired records</small></article></section>
   <section className="workforce-insight-grid"><article className="workspace-panel"><div className="panel-title"><div><span className="sv-kicker">Next 30 days</span><h2>Upcoming time off</h2></div></div><div className="workforce-time-off">{upcomingTimeOff.length?upcomingTimeOff.map(item=>{const employee=(employees??[]).find(value=>value.id===item.employee_id);return <div key={item.id}><strong>{employee?.preferred_name??"Employee"}</strong><span>{item.exception_type.replaceAll("_"," ")} · {new Intl.DateTimeFormat("en-US",{timeZone:business.timezone,month:"short",day:"numeric"}).format(new Date(item.starts_at))}</span></div>}):<div className="dashboard-empty"><strong>No upcoming time off.</strong><p>Approved PTO and other exceptions will appear here.</p></div>}</div></article><article className="workspace-panel"><div className="panel-title"><div><span className="sv-kicker">Current capacity</span><h2>Workload at a glance</h2></div></div><div className="workforce-workload">{dashboard.filter(item=>item.active).sort((a,b)=>b.jobCount-a.jobCount).slice(0,6).map(item=>{const employee=(employees??[]).find(value=>value.id===item.id);return <div key={item.id}><span>{employee?.preferred_name}</span><strong>{workloadLabel(item.jobCount,capacityByEmployee.get(item.id)??null)}</strong></div>})}</div></article></section>
   <section className="workspace-panel workforce-directory"><div className="panel-title"><div><span className="sv-kicker">Directory</span><h2>Employees</h2></div><span>{visible.length} shown</span></div>
