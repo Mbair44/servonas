@@ -5,7 +5,7 @@ import {EmployeeImportFileError,parseEmployeeImportFile} from "@/lib/employeeImp
 import {suggestEmployeeImportMapping,validateEmployeeColumnMappings,type EmployeeColumnMapping} from "@/lib/employeeImport/mapping";
 import {validateEmployeeImportRow,validateNormalizedEmployeeValues} from "@/lib/employeeImport/validation";
 import {findEmployeeDuplicate} from "@/lib/employeeImport/duplicates";
-import {requireWorkspace} from "@/lib/workspace";
+import {requireWorkspaceCapability} from "@/lib/workspace";
 import {createAndDeliverEmployeeInvitation} from "../actions";
 
 const safeMessage=(error:unknown)=>error instanceof EmployeeImportFileError
@@ -13,7 +13,7 @@ const safeMessage=(error:unknown)=>error instanceof EmployeeImportFileError
   : "The file could not be uploaded. Check the format and try again.";
 
 export async function uploadEmployeeImport(businessSlug:string,formData:FormData){
-  const {supabase,user,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug);
+  const {supabase,user,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import");
   if(!isPlatformAdmin&&!["owner","admin"].includes(role)) redirect(`/app/${businessSlug}/team/imports?error=${encodeURIComponent("Only owners and admins can import employees.")}`);
   const file=formData.get("employee_file");
   const suppliedKey=String(formData.get("request_key")??"");
@@ -52,7 +52,7 @@ export async function uploadEmployeeImport(businessSlug:string,formData:FormData
 }
 
 export async function cancelEmployeeImport(businessSlug:string,importId:string,formData:FormData){
-  const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug);
+  const {supabase,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import");
   if(!isPlatformAdmin&&!["owner","admin"].includes(role)) redirect(`/app/${businessSlug}/team/imports/${importId}?error=${encodeURIComponent("Only owners and admins can cancel imports.")}`);
   const version=Number(formData.get("version"));
   const stage=String(formData.get("stage")??"mapping");
@@ -70,7 +70,7 @@ export async function cancelEmployeeImport(businessSlug:string,importId:string,f
 }
 
 export async function saveEmployeeImportMappings(businessSlug:string,importId:string,formData:FormData){
-  const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug);
+  const {supabase,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import");
   const target=`/app/${businessSlug}/team/imports/${importId}`;
   if(!isPlatformAdmin&&!["owner","admin"].includes(role)) redirect(`${target}?error=${encodeURIComponent("Only owners and admins can map employee imports.")}`);
   const {data:session,error:loadError}=await supabase.from("employee_imports").select("id,version,status,source_columns").eq("business_id",business.id).eq("id",importId).maybeSingle();
@@ -103,7 +103,7 @@ export async function saveEmployeeImportMappings(businessSlug:string,importId:st
 }
 
 export async function validateEmployeeImport(businessSlug:string,importId:string){
- const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can validate imports.")}`);
  const [{data:session,error:sessionError},{data:mappingRows,error:mappingError}]=await Promise.all([
   supabase.from("employee_imports").select("id,version,status,file_name,storage_path,total_row_count").eq("business_id",business.id).eq("id",importId).maybeSingle(),
@@ -140,7 +140,7 @@ export async function validateEmployeeImport(businessSlug:string,importId:string
 }
 
 export async function correctEmployeeImportRow(businessSlug:string,importId:string,rowId:string,formData:FormData){
- const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can correct imports.")}`);
  const version=Number(formData.get("version")),ignore=formData.get("intent")==="ignore";
  const fields=["first_name","last_name","preferred_name","email","phone","employee_number","job_title","role","employee_type","start_date","employment_status","manager","location","territory","skills","invite","notes"];
@@ -166,7 +166,7 @@ export async function correctEmployeeImportRow(businessSlug:string,importId:stri
 }
 
 export async function bulkFixEmployeeImport(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`,operation=String(formData.get("operation")??"");
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`,operation=String(formData.get("operation")??"");
  if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can correct imports.")}`);
  const {data:session}=await supabase.from("employee_imports").select("version").eq("business_id",business.id).eq("id",importId).maybeSingle();
  const {data:rows}=await supabase.from("employee_import_rows").select("id,normalized_values,validation_errors,validation_warnings").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false);
@@ -184,7 +184,7 @@ export async function bulkFixEmployeeImport(businessSlug:string,importId:string,
 }
 
 export async function detectEmployeeImportDuplicates(businessSlug:string,importId:string){
- const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can review duplicates.")}`);
  const [{data:session},{data:rows},{data:employees}]=await Promise.all([
   supabase.from("employee_imports").select("version").eq("business_id",business.id).eq("id",importId).maybeSingle(),
@@ -203,7 +203,7 @@ export async function detectEmployeeImportDuplicates(businessSlug:string,importI
 }
 
 export async function resolveEmployeeImportDuplicate(businessSlug:string,importId:string,rowId:string,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  const resolution=String(formData.get("resolution")??"skip"),version=Number(formData.get("version"));
  const mergeFields=formData.getAll("mergeFields").map(String);
  const {error}=await supabase.rpc("resolve_employee_import_duplicate",{p_import_id:importId,p_row_id:rowId,p_expected_version:version,p_resolution:resolution,p_merge_fields:mergeFields});
@@ -212,7 +212,7 @@ export async function resolveEmployeeImportDuplicate(businessSlug:string,importI
 }
 
 export async function assignEmployeeImportAccess(businessSlug:string,importId:string,rowId:string|null,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  const version=Number(formData.get("version")),workforceRoleId=String(formData.get("workforceRoleId")??"")||null;
  const accessRole=String(formData.get("accessRole")??"")||null,invite=formData.get("invite")==="on",confirmElevated=formData.get("confirmElevated")==="on";
  let rowIds=rowId?[rowId]:formData.getAll("rowIds").map(String);
@@ -224,7 +224,7 @@ export async function assignEmployeeImportAccess(businessSlug:string,importId:st
 }
 
 export async function assignEmployeeImportOperations(businessSlug:string,importId:string,rowId:string|null,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  let rowIds=rowId?[rowId]:[];if(!rowId){const {data}=await supabase.from("employee_import_rows").select("id").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false).neq("validation_status","error");rowIds=(data??[]).map(row=>row.id);}
  if(!rowIds.length)redirect(`${target}?error=${encodeURIComponent("No eligible employee rows are available for operational assignments.")}`);
  const {error}=await supabase.rpc("assign_employee_import_operations",{
@@ -238,14 +238,14 @@ export async function assignEmployeeImportOperations(businessSlug:string,importI
 }
 
 export async function prepareEmployeeImportCommit(businessSlug:string,importId:string,mode:"ready_rows"|"fix_all",invitationMode:"send"|"without",formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  const {error}=await supabase.rpc("prepare_employee_import_commit",{p_import_id:importId,p_expected_version:Number(formData.get("version")),p_mode:mode,p_invitation_mode:invitationMode});
  if(error){console.error("Employee import review confirmation failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and review it again.":error.message.includes("Fix blocking")?"Correct every blocking error or choose Import Ready Rows.":error.message.includes("No employee")?"No employee rows are ready to import.":"The final import review could not be confirmed.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
  redirect(`${target}?success=${encodeURIComponent("Import review confirmed. The employees have not been created yet.")}`);
 }
 
 export async function commitEmployeeImport(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  const {data,error}=await supabase.rpc("commit_employee_import",{p_import_id:importId,p_expected_version:Number(formData.get("version"))});
  if(error){console.error("Employee import commit failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh before importing.":"The employee import could not be completed. No successful row will be duplicated when you retry.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
  const failed=Number(data?.failed_row_count??0);
@@ -253,7 +253,7 @@ export async function commitEmployeeImport(businessSlug:string,importId:string,f
 }
 
 export async function sendEmployeeImportInvitations(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`,version=Number(formData.get("version"));
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_invitations"),target=`/app/${businessSlug}/team/imports/${importId}`,version=Number(formData.get("version"));
  const {data:rows,error:rowsError}=await supabase.from("employee_import_rows").select("id,normalized_values,access_role,invitation_attempted_at").eq("business_id",business.id).eq("import_id",importId).eq("invite_requested",true).not("committed_employee_id","is",null).in("invitation_status",["not_invited","pending","failed","expired"]);
  if(rowsError){console.error("Employee import invitation rows failed",{businessId:business.id,importId,code:rowsError.code});redirect(`${target}?error=${encodeURIComponent("Invitation candidates could not be loaded.")}`);}
  const results=[] as {rowId:string;invitationId:string|null;status:string;failureReason:string|null}[];
@@ -273,7 +273,7 @@ export async function sendEmployeeImportInvitations(businessSlug:string,importId
 }
 
 export async function reopenFailedEmployeeImportRows(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  const selected=formData.getAll("rowIds").map(String);
  const {error}=await supabase.rpc("reopen_failed_employee_import_rows",{p_import_id:importId,p_expected_version:Number(formData.get("version")),p_row_ids:selected.length?selected:null});
  if(error){console.error("Employee import failed-row reopen failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh and try again.":"Failed rows could not be reopened.")}`);}
@@ -281,7 +281,7 @@ export async function reopenFailedEmployeeImportRows(businessSlug:string,importI
 }
 
 export async function rollbackEmployeeImport(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {supabase,business}=await requireWorkspaceCapability(businessSlug,"employee_import"),target=`/app/${businessSlug}/team/imports/${importId}`;
  if(formData.get("confirm")!=="on")redirect(`${target}?error=${encodeURIComponent("Confirm the rollback preview before continuing.")}`);
  const {error}=await supabase.rpc("rollback_employee_import",{p_import_id:importId,p_expected_version:Number(formData.get("version"))});
  if(error){console.error("Employee import rollback failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh the rollback preview.":"The import could not be rolled back safely.")}`);}

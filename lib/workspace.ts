@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { createSupabaseServerClient } from "./supabaseServer";
 import { isServonasPlatformAdmin, platformAdminRole } from "./platformAccess";
+import { assertCanAccess } from "./entitlements/service";
+import type { CapabilityCode } from "./entitlements/catalog";
 export async function requireWorkspace(slug: string) {
   const sessionSupabase = await createSupabaseServerClient();
   const { data: { user } } = await sessionSupabase.auth.getUser();
@@ -64,4 +66,12 @@ export async function requireWorkspace(slug: string) {
   if (membershipError) throw new Error(`Unable to verify workspace access: ${membershipError.message}`);
   if (!membership) notFound();
   return { supabase, user, business, role: membership.role as string, isPlatformAdmin: false };
+}
+
+export async function requireWorkspaceCapability(slug: string, capability: CapabilityCode) {
+  const context = await requireWorkspace(slug);
+  if (!context.isPlatformAdmin) {
+    await assertCanAccess(context.supabase, context.business.id, capability);
+  }
+  return context;
 }

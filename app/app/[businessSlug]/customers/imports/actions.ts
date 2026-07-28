@@ -1,7 +1,7 @@
 "use server";
 import {createHash,randomUUID} from "node:crypto";
 import {redirect} from "next/navigation";
-import {requireWorkspace} from "@/lib/workspace";
+import {requireWorkspaceCapability} from "@/lib/workspace";
 import {canManageCustomers} from "@/lib/access";
 import {CustomerImportFileError,parseCustomerImportFile} from "@/lib/customerImport/file";
 import{suggestCustomerImportMapping,validateCustomerMappings,type CustomerColumnMapping,type CustomerImportField}from "@/lib/customerImport/mapping";
@@ -13,7 +13,7 @@ import{customerImportFailureMessage}from "@/lib/customerImport/errors";
 const base=(slug:string)=>`/app/${slug}/customers/imports`;
 const safeMessage=(error:unknown)=>error instanceof CustomerImportFileError?error.message:"The file could not be inspected. Check the format and try again.";
 export async function uploadCustomerImport(businessSlug:string,formData:FormData){
- const {supabase,business,user,role}=await requireWorkspace(businessSlug);if(!canManageCustomers(role))redirect(`${base(businessSlug)}?error=${encodeURIComponent("You do not have permission to import customers.")}`);
+ const {supabase,business,user,role}=await requireWorkspaceCapability(businessSlug,"customer_migration");if(!canManageCustomers(role))redirect(`${base(businessSlug)}?error=${encodeURIComponent("You do not have permission to import customers.")}`);
  const file=formData.get("customer_file"),importType=String(formData.get("import_type")??"customer_list"),supplied=String(formData.get("request_key")??""),requestKey=/^[0-9a-f-]{36}$/i.test(supplied)?supplied:randomUUID();
  if(!(file instanceof File)||!file.size)redirect(`${base(businessSlug)}?error=${encodeURIComponent("Choose a CSV or Excel file to continue.")}`);
  try{
@@ -29,14 +29,14 @@ export async function uploadCustomerImport(businessSlug:string,formData:FormData
  }catch(error){if(error instanceof Error&&error.message==="NEXT_REDIRECT")throw error;console.error("Customer import upload failed",{businessId:business.id,actorUserId:user.id,category:error instanceof CustomerImportFileError?error.category:"unexpected",code:error instanceof Error?error.message.split(":")[0]:"unknown"});redirect(`${base(businessSlug)}?error=${encodeURIComponent(safeMessage(error))}`);}
 }
 export async function selectCustomerImportWorksheet(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business,user,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to change this import.")}`);
+ const {supabase,business,user,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to change this import.")}`);
  const worksheet=String(formData.get("worksheet")??"");
  const {data:session,error}=await supabase.from("customer_imports").select("file_name,storage_path,version").eq("business_id",business.id).eq("id",importId).maybeSingle();if(error||!session?.storage_path)redirect(`${target}?error=${encodeURIComponent("The private source file could not be loaded.")}`);
  const {data:blob,error:downloadError}=await supabase.storage.from("customer-imports").download(session.storage_path);if(downloadError||!blob)redirect(`${target}?error=${encodeURIComponent("The private source file could not be loaded.")}`);
  try{const preview=await parseCustomerImportFile(new File([blob],session.file_name,{type:blob.type}),worksheet);const {error:updateError}=await supabase.from("customer_imports").update({worksheet_name:preview.worksheetName,source_columns:preview.sourceColumns,total_row_count:preview.rowCount,current_stage:"mapping",status:"mapping",version:session.version+1,last_activity_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("id",importId).eq("version",session.version);if(updateError)throw new Error(updateError.code);await supabase.from("customer_import_events").insert({business_id:business.id,import_id:importId,event_type:"worksheet_selected",actor_user_id:user.id,metadata:{row_count:preview.rowCount}});redirect(`${target}?success=${encodeURIComponent(`${preview.rowCount.toLocaleString()} rows from “${worksheet}” are ready for column matching.`)}`);}catch(caught){if(caught instanceof Error&&caught.message==="NEXT_REDIRECT")throw caught;console.error("Customer import worksheet selection failed",{businessId:business.id,importId,category:caught instanceof CustomerImportFileError?caught.category:"unexpected"});redirect(`${target}?error=${encodeURIComponent(safeMessage(caught))}`);}
 }
 export async function saveCustomerImportMappings(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business,user,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to map this import.")}`);
+ const {supabase,business,user,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to map this import.")}`);
  const {data:session,error}=await supabase.from("customer_imports").select("file_name,storage_path,worksheet_name,source_columns,version").eq("business_id",business.id).eq("id",importId).maybeSingle();if(error||!session?.storage_path)redirect(`${target}?error=${encodeURIComponent("The import session could not be loaded.")}`);
  const columns=session.source_columns as {name:string}[],mappings:CustomerColumnMapping[]=columns.map((column,index)=>{const field=String(formData.get(`destination_${index}`)??"") as CustomerImportField|"";const suggestion=suggestCustomerImportMapping(column.name);return{sourceColumn:column.name,sourceOrdinal:index,destinationField:field||null,isIgnored:!field,confidence:field?(field===suggestion.destinationField?suggestion.confidence:"manual"):"unmatched"};});
  const mappingError=validateCustomerMappings(mappings);if(mappingError)redirect(`${target}?error=${encodeURIComponent(mappingError)}`);
@@ -62,7 +62,7 @@ export async function saveCustomerImportMappings(businessSlug:string,importId:st
  }catch(caught){if(caught instanceof Error&&caught.message==="NEXT_REDIRECT")throw caught;console.error("Customer import analysis failed",{businessId:business.id,importId,code:caught instanceof Error?caught.message:"unknown"});redirect(`${target}?error=${encodeURIComponent("The customer data could not be analyzed. No customer records were changed.")}`);}
 }
 export async function resolveCustomerImportDuplicate(businessSlug:string,importId:string,entityId:string,candidateId:string,formData:FormData){
- const {supabase,business,user,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to resolve duplicates.")}`);
+ const {supabase,business,user,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to resolve duplicates.")}`);
  const decision=String(formData.get("decision")??"");if(!["create","link_add_location","update_selected","skip"].includes(decision))redirect(`${target}?error=${encodeURIComponent("Choose what Servonas should do with this customer.")}`);
  const fields=["first_name","last_name","company_name","email","phone"],fieldUpdates=Object.fromEntries(fields.map(field=>[field,formData.get(`field_${field}`)==="on"]));
  const {error}=await supabase.from("customer_import_duplicate_decisions").upsert({business_id:business.id,import_id:importId,entity_id:entityId,candidate_id:decision==="create"?null:candidateId,decision,field_updates:decision==="update_selected"?fieldUpdates:{},decided_by:user.id},{onConflict:"business_id,entity_id"});
@@ -71,7 +71,7 @@ export async function resolveCustomerImportDuplicate(businessSlug:string,importI
  redirect(`${target}?success=${encodeURIComponent("Duplicate decision saved. Existing data remains unchanged until final import.")}`);
 }
 export async function correctCustomerImportEntity(businessSlug:string,importId:string,entityId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to correct this import.")}`);
+ const {supabase,business,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to correct this import.")}`);
  const fields=["first_name","last_name","company_name","email","phone","service_address","service_address_2","service_city","service_state","service_postal_code","billing_address","billing_address_2","billing_city","billing_state","billing_postal_code","service_name","frequency","next_service_date","notes"],values=normalizeCustomerRow(Object.fromEntries(fields.map(field=>[field,String(formData.get(field)??"").trim()])));
  values._address_decision=String(formData.get("address_decision")??"keep_original");const result=validateCustomerRow(values),recurrence=parseRecurrence(values.frequency??"");if(recurrence.warning)result.warnings.push(recurrence.warning);if(recurrence.value){values.recurrence_unit=recurrence.value.unit;values.recurrence_interval=String(recurrence.value.interval);}result.status=result.errors.length?"invalid":result.warnings.length?"warning":"ready";
  const {data:entity}=await supabase.from("customer_import_entities").select("source_row_numbers").eq("business_id",business.id).eq("import_id",importId).eq("id",entityId).maybeSingle();
@@ -80,7 +80,7 @@ export async function correctCustomerImportEntity(businessSlug:string,importId:s
  if(error){console.error("Customer import correction failed",{businessId:business.id,importId,entityId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The correction could not be saved.")}`);}redirect(`${target}?success=${encodeURIComponent(result.errors.length?"Correction saved, but this customer still has a blocking issue.":"Customer correction saved and revalidated.")}`);
 }
 export async function prepareCustomerImportReview(businessSlug:string,importId:string){
- const {supabase,business,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to review this import.")}`);
+ const {supabase,business,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to review this import.")}`);
  const [{data:session},{count:invalid},{data:candidates},{data:decisions}]=await Promise.all([
   supabase.from("customer_imports").select("version").eq("business_id",business.id).eq("id",importId).maybeSingle(),
   supabase.from("customer_import_entities").select("id",{count:"exact",head:true}).eq("business_id",business.id).eq("import_id",importId).eq("status","invalid"),
@@ -93,7 +93,7 @@ export async function prepareCustomerImportReview(businessSlug:string,importId:s
  if(error)redirect(`${target}?error=${encodeURIComponent("The final review could not be prepared. Refresh and try again.")}`);redirect(`${target}?success=${encodeURIComponent((invalid??0)>0?"Review prepared. Valid customers can be imported while invalid records remain for correction.":"Final review prepared. Nothing has been imported yet.")}`);
 }
 export async function commitCustomerImport(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to import customers.")}`);
+ const {supabase,business,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to import customers.")}`);
  const {data,error}=await supabase.rpc("commit_customer_import",{p_import_id:importId,p_expected_version:Number(formData.get("version")),p_ready_only:true});
  if(error){console.error("Customer import commit failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh before importing.":"The import could not be completed. Successful records will not be duplicated when you retry.")}`);}
  const result=data as {created_customers:number;updated_customers:number;created_locations:number;failed:number};
@@ -108,6 +108,6 @@ export async function commitCustomerImport(businessSlug:string,importId:string,f
 }
 export async function retryCustomerImport(businessSlug:string,importId:string,formData:FormData){return commitCustomerImport(businessSlug,importId,formData);}
 export async function rollbackCustomerImport(businessSlug:string,importId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(businessSlug),target=`${base(businessSlug)}/${importId}`;if(!["owner","admin","platform_admin"].includes(role??""))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can roll back a customer import.")}`);if(formData.get("confirm")!=="on")redirect(`${target}?error=${encodeURIComponent("Confirm that you reviewed the protected-record warning.")}`);
+ const {supabase,business,role}=await requireWorkspaceCapability(businessSlug,"customer_migration"),target=`${base(businessSlug)}/${importId}`;if(!["owner","admin","platform_admin"].includes(role??""))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can roll back a customer import.")}`);if(formData.get("confirm")!=="on")redirect(`${target}?error=${encodeURIComponent("Confirm that you reviewed the protected-record warning.")}`);
  const {data,error}=await supabase.rpc("rollback_customer_import",{p_import_id:importId,p_expected_version:Number(formData.get("version"))});if(error){console.error("Customer import rollback failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The import could not be rolled back safely.")}`);}const result=data as {removed:number;protected:number};redirect(`${target}?success=${encodeURIComponent(`Rollback finished: ${result.removed} imported records archived and ${result.protected} protected because later work depends on them.`)}`);
 }
