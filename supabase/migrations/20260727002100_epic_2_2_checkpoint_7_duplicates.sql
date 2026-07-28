@@ -1,4 +1,7 @@
 -- Epic 2.2 Checkpoint 7: explicit, tenant-safe duplicate matching and resolution.
+create unique index if not exists employee_import_rows_tenant_import_id_unique
+ on public.employee_import_rows(business_id,import_id,id);
+
 alter table public.employee_import_rows add column duplicate_match_type text not null default 'none',
  add column duplicate_reason text,add column existing_employee_id uuid,add column duplicate_import_row_id uuid,add column duplicate_resolution text not null default 'create',
  add column merge_fields text[] not null default '{}',
