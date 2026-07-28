@@ -162,3 +162,21 @@ export async function correctEmployeeImportRow(businessSlug:string,importId:stri
  if(error){console.error("Employee import row correction failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh and try again.":"The row could not be updated.")}`);}
  redirect(`${target}?success=${encodeURIComponent(ignore?"Row ignored.":"Row updated and revalidated.")}`);
 }
+
+export async function bulkFixEmployeeImport(businessSlug:string,importId:string,formData:FormData){
+ const {supabase,business,role,isPlatformAdmin}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`,operation=String(formData.get("operation")??"");
+ if(!isPlatformAdmin&&!["owner","admin"].includes(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can correct imports.")}`);
+ const {data:session}=await supabase.from("employee_imports").select("version").eq("business_id",business.id).eq("id",importId).maybeSingle();
+ const {data:rows}=await supabase.from("employee_import_rows").select("id,normalized_values,validation_errors,validation_warnings").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false);
+ if(!session||!rows)redirect(`${target}?error=${encodeURIComponent("The import rows could not be loaded.")}`);
+ const updates=rows.flatMap(row=>{const values={...(row.normalized_values as Record<string,string>)},errors=[...(row.validation_errors as string[])],warnings=[...(row.validation_warnings as string[])];
+  if(operation==="blank_status_active"&&!values.employment_status)values.employment_status="active";
+  else if(operation==="all_do_not_invite"&&(values.invite??"").toLowerCase()!=="no"){values.invite="no";const index=errors.indexOf("Invite must be Yes or No.");if(index>=0)errors.splice(index,1);}
+  else return [];
+  return [{id:row.id,normalizedValues:values,errors,warnings,status:errors.length?"error":warnings.length?"warning":"ready"}];
+ });
+ if(!updates.length)redirect(`${target}?success=${encodeURIComponent("No rows needed that bulk change.")}`);
+ const {error}=await supabase.rpc("bulk_revalidate_employee_import_rows",{p_import_id:importId,p_expected_version:session.version,p_rows:updates,p_operation:operation});
+ if(error){console.error("Employee import bulk correction failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The bulk correction could not be applied.")}`);}
+ redirect(`${target}?success=${encodeURIComponent(`Bulk correction applied to ${updates.length} rows.`)}`);
+}
