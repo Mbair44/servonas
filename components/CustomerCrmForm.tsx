@@ -25,12 +25,13 @@ export default function CustomerCrmForm({
   return <form action={formAction} className="crm-form">
     {state.error && <div className="workspace-notice error crm-wide" role="alert">{state.error}</div>}
     <input type="hidden" name="confirmDuplicate" value={state.values?.confirmDuplicate ?? ""}/>
-    <label>First name<input name="firstName" required defaultValue={value("firstName", customer?.first_name ?? "")}/>{fieldError("firstName")}</label>
-    <label>Last name<input name="lastName" defaultValue={value("lastName", customer?.last_name ?? "")}/></label>
-    <label className="crm-wide">Company<input name="companyName" defaultValue={value("companyName", customer?.company_name ?? "")}/></label>
-    <label>Email<input name="email" type="email" defaultValue={value("email", customer?.email ?? "")}/>{fieldError("email")}</label>
-    <label>Primary phone<input name="phone" type="tel" defaultValue={value("phone", customer?.phone ?? "")}/>{fieldError("phone")}</label>
-    <label>Secondary phone<input name="secondaryPhone" type="tel" defaultValue={value("secondaryPhone", customer?.secondary_phone ?? "")}/>{fieldError("secondaryPhone")}</label>
+    <p className="crm-required-note crm-wide"><span aria-hidden="true">*</span> Required field</p>
+    <label>First name <span className="crm-required" aria-hidden="true">*</span><span className="sr-only">(required)</span><input name="firstName" required aria-required="true" maxLength={100} defaultValue={value("firstName", customer?.first_name ?? "")}/>{fieldError("firstName")}</label>
+    <label>Last name <small>Optional</small><input name="lastName" maxLength={100} defaultValue={value("lastName", customer?.last_name ?? "")}/></label>
+    <label className="crm-wide">Company <small>Optional</small><input name="companyName" maxLength={200} defaultValue={value("companyName", customer?.company_name ?? "")}/></label>
+    <label>Email <small>Optional</small><input name="email" type="email" autoComplete="email" defaultValue={value("email", customer?.email ?? "")}/>{fieldError("email")}</label>
+    <label>Primary phone <small>Optional</small><input name="phone" type="tel" autoComplete="tel" defaultValue={value("phone", customer?.phone ?? "")}/>{fieldError("phone")}</label>
+    <label>Secondary phone <small>Optional</small><input name="secondaryPhone" type="tel" defaultValue={value("secondaryPhone", customer?.secondary_phone ?? "")}/>{fieldError("secondaryPhone")}</label>
     <label>Preferred contact<select name="preferredContactMethod" defaultValue={value("preferredContactMethod", customer?.preferred_contact_method ?? "email")}><option value="email">Email</option><option value="phone">Phone</option><option value="sms">SMS</option><option value="none">No preference</option></select></label>
     <label>Lead source<input name="leadSource" defaultValue={value("leadSource", customer?.lead_source ?? "")} placeholder="Referral, Google, repeat customer…"/></label>
     <label>Status<select name="isActive" defaultValue={value("isActive", String(customer?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
