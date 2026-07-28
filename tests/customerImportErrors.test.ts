@@ -1,0 +1,3 @@
+import assert from"node:assert/strict";import test from"node:test";import{customerImportFailureMessage}from"../lib/customerImport/errors.ts";
+test("customer import diagnostics explain common database failures safely",()=>{assert.match(customerImportFailureMessage("23505"),/already uses/i);assert.match(customerImportFailureMessage("42703"),/database setup is incomplete/i);assert.match(customerImportFailureMessage("23514"),/database rule/i);});
+test("unknown customer import diagnostics expose only the status code",()=>{const message=customerImportFailureMessage("XX999");assert.match(message,/XX999/);assert.doesNotMatch(message,/@|password|address/i);});

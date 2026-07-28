@@ -8,6 +8,7 @@ import{suggestCustomerImportMapping,validateCustomerMappings,type CustomerColumn
 import{customerGroupKey,locationGroupKey,mappedValues,normalizeCustomerRow,validateCustomerRow}from "@/lib/customerImport/normalize";
 import{scoreCustomerDuplicate}from "@/lib/customerImport/duplicates";
 import{parseRecurrence}from "@/lib/customerImport/recurrence";
+import{customerImportFailureMessage}from "@/lib/customerImport/errors";
 
 const base=(slug:string)=>`/app/${slug}/customers/imports`;
 const safeMessage=(error:unknown)=>error instanceof CustomerImportFileError?error.message:"The file could not be inspected. Check the format and try again.";
@@ -96,6 +97,13 @@ export async function commitCustomerImport(businessSlug:string,importId:string,f
  const {data,error}=await supabase.rpc("commit_customer_import",{p_import_id:importId,p_expected_version:Number(formData.get("version")),p_ready_only:true});
  if(error){console.error("Customer import commit failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="40001"?"The import changed. Refresh before importing.":"The import could not be completed. Successful records will not be duplicated when you retry.")}`);}
  const result=data as {created_customers:number;updated_customers:number;created_locations:number;failed:number};
+ if(result.failed){
+  const {data:failures,error:receiptError}=await supabase.from("customer_import_commit_receipts").select("entity_key,error_code").eq("business_id",business.id).eq("import_id",importId).eq("operation","failed");
+  const errorCodes=[...new Set((failures??[]).map(item=>item.error_code).filter((code):code is string=>Boolean(code)))];
+  console.error("Customer import completed with failed records",{businessId:business.id,importId,failedCount:result.failed,failures:(failures??[]).map(item=>({entityKey:item.entity_key,errorCode:item.error_code})),receiptReadCode:receiptError?.code??null});
+  const message=errorCodes.length===1?customerImportFailureMessage(errorCodes[0]):`${result.failed} customers failed database validation. Review the import diagnostics below before retrying.`;
+  redirect(`${target}?error=${encodeURIComponent(message)}`);
+ }
  redirect(`${target}?success=${encodeURIComponent(`Migration finished: ${result.created_customers} customers created, ${result.updated_customers} updated, ${result.created_locations} locations created${result.failed?`, and ${result.failed} need attention`:""}.`)}`);
 }
 export async function retryCustomerImport(businessSlug:string,importId:string,formData:FormData){return commitCustomerImport(businessSlug,importId,formData);}
