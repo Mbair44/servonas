@@ -7,6 +7,7 @@ import {
   isPotentialCustomerDuplicate,
   isValidCrmEmail,
   isValidCrmPhone,
+  customerWriteErrorMessage,
 } from "@/lib/crmValidation";
 import { GoogleGeocodingProvider } from "@/lib/geocoding/googleProvider";
 import {
@@ -98,8 +99,8 @@ export async function createCustomer(
     updated_by: user.id,
   }).select("id").single();
   if (error || !data) {
-    console.error("CRM customer creation failed", { code: error?.code, businessId: business.id });
-    return { error: error?.code === "23505" ? "A customer with that email already exists." : "The customer could not be created.", values };
+    console.error("CRM customer creation failed", { code: error?.code, message:error?.message, hint:error?.hint, businessId: business.id });
+    return { error: customerWriteErrorMessage(error??undefined,"created"), values };
   }
   revalidatePath(`/app/${slug}/customers`);
   redirect(`/app/${slug}/customers/${data.id}?success=Customer+created`);
@@ -146,8 +147,8 @@ export async function updateCustomer(
     updated_by: user.id,
   }).eq("id", customerId).eq("business_id", business.id);
   if (error) {
-    console.error("CRM customer update failed", { code: error.code, businessId: business.id, customerId });
-    return { error: error.code === "23505" ? "A customer with that email already exists." : "The customer could not be saved.", values };
+    console.error("CRM customer update failed", { code: error.code, message:error.message, hint:error.hint, businessId: business.id, customerId });
+    return { error: customerWriteErrorMessage(error,"saved"), values };
   }
   revalidatePath(`/app/${slug}/customers`);
   revalidatePath(`/app/${slug}/customers/${customerId}`);

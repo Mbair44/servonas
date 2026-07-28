@@ -45,12 +45,12 @@ export function EmployeeManagementConsole({businessSlug,employees,roles,canEdit,
      <button className="sv-button sv-secondary" type="button" onClick={()=>{setSearch("");setStatus("all");setRole("");}}>Clear</button>
     </div>
     <div className="employee-table" role="table" aria-label="Employees">
-     <div className="employee-table-head" role="row"><span role="columnheader">Employee</span><span role="columnheader">Role(s)</span><span role="columnheader">Status</span><span role="columnheader">Contact</span><span role="columnheader">Added</span><span aria-hidden="true">•••</span></div>
+     <div className="employee-table-head" role="row"><span role="columnheader">Employee</span><span role="columnheader">Role(s)</span><span role="columnheader">Status</span><span role="columnheader">Contact</span><span role="columnheader">Added</span></div>
      {visible.length?visible.map(employee=><button role="row" type="button" onClick={()=>open({kind:"details",employeeId:employee.id})} key={employee.id}>
       <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{employee.profilePhotoUrl?<img src={employee.profilePhotoUrl} alt=""/>:initials(employee.preferredName)}</span><span><strong>{employee.preferredName}</strong><small>{employee.employeeNumber?`#${employee.employeeNumber}`:employee.email||"No email"}</small></span></span>
       <span className="employee-table-roles" role="cell">{employee.roles.length?employee.roles.map(item=><em key={item.id}>{item.name}</em>):<em>Not assigned</em>}</span>
       <span role="cell"><b className={`employee-state ${employee.state}`}>● {employee.state.replaceAll("_"," ")}</b></span><span className="employee-table-contact" role="cell">{employee.email||employee.phone||"—"}</span>
-      <span role="cell">{new Date(employee.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span><span aria-hidden="true">⋮</span>
+      <span role="cell">{new Date(employee.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
      </button>):<div className="dashboard-empty"><strong>No employees match these filters.</strong><p>Adjust the filters or add an employee.</p></div>}
     </div>
     <footer className="employee-table-footer">Showing {visible.length} of {employees.length} employees</footer>

@@ -58,13 +58,13 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
      <button className="sv-button sv-secondary" type="submit">Filters</button>
     </form>
     <div className="customer-table" role="table" aria-label="Customers">
-     <div className="customer-table-head" role="row"><span role="columnheader">Customer</span><span role="columnheader">Primary contact</span><span role="columnheader">Type</span><span role="columnheader">Status</span><span role="columnheader">Locations</span><span role="columnheader">Last service</span><span role="columnheader">Total jobs</span><span aria-hidden="true">•••</span></div>
+     <div className="customer-table-head" role="row"><span role="columnheader">Customer</span><span role="columnheader">Primary contact</span><span role="columnheader">Type</span><span role="columnheader">Status</span><span role="columnheader">Locations</span><span role="columnheader">Last service</span><span role="columnheader">Total jobs</span></div>
      {visible.length?visible.map(customer=><Link role="row" className={selected?.id===customer.id?"selected":""} href={href({customer:customer.id})} key={customer.id}>
       <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{initials(customer.displayName)}</span><span><strong>{customer.displayName}</strong><small>{customer.company_name?`${customer.first_name} ${customer.last_name}`.trim():"Customer"}</small></span></span>
       <span className="customer-contact" role="cell"><strong>{customer.email||"No email"}</strong><small>{customer.phone||"No phone"}</small></span>
       <span role="cell"><em className={`customer-type ${customer.customerType}`}>{customer.customerType}</em></span>
       <span role="cell"><b className={`employee-state ${customer.is_active?"active":"inactive"}`}>● {customer.is_active?"Active":"Inactive"}</b></span>
-      <span role="cell">{customer.locations.length}</span><span role="cell">{customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—"}</span><span role="cell">{customer.jobCount}</span><span aria-hidden="true">⋮</span>
+      <span role="cell">{customer.locations.length}</span><span role="cell">{customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—"}</span><span role="cell">{customer.jobCount}</span>
      </Link>):<div className="dashboard-empty"><strong>No matching customers.</strong><p>Adjust the filters or add a customer.</p></div>}
     </div>
     <footer className="customer-table-footer"><span>Showing {visible.length?`${(currentPage-1)*pageSize+1} to ${(currentPage-1)*pageSize+visible.length}`:"0"} of {rows.length} customers</span>{totalPages>1&&<nav aria-label="Customer pages">{currentPage>1&&<Link href={href({page:String(currentPage-1)})}>←</Link>}<b>{currentPage}</b><span>of {totalPages}</span>{currentPage<totalPages&&<Link href={href({page:String(currentPage+1)})}>→</Link>}</nav>}</footer>
