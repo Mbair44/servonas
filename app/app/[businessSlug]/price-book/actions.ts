@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { parseCurrencyToCents, priceBookUnitTypes } from "@/lib/financial/priceBook";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 
 export type PriceBookActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
@@ -12,7 +12,7 @@ const valuesFrom = (formData: FormData) => Object.fromEntries(
   [...formData.entries()].filter(([, value]) => typeof value === "string"),
 ) as Record<string, string>;
 
-async function prepare(formData: FormData, context: Awaited<ReturnType<typeof requireWorkspace>>) {
+async function prepare(formData: FormData, context: Awaited<ReturnType<typeof requireWorkspaceCapability>>) {
   const values = valuesFrom(formData);
   const errors: Record<string, string> = {};
   const name = text(formData, "name");
@@ -54,7 +54,7 @@ async function prepare(formData: FormData, context: Awaited<ReturnType<typeof re
 }
 
 export async function createPriceBookItem(slug: string, _state: PriceBookActionState, formData: FormData): Promise<PriceBookActionState> {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(context.role)) return { error: "You do not have permission to manage the price book.", values: valuesFrom(formData) };
   const prepared = await prepare(formData, context);
   if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
@@ -70,7 +70,7 @@ export async function createPriceBookItem(slug: string, _state: PriceBookActionS
 }
 
 export async function updatePriceBookItem(slug: string, itemId: string, _state: PriceBookActionState, formData: FormData): Promise<PriceBookActionState> {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(context.role)) return { error: "You do not have permission to manage the price book.", values: valuesFrom(formData) };
   const prepared = await prepare(formData, context);
   if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
@@ -86,7 +86,7 @@ export async function updatePriceBookItem(slug: string, itemId: string, _state: 
 }
 
 export async function setPriceBookItemArchived(slug: string, itemId: string, archived: boolean) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/price-book?error=Permission+denied`);
   const { error } = await supabase.from("price_book_items").update({
     is_deleted: archived, is_active: !archived, updated_by: user.id,
@@ -100,7 +100,7 @@ export async function setPriceBookItemArchived(slug: string, itemId: string, arc
 }
 
 export async function duplicatePriceBookItem(slug: string, itemId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/price-book?error=Permission+denied`);
   const { data: source } = await supabase.from("price_book_items").select("*").eq("id", itemId).eq("business_id", business.id).maybeSingle();
   if (!source) redirect(`/app/${slug}/price-book?error=Item+not+found`);
@@ -116,7 +116,7 @@ export async function duplicatePriceBookItem(slug: string, itemId: string) {
 }
 
 export async function createPriceBookCategory(slug: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/price-book/categories?error=Permission+denied`);
   const name = text(formData, "name");
   if (!name || name.length > 160) redirect(`/app/${slug}/price-book/categories?error=Enter+a+valid+category+name`);
@@ -130,7 +130,7 @@ export async function createPriceBookCategory(slug: string, formData: FormData) 
 }
 
 export async function updatePriceBookCategory(slug: string, categoryId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/price-book/categories?error=Permission+denied`);
   const name = text(formData, "name");
   const { error } = await supabase.from("price_book_categories").update({
@@ -144,7 +144,7 @@ export async function updatePriceBookCategory(slug: string, categoryId: string, 
 }
 
 export async function archivePriceBookCategory(slug: string, categoryId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"estimates");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/price-book/categories?error=Permission+denied`);
   const { count } = await supabase.from("price_book_items").select("id", { count: "exact", head: true })
     .eq("business_id", business.id).eq("category_id", categoryId).eq("is_deleted", false).eq("is_active", true);

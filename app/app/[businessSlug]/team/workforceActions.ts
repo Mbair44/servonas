@@ -9,7 +9,7 @@ import { validateQualification } from "@/lib/workforceQualifications";
 import { splitTerritoryValues, validateTerritory, validateTerritoryAssignment, type TerritoryStrategyConfig } from "@/lib/workforceTerritories";
 import { validateWorkforceAsset, WORKFORCE_ASSET_CONDITIONS } from "@/lib/workforceAssets";
 import { parseWorkTypes, validateWorkforcePreferences } from "@/lib/workforcePreferences";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 import {createAndDeliverEmployeeInvitation} from "./actions";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
@@ -23,7 +23,7 @@ const employeePayload=(formData:FormData,userId:string)=>{
  return {payload,error:validateEmployeeProfile({preferredName,firstName,lastName,email:payload.email,employeeType:payload.employee_type,employmentStatus,profilePhotoUrl:payload.profile_photo_url,hireDate:payload.hire_date,terminationDate,isActive:payload.is_active})};
 };
 
-async function replaceRoles(supabase:Awaited<ReturnType<typeof requireWorkspace>>["supabase"],businessId:string,employeeId:string,roleIds:string[],userId:string){
+async function replaceRoles(supabase:Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"],businessId:string,employeeId:string,roleIds:string[],userId:string){
  const {data:validRoles}=roleIds.length?await supabase.from("workforce_roles").select("id").eq("business_id",businessId).eq("is_active",true).in("id",roleIds):{data:[]};
  if((validRoles??[]).length!==new Set(roleIds).size)throw new Error("One or more workforce roles are invalid.");
  const {data:current}=await supabase.from("employee_role_assignments").select("id,workforce_role_id").eq("business_id",businessId).eq("employee_id",employeeId).eq("is_active",true);
@@ -36,7 +36,7 @@ async function replaceRoles(supabase:Awaited<ReturnType<typeof requireWorkspace>
 }
 
 export async function createEmployee(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can add employees."));
  const {payload,error}=employeePayload(formData,user.id);if(error)redirect(path(slug,"error",error));
  if(payload.manager_employee_id){const {data:manager}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",payload.manager_employee_id).eq("is_active",true).maybeSingle();if(!manager)redirect(path(slug,"error","Choose an active manager from this business."));}
@@ -58,7 +58,7 @@ export async function createEmployee(slug:string,formData:FormData){
 }
 
 export async function updateEmployee(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can edit employees."));
  const {payload,error}=employeePayload(formData,user.id);if(error)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent(error)}`);
  if(payload.manager_employee_id===employeeId)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("An employee cannot manage themselves.")}`);
@@ -70,7 +70,7 @@ export async function updateEmployee(slug:string,employeeId:string,formData:Form
 }
 
 export async function setEmployeeActive(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");if(!canManageBusiness(role))redirect(path(slug,"error","Permission denied."));
  const active=formData.get("active")==="true";
  const {error}=await supabase.from("employees").update({employment_status:active?"active":"inactive",is_active:active,termination_date:active?null:undefined,updated_by:user.id}).eq("business_id",business.id).eq("id",employeeId);
  if(error)redirect(path(slug,"error","Employee status could not be changed."));
@@ -82,7 +82,7 @@ const employeePath=(slug:string,employeeId:string,kind:"success"|"error",message
 const formText=(formData:FormData,key:string)=>String(formData.get(key)??"").trim();
 
 export async function saveEmployeeAvailability(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Only owners and administrators can edit availability."));
  const {data:employee}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",employeeId).maybeSingle();
  if(!employee)redirect(employeePath(slug,employeeId,"error","Employee not found."));
@@ -117,7 +117,7 @@ export async function saveEmployeeAvailability(slug:string,employeeId:string,for
 }
 
 export async function addEmployeeAvailabilityException(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const {data:profile}=await supabase.from("employee_availability_profiles").select("time_zone").eq("business_id",business.id).eq("employee_id",employeeId).maybeSingle();
  if(!profile)redirect(employeePath(slug,employeeId,"error","Save availability settings before adding time off."));
@@ -145,7 +145,7 @@ export async function addEmployeeAvailabilityException(slug:string,employeeId:st
 }
 
 export async function deleteEmployeeAvailabilityException(slug:string,employeeId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const {error}=await supabase.from("employee_availability_exceptions").delete()
   .eq("business_id",business.id).eq("employee_id",employeeId).eq("id",formText(formData,"exceptionId"));
@@ -159,7 +159,7 @@ export async function deleteEmployeeAvailabilityException(slug:string,employeeId
 }
 
 export async function addEmployeeQualification(slug:string,employeeId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const qualificationType=formText(formData,"qualificationType"),name=formText(formData,"name");
  const issuedOn=normalizeOptional(formData.get("issuedOn")),expiresOn=normalizeOptional(formData.get("expiresOn"));
@@ -180,7 +180,7 @@ export async function addEmployeeQualification(slug:string,employeeId:string,for
 }
 
 export async function endEmployeeQualification(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const {error}=await supabase.from("employee_qualifications").update({
   status:"revoked",ended_at:new Date().toISOString(),ended_by:user.id,
@@ -194,7 +194,7 @@ export async function endEmployeeQualification(slug:string,employeeId:string,for
 }
 
 export async function createEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const name=formText(formData,"name"),territoryType=formText(formData,"territoryType");
  const postalCodes=splitTerritoryValues(formText(formData,"postalCodes"));
@@ -231,7 +231,7 @@ export async function createEmployeeTerritory(slug:string,employeeId:string,form
 }
 
 export async function assignEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const territoryId=formText(formData,"territoryId"),assignmentType=formText(formData,"assignmentType");
  const effectiveFrom=formText(formData,"effectiveFrom"),effectiveThrough=normalizeOptional(formData.get("effectiveThrough"));
@@ -259,7 +259,7 @@ export async function assignEmployeeTerritory(slug:string,employeeId:string,form
 }
 
 export async function endEmployeeTerritory(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const {error}=await supabase.from("employee_territory_assignments").update({ended_at:new Date().toISOString(),ended_by:user.id})
   .eq("business_id",business.id).eq("employee_id",employeeId).eq("id",formText(formData,"assignmentId")).is("ended_at",null);
@@ -272,7 +272,7 @@ export async function endEmployeeTerritory(slug:string,employeeId:string,formDat
 }
 
 export async function createWorkforceAsset(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const name=formText(formData,"name"),assetType=formText(formData,"assetType");
  const yearValue=formText(formData,"modelYear"),modelYear=yearValue?Number(yearValue):null;
@@ -299,7 +299,7 @@ export async function createWorkforceAsset(slug:string,employeeId:string,formDat
 }
 
 export async function assignWorkforceAsset(slug:string,employeeId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const assetId=formText(formData,"assetId");
  if(!assetId)redirect(employeePath(slug,employeeId,"error","Choose an available asset."));
@@ -322,7 +322,7 @@ export async function assignWorkforceAsset(slug:string,employeeId:string,formDat
 }
 
 export async function returnWorkforceAsset(slug:string,employeeId:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const returnCondition=formText(formData,"returnCondition");
  if(!WORKFORCE_ASSET_CONDITIONS.includes(returnCondition as typeof WORKFORCE_ASSET_CONDITIONS[number])){
@@ -341,7 +341,7 @@ export async function returnWorkforceAsset(slug:string,employeeId:string,formDat
 }
 
 export async function saveEmployeePreferences(slug:string,employeeId:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Permission denied."));
  const preferred=parseWorkTypes(formText(formData,"preferredWorkTypes"));
  const avoided=parseWorkTypes(formText(formData,"avoidedWorkTypes"));

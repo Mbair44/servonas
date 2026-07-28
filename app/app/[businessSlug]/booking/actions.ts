@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 import { canManageBusiness, canManageCustomers } from "@/lib/access";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -9,7 +9,7 @@ const checked=(f:FormData,k:string)=>f.get(k)==="on";
 const number=(f:FormData,k:string,fallback=0)=>{const n=Number(text(f,k));return Number.isFinite(n)?n:fallback;};
 const refresh=(slug:string)=>{revalidatePath(`/app/${slug}/booking`);revalidatePath(`/book/${slug}`);};
 export async function saveBookingSettings(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug); if(!canManageBusiness(role)) redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+booking+settings`);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking"); if(!canManageBusiness(role)) redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+booking+settings`);
  const publicSlug=text(formData,"publicSlug").toLowerCase(); if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(publicSlug)) redirect(`/app/${slug}/booking?error=Use+letters,+numbers,+and+hyphens+for+the+public+slug`);
  const brand=text(formData,"brandColor"); if(!/^#[0-9a-fA-F]{6}$/.test(brand)) redirect(`/app/${slug}/booking?error=Brand+color+must+be+a+6-digit+hex+color`);
  const questions=text(formData,"intakeQuestions").split("\n").map(q=>q.trim()).filter(Boolean).slice(0,10);const limitRaw=text(formData,"dailyAppointmentLimit");
@@ -19,7 +19,7 @@ export async function saveBookingSettings(slug:string,formData:FormData){
  if(error){console.error(error);redirect(`/app/${slug}/booking?error=${encodeURIComponent(error.code==="23505"?"That public booking slug is already in use.":"We couldn’t save booking settings.")}`)} refresh(slug);redirect(`/app/${slug}/booking?success=Booking+settings+saved`);
 }
 export async function uploadBookingLogo(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+the+booking+logo`);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageBusiness(role))redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+the+booking+logo`);
  const file=formData.get("logo");
  if(!(file instanceof File)||!file.size)redirect(`/app/${slug}/booking?error=Choose+a+logo+file`);
  const allowed=["image/jpeg","image/png","image/webp"];
@@ -35,7 +35,7 @@ export async function uploadBookingLogo(slug:string,formData:FormData){
  refresh(slug);if(settings?.public_slug)revalidatePath(`/book/${settings.public_slug}`);redirect(`/app/${slug}/booking?success=Booking+logo+updated`);
 }
 export async function removeBookingLogo(slug:string){
- const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+the+booking+logo`);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageBusiness(role))redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+the+booking+logo`);
  const {data:settings}=await supabase.from("booking_settings").select("logo_path,public_slug").eq("business_id",business.id).maybeSingle();
  const {error}=await supabase.from("booking_settings").update({logo_path:null,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
  if(error){console.error("Booking logo removal failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/booking?error=The+logo+could+not+be+removed`);}
@@ -43,27 +43,27 @@ export async function removeBookingLogo(slug:string){
  refresh(slug);if(settings?.public_slug)revalidatePath(`/book/${settings.public_slug}`);redirect(`/app/${slug}/booking?success=Booking+logo+removed`);
 }
 export async function createService(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
  const name=text(formData,"name");if(!name)redirect(`/app/${slug}/booking?error=Service+name+is+required`);
  const priceRaw=text(formData,"price");const {error}=await supabase.from("services").insert({business_id:business.id,name,description:text(formData,"description")||null,duration_minutes:number(formData,"duration",60),price_amount:priceRaw?number(formData,"price"):null,price_label:text(formData,"priceLabel")||"fixed",active:true,created_by:user.id,updated_by:user.id});
  if(error){console.error(error);redirect(`/app/${slug}/booking?error=We+couldn’t+add+the+service`)}refresh(slug);redirect(`/app/${slug}/booking?success=Service+added`);
 }
-export async function toggleService(slug:string,formData:FormData){const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;await supabase.from("services").update({active:text(formData,"active")!=="true",updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",text(formData,"serviceId")).eq("business_id",business.id);refresh(slug);}
-export async function archiveService(slug:string,formData:FormData){const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;await supabase.from("services").update({is_deleted:true,active:false,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",text(formData,"serviceId")).eq("business_id",business.id);refresh(slug);}
+export async function toggleService(slug:string,formData:FormData){const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))return;await supabase.from("services").update({active:text(formData,"active")!=="true",updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",text(formData,"serviceId")).eq("business_id",business.id);refresh(slug);}
+export async function archiveService(slug:string,formData:FormData){const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))return;await supabase.from("services").update({is_deleted:true,active:false,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",text(formData,"serviceId")).eq("business_id",business.id);refresh(slug);}
 export async function replaceAvailability(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
  const rows=[] as {business_id:string;weekday:number;start_time:string;end_time:string;active:boolean}[];
  for(let d=0;d<7;d++){if(checked(formData,`day_${d}`)){const start=text(formData,`start_${d}`),end=text(formData,`end_${d}`);if(start&&end&&end>start)rows.push({business_id:business.id,weekday:d,start_time:start,end_time:end,active:true});}}
  await supabase.from("booking_availability").delete().eq("business_id",business.id);if(rows.length){const {error}=await supabase.from("booking_availability").insert(rows);if(error){console.error(error);redirect(`/app/${slug}/booking?error=We+couldn’t+save+availability`)}}refresh(slug);redirect(`/app/${slug}/booking?success=Availability+saved`);
 }
 export async function addBlackout(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))return;
  const starts=localDateTime(text(formData,"startsAt"),business.timezone),ends=localDateTime(text(formData,"endsAt"),business.timezone);
  if(!starts||!ends||ends<=starts)redirect(`/app/${slug}/booking?error=Enter+a+valid+blocked+time+range`);
  await supabase.from("booking_blackouts").insert({business_id:business.id,starts_at:starts.toISOString(),ends_at:ends.toISOString(),reason:text(formData,"reason")||null,created_by:user.id});
  refresh(slug);redirect(`/app/${slug}/booking?success=Blocked+time+added`);
 }
-export async function deleteBlackout(slug:string,formData:FormData){const {supabase,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))return;await supabase.from("booking_blackouts").delete().eq("id",text(formData,"blackoutId")).eq("business_id",business.id);refresh(slug);}
+export async function deleteBlackout(slug:string,formData:FormData){const {supabase,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))return;await supabase.from("booking_blackouts").delete().eq("id",text(formData,"blackoutId")).eq("business_id",business.id);refresh(slug);}
 
 const localDateTime=(value:string,timeZone:string)=>{
  const [date,time]=value.split("T");if(!date||!time)return null;
@@ -71,7 +71,7 @@ const localDateTime=(value:string,timeZone:string)=>{
  return Number.isNaN(parsed.getTime())?null:parsed;
 };
 export async function addTechnicianTimeOff(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
  const technicianId=text(formData,"technicianId"),starts=localDateTime(text(formData,"startsAt"),business.timezone),ends=localDateTime(text(formData,"endsAt"),business.timezone);
  if(!technicianId||!starts||!ends||ends<=starts)redirect(`/app/${slug}/booking?error=Enter+a+valid+technician+and+time-off+range`);
  const {data:technician}=await supabase.from("technician_profiles").select("id").eq("id",technicianId).eq("business_id",business.id).eq("is_active",true).maybeSingle();
@@ -81,7 +81,7 @@ export async function addTechnicianTimeOff(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}/booking`);redirect(`/app/${slug}/booking?success=Technician+time+off+saved`);
 }
 export async function deleteTechnicianTimeOff(slug:string,formData:FormData){
- const {supabase,business,role}=await requireWorkspace(slug);if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageCustomers(role))redirect(`/app/${slug}/booking?error=Permission+denied`);
  const {error}=await supabase.from("technician_time_off").delete().eq("id",text(formData,"timeOffId")).eq("business_id",business.id);
  if(error){console.error("Technician time off removal failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/booking?error=Time+off+could+not+be+removed`);}
  revalidatePath(`/app/${slug}/booking`);redirect(`/app/${slug}/booking?success=Technician+time+off+removed`);

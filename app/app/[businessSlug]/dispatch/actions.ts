@@ -7,7 +7,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { availableJobTransitions, canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { validateJobSchedule } from "@/lib/jobScheduling";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 import { calculateDailyRoutes } from "@/lib/routing/routeCalculationService";
 import { publicRouteCalculationError } from "@/lib/routing/errors";
 import { actualRouteImpactSummary, type RoadMetrics } from "@/lib/routing/impact";
@@ -20,7 +20,7 @@ const dispatchPath = (slug: string, date: string, kind: "error" | "success", mes
   `/app/${slug}/dispatch?date=${encodeURIComponent(date)}&${kind}=${encodeURIComponent(message)}`;
 
 export async function calculateDispatchRoutes(slug: string, formData: FormData) {
-  const { user, business, role } = await requireWorkspace(slug);
+  const { user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   if (!hasRouteCapability(role,"recalculate_routes")) {
     console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"recalculate_routes"});
@@ -57,7 +57,7 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
 }
 
 export async function optimizeDispatchRoutes(slug: string, formData: FormData) {
-  const { user, business, role } = await requireWorkspace(slug);
+  const { user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   const routePlanId = text(formData, "routePlanId");
   const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
@@ -88,7 +88,7 @@ export async function optimizeDispatchRoutes(slug: string, formData: FormData) {
 }
 
 export async function decideDispatchRouteSuggestion(slug: string, suggestionId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   const decision = text(formData, "decision");
   const planVersion = parseRoutePlanVersion(formData.get("planVersion"));
@@ -130,7 +130,7 @@ export async function decideDispatchRouteSuggestion(slug: string, suggestionId: 
 }
 
 export async function reorderDispatchRoute(slug: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   const technicianRouteId = text(formData, "technicianRouteId");
   const technicianId = text(formData, "technicianId");
@@ -200,7 +200,7 @@ export async function reorderDispatchRoute(slug: string, formData: FormData) {
 }
 
 async function updateTechnicianOperationalState(
-  supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"],
+  supabase: Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"],
   businessId: string,
   technicianId: string | null,
   status: JobStatus,
@@ -216,7 +216,7 @@ async function updateTechnicianOperationalState(
 }
 
 export async function assignDispatchJob(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   if (!hasRouteCapability(role,"reassign_jobs")) {
     console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"reassign_jobs"});
@@ -309,7 +309,7 @@ export async function assignDispatchJob(slug: string, jobId: string, formData: F
 }
 
 export async function updateDispatchStatus(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   if (!canManageCustomers(role)) redirect(dispatchPath(slug, date, "error", "Permission denied."));
   const requested = text(formData, "status") as JobStatus;

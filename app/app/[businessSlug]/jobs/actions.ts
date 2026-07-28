@@ -8,7 +8,7 @@ import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
 import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 
 export type JobActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
@@ -24,7 +24,7 @@ const localDate = (value: string, timeZone: string) => {
 };
 
 async function ownedRecord(
-  supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"],
+  supabase: Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"],
   table: "customers" | "service_locations" | "services" | "technician_profiles",
   id: string,
   businessId: string,
@@ -39,7 +39,7 @@ async function ownedRecord(
 
 async function prepareJob(
   formData: FormData,
-  context: Awaited<ReturnType<typeof requireWorkspace>>,
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
   excludeJobId?: string,
 ) {
   const { supabase, business } = context;
@@ -117,7 +117,7 @@ async function prepareJob(
 }
 
 export async function createJob(slug: string, _state: JobActionState, formData: FormData): Promise<JobActionState> {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"job_management");
   const { supabase, user, business, role } = context;
   const values = valuesFrom(formData);
   if (!canManageCustomers(role)) return { error: "You do not have permission to create jobs.", values };
@@ -154,7 +154,7 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
 }
 
 export async function updateJob(slug: string, jobId: string, _state: JobActionState, formData: FormData): Promise<JobActionState> {
-  const context = await requireWorkspace(slug);
+  const context = await requireWorkspaceCapability(slug,"job_management");
   const { supabase, user, business, role } = context;
   const values = valuesFrom(formData);
   if (!canManageCustomers(role)) return { error: "You do not have permission to edit jobs.", values };
@@ -183,7 +183,7 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
 }
 
 export async function assignJobTechnician(slug: string, jobId: string, formData: FormData) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) {
     redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Your workspace role does not allow job assignment. Ask an owner or admin to grant manager access.")}`);
   }
@@ -237,7 +237,7 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
 }
 
 export async function changeJobStatus(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const status = text(formData, "status");
   if (!jobStatuses.includes(status as typeof jobStatuses[number])) redirect(`/app/${slug}/jobs/${jobId}?error=Invalid+status`);
@@ -264,7 +264,7 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
 }
 
 export async function cancelJob(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const { data: currentJob } = await supabase.from("jobs").select("status").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!currentJob || !canTransitionJob(currentJob.status as JobStatus, "canceled")) {
@@ -281,7 +281,7 @@ export async function cancelJob(slug: string, jobId: string, formData: FormData)
 }
 
 export async function addJobNote(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const note = text(formData, "note");
   if (!note || note.length > 4000) redirect(`/app/${slug}/jobs/${jobId}?error=Enter+a+note+under+4,000+characters`);
@@ -304,7 +304,7 @@ export async function addJobNote(slug: string, jobId: string, formData: FormData
 }
 
 export async function editJobNote(slug: string, jobId: string, formData: FormData) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const noteId = text(formData, "noteId");
   const body = text(formData, "body") || text(formData, "note");
@@ -320,7 +320,7 @@ export async function editJobNote(slug: string, jobId: string, formData: FormDat
 }
 
 export async function addJobPhoto(slug: string, jobId: string, formData: FormData) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const { data: job } = await supabase.from("jobs").select("id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!job) redirect(`/app/${slug}/jobs/${jobId}?error=Job+not+found`);
@@ -352,7 +352,7 @@ export async function addJobPhoto(slug: string, jobId: string, formData: FormDat
 }
 
 export async function removeJobPhoto(slug: string, jobId: string, formData: FormData) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const photoId = text(formData, "photoId");
   const { data: photo } = await supabase.from("job_photos").select("id,storage_path").eq("id", photoId).eq("job_id", jobId).eq("business_id", business.id).maybeSingle();
@@ -369,7 +369,7 @@ export async function removeJobPhoto(slug: string, jobId: string, formData: Form
 }
 
 export async function archiveJob(slug: string, jobId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs?error=Permission+denied`);
   await supabase.from("jobs").update({ is_deleted: true, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id);
   revalidatePath(`/app/${slug}/jobs`); redirect(`/app/${slug}/jobs?success=Job+archived`);

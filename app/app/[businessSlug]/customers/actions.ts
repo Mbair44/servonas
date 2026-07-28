@@ -14,7 +14,7 @@ import {
   resolveServiceLocationAddress,
   setManualServiceLocationCoordinates,
 } from "@/lib/geocoding/service";
-import { requireWorkspace } from "@/lib/workspace";
+import { requireWorkspaceCapability } from "@/lib/workspace";
 
 export type CrmActionState = {
   error?: string;
@@ -40,7 +40,7 @@ function validateCustomer(formData: FormData) {
 }
 
 async function duplicateWarning(
-  supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"],
+  supabase: Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"],
   businessId: string,
   email: string,
   phone: string,
@@ -59,7 +59,7 @@ export async function createCustomer(
   _state: CrmActionState,
   formData: FormData,
 ): Promise<CrmActionState> {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   if (!canManageCustomers(role)) return { error: "You do not have permission to add customers.", values: valuesFrom(formData) };
   const fieldErrors = validateCustomer(formData);
   const values = valuesFrom(formData);
@@ -111,7 +111,7 @@ export async function updateCustomer(
   _state: CrmActionState,
   formData: FormData,
 ): Promise<CrmActionState> {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   const values = valuesFrom(formData);
   if (!canManageCustomers(role)) return { error: "You do not have permission to edit customers.", values };
   const fieldErrors = validateCustomer(formData);
@@ -155,7 +155,7 @@ export async function updateCustomer(
 }
 
 export async function archiveCustomer(slug: string, customerId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
   const { error } = await supabase.from("customers").update({ is_deleted: true, is_active: false, updated_by: user.id }).eq("id", customerId).eq("business_id", business.id);
   if (error) redirect(`/app/${slug}/customers/${customerId}?error=Customer+could+not+be+archived`);
@@ -194,7 +194,7 @@ export async function saveServiceLocation(
   _state: CrmActionState,
   formData: FormData,
 ): Promise<CrmActionState> {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   const values = valuesFrom(formData);
   if (!canManageCustomers(role)) return { error: "You do not have permission to manage locations.", values };
   const { data: customer } = await supabase.from("customers").select("id").eq("id", customerId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
@@ -237,7 +237,7 @@ export async function retryServiceLocationGeocoding(
   customerId: string,
   locationId: string,
 ) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
   const result = await resolveServiceLocationAddress({
     supabase,
@@ -258,7 +258,7 @@ export async function overrideServiceLocationCoordinates(
   locationId: string,
   formData: FormData,
 ) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
   const result = await setManualServiceLocationCoordinates({
     supabase,
@@ -278,7 +278,7 @@ export async function clearServiceLocationCoordinateOverride(
   customerId: string,
   locationId: string,
 ) {
-  const { supabase, business, role } = await requireWorkspace(slug);
+  const { supabase, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
   const result = await clearManualServiceLocationCoordinates({
     supabase,
@@ -292,7 +292,7 @@ export async function clearServiceLocationCoordinateOverride(
 }
 
 export async function archiveServiceLocation(slug: string, customerId: string, locationId: string) {
-  const { supabase, user, business, role } = await requireWorkspace(slug);
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"customer_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/customers/${customerId}?error=Permission+denied`);
   await supabase.from("service_locations").update({ is_deleted: true, is_active: false, is_primary: false, updated_by: user.id }).eq("id", locationId).eq("customer_id", customerId).eq("business_id", business.id);
   revalidatePath(`/app/${slug}/customers/${customerId}`);
