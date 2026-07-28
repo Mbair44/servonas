@@ -242,3 +242,11 @@ export async function prepareEmployeeImportCommit(businessSlug:string,importId:s
  if(error){console.error("Employee import review confirmation failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and review it again.":error.message.includes("Fix blocking")?"Correct every blocking error or choose Import Ready Rows.":error.message.includes("No employee")?"No employee rows are ready to import.":"The final import review could not be confirmed.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
  redirect(`${target}?success=${encodeURIComponent("Import review confirmed. The employees have not been created yet.")}`);
 }
+
+export async function commitEmployeeImport(businessSlug:string,importId:string,formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const {data,error}=await supabase.rpc("commit_employee_import",{p_import_id:importId,p_expected_version:Number(formData.get("version"))});
+ if(error){console.error("Employee import commit failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh before importing.":"The employee import could not be completed. No successful row will be duplicated when you retry.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
+ const failed=Number(data?.failed_row_count??0);
+ redirect(`${target}?success=${encodeURIComponent(failed?`Import completed with ${failed} row${failed===1?"":"s"} needing correction.`:"Employee import completed.")}`);
+}
