@@ -34,17 +34,19 @@ create table if not exists public.customer_import_entities(
  errors jsonb not null default '[]',warnings jsonb not null default '[]',destination_id uuid,version integer not null default 1,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),
  unique(business_id,import_id,entity_type,group_key),unique(business_id,id),foreign key(business_id,import_id) references public.customer_imports(business_id,id) on delete cascade
 );
+create unique index if not exists customer_import_entities_tenant_import_id_idx on public.customer_import_entities(business_id,import_id,id);
 create table if not exists public.customer_import_duplicate_candidates(
  id uuid primary key default gen_random_uuid(),business_id uuid not null,import_id uuid not null,entity_id uuid not null,existing_customer_id uuid not null,
  score integer not null check(score between -100 and 500),match_level text not null check(match_level in('definite','possible')),signals jsonb not null default '[]',created_at timestamptz not null default now(),
- unique(business_id,entity_id,existing_customer_id),foreign key(business_id,import_id) references public.customer_imports(business_id,id) on delete cascade,
- foreign key(business_id,entity_id) references public.customer_import_entities(business_id,id) on delete cascade,foreign key(business_id,existing_customer_id) references public.customers(business_id,id) on delete cascade
+ unique(business_id,id),unique(business_id,entity_id,existing_customer_id),foreign key(business_id,import_id) references public.customer_imports(business_id,id) on delete cascade,
+ foreign key(business_id,import_id,entity_id) references public.customer_import_entities(business_id,import_id,id) on delete cascade,foreign key(business_id,existing_customer_id) references public.customers(business_id,id) on delete cascade
 );
 create table if not exists public.customer_import_duplicate_decisions(
  id uuid primary key default gen_random_uuid(),business_id uuid not null,import_id uuid not null,entity_id uuid not null,candidate_id uuid,
  decision text not null check(decision in('create','link_add_location','update_selected','skip')),field_updates jsonb not null default '{}' check(jsonb_typeof(field_updates)='object'),
  decided_by uuid not null references auth.users(id),decided_at timestamptz not null default now(),unique(business_id,entity_id),
- foreign key(business_id,import_id) references public.customer_imports(business_id,id) on delete cascade,foreign key(business_id,entity_id) references public.customer_import_entities(business_id,id) on delete cascade
+ foreign key(business_id,import_id) references public.customer_imports(business_id,id) on delete cascade,foreign key(business_id,import_id,entity_id) references public.customer_import_entities(business_id,import_id,id) on delete cascade,
+ foreign key(business_id,candidate_id) references public.customer_import_duplicate_candidates(business_id,id) on delete restrict
 );
 do $$ declare t text;begin foreach t in array array['customer_contacts','customer_addresses','customer_external_references','customer_import_mappings','customer_import_entities','customer_import_duplicate_candidates','customer_import_duplicate_decisions'] loop
  execute format('alter table public.%I enable row level security',t);
@@ -52,5 +54,8 @@ do $$ declare t text;begin foreach t in array array['customer_contacts','custome
  execute format('create policy "customer managers create %1$s" on public.%1$I for insert to authenticated with check(public.has_business_role(business_id,array[''owner'',''admin'',''manager'']))',t);
  execute format('create policy "customer managers update %1$s" on public.%1$I for update to authenticated using(public.has_business_role(business_id,array[''owner'',''admin'',''manager''])) with check(public.has_business_role(business_id,array[''owner'',''admin'',''manager'']))',t);
 end loop;end$$;
+create policy "customer managers delete import mappings" on public.customer_import_mappings for delete to authenticated using(public.has_business_role(business_id,array['owner','admin','manager']));
+create policy "customer managers delete import entities" on public.customer_import_entities for delete to authenticated using(public.has_business_role(business_id,array['owner','admin','manager']));
+create policy "customer managers delete duplicate candidates" on public.customer_import_duplicate_candidates for delete to authenticated using(public.has_business_role(business_id,array['owner','admin','manager']));
 comment on table public.customer_addresses is 'Customer billing and mailing addresses. Operational addresses remain service_locations.';
 comment on table public.customer_external_references is 'Source-scoped identities used for idempotent spreadsheet and future connector migrations.';
