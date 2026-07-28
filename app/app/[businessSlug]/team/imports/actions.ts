@@ -209,3 +209,15 @@ export async function resolveEmployeeImportDuplicate(businessSlug:string,importI
  if(error){console.error("Employee import duplicate resolution failed",{businessId:business.id,importId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The duplicate choice could not be saved.")}`);}
  redirect(`${target}?success=${encodeURIComponent("Duplicate resolution saved.")}`);
 }
+
+export async function assignEmployeeImportAccess(businessSlug:string,importId:string,rowId:string|null,formData:FormData){
+ const {supabase,business}=await requireWorkspace(businessSlug),target=`/app/${businessSlug}/team/imports/${importId}`;
+ const version=Number(formData.get("version")),workforceRoleId=String(formData.get("workforceRoleId")??"")||null;
+ const accessRole=String(formData.get("accessRole")??"")||null,invite=formData.get("invite")==="on",confirmElevated=formData.get("confirmElevated")==="on";
+ let rowIds=rowId?[rowId]:formData.getAll("rowIds").map(String);
+ if(!rowId&&formData.get("scope")==="all"){const {data}=await supabase.from("employee_import_rows").select("id").eq("business_id",business.id).eq("import_id",importId).eq("is_ignored",false).neq("validation_status","error");rowIds=(data??[]).map(row=>row.id);}
+ if(!rowIds.length)redirect(`${target}?error=${encodeURIComponent("Select at least one eligible employee row.")}`);
+ const {error}=await supabase.rpc("assign_employee_import_access",{p_import_id:importId,p_expected_version:version,p_row_ids:rowIds,p_workforce_role_id:workforceRoleId,p_access_role:accessRole,p_invite:invite,p_confirm_elevated:confirmElevated});
+ if(error){console.error("Employee import role assignment failed",{businessId:business.id,importId,code:error.code});const message=error.code==="40001"?"The import changed. Refresh and try again.":"Role and access settings could not be saved.";redirect(`${target}?error=${encodeURIComponent(message)}`);}
+ redirect(`${target}?success=${encodeURIComponent(`Role and access settings saved for ${rowIds.length} employee${rowIds.length===1?"":"s"}.`)}`);
+}
