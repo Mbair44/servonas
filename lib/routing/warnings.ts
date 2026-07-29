@@ -47,6 +47,8 @@ export type RouteWarningRoute = {
   originType: string | null;
   drivingDistanceMeters: number | null;
   drivingDurationSeconds: number | null;
+  errorCode?: string|null;
+  failedLegErrorCodes?: string[];
 };
 
 export const ROUTE_RISK_THRESHOLDS = {
@@ -57,6 +59,17 @@ export const ROUTE_RISK_THRESHOLDS = {
 const minutes = (seconds: number) => Math.max(1, Math.round(seconds / 60));
 const miles = (meters: number) => Math.round(meters / 1609.344);
 const time = (value: string | null) => value ? new Date(value).getTime() : null;
+const routeFailureReason=(route:RouteWarningRoute)=>{
+ const codes=[route.errorCode,...(route.failedLegErrorCodes??[])].filter(Boolean) as string[];
+ if(codes.some(code=>code==="duplicate_route_stop"||code==="23505"))return "Servonas found conflicting saved stop data from an earlier route. Recalculate to replace the stale stop records; if it repeats, use the reference code shown in server logs.";
+ if(codes.includes("unroutable_stop"))return "At least one job has an address without verified coordinates. Verify every service address and recalculate.";
+ if(codes.includes("technician_requirement_mismatch"))return "One or more jobs require qualifications, skills, or service-area coverage this technician does not currently satisfy.";
+ if(codes.includes("route_endpoint_coordinates_missing"))return "The configured route start or end location is missing usable coordinates.";
+ if(codes.includes("daily_stop_limit"))return "This route exceeds the configured maximum number of stops for one calculation.";
+ if(codes.includes("segment_provider_failed"))return "Google Routes could not calculate at least one road segment. Other visible segments may still be valid, but the full route and schedule cannot be verified.";
+ if(codes.length)return `The route failed while processing ${[...new Set(codes)].join(", ")}. Review the affected stops and server routing log.`;
+ return `${route.technicianName} has no complete road route. Travel-time risk cannot be verified.`;
+};
 
 function warning(
   code: RouteWarningCode,
@@ -106,9 +119,9 @@ export function evaluateRouteWarnings({
 
   for (const route of routes) {
     if (route.calculationStatus === "partial") {
-      warnings.push(warning("route_partial", "warning", "Route partially calculated", `${route.technicianName} has one or more road segments without verified travel data. Timing risk is uncertain.` , route.technicianId));
+      warnings.push(warning("route_partial", "warning", "Route partially calculated", `${routeFailureReason(route)} Timing risk is uncertain.`, route.technicianId));
     } else if (route.calculationStatus === "failed") {
-      warnings.push(warning("route_failed", "critical", "Route calculation failed", `${route.technicianName} has no complete road route. Travel-time risk cannot be verified.`, route.technicianId));
+      warnings.push(warning("route_failed", "critical", "Route calculation failed", routeFailureReason(route), route.technicianId));
     } else if (route.calculationStatus === "stale") {
       warnings.push(warning("route_stale", "warning", "Route is stale", `${route.technicianName}’s route should be recalculated before dispatch.`, route.technicianId));
     }

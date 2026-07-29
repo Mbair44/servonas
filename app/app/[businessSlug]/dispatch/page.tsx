@@ -99,7 +99,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
     ? await Promise.all([
       routingSupabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,planned_departure_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
-      routingSupabase.from("route_legs").select("technician_route_id,to_route_stop_id,driving_distance_meters,driving_duration_seconds,encoded_polyline,calculation_status,sequence").eq("business_id", business.id).in("technician_route_id", routeIds).order("sequence"),
+      routingSupabase.from("route_legs").select("technician_route_id,to_route_stop_id,driving_distance_meters,driving_duration_seconds,encoded_polyline,calculation_status,error_code,sequence").eq("business_id", business.id).in("technician_route_id", routeIds).order("sequence"),
     ])
     : [{ data: null, error: null }, { data: null, error: null }];
   if (persistedStopError) {
@@ -190,6 +190,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
         originType: persisted?.origin_type ?? null,
         drivingDistanceMeters: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_distance_meters : null,
         drivingDurationSeconds: persisted && ["ready", "partial"].includes(persisted.calculation_status) ? persisted.driving_duration_seconds : null,
+        errorCode:persisted?.error_code??null,
+        failedLegErrorCodes:(persistedLegs??[]).filter(leg=>leg.technician_route_id===persisted?.id&&leg.calculation_status==="failed").map(leg=>leg.error_code??"segment_provider_failed"),
       };
     }),
     stops: jobs.map((job) => {
