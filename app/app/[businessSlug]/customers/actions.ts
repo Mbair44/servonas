@@ -16,6 +16,8 @@ import {
   setManualServiceLocationCoordinates,
 } from "@/lib/geocoding/service";
 import { requireWorkspaceCapability } from "@/lib/workspace";
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {refreshAffectedTechnicianRoutes} from "@/lib/routing/automaticRouteRefresh";
 
 export type CrmActionState = {
   error?: string;
@@ -26,6 +28,64 @@ export type CrmActionState = {
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const valuesFrom = (formData: FormData) =>
   Object.fromEntries([...formData.entries()].filter(([, value]) => typeof value === "string")) as Record<string, string>;
+
+async function refreshServicePlanRoutes({
+ supabase,business,userId,planId,
+}:{
+ supabase:Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"];
+ business:{id:string;timezone:string};
+ userId:string;
+ planId:string;
+}){
+ const admin=getSupabaseAdmin();
+ if(!admin){
+  console.warn("Automatic recurring route refresh is unavailable",{businessId:business.id,planId,reason:"service_role_not_configured"});
+  return null;
+ }
+ const {data:jobs,error}=await supabase.from("jobs")
+  .select("id,starts_at,assigned_technician_id")
+  .eq("business_id",business.id).eq("recurring_service_series_id",planId)
+  .eq("is_deleted",false).gte("starts_at",new Date().toISOString())
+  .not("status","in",'("completed","canceled","declined")')
+  .not("assigned_technician_id","is",null);
+ if(error){
+  console.error("Recurring route jobs could not be loaded",{businessId:business.id,planId,code:error.code});
+  return null;
+ }
+ return refreshAffectedTechnicianRoutes({
+  admin,authenticated:supabase,businessId:business.id,businessTimeZone:business.timezone,
+  actorUserId:userId,jobs:jobs??[],
+ });
+}
+
+async function synchronizeServicePlanTechnician({
+ supabase,businessId,planId,technicianId,
+}:{
+ supabase:Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"];
+ businessId:string;
+ planId:string;
+ technicianId:string|null;
+}){
+ if(!technicianId)return;
+ const {data:jobs,error}=await supabase.from("jobs")
+  .select("id,assigned_technician_id").eq("business_id",businessId)
+  .eq("recurring_service_series_id",planId).eq("is_deleted",false)
+  .gte("starts_at",new Date().toISOString())
+  .not("status","in",'("completed","canceled","declined")');
+ if(error){
+  console.error("Service-plan technician synchronization failed",{businessId,planId,code:error.code});
+  return;
+ }
+ for(const job of jobs??[]){
+  if(job.assigned_technician_id===technicianId)continue;
+  const {error:assignmentError}=await supabase.rpc("set_job_primary_technician",{
+   p_job_id:job.id,p_technician_id:technicianId,
+  });
+  if(assignmentError)console.error("Service-plan job assignment failed",{
+   businessId,planId,jobId:job.id,code:assignmentError.code,
+  });
+ }
+}
 
 function validateCustomer(formData: FormData) {
   const errors: Record<string, string> = {};
@@ -218,7 +278,7 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
  if(endDate&&endDate<startDate)redirect(`${target}?error=${encodeURIComponent("The service-plan end date cannot be before its start date.")}`);
  const [{data:customer},{data:location},{data:service}]=await Promise.all([
   supabase.from("customers").select("id").eq("business_id",business.id).eq("id",customerId).eq("is_deleted",false).maybeSingle(),
-  supabase.from("service_locations").select("id").eq("business_id",business.id).eq("customer_id",customerId).eq("id",locationId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("service_locations").select("id,default_technician_id").eq("business_id",business.id).eq("customer_id",customerId).eq("id",locationId).eq("is_deleted",false).maybeSingle(),
   supabase.from("services").select("id").eq("business_id",business.id).eq("id",serviceId).eq("is_deleted",false).maybeSingle(),
  ]);
  if(!customer||!location||!service)redirect(`${target}?error=${encodeURIComponent("The selected customer, location, or service is unavailable.")}`);
@@ -239,20 +299,26 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
  if(auditError)console.error("Service plan creation audit failed",{businessId:business.id,planId:plan.id,code:auditError.code});
  const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});
  if(generationError)console.error("Initial service plan generation failed",{businessId:business.id,planId:plan.id,code:generationError.code,message:generationError.message});
- if(!generationError&&employeeId){
-  const {data:generatedJobs}=await supabase.from("jobs").select("id").eq("business_id",business.id).eq("recurring_service_series_id",plan.id).is("assigned_technician_id",null);
-  for(const job of generatedJobs??[]){const {error:assignmentError}=await supabase.rpc("set_job_primary_technician",{p_job_id:job.id,p_technician_id:employeeId});if(assignmentError)console.error("Generated service-plan job assignment failed",{businessId:business.id,planId:plan.id,jobId:job.id,code:assignmentError.code});}
+ let routeRefresh=null;
+ if(!generationError){
+  await synchronizeServicePlanTechnician({
+   supabase,businessId:business.id,planId:plan.id,
+   technicianId:employeeId??location.default_technician_id??null,
+  });
+  routeRefresh=await refreshServicePlanRoutes({supabase,business,userId:user.id,planId:plan.id});
  }
- revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);
+ revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);revalidatePath(`/app/${slug}/dispatch`);revalidatePath(`/app/${slug}/schedule`);
  redirect(generationError
   ?`${target}?reconcilePlan=${plan.id}&warning=${encodeURIComponent("Service plan created, but upcoming jobs could not be generated.")}`
-  :`${target}?success=${encodeURIComponent("Service plan created and upcoming jobs generated.")}`);
+  :routeRefresh?.failures||routeRefresh?.skippedDays
+   ?`${target}?success=${encodeURIComponent("Service plan created and jobs assigned. Some route days still need attention.")}`
+   :`${target}?success=${encodeURIComponent("Service plan created, jobs assigned, and affected routes optimized.")}`);
 }
 
 export async function retryServicePlanJobGeneration(slug:string,customerId:string,planId:string){
- const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}`;
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}`;
  if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to generate service-plan jobs.")}`);
- const {data:plan}=await supabase.from("recurring_service_series").select("id,default_employee_id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).eq("status","active").maybeSingle();
+ const {data:plan}=await supabase.from("recurring_service_series").select("id,default_employee_id,service_location_id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).eq("status","active").maybeSingle();
  if(!plan)redirect(`${target}?error=${encodeURIComponent("The active service plan could not be found.")}`);
  const {error}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});
  if(error){
@@ -262,15 +328,17 @@ export async function retryServicePlanJobGeneration(slug:string,customerId:strin
    :"";
   redirect(`${target}?reconcilePlan=${plan.id}&error=${encodeURIComponent(`Upcoming jobs still could not be generated (${error.code||"unknown"}).${safeDetail}`)}`);
  }
- if(plan.default_employee_id){
-  const {data:generatedJobs}=await supabase.from("jobs").select("id").eq("business_id",business.id).eq("recurring_service_series_id",plan.id).is("assigned_technician_id",null);
-  for(const job of generatedJobs??[]){
-   const {error:assignmentError}=await supabase.rpc("set_job_primary_technician",{p_job_id:job.id,p_technician_id:plan.default_employee_id});
-   if(assignmentError)console.error("Retried service-plan job assignment failed",{businessId:business.id,planId,jobId:job.id,code:assignmentError.code});
-  }
- }
- revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);
- redirect(`${target}?success=${encodeURIComponent("Upcoming service-plan jobs generated successfully.")}`);
+ const {data:location}=await supabase.from("service_locations").select("default_technician_id")
+  .eq("id",plan.service_location_id).eq("business_id",business.id).maybeSingle();
+ await synchronizeServicePlanTechnician({
+  supabase,businessId:business.id,planId:plan.id,
+  technicianId:plan.default_employee_id??location?.default_technician_id??null,
+ });
+ const routeRefresh=await refreshServicePlanRoutes({supabase,business,userId:user.id,planId:plan.id});
+ revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);revalidatePath(`/app/${slug}/dispatch`);revalidatePath(`/app/${slug}/schedule`);
+ redirect(`${target}?success=${encodeURIComponent(routeRefresh?.failures||routeRefresh?.skippedDays
+  ?"Upcoming jobs generated and assigned; some route days still need attention."
+  :"Upcoming jobs generated, assigned, and affected routes optimized.")}`);
 }
 
 export async function updateServicePlan(slug:string,customerId:string,planId:string,formData:FormData){
@@ -281,7 +349,7 @@ export async function updateServicePlan(slug:string,customerId:string,planId:str
  if(!name||!locationId||!serviceId||!startDate||!firstDate||!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit)||!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0||Boolean(endDate&&endDate<startDate))redirect(`${target}?error=${encodeURIComponent("Review the service-plan dates, cadence, duration, and price.")}`);
  const [{data:plan},{data:location},{data:service},{data:employee}]=await Promise.all([
   supabase.from("recurring_service_series").select("id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).maybeSingle(),
-  supabase.from("service_locations").select("id").eq("id",locationId).eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("service_locations").select("id,default_technician_id").eq("id",locationId).eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false).maybeSingle(),
   supabase.from("services").select("id").eq("id",serviceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
   employeeId?supabase.from("technician_profiles").select("id").eq("id",employeeId).eq("business_id",business.id).eq("is_active",true).eq("can_be_assigned_jobs",true).maybeSingle():Promise.resolve({data:null}),
  ]);
@@ -290,8 +358,18 @@ export async function updateServicePlan(slug:string,customerId:string,planId:str
  if(error){console.error("Service plan update failed",{businessId:business.id,customerId,planId,code:error.code,message:error.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be updated.")}`);}
  const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:planId,p_horizon_days:60});
  if(generationError)console.error("Updated service plan generation failed",{businessId:business.id,planId,code:generationError.code,message:generationError.message});
- revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);
- redirect(generationError?`${target}?reconcilePlan=${planId}&warning=${encodeURIComponent("Service plan updated, but upcoming jobs could not be generated.")}#service-plans`:`${target}?success=${encodeURIComponent("Service plan updated.")}#service-plans`);
+ let routeRefresh=null;
+ if(!generationError){
+  await synchronizeServicePlanTechnician({
+   supabase,businessId:business.id,planId,
+   technicianId:employeeId??location.default_technician_id??null,
+  });
+  routeRefresh=await refreshServicePlanRoutes({supabase,business,userId:user.id,planId});
+ }
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);revalidatePath(`/app/${slug}/dispatch`);revalidatePath(`/app/${slug}/schedule`);
+ redirect(generationError
+  ?`${target}?reconcilePlan=${planId}&warning=${encodeURIComponent("Service plan updated, but upcoming jobs could not be generated.")}#service-plans`
+  :`${target}?success=${encodeURIComponent(routeRefresh?.failures||routeRefresh?.skippedDays?"Service plan updated; some route days still need attention.":"Service plan updated and affected routes optimized.")}#service-plans`);
 }
 
 export async function deleteServicePlan(slug:string,customerId:string,planId:string){
