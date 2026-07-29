@@ -18,13 +18,17 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const ids=(customers??[]).map(customer=>customer.id);
  const [locationsResult,jobsResult]=ids.length?await Promise.all([
   supabase.from("service_locations").select("id,customer_id,location_name,street_address,unit,city,state,postal_code,is_primary").eq("business_id",business.id).eq("is_deleted",false).in("customer_id",ids),
-  supabase.from("jobs").select("id,customer_id,starts_at,status").eq("business_id",business.id).eq("is_deleted",false).in("customer_id",ids).order("starts_at",{ascending:false,nullsFirst:false}),
+  supabase.from("jobs").select("id,customer_id,starts_at,status,work_completed_at").eq("business_id",business.id).eq("is_deleted",false).in("customer_id",ids).order("starts_at",{ascending:false,nullsFirst:false}),
  ]):[{data:[]},{data:[]}];
- const locations=locationsResult.data??[],jobs=jobsResult.data??[];
+ const locations=locationsResult.data??[],jobs=jobsResult.data??[],now=Date.now();
  const directory=(customers??[]).map(customer=>{
   const customerLocations=locations.filter(location=>location.customer_id===customer.id),customerJobs=jobs.filter(job=>job.customer_id===customer.id);
   const primary=customerLocations.find(location=>location.is_primary)??customerLocations[0]??null;
-  return {...customer,displayName:customer.company_name||`${customer.first_name} ${customer.last_name}`.trim(),customerType:customer.company_name?"company":"individual",locations:customerLocations,primary,jobCount:customerJobs.length,lastService:customerJobs[0]?.starts_at??null};
+  const completedServices=customerJobs.filter(job=>job.status==="completed"&&(job.work_completed_at||job.starts_at)&&new Date(job.work_completed_at??job.starts_at!).getTime()<=now)
+   .map(job=>job.work_completed_at??job.starts_at!).sort((a,b)=>new Date(b).getTime()-new Date(a).getTime());
+  const upcomingServices=customerJobs.filter(job=>job.starts_at&&new Date(job.starts_at).getTime()>now&&!["completed","canceled","cancelled","declined"].includes(job.status))
+   .map(job=>job.starts_at!).sort((a,b)=>new Date(a).getTime()-new Date(b).getTime());
+  return {...customer,displayName:customer.company_name||`${customer.first_name} ${customer.last_name}`.trim(),customerType:customer.company_name?"company":"individual",locations:customerLocations,primary,jobCount:customerJobs.length,lastService:completedServices[0]??null,nextService:upcomingServices[0]??null};
  });
  const rows=directory.filter(customer=>(status==="all"||(status==="active"&&customer.is_active)||(status==="inactive"&&!customer.is_active)||(status==="no_history"&&!customer.jobCount))
   &&(type==="all"||customer.customerType===type)
@@ -58,13 +62,13 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
      <button className="sv-button sv-secondary" type="submit">Filters</button>
     </form>
     <div className="customer-table" role="table" aria-label="Customers">
-     <div className="customer-table-head" role="row"><span role="columnheader">Customer</span><span role="columnheader">Primary contact</span><span role="columnheader">Type</span><span role="columnheader">Status</span><span role="columnheader">Locations</span><span role="columnheader">Last service</span><span role="columnheader">Total jobs</span></div>
+     <div className="customer-table-head" role="row"><span role="columnheader">Customer</span><span role="columnheader">Primary contact</span><span role="columnheader">Type</span><span role="columnheader">Status</span><span role="columnheader">Locations</span><span role="columnheader">Last service</span><span role="columnheader">Next service</span><span role="columnheader">Total jobs</span></div>
      {visible.length?visible.map(customer=><Link role="row" className={selected?.id===customer.id?"selected":""} href={href({customer:customer.id})} key={customer.id}>
       <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{initials(customer.displayName)}</span><span><strong>{customer.displayName}</strong><small>{customer.company_name?`${customer.first_name} ${customer.last_name}`.trim():"Customer"}</small></span></span>
       <span className="customer-contact" role="cell"><strong>{customer.email||"No email"}</strong><small>{customer.phone||"No phone"}</small></span>
       <span role="cell"><em className={`customer-type ${customer.customerType}`}>{customer.customerType}</em></span>
       <span role="cell"><b className={`employee-state ${customer.is_active?"active":"inactive"}`}>● {customer.is_active?"Active":"Inactive"}</b></span>
-      <span role="cell">{customer.locations.length}</span><span role="cell">{customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—"}</span><span role="cell">{customer.jobCount}</span>
+      <span role="cell">{customer.locations.length}</span><span role="cell">{customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—"}</span><span role="cell">{customer.nextService?formatBusinessDate(customer.nextService,business.timezone):"—"}</span><span role="cell">{customer.jobCount}</span>
      </Link>):<div className="dashboard-empty"><strong>No matching customers.</strong><p>Adjust the filters or add a customer.</p></div>}
     </div>
     <footer className="customer-table-footer"><span>Showing {visible.length?`${(currentPage-1)*pageSize+1} to ${(currentPage-1)*pageSize+visible.length}`:"0"} of {rows.length} customers</span>{totalPages>1&&<nav aria-label="Customer pages">{currentPage>1&&<Link href={href({page:String(currentPage-1)})}>←</Link>}<b>{currentPage}</b><span>of {totalPages}</span>{currentPage<totalPages&&<Link href={href({page:String(currentPage+1)})}>→</Link>}</nav>}</footer>
@@ -74,7 +78,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
     <header><span className="employee-detail-avatar">{initials(selected.displayName)}</span><div><h2 id="selected-customer-name">{selected.displayName}</h2><p>{selected.company_name?`${selected.first_name} ${selected.last_name}`.trim():"Individual customer"}</p></div><b className={`employee-state ${selected.is_active?"active":"inactive"}`}>{selected.is_active?"Active":"Inactive"}</b><Link href={`${base}#customer-directory`} aria-label="Close customer details">×</Link></header>
     <nav aria-label="Customer detail sections"><span className="active">Overview</span><Link href={`${base}/${selected.id}`}>Locations ({selected.locations.length})</Link><Link href={`${base}/${selected.id}`}>Jobs ({selected.jobCount})</Link><Link href={`${base}/${selected.id}`}>History</Link></nav>
     <dl><div><dt>Email</dt><dd>{selected.email||"Not provided"}</dd></div><div><dt>Phone</dt><dd>{selected.phone||"Not provided"}</dd></div><div><dt>Address</dt><dd>{selected.primary?<>{selected.primary.street_address}{selected.primary.unit?`, ${selected.primary.unit}`:""}<br/>{selected.primary.city}, {selected.primary.state} {selected.primary.postal_code}</>:"No service location"}</dd></div></dl>
-    <section className="customer-facts"><h3>Customer details</h3><dl><div><dt>Type</dt><dd><em className={`customer-type ${selected.customerType}`}>{selected.customerType}</em></dd></div><div><dt>Since</dt><dd>{formatBusinessDate(selected.created_at,business.timezone)}</dd></div><div><dt>Last service</dt><dd>{selected.lastService?formatBusinessDate(selected.lastService,business.timezone):"—"}</dd></div><div><dt>Total jobs</dt><dd>{selected.jobCount}</dd></div></dl></section>
+    <section className="customer-facts"><h3>Customer details</h3><dl><div><dt>Type</dt><dd><em className={`customer-type ${selected.customerType}`}>{selected.customerType}</em></dd></div><div><dt>Since</dt><dd>{formatBusinessDate(selected.created_at,business.timezone)}</dd></div><div><dt>Last service</dt><dd>{selected.lastService?formatBusinessDate(selected.lastService,business.timezone):"—"}</dd></div><div><dt>Next service</dt><dd>{selected.nextService?formatBusinessDate(selected.nextService,business.timezone):"—"}</dd></div><div><dt>Total jobs</dt><dd>{selected.jobCount}</dd></div></dl></section>
     <section><h3>Quick actions</h3><Link className="employee-quick-action" href={`${base}/${selected.id}`}>＋ Add service location</Link><Link className="employee-quick-action" href={`/app/${businessSlug}/jobs/new?customerId=${selected.id}`}>▣ Schedule job</Link><Link className="employee-quick-action" href={`${base}/${selected.id}/edit`}>✎ Edit customer</Link>{canEdit&&<form action={archiveCustomer.bind(null,businessSlug,selected.id)}><button className="employee-quick-action destructive">⊘ Archive customer</button></form>}</section>
    </aside>}
   </section>
