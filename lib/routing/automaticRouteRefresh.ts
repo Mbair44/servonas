@@ -136,7 +136,9 @@ export async function refreshAffectedTechnicianRoutes({
   return [[`${serviceDate}:${job.assigned_technician_id}`,{serviceDate,technicianId:job.assigned_technician_id}]] as const;
  })).values()];
  const maxDays=Math.max(1,Number(process.env.AUTO_ROUTE_REFRESH_MAX_DAYS??20));
- const maxRounds=Math.max(1,Math.min(12,Number(process.env.AUTO_ROUTE_OPTIMIZATION_ROUNDS??6)));
+ // Five stops can require ten adjacent swaps. Use the full bounded allowance
+ // so a normal service day does not stop halfway through optimization.
+ const maxRounds=Math.max(1,Math.min(12,Number(process.env.AUTO_ROUTE_OPTIMIZATION_ROUNDS??12)));
 
  for(const affectedDay of affected.slice(0,maxDays)){
   try{
