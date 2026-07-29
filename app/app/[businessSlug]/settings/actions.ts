@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 import { createStripeOnboardingLink,stripeClient,stripeConnectState,stripeProviderError,syncStripeConnectAccount } from "@/lib/stripeConnect";
+import {validateEmployeeNumbering} from "@/lib/employeeNumbering";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 export async function updateBusinessSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding"); if(!canManageBusiness(role)) redirect(`/app/${slug}/settings?error=Only+owners+and+admins+can+change+settings`);
@@ -11,6 +12,18 @@ export async function updateBusinessSettings(slug:string,formData:FormData){
  if(!payload.name) redirect(`/app/${slug}/settings?error=Business+name+is+required`);
  const {error}=await supabase.from("businesses").update(payload).eq("id",business.id); if(error) redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.message)}`);
  revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/settings`); redirect(`/app/${slug}/settings?success=Settings+saved`);
+}
+
+export async function updateEmployeeNumbering(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
+ if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change employee numbering.")}#employee-numbering`);
+ const value={autoAssignEnabled:formData.get("autoAssignEnabled")==="on",prefix:text(formData,"prefix"),startingNumber:Number(text(formData,"startingNumber")),nextNumber:Number(text(formData,"nextNumber")),minimumDigits:Number(text(formData,"minimumDigits")),allowManualOverride:formData.get("allowManualOverride")==="on"};
+ const validationError=validateEmployeeNumbering(value);
+ if(validationError)redirect(`/app/${slug}/settings?error=${encodeURIComponent(validationError)}#employee-numbering`);
+ const {error}=await supabase.rpc("update_employee_numbering_settings",{p_business_id:business.id,p_auto_assign_enabled:value.autoAssignEnabled,p_prefix:value.prefix,p_starting_number:value.startingNumber,p_next_number:value.nextNumber,p_minimum_digits:value.minimumDigits,p_allow_manual_override:value.allowManualOverride});
+ if(error){console.error("Employee numbering update failed",{businessId:business.id,code:error.code,message:error.message});const message=error.code==="23505"?"The next formatted employee number already belongs to an employee. Choose another next number.":error.code==="22023"?error.message:"Employee numbering settings could not be saved.";redirect(`/app/${slug}/settings?error=${encodeURIComponent(message)}#employee-numbering`);}
+ revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/team`);
+ redirect(`/app/${slug}/settings?success=${encodeURIComponent("Employee numbering settings saved.")}#employee-numbering`);
 }
 
 const coordinate=(formData:FormData,key:string)=>{
