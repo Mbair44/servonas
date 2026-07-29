@@ -18,6 +18,8 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
  menuItem?:boolean;
 }){
  const [open,setOpen]=useState(false);
+ const [effective,setEffective]=useState(plan.start_date);
+ const [customAnchor,setCustomAnchor]=useState(plan.first_recurring_date!==plan.start_date);
  const close=useCallback(()=>setOpen(false),[]);
  return <>
   <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>{menuItem&&<i><CustomerActionIcon name="repeat"/></i>}<span>Edit service plan</span></button>
@@ -29,7 +31,9 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
      <label>Plan name<input name="name" required defaultValue={plan.name}/></label>
      <div className="quick-form-grid"><label>Service location<select name="serviceLocationId" required defaultValue={plan.service_location_id}>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
      <label>Service type<select name="serviceId" required defaultValue={plan.service_id}>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
-     <div className="quick-form-grid"><label>Start date<input name="startDate" type="date" required defaultValue={plan.start_date}/></label><label>End date <small>Optional</small><input name="endDate" type="date" defaultValue={plan.end_date??""}/></label><label>First recurring service<input name="firstRecurringDate" type="date" required defaultValue={plan.first_recurring_date}/></label><label>Default technician<select name="employeeId" defaultValue={plan.default_employee_id??""}><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+     <div className="quick-form-grid"><label>Plan effective date<input name="startDate" type="date" required value={effective} onChange={event=>setEffective(event.target.value)}/></label><label>End date <small>Optional</small><input name="endDate" type="date" defaultValue={plan.end_date??""}/></label><label>Default technician<select name="employeeId" defaultValue={plan.default_employee_id??""}><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+     <label className="drawer-check"><input type="checkbox" checked={customAnchor} onChange={event=>setCustomAnchor(event.target.checked)}/>Use a different recurring start date</label>
+     {customAnchor?<label>First recurring service date<input name="firstRecurringDate" type="date" required defaultValue={plan.first_recurring_date}/></label>:<input name="firstRecurringDate" type="hidden" value={effective}/>}
      <label className="drawer-check"><input type="checkbox" name="scheduleAutomatically" defaultChecked={plan.scheduling_mode==="route_optimized"}/>Let Servonas choose the best service day for the route</label>
      <label>Automatic scheduling window<select name="schedulingFlexDays" defaultValue={plan.scheduling_flex_days??7}><option value="3">Within 3 days</option><option value="7">Within 7 days</option><option value="14">Within 14 days</option><option value="30">Within 30 days</option></select></label>
     </fieldset>
