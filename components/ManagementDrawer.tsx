@@ -5,6 +5,8 @@ export function ManagementDrawer({open,title,onDirty,onClose,children,size="stan
  open:boolean;title:string;onDirty:()=>void;onClose:()=>void;children:ReactNode;size?:"compact"|"standard";
 }){
  const panel=useRef<HTMLElement>(null);
+ const onCloseRef=useRef(onClose);
+ onCloseRef.current=onClose;
  useEffect(()=>{
   if(!open)return;
   const previous=document.activeElement as HTMLElement|null;
@@ -12,7 +14,7 @@ export function ManagementDrawer({open,title,onDirty,onClose,children,size="stan
   document.body.style.overflow="hidden";
   requestAnimationFrame(()=>panel.current?.querySelector<HTMLElement>("input,select,textarea,button,a[href]")?.focus());
   const keydown=(event:KeyboardEvent)=>{
-   if(event.key==="Escape"){event.preventDefault();onClose();return;}
+   if(event.key==="Escape"){event.preventDefault();onCloseRef.current();return;}
    if(event.key!=="Tab"||!panel.current)return;
    const focusable=[...panel.current.querySelectorAll<HTMLElement>("a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])")];
    if(!focusable.length)return;
@@ -22,7 +24,7 @@ export function ManagementDrawer({open,title,onDirty,onClose,children,size="stan
   };
   document.addEventListener("keydown",keydown);
   return()=>{document.removeEventListener("keydown",keydown);document.body.style.overflow=originalOverflow;previous?.focus();};
- },[open,onClose]);
+ },[open]);
  const close=()=>onClose();
  if(!open)return null;
  return <div className="management-drawer-layer" onMouseDown={event=>{if(event.target===event.currentTarget)close();}}>
