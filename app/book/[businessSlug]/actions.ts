@@ -69,12 +69,11 @@ export async function submitPublicBooking(
   if (!serviceId) fieldErrors.serviceId = "Choose a service.";
   if (!startRaw) fieldErrors.startsAt = "Choose an available date and time.";
   if (!first) fieldErrors.firstName = "Enter your first name.";
-  if (!email && !phone) {
-    fieldErrors.email = "Enter an email address or phone number.";
-    fieldErrors.phone = "Enter a phone number or email address.";
-  }
+  if (!email) fieldErrors.email = "Enter your email address so we can send your booking confirmation.";
+  if (!phone) fieldErrors.phone = "Enter your phone number so we can text your booking confirmation.";
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.email = "Enter a valid email address.";
   if (phone && phone.replace(/\D/g, "").length < 10) fieldErrors.phone = "Enter a valid phone number.";
+  if (!smsConsent) fieldErrors.smsConsent = "Consent is required to receive appointment text messages.";
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
     fieldErrors.form = "Refresh the page before submitting this booking.";
   }
@@ -421,7 +420,7 @@ export async function submitPublicBooking(
       }
     }
   }
-  const [linkResult, analyticsResult] = await Promise.all([
+  const [linkResult, analyticsResult, emailResult, customerSmsResult, managerSmsResult] = await Promise.all([
     supabase.from("jobs").update({ public_booking_id: submission.id }).eq("id", job.id),
     supabase.from("public_booking_events").insert({
       business_id: settings.business_id, service_id: service.id, submission_id: submission.id, event_name: "booking_completed", metadata: {},
@@ -432,6 +431,27 @@ export async function submitPublicBooking(
   ]);
   if (linkResult.error) console.error("Public job confirmation link failed", linkResult.error);
   if (analyticsResult.error) console.error("Public booking completion analytics failed", analyticsResult.error);
+  if (!emailResult.ok) {
+    console.error("Public booking customer email was not delivered", {
+      jobId: job.id,
+      businessId: settings.business_id,
+      reason: emailResult.error,
+    });
+  }
+  if (!customerSmsResult.ok || customerSmsResult.skipped) {
+    console.error("Public booking customer SMS was not delivered", {
+      jobId: job.id,
+      businessId: settings.business_id,
+      reason: customerSmsResult.error ?? customerSmsResult.reason ?? "skipped",
+    });
+  }
+  if (!managerSmsResult.ok) {
+    console.error("Public booking manager SMS was not delivered", {
+      jobId: job.id,
+      businessId: settings.business_id,
+      reason: managerSmsResult.error,
+    });
+  }
   await Promise.allSettled([
     JobNotificationService.jobBooked(job.id),
     status === "confirmed" ? JobNotificationService.jobConfirmed(job.id) : Promise.resolve(),
