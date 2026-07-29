@@ -21,7 +21,7 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
  return <>
   <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>↻ Edit service plan</button>
   <ManagementDrawer open={open} title="Edit service plan" onDirty={()=>{}} onClose={close}>
-   <form action={updateAction} className="quick-employee-form service-plan-form">
+   <form action={updateAction} className="quick-employee-form service-plan-form edit-plan-form">
     <fieldset><legend>Plan details</legend>
      <label>Plan name<input name="name" required defaultValue={plan.name}/></label>
      <label>Service location<select name="serviceLocationId" required defaultValue={plan.service_location_id}>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
