@@ -2,6 +2,8 @@ import type {SupabaseClient} from "@supabase/supabase-js";
 import {dateInTimeZone} from "@/lib/bookingTime";
 import {calculateDailyRoutes} from "./routeCalculationService";
 import {generateRouteOptimizationSuggestions} from "./optimizationService";
+import {GoogleRoutesProvider} from "./googleRoutesProvider";
+import {shortestFlexibleRoute} from "./flexibleRouteOrder";
 
 type ScheduledJob={
  id:string;
@@ -113,6 +115,66 @@ async function applyCalculatedDriveSchedule({
  }
 }
 
+async function globallyOptimizeFlexibleDay({
+ admin,businessId,serviceDate,businessTimeZone,technicianId,actorUserId,
+}:{
+ admin:SupabaseClient;businessId:string;serviceDate:string;businessTimeZone:string;
+ technicianId:string;actorUserId:string;
+}){
+ const dayStart=new Date(`${serviceDate}T00:00:00.000Z`);
+ const nextDay=new Date(dayStart);nextDay.setUTCDate(nextDay.getUTCDate()+1);
+ const {data:rows,error}=await admin.from("jobs")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,status,arrival_window_start,arrival_window_end,service_locations!jobs_service_location_tenant_fk(latitude,longitude,geocoding_status)")
+  .eq("business_id",businessId).eq("assigned_technician_id",technicianId)
+  .eq("is_deleted",false).not("status","in",'("completed","canceled","declined")')
+  .gte("starts_at",new Date(dayStart.getTime()-14*60*60*1000).toISOString())
+  .lt("starts_at",new Date(nextDay.getTime()+14*60*60*1000).toISOString());
+ if(error)throw new Error(`Flexible route jobs could not be loaded (${error.code}).`);
+ const jobs=(rows??[]).filter(job=>job.starts_at
+  &&dateInTimeZone(new Date(job.starts_at),businessTimeZone)===serviceDate);
+ if(jobs.length<3)return false;
+ if(jobs.some(job=>!["pending","scheduled"].includes(job.status)
+  ||job.arrival_window_start||job.arrival_window_end))return false;
+ const normalized=jobs.flatMap(job=>{
+  const relation=Array.isArray(job.service_locations)?job.service_locations[0]:job.service_locations;
+  const latitude=Number(relation?.latitude),longitude=Number(relation?.longitude);
+  if(!relation||!["verified","manual"].includes(relation.geocoding_status)
+   ||!Number.isFinite(latitude)||!Number.isFinite(longitude))return [];
+  const startsAt=new Date(job.starts_at!).getTime();
+  const endsAt=job.ends_at?new Date(job.ends_at).getTime():NaN;
+  const durationMs=Number.isFinite(endsAt)&&endsAt>startsAt
+   ?endsAt-startsAt:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
+  return [{job,waypoint:{id:job.id,latitude,longitude},durationMs}];
+ });
+ if(normalized.length!==jobs.length)return false;
+ const provider=new GoogleRoutesProvider(process.env.GOOGLE_ROUTES_API_KEY??"");
+ const departureAt=new Date(Math.min(...normalized.map(item=>new Date(item.job.starts_at!).getTime()))).toISOString();
+ const cells=await provider.computeRouteMatrix({
+  origins:normalized.map(item=>item.waypoint),
+  destinations:normalized.map(item=>item.waypoint),
+  departureAt,
+ });
+ const orderedIds=shortestFlexibleRoute(normalized.map(item=>item.job.id),cells);
+ if(!orderedIds)return false;
+ const itemById=new Map(normalized.map(item=>[item.job.id,item]));
+ const driveSeconds=new Map(cells.flatMap(cell=>cell.status==="ready"&&cell.drivingDurationSeconds!==null
+  ?[[`${cell.originWaypointId}:${cell.destinationWaypointId}`,cell.drivingDurationSeconds] as const]:[]));
+ let cursor=new Date(departureAt).getTime();
+ for(const [index,jobId] of orderedIds.entries()){
+  const item=itemById.get(jobId)!;
+  const {error:updateError}=await admin.from("jobs").update({
+   starts_at:new Date(cursor).toISOString(),
+   ends_at:new Date(cursor+item.durationMs).toISOString(),
+   updated_by:actorUserId,
+  }).eq("business_id",businessId).eq("id",jobId);
+  if(updateError)throw new Error(`Globally optimized service time could not be saved (${updateError.code}).`);
+  cursor+=item.durationMs;
+  const nextId=orderedIds[index+1];
+  if(nextId)cursor+=Math.max(0,driveSeconds.get(`${jobId}:${nextId}`)??0)*1000;
+ }
+ return true;
+}
+
 /**
  * Rebuilds each affected technician's complete service day, then repeatedly
  * applies the existing road-based, appointment-window-safe adjacent optimizer
@@ -158,14 +220,18 @@ export async function refreshAffectedTechnicianRoutes({
     admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
     technicianId:affectedDay.technicianId,actorUserId,
    });
+   const globallyOptimized=await globallyOptimizeFlexibleDay({
+    admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
+    technicianId:affectedDay.technicianId,actorUserId,
+   });
    await calculateDailyRoutes({
     admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
     actorUserId,onlyTechnicianId:affectedDay.technicianId,
    });
    result.refreshedDays+=1;
-   let dayOptimized=false;
+   let dayOptimized=globallyOptimized;
    try{
-    for(let round=0;round<maxRounds;round+=1){
+    for(let round=0;round<(globallyOptimized?0:maxRounds);round+=1){
      const {data:plan}=await admin.from("route_plans")
       .select("id,version").eq("business_id",businessId)
       .eq("service_date",affectedDay.serviceDate).maybeSingle();

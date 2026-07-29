@@ -19,6 +19,14 @@ type GoogleRoute = {
   polyline?: { encodedPolyline?: string };
   legs?: GoogleLeg[];
 };
+type GoogleMatrixElement = {
+  originIndex?: number;
+  destinationIndex?: number;
+  distanceMeters?: number;
+  duration?: string;
+  condition?: string;
+  status?: { code?: number; message?: string };
+};
 
 const seconds = (duration: string | undefined) => {
   const value = Number(duration?.replace(/s$/, ""));
@@ -94,7 +102,49 @@ export class GoogleRoutesProvider implements RoutingProvider {
   }
 
   async computeRouteMatrix(input: ComputeRouteMatrixInput): Promise<RouteMatrixCell[]> {
-    void input;
-    throw new Error("Route matrix calculation is not enabled until optimization work begins.");
+    if (!input.origins.length || !input.destinations.length) return [];
+    if (input.origins.length > 25 || input.destinations.length > 25
+      || input.origins.length * input.destinations.length > 625) {
+      throw new Error("Google Routes matrix supports at most 625 elements.");
+    }
+    const response = await fetch("https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": this.apiKey,
+        "X-Goog-FieldMask": "originIndex,destinationIndex,duration,distanceMeters,status,condition",
+      },
+      body: JSON.stringify({
+        origins: input.origins.map((item) => ({ waypoint: waypoint(item.latitude, item.longitude) })),
+        destinations: input.destinations.map((item) => ({ waypoint: waypoint(item.latitude, item.longitude) })),
+        travelMode: "DRIVE",
+        routingPreference: "TRAFFIC_AWARE",
+        ...(input.departureAt ? { departureTime: input.departureAt } : {}),
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Google Routes matrix request failed (${response.status}): ${body.slice(0, 500)}`);
+    }
+    const payload = await response.json() as GoogleMatrixElement[];
+    return payload.flatMap((element) => {
+      const origin = input.origins[element.originIndex ?? -1];
+      const destination = input.destinations[element.destinationIndex ?? -1];
+      if (!origin || !destination) return [];
+      const ready = element.condition === "ROUTE_EXISTS"
+        && !element.status?.code
+        && element.distanceMeters !== undefined
+        && element.duration !== undefined;
+      return [{
+        originWaypointId: origin.id,
+        destinationWaypointId: destination.id,
+        status: ready ? "ready" as const : "failed" as const,
+        drivingDistanceMeters: ready ? Math.round(element.distanceMeters!) : null,
+        drivingDurationSeconds: ready ? seconds(element.duration) : null,
+        ...(ready ? {} : { errorCode: element.status?.message ?? element.condition ?? "matrix_route_failed" }),
+      }];
+    });
   }
 }
