@@ -11,14 +11,15 @@ export type EditableServicePlan={
  default_duration_minutes:number;recurring_price:number;preferred_time_window:string;taxable:boolean;
 };
 
-export function ServicePlanEditDrawer({plan,locations,services,employees,updateAction,deleteAction}:{
+export function ServicePlanEditDrawer({plan,locations,services,employees,updateAction,deleteAction,menuItem=false}:{
  plan:EditableServicePlan;locations:Option[];services:Option[];employees:Option[];
  updateAction:(formData:FormData)=>void|Promise<void>;deleteAction:(formData:FormData)=>void|Promise<void>;
+ menuItem?:boolean;
 }){
  const [open,setOpen]=useState(false);
  const close=useCallback(()=>setOpen(false),[]);
  return <>
-  <button type="button" className="service-plan-edit-trigger" onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>✎</button>
+  <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>{menuItem?"↻ Edit service plan":"✎"}</button>
   <ManagementDrawer open={open} title="Edit service plan" onDirty={()=>{}} onClose={close}>
    <form action={updateAction} className="quick-employee-form service-plan-form">
     <fieldset><legend>Plan details</legend>

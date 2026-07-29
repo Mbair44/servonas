@@ -267,6 +267,46 @@ export async function deleteServicePlan(slug:string,customerId:string,planId:str
  redirect(`${target}?success=${encodeURIComponent(jobsError?"Service plan deleted; review its future jobs.":"Service plan deleted and future jobs canceled.")}#service-plans`);
 }
 
+async function recurringVisit(slug:string,customerId:string,jobId:string){
+ const workspace=await requireWorkspaceCapability(slug,"customer_management");
+ if(!canManageCustomers(workspace.role))return {...workspace,job:null};
+ const {data:job}=await workspace.supabase.from("jobs").select("id,business_id,recurring_service_series_id,service_plan_occurrence_id,status,starts_at").eq("id",jobId).eq("business_id",workspace.business.id).eq("customer_id",customerId).eq("is_deleted",false).not("recurring_service_series_id","is",null).not("service_plan_occurrence_id","is",null).maybeSingle();
+ return {...workspace,job};
+}
+
+export async function skipRecurringVisit(slug:string,customerId:string,jobId:string){
+ const {supabase,user,business,role,job}=await recurringVisit(slug,customerId,jobId),target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role)||!job)redirect(`${target}?error=${encodeURIComponent("The recurring visit could not be skipped.")}`);
+ const now=new Date().toISOString();
+ const {error:occurrenceError}=await supabase.from("service_plan_occurrences").update({status:"skipped",skipped_at:now,skipped_by:user.id,skip_reason:"Skipped by user",updated_at:now}).eq("id",job.service_plan_occurrence_id).eq("business_id",business.id);
+ const {error:jobError}=occurrenceError?{error:null}:await supabase.from("jobs").update({status:"canceled",canceled_at:now,cancellation_reason:"Service plan occurrence skipped",updated_at:now,updated_by:user.id}).eq("id",job.id).eq("business_id",business.id).not("status","in","(completed,canceled)");
+ if(occurrenceError||jobError){console.error("Recurring visit skip failed",{businessId:business.id,customerId,jobId,occurrenceCode:occurrenceError?.code,jobCode:jobError?.code});redirect(`${target}?error=${encodeURIComponent("The visit could not be skipped.")}`);}
+ await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:job.recurring_service_series_id,occurrence_id:job.service_plan_occurrence_id,job_id:job.id,event_type:"occurrence_skipped",actor_user_id:user.id,new_value:{reason:"Skipped by user"}});
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);redirect(`${target}?success=${encodeURIComponent("Visit skipped.")}#service-plans`);
+}
+
+export async function reactivateRecurringVisit(slug:string,customerId:string,jobId:string){
+ const {supabase,user,business,role,job}=await recurringVisit(slug,customerId,jobId),target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role)||!job)redirect(`${target}?error=${encodeURIComponent("The recurring visit could not be reactivated.")}`);
+ const now=new Date().toISOString();
+ const {error:occurrenceError}=await supabase.from("service_plan_occurrences").update({status:"generated",skipped_at:null,skipped_by:null,skip_reason:null,updated_at:now}).eq("id",job.service_plan_occurrence_id).eq("business_id",business.id).eq("status","skipped");
+ const {error:jobError}=occurrenceError?{error:null}:await supabase.from("jobs").update({status:"scheduled",canceled_at:null,cancellation_reason:null,updated_at:now,updated_by:user.id}).eq("id",job.id).eq("business_id",business.id).eq("status","canceled").eq("cancellation_reason","Service plan occurrence skipped");
+ if(occurrenceError||jobError){console.error("Recurring visit reactivation failed",{businessId:business.id,customerId,jobId,occurrenceCode:occurrenceError?.code,jobCode:jobError?.code});redirect(`${target}?error=${encodeURIComponent("The skipped visit could not be reactivated.")}`);}
+ await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:job.recurring_service_series_id,occurrence_id:job.service_plan_occurrence_id,job_id:job.id,event_type:"occurrence_reactivated",actor_user_id:user.id,new_value:{status:"generated"}});
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);redirect(`${target}?success=${encodeURIComponent("Skipped visit reactivated.")}#service-plans`);
+}
+
+export async function cancelRecurringVisit(slug:string,customerId:string,jobId:string){
+ const {supabase,user,business,role,job}=await recurringVisit(slug,customerId,jobId),target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role)||!job)redirect(`${target}?error=${encodeURIComponent("The recurring visit could not be canceled.")}`);
+ const now=new Date().toISOString();
+ const {error:occurrenceError}=await supabase.from("service_plan_occurrences").update({status:"canceled",updated_at:now}).eq("id",job.service_plan_occurrence_id).eq("business_id",business.id);
+ const {error:jobError}=occurrenceError?{error:null}:await supabase.from("jobs").update({status:"canceled",canceled_at:now,cancellation_reason:"Recurring visit canceled",updated_at:now,updated_by:user.id}).eq("id",job.id).eq("business_id",business.id).not("status","in","(completed,canceled)");
+ if(occurrenceError||jobError){console.error("Recurring visit cancellation failed",{businessId:business.id,customerId,jobId,occurrenceCode:occurrenceError?.code,jobCode:jobError?.code});redirect(`${target}?error=${encodeURIComponent("The visit could not be canceled.")}`);}
+ await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:job.recurring_service_series_id,occurrence_id:job.service_plan_occurrence_id,job_id:job.id,event_type:"occurrence_canceled",actor_user_id:user.id,new_value:{reason:"Canceled by user"}});
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);redirect(`${target}?success=${encodeURIComponent("Visit canceled.")}#service-plans`);
+}
+
 export async function changeServicePlanStatus(slug:string,customerId:string,planId:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}#service-plans`;
  if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to change service plans.")}`);
