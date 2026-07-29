@@ -232,6 +232,41 @@ export async function retryServicePlanJobGeneration(slug:string,customerId:strin
  redirect(`${target}?success=${encodeURIComponent("Upcoming service-plan jobs generated successfully.")}`);
 }
 
+export async function updateServicePlan(slug:string,customerId:string,planId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to edit service plans.")}`);
+ const name=text(formData,"name"),locationId=text(formData,"serviceLocationId"),serviceId=text(formData,"serviceId"),startDate=text(formData,"startDate"),endDate=text(formData,"endDate")||null,firstDate=text(formData,"firstRecurringDate");
+ const intervalValue=Number(text(formData,"intervalValue")),intervalUnit=text(formData,"intervalUnit"),duration=Number(text(formData,"durationMinutes")),price=Number(text(formData,"recurringPrice")),employeeId=text(formData,"employeeId")||null;
+ if(!name||!locationId||!serviceId||!startDate||!firstDate||!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit)||!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0||Boolean(endDate&&endDate<startDate))redirect(`${target}?error=${encodeURIComponent("Review the service-plan dates, cadence, duration, and price.")}`);
+ const [{data:plan},{data:location},{data:service},{data:employee}]=await Promise.all([
+  supabase.from("recurring_service_series").select("id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).maybeSingle(),
+  supabase.from("service_locations").select("id").eq("id",locationId).eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("services").select("id").eq("id",serviceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
+  employeeId?supabase.from("technician_profiles").select("id").eq("id",employeeId).eq("business_id",business.id).eq("is_active",true).eq("can_be_assigned_jobs",true).maybeSingle():Promise.resolve({data:null}),
+ ]);
+ if(!plan||!location||!service||(employeeId&&!employee))redirect(`${target}?error=${encodeURIComponent("The selected plan, location, service, or technician is unavailable.")}`);
+ const {error}=await supabase.from("recurring_service_series").update({name,service_location_id:locationId,service_id:serviceId,start_date:startDate,end_date:endDate,first_recurring_date:firstDate,next_due_on:firstDate,cadence_interval:intervalValue,cadence_unit:intervalUnit,default_duration_minutes:duration,recurring_price:price,preferred_time_window:text(formData,"preferredTimeWindow")||"no_preference",taxable:formData.get("taxable")==="on",default_employee_id:employeeId,last_generated_through:null,updated_by:user.id}).eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId);
+ if(error){console.error("Service plan update failed",{businessId:business.id,customerId,planId,code:error.code,message:error.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be updated.")}`);}
+ const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:planId,p_horizon_days:60});
+ if(generationError)console.error("Updated service plan generation failed",{businessId:business.id,planId,code:generationError.code,message:generationError.message});
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);
+ redirect(generationError?`${target}?reconcilePlan=${planId}&warning=${encodeURIComponent("Service plan updated, but upcoming jobs could not be generated.")}#service-plans`:`${target}?success=${encodeURIComponent("Service plan updated.")}#service-plans`);
+}
+
+export async function deleteServicePlan(slug:string,customerId:string,planId:string){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to delete service plans.")}`);
+ const {data:plan}=await supabase.from("recurring_service_series").select("id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).maybeSingle();
+ if(!plan)redirect(`${target}?error=${encodeURIComponent("Service plan not found.")}`);
+ const {error}=await supabase.rpc("change_service_plan_status",{p_plan_id:planId,p_status:"canceled",p_reason:"Deleted by user"});
+ if(error){console.error("Service plan deletion failed",{businessId:business.id,customerId,planId,code:error.code,message:error.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be deleted.")}`);}
+ const now=new Date().toISOString();
+ const {error:jobsError}=await supabase.from("jobs").update({status:"canceled",canceled_at:now,cancellation_reason:"Recurring service plan deleted",updated_at:now}).eq("business_id",business.id).eq("recurring_service_series_id",planId).gte("starts_at",now).not("status","in","(completed,canceled)");
+ if(jobsError)console.error("Deleted service plan future-job cancellation failed",{businessId:business.id,planId,code:jobsError.code,message:jobsError.message});
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);
+ redirect(`${target}?success=${encodeURIComponent(jobsError?"Service plan deleted; review its future jobs.":"Service plan deleted and future jobs canceled.")}#service-plans`);
+}
+
 export async function changeServicePlanStatus(slug:string,customerId:string,planId:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}#service-plans`;
  if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to change service plans.")}`);
