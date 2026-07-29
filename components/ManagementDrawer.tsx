@@ -1,8 +1,8 @@
 "use client";
 import {useEffect,useRef,type ReactNode} from "react";
 
-export function ManagementDrawer({open,title,onDirty,onClose,children,size="standard",headerAction}:{
- open:boolean;title:string;onDirty:()=>void;onClose:()=>void;children:ReactNode;size?:"compact"|"standard";headerAction?:ReactNode;
+export function ManagementDrawer({open,title,subtitle,onDirty,onClose,children,size="standard",headerAction}:{
+ open:boolean;title:string;subtitle?:string;onDirty:()=>void;onClose:()=>void;children:ReactNode;size?:"compact"|"standard"|"wide";headerAction?:ReactNode;
 }){
  const panel=useRef<HTMLElement>(null);
  const onCloseRef=useRef(onClose);
@@ -32,7 +32,7 @@ export function ManagementDrawer({open,title,onDirty,onClose,children,size="stan
  if(!open)return null;
  return <div className="management-drawer-layer" onMouseDown={event=>{if(event.target===event.currentTarget)close();}}>
   <section ref={panel} className={`management-drawer ${size}`} role="dialog" aria-modal="true" aria-labelledby="management-drawer-title" onChange={onDirty}>
-   <header><div><h2 id="management-drawer-title">{title}</h2></div><div className="management-drawer-header-actions">{headerAction}<button type="button" onClick={close} aria-label={`Close ${title}`}>×</button></div></header>
+   <header><div><h2 id="management-drawer-title">{title}</h2>{subtitle&&<p>{subtitle}</p>}</div><div className="management-drawer-header-actions">{headerAction}<button type="button" onClick={close} aria-label={`Close ${title}`}>×</button></div></header>
    <div className="management-drawer-body">{children}</div>
   </section>
  </div>;
