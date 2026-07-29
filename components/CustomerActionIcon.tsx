@@ -1,4 +1,4 @@
-export type CustomerActionIconName="calendar"|"briefcase"|"repeat"|"customer"|"archive"|"location"|"clock"|"card"|"chart";
+export type CustomerActionIconName="calendar"|"briefcase"|"repeat"|"customer"|"archive"|"location"|"clock"|"card"|"chart"|"check";
 
 export function CustomerActionIcon({name}:{name:CustomerActionIconName}){
  const common={fill:"none",stroke:"currentColor",strokeWidth:1.9,strokeLinecap:"round" as const,strokeLinejoin:"round" as const};
@@ -12,5 +12,6 @@ export function CustomerActionIcon({name}:{name:CustomerActionIconName}){
   {name==="clock"&&<><circle {...common} cx="12" cy="12" r="9"/><path {...common} d="M12 7v6l4 2"/></>}
   {name==="card"&&<><rect {...common} x="3" y="5" width="18" height="14" rx="2"/><path {...common} d="M3 9h18M7 15h4"/></>}
   {name==="chart"&&<><path {...common} d="M4 20V4M4 20h16M7 16l4-5 3 2 5-7"/><path {...common} d="M15 6h4v4"/></>}
+  {name==="check"&&<><circle {...common} cx="12" cy="12" r="9"/><path {...common} d="m8 12 2.5 2.5L16 9"/></>}
  </svg>;
 }
