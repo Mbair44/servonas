@@ -2,6 +2,7 @@ import "./globals.css";
 import "./public-estimate.css";
 import Link from "next/link";
 import Script from "next/script";
+import { PhoneInputFormatter } from "@/components/PhoneInputFormatter";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
@@ -11,6 +12,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return <html lang="en"><body>
+    <PhoneInputFormatter/>
     <Script
       src="https://www.googletagmanager.com/gtag/js?id=AW-18340749438"
       strategy="afterInteractive"

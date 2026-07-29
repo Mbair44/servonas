@@ -34,8 +34,10 @@ function validateCustomer(formData: FormData) {
   const phone = text(formData, "phone");
   const secondaryPhone = text(formData, "secondaryPhone");
   if (!first) errors.firstName = "Enter a first name.";
-  if (!isValidCrmEmail(email)) errors.email = "Enter a valid email address.";
-  if (!isValidCrmPhone(phone)) errors.phone = "Enter a valid phone number.";
+  if (!email) errors.email = "Enter an email address.";
+  else if (!isValidCrmEmail(email)) errors.email = "Enter a valid email address.";
+  if (!phone) errors.phone = "Enter a primary phone number.";
+  else if (!isValidCrmPhone(phone)) errors.phone = "Enter a valid phone number.";
   if (!isValidCrmPhone(secondaryPhone)) errors.secondaryPhone = "Enter a valid secondary phone.";
   return errors;
 }
