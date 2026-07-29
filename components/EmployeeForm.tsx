@@ -8,7 +8,7 @@ export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleI
   <label>Preferred name <small>Optional</small><input maxLength={200} name="preferredName" defaultValue={employee.preferred_name??""}/></label>
   <label>Legal name<input maxLength={200} name="legalName" defaultValue={employee.legal_name??""}/></label>
   <label>Email<input type="email" name="email" defaultValue={employee.email??""}/></label>
-  <label>Phone<input name="phone" autoComplete="tel" defaultValue={employee.phone??""}/></label>
+  <label>Phone<input name="phone" type="tel" autoComplete="tel" defaultValue={employee.phone??""}/></label>
   <label>Employee number<input name="employeeNumber" maxLength={64} pattern="[A-Za-z0-9_-]+" readOnly={!allowEmployeeNumberOverride} aria-describedby={!allowEmployeeNumberOverride?"employee-number-managed":undefined} defaultValue={employee.employee_number??""}/>{!allowEmployeeNumberOverride&&<small id="employee-number-managed">Managed by this workspace’s employee-numbering settings.</small>}</label>
   <label>Job title<input maxLength={120} name="jobTitle" defaultValue={employee.job_title??""}/></label>
   <label>Employee type<select name="employeeType" defaultValue={employee.employee_type??"other"}><option value="technician">Technician</option><option value="dispatcher">Dispatcher</option><option value="office_staff">Office staff</option><option value="sales">Sales</option><option value="manager">Manager</option><option value="owner">Owner</option><option value="other">Other</option></select></label>
