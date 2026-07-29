@@ -18,6 +18,7 @@ import {
 import { requireWorkspaceCapability } from "@/lib/workspace";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {refreshAffectedTechnicianRoutes} from "@/lib/routing/automaticRouteRefresh";
+import {dateInTimeZone} from "@/lib/bookingTime";
 
 export type CrmActionState = {
   error?: string;
@@ -302,10 +303,14 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
  const target=`/app/${slug}/customers/${customerId}`;
  if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to create service plans.")}`);
  const name=text(formData,"name"),locationId=text(formData,"serviceLocationId"),serviceId=text(formData,"serviceId");
- const startDate=text(formData,"startDate"),endDate=text(formData,"endDate")||null,firstDate=text(formData,"firstRecurringDate");
+ const automatic=formData.get("scheduleAutomatically")==="on";
+ const startDate=text(formData,"startDate")||dateInTimeZone(new Date(),business.timezone),endDate=text(formData,"endDate")||null;
+ const firstDate=text(formData,"firstRecurringDate")||startDate;
+ const schedulingFlexDays=automatic?Number(text(formData,"schedulingFlexDays")||7):0;
  const intervalValue=Number(text(formData,"intervalValue")),intervalUnit=text(formData,"intervalUnit");
  const duration=Number(text(formData,"durationMinutes")),price=Number(text(formData,"recurringPrice"));
  if(!name||!locationId||!serviceId||!startDate||!firstDate)redirect(`${target}?error=${encodeURIComponent("Complete every required service-plan field.")}`);
+ if(!Number.isInteger(schedulingFlexDays)||schedulingFlexDays<0||schedulingFlexDays>30)redirect(`${target}?error=${encodeURIComponent("Choose a valid automatic scheduling window.")}`);
  if(!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit))redirect(`${target}?error=${encodeURIComponent("Choose a valid recurring cadence.")}`);
  if(!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0)redirect(`${target}?error=${encodeURIComponent("Enter a valid duration and recurring price.")}`);
  if(endDate&&endDate<startDate)redirect(`${target}?error=${encodeURIComponent("The service-plan end date cannot be before its start date.")}`);
@@ -325,10 +330,11 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
   initial_service_required:initialRequired,initial_service_date:initialDate,initial_service_price:Number(text(formData,"initialServicePrice")||0),
   initial_service_duration_minutes:initialRequired?Number(text(formData,"initialServiceDuration")||duration):null,initial_service_description:text(formData,"initialServiceDescription")||null,
   recurring_price:price,taxable:formData.get("taxable")==="on",default_duration_minutes:duration,preferred_time_window:text(formData,"preferredTimeWindow")||"no_preference",
+  scheduling_mode:automatic?"route_optimized":"fixed_date",scheduling_flex_days:schedulingFlexDays,
   default_employee_id:employeeId,billing_rule:"after_each_completed_service",created_by:user.id,updated_by:user.id,
  }).select("id").single();
  if(error||!plan){console.error("Service plan creation failed",{businessId:business.id,customerId,code:error?.code,message:error?.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be created.")}`);}
- const {error:auditError}=await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:plan.id,event_type:"service_plan_created",actor_user_id:user.id,new_value:{name,interval_value:intervalValue,interval_unit:intervalUnit,first_recurring_date:firstDate,recurring_price:price}});
+ const {error:auditError}=await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:plan.id,event_type:"service_plan_created",actor_user_id:user.id,new_value:{name,interval_value:intervalValue,interval_unit:intervalUnit,first_recurring_date:firstDate,recurring_price:price,scheduling_mode:automatic?"route_optimized":"fixed_date",scheduling_flex_days:schedulingFlexDays}});
  if(auditError)console.error("Service plan creation audit failed",{businessId:business.id,planId:plan.id,code:auditError.code});
  const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});
  if(generationError)console.error("Initial service plan generation failed",{businessId:business.id,planId:plan.id,code:generationError.code,message:generationError.message});
@@ -378,8 +384,9 @@ export async function updateServicePlan(slug:string,customerId:string,planId:str
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}`;
  if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to edit service plans.")}`);
  const name=text(formData,"name"),locationId=text(formData,"serviceLocationId"),serviceId=text(formData,"serviceId"),startDate=text(formData,"startDate"),endDate=text(formData,"endDate")||null,firstDate=text(formData,"firstRecurringDate");
+ const automatic=formData.get("scheduleAutomatically")==="on",schedulingFlexDays=automatic?Number(text(formData,"schedulingFlexDays")||7):0;
  const intervalValue=Number(text(formData,"intervalValue")),intervalUnit=text(formData,"intervalUnit"),duration=Number(text(formData,"durationMinutes")),price=Number(text(formData,"recurringPrice")),employeeId=text(formData,"employeeId")||null;
- if(!name||!locationId||!serviceId||!startDate||!firstDate||!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit)||!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0||Boolean(endDate&&endDate<startDate))redirect(`${target}?error=${encodeURIComponent("Review the service-plan dates, cadence, duration, and price.")}`);
+ if(!name||!locationId||!serviceId||!startDate||!firstDate||!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit)||!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0||!Number.isInteger(schedulingFlexDays)||schedulingFlexDays<0||schedulingFlexDays>30||Boolean(endDate&&endDate<startDate))redirect(`${target}?error=${encodeURIComponent("Review the service-plan dates, cadence, duration, price, and scheduling window.")}`);
  const [{data:plan},{data:location},{data:service},{data:employee}]=await Promise.all([
   supabase.from("recurring_service_series").select("id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).maybeSingle(),
   supabase.from("service_locations").select("id,default_technician_id").eq("id",locationId).eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false).maybeSingle(),
@@ -387,7 +394,7 @@ export async function updateServicePlan(slug:string,customerId:string,planId:str
   employeeId?supabase.from("technician_profiles").select("id").eq("id",employeeId).eq("business_id",business.id).eq("is_active",true).eq("can_be_assigned_jobs",true).maybeSingle():Promise.resolve({data:null}),
  ]);
  if(!plan||!location||!service||(employeeId&&!employee))redirect(`${target}?error=${encodeURIComponent("The selected plan, location, service, or technician is unavailable.")}`);
- const {error}=await supabase.from("recurring_service_series").update({name,service_location_id:locationId,service_id:serviceId,start_date:startDate,end_date:endDate,first_recurring_date:firstDate,next_due_on:firstDate,cadence_interval:intervalValue,cadence_unit:intervalUnit,default_duration_minutes:duration,recurring_price:price,preferred_time_window:text(formData,"preferredTimeWindow")||"no_preference",taxable:formData.get("taxable")==="on",default_employee_id:employeeId,last_generated_through:null,updated_by:user.id}).eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId);
+ const {error}=await supabase.from("recurring_service_series").update({name,service_location_id:locationId,service_id:serviceId,start_date:startDate,end_date:endDate,first_recurring_date:firstDate,next_due_on:firstDate,cadence_interval:intervalValue,cadence_unit:intervalUnit,default_duration_minutes:duration,recurring_price:price,preferred_time_window:text(formData,"preferredTimeWindow")||"no_preference",taxable:formData.get("taxable")==="on",scheduling_mode:automatic?"route_optimized":"fixed_date",scheduling_flex_days:schedulingFlexDays,default_employee_id:employeeId,last_generated_through:null,updated_by:user.id}).eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId);
  if(error){console.error("Service plan update failed",{businessId:business.id,customerId,planId,code:error.code,message:error.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be updated.")}`);}
  const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:planId,p_horizon_days:60});
  if(generationError)console.error("Updated service plan generation failed",{businessId:business.id,planId,code:generationError.code,message:generationError.message});

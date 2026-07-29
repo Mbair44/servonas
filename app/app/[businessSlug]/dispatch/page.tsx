@@ -7,7 +7,6 @@ import { conflictingDispatchJobIds, dispatchTechnicianState } from "@/lib/dispat
 import { routableLocationCoordinates, scheduledStopSequence } from "@/lib/dispatchMap";
 import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransitions";
 import { evaluateRouteWarnings } from "@/lib/routing/warnings";
-import { densityCounts, resolveServiceDuration } from "@/lib/routing/serviceDuration";
 import { formatEstimatedDuration, formatEstimatedMiles, routeMetrics } from "@/lib/routing/metrics";
 import { hasRouteCapability } from "@/lib/routing/permissions";
 import { safeRoadGeometries } from "@/lib/routing/geometrySelection";
@@ -95,7 +94,6 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     ? await routingSupabase.from("route_suggestions").select("id,summary,estimated_distance_saved_meters,estimated_time_saved_seconds,created_at").eq("business_id", business.id).eq("route_plan_id", routePlan.id).eq("status", "pending").order("created_at", { ascending: false })
     : { data: null, error: null };
   if (suggestionError) console.error("Route suggestions query failed", { code: suggestionError.code, businessId: business.id });
-  const { data: densityPolicy } = await routingSupabase.from("business_routing_policies").select("default_service_duration_minutes").eq("business_id", business.id).maybeSingle();
   const [{ data: persistedStops, error: persistedStopError }, { data: persistedLegs, error: persistedLegError }] = routeIds.length
     ? await Promise.all([
       routingSupabase.from("route_stops").select("id,technician_route_id,job_id,sequence,planned_arrival_at,planned_departure_at,is_locked").eq("business_id", business.id).in("technician_route_id", routeIds),
@@ -211,21 +209,6 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       };
     }),
   });
-  const durationLabels = jobs.map((job) => {
-    const minutes = resolveServiceDuration({
-      serviceMinutes: relation(job.services)?.duration_minutes,
-      businessDefaultMinutes: densityPolicy?.default_service_duration_minutes,
-    }).minutes;
-    return minutes <= 30 ? "30 min or less" : minutes <= 60 ? "31–60 min" : minutes <= 120 ? "61–120 min" : "Over 2 hours";
-  });
-  const densityGroups = [
-    { label: "ZIP code", values: jobs.map((job) => relation(job.service_locations)?.postal_code) },
-    { label: "City", values: jobs.map((job) => relation(job.service_locations)?.city) },
-    { label: "Service area", values: jobs.map((job) => technicians.find((technician) => technician.id === job.assigned_technician_id)?.service_areas?.join(", ")) },
-    { label: "Technician", values: jobs.map((job) => technicians.find((technician) => technician.id === job.assigned_technician_id)?.preferred_name ?? "Unassigned") },
-    { label: "Appointment window", values: jobs.map((job) => job.arrival_window_start ? new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, hour: "numeric" }).format(new Date(job.arrival_window_start)) : "No window") },
-    { label: "Job duration", values: durationLabels },
-  ];
   const jobsAtRisk = new Set(routeWarnings.filter((warning) => warning.jobId && warning.severity !== "info").map((warning) => warning.jobId)).size;
   const dailyMetrics = routeMetrics({
     totalJobs: jobs.length,
@@ -275,7 +258,6 @@ export default async function DispatchPage({ params, searchParams }: { params: P
         <div><dt>Planned utilization</dt><dd>{workSeconds ? formatEstimatedDuration(workSeconds) : "Not available"}</dd></div>
       </dl></article>;
     })}</div></section>
-    <section className="workspace-panel dispatch-density"><div className="panel-title"><div><small>Route concentration</small><h2>Today’s route density</h2><p>Operational counts only—no optimization savings are inferred.</p></div></div><div>{densityGroups.map((group)=><article key={group.label}><h3>{group.label}</h3>{densityCounts(group.values).slice(0,5).map(item=><div key={item.label}><span>{item.label}</span><b>{item.count}</b></div>)}</article>)}</div></section>
     <DispatchMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} jobs={mapJobs} routes={mapRoutes} warnings={routeWarnings} date={date} canReorder={canEdit} reorderAction={reorderDispatchRoute.bind(null,businessSlug)} planVersion={routePlan?.version ?? null} calculationRevision={routePlan?.calculation_revision ?? null} planUpdatedAt={routePlan?.updated_at ?? null}/>
     <div className="dispatch-list-heading"><div><small>Map-independent controls</small><h2>Dispatch assignments</h2></div><p>Assignment, status, contact, and schedule controls remain available if the map provider is unavailable.</p></div>
     <div className="dispatch-board">

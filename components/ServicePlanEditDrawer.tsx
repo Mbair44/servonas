@@ -9,6 +9,7 @@ export type EditableServicePlan={
  id:string;name:string;service_location_id:string;service_id:string;default_employee_id:string|null;
  start_date:string;end_date:string|null;first_recurring_date:string;cadence_interval:number;cadence_unit:string;
  default_duration_minutes:number;recurring_price:number;preferred_time_window:string;taxable:boolean;
+ scheduling_mode?:"fixed_date"|"route_optimized";scheduling_flex_days?:number;
 };
 
 export function ServicePlanEditDrawer({plan,locations,services,employees,updateAction,deleteAction,menuItem=false}:{
@@ -29,6 +30,8 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
      <div className="quick-form-grid"><label>Service location<select name="serviceLocationId" required defaultValue={plan.service_location_id}>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
      <label>Service type<select name="serviceId" required defaultValue={plan.service_id}>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
      <div className="quick-form-grid"><label>Start date<input name="startDate" type="date" required defaultValue={plan.start_date}/></label><label>End date <small>Optional</small><input name="endDate" type="date" defaultValue={plan.end_date??""}/></label><label>First recurring service<input name="firstRecurringDate" type="date" required defaultValue={plan.first_recurring_date}/></label><label>Default technician<select name="employeeId" defaultValue={plan.default_employee_id??""}><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
+     <label className="drawer-check"><input type="checkbox" name="scheduleAutomatically" defaultChecked={plan.scheduling_mode==="route_optimized"}/>Let Servonas choose the best service day for the route</label>
+     <label>Automatic scheduling window<select name="schedulingFlexDays" defaultValue={plan.scheduling_flex_days??7}><option value="3">Within 3 days</option><option value="7">Within 7 days</option><option value="14">Within 14 days</option><option value="30">Within 30 days</option></select></label>
     </fieldset>
     <fieldset><legend>Cadence and pricing</legend>
      <div className="service-plan-cadence"><span>Repeat every</span><input name="intervalValue" type="number" min="1" max="120" required defaultValue={plan.cadence_interval}/><select name="intervalUnit" defaultValue={plan.cadence_unit}><option value="day">days</option><option value="week">weeks</option><option value="month">months</option><option value="year">years</option></select></div>
