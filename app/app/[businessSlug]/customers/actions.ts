@@ -176,7 +176,7 @@ export async function assignCustomerOperations(slug:string,customerId:string,for
  if(!location)redirect(`${target}?error=${encodeURIComponent("The service location could not be found.")}`);
  if(mode==="automatic"){
   const {error}=await supabase.from("service_locations").update({operational_assignment_source:"automatic",updated_by:user.id}).eq("id",locationId).eq("business_id",business.id);
-  if(error){console.error("Customer automatic assignment failed",{businessId:business.id,customerId,locationId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The address could not be matched to an operating assignment.")}`);}
+  if(error){console.error("Customer automatic assignment failed",{businessId:business.id,customerId,locationId,code:error.code,message:error.message,details:error.details,hint:error.hint});redirect(`${target}?error=${encodeURIComponent(`Automatic assignment could not be recalculated (${error.code}).`)}`);}
  }else{
   if(territoryId){
    const {data:territory}=await supabase.from("workforce_territories").select("id").eq("id",territoryId).eq("business_id",business.id).eq("is_active",true).maybeSingle();
