@@ -290,6 +290,15 @@ export async function calculateDailyRoutes({
     if (routeError || !technicianRoute) {
       throw new Error(databaseFailure("Technician route could not be saved",routeError));
     }
+    const routeJobIds=routable.map(({job})=>job.id);
+    if(routeJobIds.length){
+      const {error:orphanStopError}=await admin.from("route_stops").delete()
+        .eq("business_id",businessId).eq("route_plan_id",plan.id)
+        .in("job_id",routeJobIds).neq("technician_route_id",technicianRoute.id);
+      if(orphanStopError){
+        throw new Error(databaseFailure("Stale assigned route stops could not be removed",orphanStopError));
+      }
+    }
     await admin.from("route_stops").delete().eq("business_id", businessId).eq("technician_route_id", technicianRoute.id);
     const { data: stops, error: stopsError } = await admin.from("route_stops").insert(routable.map(({ job, location, duration }, index) => {
       const customer = relation(job.customers);

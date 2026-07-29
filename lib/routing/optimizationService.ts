@@ -75,8 +75,9 @@ export async function generateRouteOptimizationSuggestions({
           travelMode: plan.travel_mode,
           departureAt: new Date(normalized[0].startsAt).getTime() > Date.now() ? normalized[0].startsAt : undefined,
         });
-        const workingDayEndAt = routeRows.map((stop) => relation(stop.jobs)?.ends_at).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
-        if (!candidateMeetsAppointmentWindows({ stops: candidate, legs: result.legs, routeStartAt: normalized[0].startsAt, workingDayEndAt })) continue;
+        // Job end timestamps describe service duration, not the technician's
+        // workday boundary. Appointment windows remain the hard constraint.
+        if (!candidateMeetsAppointmentWindows({ stops: candidate, legs: result.legs, routeStartAt: normalized[0].startsAt })) continue;
         const savings = positiveRoadSavings(
           { distance: route.driving_distance_meters, duration: route.driving_duration_seconds },
           { distance: result.drivingDistanceMeters, duration: result.drivingDurationSeconds },
