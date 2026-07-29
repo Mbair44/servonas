@@ -166,6 +166,71 @@ export async function archiveCustomer(slug: string, customerId: string) {
   redirect(`/app/${slug}/customers?success=Customer+archived`);
 }
 
+export async function createServicePlan(slug:string,customerId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
+ const target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to create service plans.")}`);
+ const name=text(formData,"name"),locationId=text(formData,"serviceLocationId"),serviceId=text(formData,"serviceId");
+ const startDate=text(formData,"startDate"),endDate=text(formData,"endDate")||null,firstDate=text(formData,"firstRecurringDate");
+ const intervalValue=Number(text(formData,"intervalValue")),intervalUnit=text(formData,"intervalUnit");
+ const duration=Number(text(formData,"durationMinutes")),price=Number(text(formData,"recurringPrice"));
+ if(!name||!locationId||!serviceId||!startDate||!firstDate)redirect(`${target}?error=${encodeURIComponent("Complete every required service-plan field.")}`);
+ if(!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit))redirect(`${target}?error=${encodeURIComponent("Choose a valid recurring cadence.")}`);
+ if(!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0)redirect(`${target}?error=${encodeURIComponent("Enter a valid duration and recurring price.")}`);
+ if(endDate&&endDate<startDate)redirect(`${target}?error=${encodeURIComponent("The service-plan end date cannot be before its start date.")}`);
+ const [{data:customer},{data:location},{data:service}]=await Promise.all([
+  supabase.from("customers").select("id").eq("business_id",business.id).eq("id",customerId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("service_locations").select("id").eq("business_id",business.id).eq("customer_id",customerId).eq("id",locationId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("services").select("id").eq("business_id",business.id).eq("id",serviceId).eq("is_deleted",false).maybeSingle(),
+ ]);
+ if(!customer||!location||!service)redirect(`${target}?error=${encodeURIComponent("The selected customer, location, or service is unavailable.")}`);
+ const employeeId=text(formData,"employeeId")||null;
+ if(employeeId){const {data:employee}=await supabase.from("technician_profiles").select("id").eq("business_id",business.id).eq("id",employeeId).eq("is_active",true).eq("can_be_assigned_jobs",true).maybeSingle();if(!employee)redirect(`${target}?error=${encodeURIComponent("Choose an active assignable technician.")}`);}
+ const initialRequired=formData.get("initialServiceRequired")==="on",initialDate=text(formData,"initialServiceDate")||null;
+ if(initialRequired&&!initialDate)redirect(`${target}?error=${encodeURIComponent("Choose an initial-service date.")}`);
+ const {data:plan,error}=await supabase.from("recurring_service_series").insert({
+  business_id:business.id,customer_id:customerId,service_location_id:locationId,service_id:serviceId,name,status:"active",is_active:true,
+  start_date:startDate,end_date:endDate,first_recurring_date:firstDate,next_due_on:firstDate,cadence_interval:intervalValue,cadence_unit:intervalUnit,
+  initial_service_required:initialRequired,initial_service_date:initialDate,initial_service_price:Number(text(formData,"initialServicePrice")||0),
+  initial_service_duration_minutes:initialRequired?Number(text(formData,"initialServiceDuration")||duration):null,initial_service_description:text(formData,"initialServiceDescription")||null,
+  recurring_price:price,taxable:formData.get("taxable")==="on",default_duration_minutes:duration,preferred_time_window:text(formData,"preferredTimeWindow")||"no_preference",
+  default_employee_id:employeeId,billing_rule:"after_each_completed_service",created_by:user.id,updated_by:user.id,
+ }).select("id").single();
+ if(error||!plan){console.error("Service plan creation failed",{businessId:business.id,customerId,code:error?.code,message:error?.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be created.")}`);}
+ const {error:auditError}=await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:plan.id,event_type:"service_plan_created",actor_user_id:user.id,new_value:{name,interval_value:intervalValue,interval_unit:intervalUnit,first_recurring_date:firstDate,recurring_price:price}});
+ if(auditError)console.error("Service plan creation audit failed",{businessId:business.id,planId:plan.id,code:auditError.code});
+ const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});
+ if(generationError)console.error("Initial service plan generation failed",{businessId:business.id,planId:plan.id,code:generationError.code,message:generationError.message});
+ if(!generationError&&employeeId){
+  const {data:generatedJobs}=await supabase.from("jobs").select("id").eq("business_id",business.id).eq("recurring_service_series_id",plan.id).is("assigned_technician_id",null);
+  for(const job of generatedJobs??[]){const {error:assignmentError}=await supabase.rpc("set_job_primary_technician",{p_job_id:job.id,p_technician_id:employeeId});if(assignmentError)console.error("Generated service-plan job assignment failed",{businessId:business.id,planId:plan.id,jobId:job.id,code:assignmentError.code});}
+ }
+ revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);
+ redirect(`${target}?success=${encodeURIComponent(generationError?"Service plan created; upcoming jobs need reconciliation.":"Service plan created and upcoming jobs generated.")}`);
+}
+
+export async function changeServicePlanStatus(slug:string,customerId:string,planId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}#service-plans`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to change service plans.")}`);
+ const status=text(formData,"status"),reason=text(formData,"reason")||null;
+ const {data:plan}=await supabase.from("recurring_service_series").select("id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).maybeSingle();
+ if(!plan)redirect(`${target}?error=${encodeURIComponent("Service plan not found.")}`);
+ const {error}=await supabase.rpc("change_service_plan_status",{p_plan_id:planId,p_status:status,p_reason:reason});
+ if(error){console.error("Service plan status change failed",{businessId:business.id,planId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The service plan status could not be changed.")}`);}
+ if(status==="active"){const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:planId,p_horizon_days:60});if(generationError)console.error("Resumed service plan reconciliation failed",{businessId:business.id,planId,code:generationError.code});}
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);redirect(`${target}?success=${encodeURIComponent(`Service plan ${status}.`)}`);
+}
+
+export async function skipNextServicePlanOccurrence(slug:string,customerId:string,planId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}#service-plans`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to skip service occurrences.")}`);
+ const {data:plan}=await supabase.from("recurring_service_series").select("id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).maybeSingle();
+ if(!plan)redirect(`${target}?error=${encodeURIComponent("Service plan not found.")}`);
+ const {error}=await supabase.rpc("skip_next_service_plan_occurrence",{p_plan_id:planId,p_reason:text(formData,"reason")||null});
+ if(error){console.error("Service plan occurrence skip failed",{businessId:business.id,planId,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="P0002"?"There is no upcoming occurrence to skip.":"The next occurrence could not be skipped.")}`);}
+ revalidatePath(`/app/${slug}/customers/${customerId}`);revalidatePath(`/app/${slug}/jobs`);redirect(`${target}?success=${encodeURIComponent("The next service occurrence was skipped.")}`);
+}
+
 function locationPayload(formData: FormData) {
   const placeId = text(formData, "googlePlaceId");
   if (process.env.GOOGLE_MAPS_API_KEY && !placeId) return { error: "Select an address from Google’s suggestions." };

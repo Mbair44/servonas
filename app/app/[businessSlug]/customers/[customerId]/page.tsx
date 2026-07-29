@@ -1,50 +1,42 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import ServiceLocationForm from "@/components/ServiceLocationForm";
-import { canManageCustomers } from "@/lib/access";
-import { formatBusinessDate, formatBusinessDateTime } from "@/lib/bookingTime";
-import { requireWorkspace } from "@/lib/workspace";
-import { WorkspaceNav } from "../../WorkspaceNav";
-import {
-  archiveCustomer,
-  archiveServiceLocation,
-  retryServiceLocationGeocoding,
-  saveServiceLocation,
-} from "../actions";
+import {notFound} from "next/navigation";
+import {canManageCustomers} from "@/lib/access";
+import {formatBusinessDate,formatBusinessDateTime} from "@/lib/bookingTime";
+import {requireWorkspace} from "@/lib/workspace";
+import {WorkspaceNav} from "../../WorkspaceNav";
+import {ServicePlanDrawer} from "@/components/ServicePlanDrawer";
+import {archiveCustomer,createServicePlan} from "../actions";
 
-export default async function CustomerDetail({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ businessSlug: string; customerId: string }>;
-  searchParams: Promise<Record<string, string | undefined>>;
-}) {
-  const { businessSlug, customerId } = await params;
-  const q = await searchParams;
-  const { supabase, business, role } = await requireWorkspace(businessSlug);
-  const [{ data: customer }, { data: locations }, { data: jobs }] = await Promise.all([
-    supabase.from("customers").select("*").eq("id", customerId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
-    supabase.from("service_locations").select("*").eq("customer_id", customerId).eq("business_id", business.id).eq("is_deleted", false).order("is_primary", { ascending: false }),
-    supabase.from("jobs").select("id,job_number,title,status,starts_at,total_amount").eq("customer_id", customerId).eq("business_id", business.id).eq("is_deleted", false).order("starts_at", { ascending: false, nullsFirst: false }),
-  ]);
-  if (!customer) notFound();
-  const canEdit = canManageCustomers(role);
-  const now = Date.now();
-  const upcoming = (jobs ?? []).filter((job) => job.starts_at && new Date(job.starts_at).getTime() >= now && job.status !== "canceled");
-  const history = (jobs ?? []).filter((job) => !upcoming.some((upcomingJob) => upcomingJob.id === job.id));
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
-    <header className="epic3-header"><div><small>Customer record</small><h1>{customer.first_name} {customer.last_name}</h1><p>{customer.company_name || "Residential customer"}</p></div><div className="crm-header-actions">{customer.phone && <a className="sv-button sv-secondary" href={`tel:${customer.phone}`}>Call</a>}{customer.email && <a className="sv-button sv-secondary" href={`mailto:${customer.email}`}>Email</a>}{canEdit && <Link className="sv-button" href={`/app/${businessSlug}/customers/${customerId}/edit`}>Edit customer</Link>}</div></header>
-    {q.error && <div className="workspace-notice error">{q.error}</div>}{q.success && <div className="workspace-notice success">{q.success}</div>}
-    <div className="crm-detail-grid">
-      <section className="workspace-panel crm-summary"><h2>Contact</h2><dl><div><dt>Email</dt><dd>{customer.email || "Not provided"}</dd></div><div><dt>Primary phone</dt><dd>{customer.phone || "Not provided"}</dd></div><div><dt>Secondary phone</dt><dd>{customer.secondary_phone || "Not provided"}</dd></div><div><dt>Preference</dt><dd>{customer.preferred_contact_method}</dd></div><div><dt>Lead source</dt><dd>{customer.lead_source || "Not recorded"}</dd></div><div><dt>Status</dt><dd>{customer.is_active ? "Active" : "Inactive"}</dd></div></dl>{customer.tags?.length > 0 && <div className="crm-tags">{customer.tags.map((tag: string) => <span key={tag}>{tag}</span>)}</div>}<h3>Notes</h3><p>{customer.notes || "No customer notes."}</p></section>
-      <section className="workspace-panel"><div className="panel-title"><h2>Service locations</h2><span>{locations?.length ?? 0}</span></div><div className="crm-location-list">{locations?.map((location) => <article key={location.id}><div><strong>{location.location_name}{location.is_primary ? " · Primary" : ""}</strong><span>{location.street_address}{location.unit ? `, ${location.unit}` : ""}<br/>{location.city}, {location.state} {location.postal_code}</span><small>Routing address: {String(location.geocoding_status ?? "not requested").replaceAll("_", " ")}</small>{location.access_instructions && <p><b>Access:</b> {location.access_instructions}</p>}</div>{canEdit && <div className="inline-actions"><Link href={`/app/${businessSlug}/customers/${customerId}/locations/${location.id}/edit`}>Edit</Link>{!["verified","manual"].includes(String(location.geocoding_status)) && <form action={retryServiceLocationGeocoding.bind(null, businessSlug, customerId, location.id)}><button className="text-button">Retry verification</button></form>}<form action={archiveServiceLocation.bind(null, businessSlug, customerId, location.id)}><button className="text-button danger">Archive</button></form></div>}</article>)}</div></section>
-    </div>
-    {canEdit && <section className="workspace-panel"><h2>Add service location</h2><ServiceLocationForm action={saveServiceLocation.bind(null, businessSlug, customerId, null)} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY ? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY : undefined}/></section>}
-    <div className="crm-detail-grid">
-      <section className="workspace-panel"><div className="panel-title"><h2>Upcoming jobs</h2><Link href={`/app/${businessSlug}/jobs?customerId=${customerId}`}>Create job</Link></div>{upcoming.length ? <div className="crm-job-list">{upcoming.map((job) => <Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>#{job.job_number} · {job.title}</b><span>{formatBusinessDateTime(job.starts_at, business.timezone)} · {job.status.replaceAll("_", " ")}</span></Link>)}</div> : <p className="muted">No upcoming jobs.</p>}</section>
-      <section className="workspace-panel"><h2>Job history</h2>{history.length ? <div className="crm-job-list">{history.map((job) => <Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>#{job.job_number} · {job.title}</b><span>{job.starts_at ? formatBusinessDate(job.starts_at, business.timezone) : "Unscheduled"} · ${Number(job.total_amount).toFixed(2)}</span></Link>)}</div> : <p className="muted">No job history.</p>}</section>
-    </div>
-    <section className="workspace-panel crm-placeholders"><article><h3>Estimates</h3><p>Coming in a future billing checkpoint.</p></article><article><h3>Invoices</h3><p>Coming in a future billing checkpoint.</p></article><article><h3>Communications</h3><p>Provider integrations are not enabled yet.</p></article></section>
-    {canEdit && <form action={archiveCustomer.bind(null, businessSlug, customerId)} className="crm-danger-zone"><button className="text-button danger">Archive customer</button></form>}
-  </section></main>;
+export default async function CustomerDetail({params,searchParams}:{params:Promise<{businessSlug:string;customerId:string}>;searchParams:Promise<Record<string,string|undefined>>}){
+ const {businessSlug,customerId}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
+ const [{data:customer},{data:locations},{data:jobs},{data:plans},{data:services},{data:employees},{data:invoices}]=await Promise.all([
+  supabase.from("customers").select("*").eq("id",customerId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
+  supabase.from("service_locations").select("*").eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).order("is_primary",{ascending:false}),
+  supabase.from("jobs").select("id,job_number,title,status,starts_at,work_completed_at,total_amount,recurring_service_series_id,occurrence_date,generation_type").eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).order("starts_at",{ascending:false,nullsFirst:false}),
+  supabase.from("recurring_service_series").select("id,name,status,cadence_unit,cadence_interval,recurring_price,next_due_on").eq("customer_id",customerId).eq("business_id",business.id).order("created_at",{ascending:false}),
+  supabase.from("services").select("id,name").eq("business_id",business.id).eq("is_deleted",false).eq("active",true).order("name"),
+  supabase.from("technician_profiles").select("id,display_name").eq("business_id",business.id).eq("is_active",true).eq("can_be_assigned_jobs",true).order("display_name"),
+  supabase.from("invoices").select("balance_due_cents,paid_amount_cents").eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false),
+ ]);
+ if(!customer)notFound();
+ const canEdit=canManageCustomers(role),now=Date.now();
+ const upcoming=(jobs??[]).filter(job=>job.starts_at&&new Date(job.starts_at).getTime()>=now&&!["completed","canceled","declined"].includes(job.status)).sort((a,b)=>new Date(a.starts_at!).getTime()-new Date(b.starts_at!).getTime());
+ const history=(jobs??[]).filter(job=>job.status==="completed"&&(job.work_completed_at||job.starts_at)&&new Date(job.work_completed_at??job.starts_at!).getTime()<=now).sort((a,b)=>new Date(b.work_completed_at??b.starts_at!).getTime()-new Date(a.work_completed_at??a.starts_at!).getTime());
+ const activePlans=(plans??[]).filter(plan=>plan.status==="active"),lastService=history[0],nextService=upcoming[0];
+ const outstanding=(invoices??[]).reduce((sum,item)=>sum+Number(item.balance_due_cents??0),0),spent=(invoices??[]).reduce((sum,item)=>sum+Number(item.paid_amount_cents??0),0);
+ const name=customer.company_name||`${customer.first_name} ${customer.last_name}`.trim(),primary=locations?.find(location=>location.is_primary)??locations?.[0];
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content customer-record-page">
+  <header className="customer-record-header"><div><small><Link href={`/app/${businessSlug}/customers`}>Customers</Link> › {name}</small><h1>{name} <span className={`customer-record-status ${customer.is_active?"active":"inactive"}`}>{customer.is_active?"Active":"Inactive"}</span></h1><p>{customer.company_name?"Company":"Residential customer"} · Customer since {formatBusinessDate(customer.created_at,business.timezone)}</p></div><div className="crm-header-actions">{customer.phone&&<a className="sv-button sv-secondary" href={`tel:${customer.phone}`}>Call</a>}{customer.email&&<a className="sv-button sv-secondary" href={`mailto:${customer.email}`}>Email</a>}{customer.phone&&<a className="sv-button sv-secondary" href={`sms:${customer.phone}`}>Text</a>}{canEdit&&<Link className="sv-button" href={`/app/${businessSlug}/customers/${customerId}/edit`}>Actions</Link>}</div></header>
+  {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
+  <section className="customer-record-metrics"><article><span>Locations</span><strong>{locations?.length??0}</strong></article><article><span>Active plans</span><strong>{activePlans.length}</strong></article><article><span>Last service</span><strong>{lastService?formatBusinessDate(lastService.work_completed_at??lastService.starts_at!,business.timezone):"—"}</strong></article><article><span>Next service</span><strong className="accent">{nextService?formatBusinessDate(nextService.starts_at!,business.timezone):"—"}</strong></article><article><span>Outstanding balance</span><strong>${(outstanding/100).toFixed(2)}</strong></article><article><span>Total spent</span><strong>${(spent/100).toFixed(2)}</strong></article></section>
+  <nav className="customer-record-tabs"><span>Overview</span><a href="#service-plans">Service Plans <b>{plans?.length??0}</b></a><a href="#locations">Locations <b>{locations?.length??0}</b></a><a href="#jobs">Jobs <b>{jobs?.length??0}</b></a><span>Invoices</span><span>Notes</span><span>Activity</span></nav>
+  <div className="customer-record-columns"><div className="customer-record-main">
+   <div className="crm-detail-grid"><section className="workspace-panel crm-summary"><div className="panel-title"><h2>Contact information</h2><Link href={`/app/${businessSlug}/customers/${customerId}/edit`}>Edit</Link></div><dl><div><dt>Email</dt><dd>{customer.email||"Not provided"}</dd></div><div><dt>Primary phone</dt><dd>{customer.phone||"Not provided"}</dd></div><div><dt>Secondary phone</dt><dd>{customer.secondary_phone||"Not provided"}</dd></div><div><dt>Preference</dt><dd>{customer.preferred_contact_method}</dd></div><div><dt>Lead source</dt><dd>{customer.lead_source||"Not recorded"}</dd></div><div><dt>Status</dt><dd>{customer.is_active?"Active":"Inactive"}</dd></div></dl></section>
+   <section className="workspace-panel" id="locations"><div className="panel-title"><h2>Primary location</h2><Link href={`/app/${businessSlug}/customers/${customerId}`}>View all</Link></div>{primary?<div className="customer-primary-location"><strong>{primary.location_name||"Service location"} {primary.is_primary&&<small>Primary</small>}</strong><p>{primary.street_address}{primary.unit?`, ${primary.unit}`:""}<br/>{primary.city}, {primary.state} {primary.postal_code}</p><span>{["verified","manual"].includes(String(primary.geocoding_status))?"✓ Address verified":String(primary.geocoding_status??"Address not verified")}</span>{primary.access_instructions&&<p><b>Access:</b> {primary.access_instructions}</p>}{primary.parking_notes&&<p><b>Parking:</b> {primary.parking_notes}</p>}</div>:<div className="dashboard-empty"><strong>No service location</strong><p>Add a location before creating a service plan.</p></div>}</section></div>
+   <section className="workspace-panel" id="service-plans"><div className="panel-title"><div><h2>Service plans</h2><span>{activePlans.length} active</span></div>{canEdit&&<ServicePlanDrawer customerName={name} locations={(locations??[]).map(location=>({id:location.id,name:location.location_name||location.street_address}))} services={(services??[]).map(service=>({id:service.id,name:service.name}))} employees={(employees??[]).map(employee=>({id:employee.id,name:employee.display_name}))} action={createServicePlan.bind(null,businessSlug,customerId)}/>}</div>{plans?.length?<div className="service-plan-list">{plans.map(plan=><article key={plan.id}><div><strong>{plan.name}</strong><span>{plan.cadence_interval===1?(plan.cadence_unit==="week"?"Weekly":plan.cadence_unit==="month"?"Monthly":plan.cadence_unit==="year"?"Annually":"Daily"):`Every ${plan.cadence_interval} ${plan.cadence_unit}s`} · ${Number(plan.recurring_price).toFixed(2)} / visit</span></div><b className={`employee-state ${plan.status==="active"?"active":"inactive"}`}>{plan.status}</b><span>Next service <strong>{plan.next_due_on?formatBusinessDate(plan.next_due_on,business.timezone):"Beyond current horizon"}</strong></span></article>)}</div>:<div className="dashboard-empty"><strong>No service plans yet</strong><p>Create a recurring plan to schedule ongoing service automatically.</p></div>}</section>
+   <section className="workspace-panel" id="jobs"><div className="panel-title"><h2>Upcoming jobs</h2><Link href={`/app/${businessSlug}/jobs/new?customerId=${customerId}`}>Schedule job</Link></div>{upcoming.length?<div className="crm-job-list">{upcoming.map(job=><Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><b>{job.recurring_service_series_id?"↻ ":""}#{job.job_number} · {job.title}</b><span>{formatBusinessDateTime(job.starts_at,business.timezone)} · {job.status.replaceAll("_"," ")}</span></Link>)}</div>:<p className="muted">No upcoming visit is currently scheduled.</p>}</section>
+   <section className="workspace-panel"><div className="panel-title"><h2>Job history</h2><Link href={`/app/${businessSlug}/jobs?customerId=${customerId}`}>View all jobs</Link></div>{history.length?<div className="customer-job-history">{history.map(job=><Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><span>{formatBusinessDate(job.work_completed_at??job.starts_at!,business.timezone)}</span><strong>{job.title}</strong><em>{job.status}</em><b>${Number(job.total_amount).toFixed(2)}</b></Link>)}</div>:<p className="muted">No completed service history.</p>}</section>
+  </div><aside className="customer-record-aside"><section className="workspace-panel"><h2>Upcoming service</h2>{nextService?<><strong>{nextService.title}</strong><p>{formatBusinessDateTime(nextService.starts_at,business.timezone)}</p><Link href={`/app/${businessSlug}/jobs/${nextService.id}`}>View upcoming job</Link></>:<p>No upcoming visit is currently scheduled.</p>}</section><section className="workspace-panel"><h2>Service plan</h2>{activePlans[0]?<><strong>{activePlans[0].name}</strong><p>${Number(activePlans[0].recurring_price).toFixed(2)} / visit</p><a href="#service-plans">View service plans</a></>:<p>No active service plan.</p>}</section></aside></div>
+  {canEdit&&<footer className="customer-record-actions"><Link href={`/app/${businessSlug}/jobs/new?customerId=${customerId}`}>Schedule service</Link><a href="#service-plans">Add service plan</a><Link href={`/app/${businessSlug}/customers/${customerId}`}>Add location</Link><form action={archiveCustomer.bind(null,businessSlug,customerId)}><button>Archive customer</button></form></footer>}
+ </section></main>;
 }
