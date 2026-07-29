@@ -14,11 +14,11 @@ alter table public.service_locations
   drop constraint if exists service_locations_territory_tenant_fk,
   add constraint service_locations_territory_tenant_fk
     foreign key(business_id,territory_id)
-    references public.workforce_territories(business_id,id) on delete set null,
+    references public.workforce_territories(business_id,id) on delete restrict,
   drop constraint if exists service_locations_default_technician_tenant_fk,
   add constraint service_locations_default_technician_tenant_fk
     foreign key(business_id,default_technician_id)
-    references public.technician_profiles(business_id,id) on delete set null,
+    references public.technician_profiles(business_id,id) on delete restrict,
   drop constraint if exists service_locations_assignment_source_check,
   add constraint service_locations_assignment_source_check
     check(operational_assignment_source in ('automatic','manual')),
