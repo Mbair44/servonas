@@ -21,7 +21,7 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
  return <>
   <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>{menuItem&&<i><CustomerActionIcon name="repeat"/></i>}<span>Edit service plan</span></button>
   <ManagementDrawer open={open} title="Edit service plan" onDirty={()=>{}} onClose={close}>
-   <form action={deleteAction} className="service-plan-delete-form prominent"><div><strong>Delete service plan</strong><p>Stops recurring service and cancels future generated jobs. Completed work is preserved.</p></div><button className="service-plan-delete-button" aria-label={`Delete ${plan.name}`} onClick={event=>{if(!window.confirm(`Delete ${plan.name}? This will cancel future recurring jobs.`))event.preventDefault();}}><CustomerActionIcon name="archive"/> Delete</button></form>
+   <form action={deleteAction} className="service-plan-delete-shortcut"><button className="service-plan-trash" aria-label={`Delete ${plan.name}`} title="Delete service plan" onClick={event=>{if(!window.confirm(`Delete ${plan.name}? This will cancel future recurring jobs.`))event.preventDefault();}}><CustomerActionIcon name="archive"/></button></form>
    <form action={updateAction} className="quick-employee-form service-plan-form edit-plan-form">
     <fieldset><legend>Plan details</legend>
      <label>Plan name<input name="name" required defaultValue={plan.name}/></label>
