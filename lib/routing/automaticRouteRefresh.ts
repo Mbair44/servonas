@@ -136,9 +136,11 @@ export async function refreshAffectedTechnicianRoutes({
   return [[`${serviceDate}:${job.assigned_technician_id}`,{serviceDate,technicianId:job.assigned_technician_id}]] as const;
  })).values()];
  const maxDays=Math.max(1,Number(process.env.AUTO_ROUTE_REFRESH_MAX_DAYS??20));
- // Five stops can require ten adjacent swaps. Use the full bounded allowance
- // so a normal service day does not stop halfway through optimization.
- const maxRounds=Math.max(1,Math.min(12,Number(process.env.AUTO_ROUTE_OPTIMIZATION_ROUNDS??12)));
+ // Keep synchronous recalculation within the request lifecycle. Additional
+ // optimization passes belong in queued orchestration; running dozens of
+ // provider calls here can terminate the request and strand the route in
+ // `calculating`.
+ const maxRounds=Math.max(0,Math.min(3,Number(process.env.AUTO_ROUTE_OPTIMIZATION_ROUNDS??1)));
 
  for(const affectedDay of affected.slice(0,maxDays)){
   try{
@@ -191,6 +193,18 @@ export async function refreshAffectedTechnicianRoutes({
    if(dayOptimized)result.optimizedDays+=1;
   }catch(error){
    result.failures+=1;
+   const failureCode="automatic_route_refresh_failed";
+   const {data:failedPlan}=await admin.from("route_plans").update({
+    calculation_status:"failed",error_code:failureCode,
+   }).eq("business_id",businessId).eq("service_date",affectedDay.serviceDate)
+    .in("calculation_status",["queued","calculating"]).select("id").maybeSingle();
+   if(failedPlan){
+    await admin.from("technician_routes").update({
+     calculation_status:"failed",error_code:failureCode,
+    }).eq("business_id",businessId).eq("route_plan_id",failedPlan.id)
+     .eq("technician_id",affectedDay.technicianId)
+     .in("calculation_status",["queued","calculating"]);
+   }
    console.error("Automatic recurring route refresh failed",{
     businessId,serviceDate:affectedDay.serviceDate,technicianId:affectedDay.technicianId,
     reason:error instanceof Error?error.message:String(error),
