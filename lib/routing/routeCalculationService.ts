@@ -299,7 +299,20 @@ export async function calculateDailyRoutes({
         throw new Error(databaseFailure("Stale assigned route stops could not be removed",orphanStopError));
       }
     }
-    await admin.from("route_stops").delete().eq("business_id", businessId).eq("technician_route_id", technicianRoute.id);
+    const {error:currentStopDeleteError}=await admin.from("route_stops").delete()
+      .eq("business_id",businessId).eq("technician_route_id",technicianRoute.id);
+    if(currentStopDeleteError){
+      throw new Error(databaseFailure("Previous technician route stops could not be removed",currentStopDeleteError));
+    }
+    const {count:remainingStopCount,error:remainingStopError}=await admin.from("route_stops")
+      .select("id",{count:"exact",head:true}).eq("business_id",businessId)
+      .eq("route_plan_id",plan.id).in("job_id",routeJobIds);
+    if(remainingStopError){
+      throw new Error(databaseFailure("Previous route-stop cleanup could not be verified",remainingStopError));
+    }
+    if(remainingStopCount){
+      throw new Error(`Previous route-stop cleanup left ${remainingStopCount} conflicting record(s).`);
+    }
     const { data: stops, error: stopsError } = await admin.from("route_stops").insert(routable.map(({ job, location, duration }, index) => {
       const customer = relation(job.customers);
       const service = relation(job.services) as { name?: string; duration_minutes: number | null } | null;
@@ -318,7 +331,14 @@ export async function calculateDailyRoutes({
       calculation_status: "calculating", created_by: actorUserId, updated_by: actorUserId,
     });})).select("id,job_id,sequence");
     if (stopsError || !stops) {
-      await admin.from("technician_routes").update({ calculation_status: "failed", error_code: stopsError?.code ?? "stop_write_failed" }).eq("id", technicianRoute.id);
+      console.error("Route stops could not be persisted",{
+        businessId,technicianId,routePlanId:plan.id,code:stopsError?.code,
+        message:stopsError?.message,details:stopsError?.details,hint:stopsError?.hint,
+      });
+      await admin.from("technician_routes").update({
+        calculation_status:"failed",
+        error_code:stopsError?.code==="23505"?"duplicate_route_stop":stopsError?.code??"stop_write_failed",
+      }).eq("id",technicianRoute.id);
       summary.failed += 1;
       continue;
     }
