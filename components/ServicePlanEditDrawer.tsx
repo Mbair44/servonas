@@ -19,7 +19,7 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
  const [open,setOpen]=useState(false);
  const close=useCallback(()=>setOpen(false),[]);
  return <>
-  <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>{menuItem?"↻ Edit service plan":"✎"}</button>
+  <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>↻ Edit service plan</button>
   <ManagementDrawer open={open} title="Edit service plan" onDirty={()=>{}} onClose={close}>
    <form action={updateAction} className="quick-employee-form service-plan-form">
     <fieldset><legend>Plan details</legend>
