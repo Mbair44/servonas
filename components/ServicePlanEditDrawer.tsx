@@ -34,7 +34,18 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
      <div className="service-plan-cadence"><span>Repeat every</span><input name="intervalValue" type="number" min="1" max="120" required defaultValue={plan.cadence_interval}/><select name="intervalUnit" defaultValue={plan.cadence_unit}><option value="day">days</option><option value="week">weeks</option><option value="month">months</option><option value="year">years</option></select></div>
      <div className="quick-form-grid"><label>Duration (minutes)<input name="durationMinutes" type="number" min="1" max="10080" required defaultValue={plan.default_duration_minutes}/></label><label>Price per visit<input name="recurringPrice" type="number" min="0" step=".01" required defaultValue={plan.recurring_price}/></label><label>Preferred time<select name="preferredTimeWindow" defaultValue={plan.preferred_time_window}><option value="no_preference">No preference</option><option value="morning">Morning</option><option value="afternoon">Afternoon</option><option value="08:00-10:00">8:00 AM–10:00 AM</option><option value="10:00-12:00">10:00 AM–12:00 PM</option></select></label><label className="drawer-check"><input type="checkbox" name="taxable" defaultChecked={plan.taxable}/>Taxable</label></div>
     </fieldset>
-    <footer><button type="button" className="sv-button sv-secondary" onClick={close}>Cancel</button><button className="sv-button">Save service plan</button></footer>
+    <footer>
+     <button
+      className="service-plan-footer-delete"
+      formAction={deleteAction}
+      formNoValidate
+      aria-label={`Delete ${plan.name}`}
+      title="Delete service plan"
+      onClick={event=>{if(!window.confirm(`Delete ${plan.name}? This will cancel future recurring jobs.`))event.preventDefault();}}
+     ><CustomerActionIcon name="archive"/><span>Delete</span></button>
+     <button type="button" className="sv-button sv-secondary" onClick={close}>Cancel</button>
+     <button className="sv-button">Save service plan</button>
+    </footer>
    </form>
   </ManagementDrawer>
  </>;
