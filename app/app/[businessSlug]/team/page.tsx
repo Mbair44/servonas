@@ -12,21 +12,22 @@ export default async function TeamPage({params,searchParams}:{params:Promise<{bu
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug),canEdit=canManageBusiness(role);
  const now=new Date().toISOString();
  const [{data:employees,error},{data:roles},{data:invitations},{data:numbering}]=await Promise.all([
-  supabase.from("employees").select("id,preferred_name,first_name,last_name,legal_name,email,phone,employee_number,job_title,profile_photo_url,hire_date,notes,is_active,auth_user_id,created_at,employee_role_assignments!employee_roles_employee_tenant_fk(is_active,workforce_roles!employee_roles_role_tenant_fk(id,name))").eq("business_id",business.id).order("preferred_name"),
+  supabase.from("employees").select("id,preferred_name,first_name,last_name,legal_name,email,phone,employee_number,job_title,profile_photo_url,profile_photo_path,hire_date,notes,is_active,auth_user_id,created_at,employee_role_assignments!employee_roles_employee_tenant_fk(is_active,workforce_roles!employee_roles_role_tenant_fk(id,name))").eq("business_id",business.id).order("preferred_name"),
   supabase.from("workforce_roles").select("id,name").eq("business_id",business.id).eq("is_active",true).order("name"),
   canEdit?supabase.from("business_invitations").select("email,role,accepted_at,expires_at").eq("business_id",business.id):Promise.resolve({data:[]}),
   supabase.from("employee_numbering_settings").select("auto_assign_enabled,prefix,starting_number,next_number,minimum_digits,allow_manual_override").eq("business_id",business.id).maybeSingle(),
  ]);
  if(error)console.error("Team directory could not be loaded",{businessId:business.id,code:error.code});
  const pendingByEmail=new Map((invitations??[]).filter(invitation=>!invitation.accepted_at&&invitation.expires_at>now).map(invitation=>[invitation.email.toLowerCase(),invitation]));
- const directory=(employees??[]).map(employee=>{
+ const directory=await Promise.all((employees??[]).map(async employee=>{
   const employeeRoles=(employee.employee_role_assignments??[]).filter((assignment:any)=>assignment.is_active).map((assignment:any)=>relation(assignment.workforce_roles)).filter(Boolean) as {id:string;name:string}[];
   const invitation=employee.email?pendingByEmail.get(employee.email.toLowerCase()):undefined;
   const state=(invitation?"invited":!employee.email?"missing_email":!employeeRoles.length?"missing_role":employee.is_active?"active":"inactive") as "active"|"inactive"|"invited"|"missing_email"|"missing_role";
+  const {data:signedPhoto}=employee.profile_photo_path?await supabase.storage.from("employee-profile-photos").createSignedUrl(employee.profile_photo_path,3600):{data:null};
   return {id:employee.id,preferredName:employee.preferred_name,firstName:employee.first_name,lastName:employee.last_name,legalName:employee.legal_name,email:employee.email,phone:employee.phone,
    employeeNumber:employee.employee_number,jobTitle:employee.job_title,hireDate:employee.hire_date,notes:employee.notes,active:employee.is_active,authUserId:employee.auth_user_id,
-   profilePhotoUrl:employee.profile_photo_url,createdAt:employee.created_at,roles:employeeRoles,state,invitationRole:invitation?.role??null};
- });
+   profilePhotoUrl:signedPhoto?.signedUrl??employee.profile_photo_url,createdAt:employee.created_at,roles:employeeRoles,state,invitationRole:invitation?.role??null};
+ }));
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content employee-directory-page">
   {q.success&&<div className="workspace-notice success">{q.success}</div>}{q.error&&<div className="workspace-notice error">{q.error}</div>}
   {error&&<div className="workspace-notice error">The workforce migration must be applied before Team can load.</div>}
