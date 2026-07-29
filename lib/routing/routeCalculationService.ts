@@ -249,11 +249,26 @@ export async function calculateDailyRoutes({
       .select("id,calculation_signature,calculation_status,driving_distance_meters,driving_duration_seconds,encoded_polyline")
       .eq("business_id", businessId).eq("route_plan_id", plan.id).eq("technician_id", technicianId).maybeSingle();
     let hasSafeLegGeometry = false;
-    if (existing?.calculation_signature === routeSignature && !existing.encoded_polyline && calculationWaypoints.length > 1) {
-      const { data: safeLeg } = await admin.from("route_legs").select("id")
+    let hasCompleteLegSet = calculationWaypoints.length <= 1;
+    if (existing?.calculation_signature === routeSignature && calculationWaypoints.length > 1) {
+      const { data: persistedLegs, error: persistedLegError } = await admin.from("route_legs")
+        .select("id,calculation_status,encoded_polyline")
         .eq("business_id",businessId).eq("technician_route_id",existing.id)
-        .eq("calculation_status","ready").not("encoded_polyline","is",null).limit(1).maybeSingle();
-      hasSafeLegGeometry=Boolean(safeLeg);
+        .order("sequence");
+      if (persistedLegError) {
+        console.warn("Cached route leg verification failed", {
+          businessId, technicianId, code: persistedLegError.code,
+        });
+      } else {
+        const expectedLegCount = calculationWaypoints.length - 1;
+        const readyLegs = (persistedLegs ?? []).filter((leg) => leg.calculation_status === "ready");
+        hasCompleteLegSet = persistedLegs?.length === expectedLegCount
+          && readyLegs.length === expectedLegCount;
+        const privateBoundaryLegs = Number(endpoints.origin.isPrivate) + Number(endpoints.destination.isPrivate);
+        const expectedSafeGeometryCount = Math.max(0, expectedLegCount - privateBoundaryLegs);
+        const safeGeometryCount = readyLegs.filter((leg) => Boolean(leg.encoded_polyline)).length;
+        hasSafeLegGeometry = safeGeometryCount >= expectedSafeGeometryCount;
+      }
     }
     if (existing?.calculation_signature === routeSignature && canReuseCalculatedRoute({
       status:existing.calculation_status,
@@ -262,6 +277,7 @@ export async function calculateDailyRoutes({
       geometryRequired:calculationWaypoints.length>1,
       aggregatePolyline:existing.encoded_polyline,
       hasSafeLegGeometry,
+      hasCompleteLegSet,
     })) {
       summary.cached += 1;
       planDistance += existing.driving_distance_meters ?? 0;
