@@ -1,6 +1,7 @@
 "use client";
 import {useMemo,useState} from "react";
 import {ManagementDrawer} from "./ManagementDrawer";
+import {CustomerActionIcon} from "./CustomerActionIcon";
 import {cadenceLabel,previewOccurrences,type RecurrenceUnit} from "@/lib/servicePlanRecurrence";
 
 type Option={id:string;name:string};
@@ -8,7 +9,7 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
  const [open,setOpen]=useState(false),[initial,setInitial]=useState(false),[unit,setUnit]=useState<RecurrenceUnit>("month"),[interval,setInterval]=useState(1),[first,setFirst]=useState("");
  const preview=useMemo(()=>first?previewOccurrences(first,interval,unit,4):[],[first,interval,unit]);
  const preset=(value:string)=>{const [amount,nextUnit]=value.split(":");setInterval(Number(amount));setUnit(nextUnit as RecurrenceUnit);};
- return <><button className={menuItem?"customer-action-item":"sv-button"} type="button" onClick={()=>setOpen(true)}>{menuItem?<><i className="customer-action-icon recurring" aria-hidden="true">↻</i><span><strong>Add service plan <em>Recurring</em></strong><small>Set up recurring service</small></span><b aria-hidden="true">›</b></>:<>＋ Add service plan</>}</button>
+ return <><button className={menuItem?"customer-action-item":"sv-button"} type="button" onClick={()=>setOpen(true)}>{menuItem?<><i className="customer-action-icon recurring"><CustomerActionIcon name="repeat"/></i><span><strong>Add service plan <em>Recurring</em></strong><small>Set up recurring service</small></span><b aria-hidden="true">›</b></>:<>＋ Add service plan</>}</button>
  <ManagementDrawer open={open} title="Add service plan" onDirty={()=>{}} onClose={()=>setOpen(false)}>
   <form action={action} className="quick-employee-form service-plan-form">
    <fieldset><legend>Basic information</legend><label>Plan name<input name="name" required placeholder="General Pest Control"/></label><label>Customer<input value={customerName} readOnly/></label><label>Service location<select name="serviceLocationId" required defaultValue=""><option value="" disabled>Choose location</option>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Service type<select name="serviceId" required defaultValue=""><option value="" disabled>Choose service</option>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="quick-form-grid"><label>Start date<input name="startDate" type="date" required/></label><label>End date <small>Optional</small><input name="endDate" type="date"/></label><label>Duration (minutes)<input name="durationMinutes" type="number" min="1" max="10080" defaultValue="60" required/></label><label>Default technician<select name="employeeId" defaultValue=""><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div></fieldset>
