@@ -30,6 +30,24 @@ const text = (formData: FormData, key: string) => String(formData.get(key) ?? ""
 const valuesFrom = (formData: FormData) =>
   Object.fromEntries([...formData.entries()].filter(([, value]) => typeof value === "string")) as Record<string, string>;
 
+function servicePlanWriteError(error:{code?:string;message?:string;details?:string|null;hint?:string|null}|null){
+ const code=error?.code||"unknown";
+ const combined=[error?.message,error?.details,error?.hint].filter(Boolean).join(" ");
+ if(code==="42501")return "You do not have permission to create service plans for this business.";
+ if(code==="23503")return "The selected customer, location, service, or technician is no longer available.";
+ if(code==="23505")return "This recurring service already exists for the selected customer and date.";
+ if(code==="23514"){
+  if(combined.includes("scheduling"))return "The automatic scheduling window is not valid for this service plan.";
+  if(combined.includes("duration"))return "The service duration is outside the supported range.";
+  if(combined.includes("money"))return "One of the service prices, discounts, or fees is invalid.";
+  return `The service-plan settings failed database validation (${code}).`;
+ }
+ if(code==="PGRST204"||code==="42703"){
+  return `The recurring-service scheduling migration is not fully available (${code}). Refresh the Supabase schema cache and verify migration 20260729002100.`;
+ }
+ return `The service plan could not be created (${code}).`;
+}
+
 async function refreshServicePlanRoutes({
  supabase,business,userId,planId,
 }:{
@@ -333,7 +351,13 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
   scheduling_mode:automatic?"route_optimized":"fixed_date",scheduling_flex_days:schedulingFlexDays,
   default_employee_id:employeeId,billing_rule:"after_each_completed_service",created_by:user.id,updated_by:user.id,
  }).select("id").single();
- if(error||!plan){console.error("Service plan creation failed",{businessId:business.id,customerId,code:error?.code,message:error?.message});redirect(`${target}?error=${encodeURIComponent("The service plan could not be created.")}`);}
+ if(error||!plan){
+  console.error("Service plan creation failed",{
+   businessId:business.id,customerId,code:error?.code,message:error?.message,
+   details:error?.details,hint:error?.hint,
+  });
+  redirect(`${target}?error=${encodeURIComponent(servicePlanWriteError(error))}`);
+ }
  const {error:auditError}=await supabase.from("service_plan_audit_events").insert({business_id:business.id,service_plan_id:plan.id,event_type:"service_plan_created",actor_user_id:user.id,new_value:{name,interval_value:intervalValue,interval_unit:intervalUnit,first_recurring_date:firstDate,recurring_price:price,scheduling_mode:automatic?"route_optimized":"fixed_date",scheduling_flex_days:schedulingFlexDays}});
  if(auditError)console.error("Service plan creation audit failed",{businessId:business.id,planId:plan.id,code:auditError.code});
  const {error:generationError}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});

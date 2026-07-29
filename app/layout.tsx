@@ -3,6 +3,8 @@ import "./public-estimate.css";
 import Link from "next/link";
 import Script from "next/script";
 import { PhoneInputFormatter } from "@/components/PhoneInputFormatter";
+import { signOut } from "@/app/auth/actions";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
@@ -10,7 +12,9 @@ export const metadata = {
   keywords: ["service business software", "booking software", "rental management software", "field service platform", "inventory scheduling"],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createSupabaseServerClient();
+  const {data:{user}} = await supabase.auth.getUser();
   return <html lang="en"><body>
     <PhoneInputFormatter/>
     <Script
@@ -24,8 +28,10 @@ gtag('js', new Date());
 gtag('config', 'AW-18340749438');`}
     </Script>
     <header className="sv-header"><div className="sv-container sv-nav">
-      <Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
-      <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link href="/login">Log in</Link><Link className="sv-button sv-small" href="/signup">Start Free</Link></nav>
+      {user
+        ? <form action={signOut} className="sv-authenticated-nav"><button className="sv-button sv-small">Log Out</button></form>
+        : <><Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
+          <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link href="/login">Log in</Link><Link className="sv-button sv-small" href="/signup">Start Free</Link></nav></>}
     </div></header>
     {children}
     <footer className="sv-footer"><div className="sv-container sv-footer-grid">

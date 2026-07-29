@@ -2,7 +2,6 @@
 import Link from "next/link";
 import {usePathname} from "next/navigation";
 import {useEffect,useMemo,useState} from "react";
-import { signOut } from "@/app/auth/actions";
 import {activeNavigationGroup,parseExpandedGroups,routeIsActive,SIDEBAR_GROUPS_STORAGE_KEY,visibleNavigation,workspaceNavigation} from "@/lib/workspaceNavigation";
 
 export function WorkspaceNav({slug,name}:{slug:string;name:string}){
@@ -50,5 +49,5 @@ export function WorkspaceNav({slug,name}:{slug:string;name:string}){
    const active=routeIsActive(pathname,item);
    return <Link className={`${item.id==="settings"?"workspace-nav-settings ":""}${active?"active":""}`} aria-current={active?"page":undefined} href={item.href!} key={item.id}>{item.label}</Link>;
   })}
- </nav><form action={signOut}><button className="workspace-logout">Log out</button></form></aside>
+ </nav></aside>
 }
