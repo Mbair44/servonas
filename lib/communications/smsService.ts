@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { getTwilioCredentials } from "@/lib/communications/twilioCredentials";
 
 type SmsTemplate = "booking_confirmation" | "reminder" | "review_request";
 
@@ -75,23 +76,21 @@ async function customerBookingConfirmation(jobId: string, consent: boolean) {
   }
   if (!live) return { ok: true, stubbed: true };
 
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE_NUMBER;
-  if (!accountSid || !authToken || !from) {
+  const twilio = getTwilioCredentials();
+  if (!twilio.configured) {
     const message = "Live SMS mode is enabled, but Twilio is not configured.";
     await supabase.from("job_communication_events").update({ status: "failed", error_message: message }).eq("id", eventResult.data.id);
     console.error("Customer booking SMS delivery failed", { reason: "twilio_not_configured", jobId, eventId: eventResult.data.id });
     return { ok: false, error: message };
   }
   try {
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${twilio.username}:${twilio.password}`).toString("base64")}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({ To: to, From: from, Body: body }),
+      body: new URLSearchParams({ To: to, From: twilio.from!, Body: body }),
     });
     const result = await response.json() as { sid?: string; code?: number; message?: string };
     if (!response.ok || !result.sid) {
@@ -175,10 +174,8 @@ async function bookingManagerNotification(jobId: string, phone: string | null | 
     return { ok: true, stubbed: true };
   }
 
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE_NUMBER;
-  if (!accountSid || !authToken || !from) {
+  const twilio = getTwilioCredentials();
+  if (!twilio.configured) {
     const message = "Live SMS mode is enabled, but Twilio is not configured.";
     await supabase.from("job_communication_events").update({ status: "failed", error_message: message }).eq("id", event.id);
     console.error("Booking manager SMS delivery failed", { reason: "twilio_not_configured", jobId, eventId: event.id });
@@ -186,13 +183,13 @@ async function bookingManagerNotification(jobId: string, phone: string | null | 
   }
 
   try {
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${twilio.username}:${twilio.password}`).toString("base64")}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({ To: to, From: from, Body: body }),
+      body: new URLSearchParams({ To: to, From: twilio.from!, Body: body }),
     });
     const result = await response.json() as { sid?: string; code?: number; message?: string };
     if (!response.ok || !result.sid) {
