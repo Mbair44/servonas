@@ -19,10 +19,13 @@ The Vercel cron still processes scheduled confirmation, reminder, and review mes
 When you are ready, add the three Twilio variables, change `SMS_DELIVERY_MODE` to `live`, and redeploy:
 
 - `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
+- `TWILIO_API_KEY_SID` (starts with `SK`; recommended)
+- `TWILIO_API_KEY_SECRET`
 - `TWILIO_PHONE_NUMBER`
 
-No code changes are required.
+The `TWILIO_ACCOUNT_SID` (starts with `AC`) is still required because it
+identifies the account in the Messages API URL. Legacy `TWILIO_AUTH_TOKEN`
+authentication remains supported when API key credentials are not configured.
 
 Supported template variables:
 `{customerName}`, `{bookingNumber}`, `{eventDate}`, `{items}`, `{depositPaid}`, `{balanceDue}`, `{deliveryAddress}`, `{receiptLink}`, `{stripeReceiptLink}`, `{googleReviewLink}`.

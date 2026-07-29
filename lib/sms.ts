@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { getTwilioCredentials } from "@/lib/communications/twilioCredentials";
 
 type BookingSmsData = {
   id: string;
@@ -103,18 +104,16 @@ export async function sendBookingSms(bookingId: string, templateKey: SmsTemplate
   }
 
   const { data: log } = await supabase.from("sms_messages").insert({ booking_id: bookingId, template_key: templateKey, to_phone: phone, body, status: "queued" }).select("id").single();
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE_NUMBER;
-  if (!accountSid || !authToken || !from) {
+  const twilio = getTwilioCredentials();
+  if (!twilio.configured) {
     if (log?.id) await supabase.from("sms_messages").update({ status: "failed", error_message: "Live SMS mode is enabled, but Twilio environment variables are missing." }).eq("id", log.id);
     return { ok: false, error: "Live SMS mode is enabled, but Twilio is not configured." };
   }
   try {
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, {
       method: "POST",
-      headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ To: phone, From: from, Body: body }),
+      headers: { Authorization: `Basic ${Buffer.from(`${twilio.username}:${twilio.password}`).toString("base64")}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ To: phone, From: twilio.from!, Body: body }),
     });
     const result = await response.json() as { sid?: string; message?: string };
     if (!response.ok) throw new Error(result.message || "Twilio rejected the message.");
