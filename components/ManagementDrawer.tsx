@@ -1,8 +1,8 @@
 "use client";
 import {useEffect,useRef,type ReactNode} from "react";
 
-export function ManagementDrawer({open,title,onDirty,onClose,children,size="standard"}:{
- open:boolean;title:string;onDirty:()=>void;onClose:()=>void;children:ReactNode;size?:"compact"|"standard";
+export function ManagementDrawer({open,title,onDirty,onClose,children,size="standard",headerAction}:{
+ open:boolean;title:string;onDirty:()=>void;onClose:()=>void;children:ReactNode;size?:"compact"|"standard";headerAction?:ReactNode;
 }){
  const panel=useRef<HTMLElement>(null);
  const onCloseRef=useRef(onClose);
@@ -12,7 +12,10 @@ export function ManagementDrawer({open,title,onDirty,onClose,children,size="stan
   const previous=document.activeElement as HTMLElement|null;
   const originalOverflow=document.body.style.overflow;
   document.body.style.overflow="hidden";
-  requestAnimationFrame(()=>panel.current?.querySelector<HTMLElement>("input,select,textarea,button,a[href]")?.focus());
+  requestAnimationFrame(()=>
+   (panel.current?.querySelector<HTMLElement>(".management-drawer-body input,.management-drawer-body select,.management-drawer-body textarea,.management-drawer-body button,.management-drawer-body a[href]")
+    ??panel.current?.querySelector<HTMLElement>("button,a[href]"))?.focus()
+  );
   const keydown=(event:KeyboardEvent)=>{
    if(event.key==="Escape"){event.preventDefault();onCloseRef.current();return;}
    if(event.key!=="Tab"||!panel.current)return;
@@ -29,7 +32,7 @@ export function ManagementDrawer({open,title,onDirty,onClose,children,size="stan
  if(!open)return null;
  return <div className="management-drawer-layer" onMouseDown={event=>{if(event.target===event.currentTarget)close();}}>
   <section ref={panel} className={`management-drawer ${size}`} role="dialog" aria-modal="true" aria-labelledby="management-drawer-title" onChange={onDirty}>
-   <header><div><h2 id="management-drawer-title">{title}</h2></div><button type="button" onClick={close} aria-label={`Close ${title}`}>×</button></header>
+   <header><div><h2 id="management-drawer-title">{title}</h2></div><div className="management-drawer-header-actions">{headerAction}<button type="button" onClick={close} aria-label={`Close ${title}`}>×</button></div></header>
    <div className="management-drawer-body">{children}</div>
   </section>
  </div>;

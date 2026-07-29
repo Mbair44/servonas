@@ -20,13 +20,14 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
  const close=useCallback(()=>setOpen(false),[]);
  return <>
   <button type="button" className={menuItem?"visit-menu-action":"service-plan-edit-trigger"} onClick={()=>setOpen(true)} aria-label={`Edit ${plan.name}`}>{menuItem&&<i><CustomerActionIcon name="repeat"/></i>}<span>Edit service plan</span></button>
-  <ManagementDrawer open={open} title="Edit service plan" onDirty={()=>{}} onClose={close}>
-   <form action={deleteAction} className="service-plan-delete-shortcut"><button className="service-plan-trash" aria-label={`Delete ${plan.name}`} title="Delete service plan" onClick={event=>{if(!window.confirm(`Delete ${plan.name}? This will cancel future recurring jobs.`))event.preventDefault();}}><CustomerActionIcon name="archive"/></button></form>
+  <ManagementDrawer open={open} title="Edit service plan" onDirty={()=>{}} onClose={close} headerAction={
+   <form action={deleteAction}><button className="service-plan-trash" aria-label={`Delete ${plan.name}`} title="Delete service plan" onClick={event=>{if(!window.confirm(`Delete ${plan.name}? This will cancel future recurring jobs.`))event.preventDefault();}}><CustomerActionIcon name="archive"/></button></form>
+  }>
    <form action={updateAction} className="quick-employee-form service-plan-form edit-plan-form">
     <fieldset><legend>Plan details</legend>
      <label>Plan name<input name="name" required defaultValue={plan.name}/></label>
-     <label>Service location<select name="serviceLocationId" required defaultValue={plan.service_location_id}>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-     <label>Service type<select name="serviceId" required defaultValue={plan.service_id}>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+     <div className="quick-form-grid"><label>Service location<select name="serviceLocationId" required defaultValue={plan.service_location_id}>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+     <label>Service type<select name="serviceId" required defaultValue={plan.service_id}>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
      <div className="quick-form-grid"><label>Start date<input name="startDate" type="date" required defaultValue={plan.start_date}/></label><label>End date <small>Optional</small><input name="endDate" type="date" defaultValue={plan.end_date??""}/></label><label>First recurring service<input name="firstRecurringDate" type="date" required defaultValue={plan.first_recurring_date}/></label><label>Default technician<select name="employeeId" defaultValue={plan.default_employee_id??""}><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
     </fieldset>
     <fieldset><legend>Cadence and pricing</legend>
