@@ -62,6 +62,7 @@ create table if not exists public.service_plan_occurrences(
  generated_job_id uuid,
  skipped_at timestamptz,skipped_by uuid references auth.users(id),skip_reason text,
  created_at timestamptz not null default now(),updated_at timestamptz not null default now(),
+ unique(business_id,id),
  unique(business_id,service_plan_id,occurrence_date,occurrence_type),
  unique(business_id,occurrence_key),
  unique(business_id,generated_job_id),
