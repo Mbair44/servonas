@@ -56,3 +56,27 @@ test("Google Routes provider reports provider HTTP failures", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Google Routes provider maps a road-time matrix to waypoint identities", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify([
+    { originIndex:0,destinationIndex:0,distanceMeters:0,duration:"0s",condition:"ROUTE_EXISTS",status:{} },
+    { originIndex:0,destinationIndex:1,distanceMeters:1609,duration:"300s",condition:"ROUTE_EXISTS",status:{} },
+    { originIndex:1,destinationIndex:0,distanceMeters:1800,duration:"360s",condition:"ROUTE_EXISTS",status:{} },
+    { originIndex:1,destinationIndex:1,distanceMeters:0,duration:"0s",condition:"ROUTE_EXISTS",status:{} },
+  ]), { status:200 })) as typeof fetch;
+  try {
+    const provider=new GoogleRoutesProvider("server-secret");
+    const points=[
+      {id:"one",latitude:33.4,longitude:-112.1},
+      {id:"two",latitude:33.5,longitude:-112},
+    ];
+    const result=await provider.computeRouteMatrix({origins:points,destinations:points});
+    const outward=result.find(cell=>cell.originWaypointId==="one"&&cell.destinationWaypointId==="two");
+    assert.equal(outward?.status,"ready");
+    assert.equal(outward?.drivingDurationSeconds,300);
+    assert.equal(outward?.drivingDistanceMeters,1609);
+  } finally {
+    globalThis.fetch=originalFetch;
+  }
+});
