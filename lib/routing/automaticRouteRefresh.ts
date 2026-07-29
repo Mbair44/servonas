@@ -26,7 +26,7 @@ async function normalizeFlexibleJobs({
  const nextDay=new Date(dayStart);nextDay.setUTCDate(nextDay.getUTCDate()+1);
  // Query a broad UTC envelope, then use the business-local service date.
  const {data:jobs}=await admin.from("jobs")
-  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status,arrival_window_start,arrival_window_end")
   .eq("business_id",businessId).eq("assigned_technician_id",technicianId)
   .eq("is_deleted",false).not("status","in",'("completed","canceled","declined")')
   .gte("starts_at",new Date(dayStart.getTime()-14*60*60*1000).toISOString())
@@ -39,7 +39,9 @@ async function normalizeFlexibleJobs({
   const originalEnd=job.ends_at?new Date(job.ends_at).getTime():NaN;
   const durationMs=Number.isFinite(originalEnd)&&originalEnd>originalStart
    ?originalEnd-originalStart:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
-  if(!job.recurring_service_series_id){
+  const flexible=job.recurring_service_series_id
+   ||(job.status==="scheduled"&&!job.arrival_window_start&&!job.arrival_window_end);
+  if(!flexible){
    cursor=Math.max(cursor,originalStart)+durationMs;
    continue;
   }
@@ -70,8 +72,8 @@ async function applyCalculatedDriveSchedule({
    .eq("business_id",businessId).eq("technician_route_id",route.id).eq("calculation_status","ready"),
  ]);
  if(!stops?.length)return;
- const {data:jobs}=await admin.from("jobs")
-  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id")
+  const {data:jobs}=await admin.from("jobs")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status,arrival_window_start,arrival_window_end")
   .eq("business_id",businessId).in("id",stops.map(stop=>stop.job_id));
  const jobById=new Map((jobs??[]).map(job=>[job.id,job]));
  const driveToStop=new Map((legs??[]).flatMap(leg=>leg.to_route_stop_id
@@ -87,7 +89,9 @@ async function applyCalculatedDriveSchedule({
   const originalEnd=job.ends_at?new Date(job.ends_at).getTime():NaN;
   const durationMs=Number.isFinite(originalEnd)&&originalEnd>originalStart
    ?originalEnd-originalStart:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
-  if(!job.recurring_service_series_id){
+  const flexible=job.recurring_service_series_id
+   ||(job.status==="scheduled"&&!job.arrival_window_start&&!job.arrival_window_end);
+  if(!flexible){
    cursor=Math.max(cursor,originalStart)+durationMs;
    continue;
   }
