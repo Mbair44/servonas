@@ -1,7 +1,7 @@
 type Role={id:string;name:string};
 type Manager={id:string;preferred_name:string};
 type Employee={id?:string;first_name?:string|null;last_name?:string|null;preferred_name?:string;legal_name?:string|null;email?:string|null;phone?:string|null;employee_number?:string|null;job_title?:string|null;employee_type?:string|null;employment_status?:string|null;manager_employee_id?:string|null;profile_photo_url?:string|null;hire_date?:string|null;termination_date?:string|null;notes?:string|null;is_active?:boolean};
-export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleIds=[],submitLabel,allowInvitation=false}:{action:(formData:FormData)=>void|Promise<void>;roles:Role[];managers?:Manager[];employee?:Employee;selectedRoleIds?:string[];submitLabel:string;allowInvitation?:boolean}){
+export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleIds=[],submitLabel,allowInvitation=false,allowEmployeeNumberOverride=false}:{action:(formData:FormData)=>void|Promise<void>;roles:Role[];managers?:Manager[];employee?:Employee;selectedRoleIds?:string[];submitLabel:string;allowInvitation?:boolean;allowEmployeeNumberOverride?:boolean}){
  return <form action={action} className="employee-form"><fieldset><legend>Employee profile</legend>
   <label>First name<input required maxLength={100} name="firstName" defaultValue={employee.first_name??""}/></label>
   <label>Last name<input required maxLength={100} name="lastName" defaultValue={employee.last_name??""}/></label>
@@ -9,7 +9,7 @@ export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleI
   <label>Legal name<input maxLength={200} name="legalName" defaultValue={employee.legal_name??""}/></label>
   <label>Email<input type="email" name="email" defaultValue={employee.email??""}/></label>
   <label>Phone<input name="phone" autoComplete="tel" defaultValue={employee.phone??""}/></label>
-  <label>Employee number<input name="employeeNumber" defaultValue={employee.employee_number??""}/></label>
+  <label>Employee number<input name="employeeNumber" maxLength={64} pattern="[A-Za-z0-9_-]+" readOnly={!allowEmployeeNumberOverride} aria-describedby={!allowEmployeeNumberOverride?"employee-number-managed":undefined} defaultValue={employee.employee_number??""}/>{!allowEmployeeNumberOverride&&<small id="employee-number-managed">Managed by this workspace’s employee-numbering settings.</small>}</label>
   <label>Job title<input maxLength={120} name="jobTitle" defaultValue={employee.job_title??""}/></label>
   <label>Employee type<select name="employeeType" defaultValue={employee.employee_type??"other"}><option value="technician">Technician</option><option value="dispatcher">Dispatcher</option><option value="office_staff">Office staff</option><option value="sales">Sales</option><option value="manager">Manager</option><option value="owner">Owner</option><option value="other">Other</option></select></label>
   <label>Employment status<select name="employmentStatus" defaultValue={employee.employment_status??(employee.is_active===false?"inactive":"active")}><option value="active">Active</option><option value="inactive">Inactive</option><option value="leave">On leave</option><option value="terminated">Terminated</option></select></label>
