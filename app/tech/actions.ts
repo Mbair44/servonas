@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
+import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 
@@ -30,6 +31,10 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
   if (error) {
     console.error("Technician status transition failed", { code: error.code, jobId });
     redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("That status change is not available.")}`);
+  }
+  if(status==="completed"){
+    const billing=await processCompletedJobBilling(jobId);
+    if(!billing.ok)console.error("Technician completed-job billing orchestration failed",{jobId,reason:billing.error});
   }
   revalidatePath("/tech"); revalidatePath("/tech/route"); revalidatePath(`/tech/jobs/${jobId}`);
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}success=${encodeURIComponent("Job status updated.")}`);
