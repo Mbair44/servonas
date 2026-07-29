@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
+import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
@@ -258,6 +259,7 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
     await Promise.allSettled([
       JobNotificationService.jobCompleted(jobId),
       JobNotificationService.reviewRequest(jobId),
+      processCompletedJobBilling(jobId),
     ]);
   }
   revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=Status+updated`);
