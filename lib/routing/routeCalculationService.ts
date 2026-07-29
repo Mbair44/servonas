@@ -476,7 +476,7 @@ export async function calculateDailyRoutes({
     const mergedPolyline = routeStatus === "ready" && !endpoints.origin.isPrivate && !endpoints.destination.isPrivate
       ? mergeEncodedPolylines(readyOutcomes.map((outcome) => outcome.result.encodedPolyline ?? "").filter(Boolean))
       : null;
-    await admin.from("technician_routes").update({
+    const {error:routeFinalizeError}=await admin.from("technician_routes").update({
       calculation_status: routeStatus, encoded_polyline: mergedPolyline,
       driving_distance_meters: readyOutcomes.length ? routeDistance : null,
       driving_duration_seconds: readyOutcomes.length ? routeDuration : null,
@@ -484,7 +484,10 @@ export async function calculateDailyRoutes({
       provider_route_id: readyOutcomes.map((outcome) => outcome.result.providerRequestId).filter(Boolean).join(",") || null,
       calculated_at: new Date().toISOString(), stale_at: null,
       error_code: failedOutcomes.length ? "segment_provider_failed" : null,
-    }).eq("id", technicianRoute.id);
+    }).eq("id", technicianRoute.id).eq("business_id",businessId);
+    if(routeFinalizeError){
+      throw new Error(databaseFailure("Final technician route state could not be saved",routeFinalizeError));
+    }
     planDistance += routeDistance;
     planDuration += routeDuration;
     if (routeStatus === "ready") summary.calculated += 1;
