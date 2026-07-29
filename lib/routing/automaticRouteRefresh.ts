@@ -9,6 +9,16 @@ type ScheduledJob={
  assigned_technician_id:string|null;
 };
 
+const safeRouteFailureCode=(error:unknown)=>{
+ const message=error instanceof Error?error.message:String(error);
+ if(/timeout|timed out|abort/i.test(message))return "provider_timeout";
+ const googleStatus=message.match(/Google Routes request failed \((\d{3})\)/i)?.[1];
+ if(googleStatus)return `google_http_${googleStatus}`;
+ const databaseCode=message.match(/\(([0-9A-Z]{5}|PGRST\d+)\)/i)?.[1];
+ if(databaseCode)return `database_${databaseCode.toLowerCase()}`;
+ return "automatic_route_refresh_failed";
+};
+
 export type AutomaticRouteRefreshResult={
  refreshedDays:number;
  optimizedDays:number;
@@ -154,32 +164,39 @@ export async function refreshAffectedTechnicianRoutes({
    });
    result.refreshedDays+=1;
    let dayOptimized=false;
-   for(let round=0;round<maxRounds;round+=1){
-    const {data:plan}=await admin.from("route_plans")
-     .select("id,version").eq("business_id",businessId)
-     .eq("service_date",affectedDay.serviceDate).maybeSingle();
-    if(!plan)break;
-    const suggestionRun=await generateRouteOptimizationSuggestions({
-     admin,businessId,routePlanId:plan.id,actorUserId,expectedPlanVersion:Number(plan.version),
-    });
-    if(!suggestionRun.suggestions)break;
-    const {data:suggestions}=await authenticated.from("route_suggestions")
-     .select("id,payload").eq("business_id",businessId).eq("route_plan_id",plan.id)
-     .eq("status","pending").order("created_at",{ascending:false});
-    const suggestion=(suggestions??[]).find(item=>{
-     const payload=item.payload as Record<string,unknown>|null;
-     return String(payload?.technicianId??"")===affectedDay.technicianId;
-    });
-    if(!suggestion)break;
-    const {error:decisionError}=await authenticated.rpc("decide_route_suggestion",{
-     p_business_id:businessId,p_suggestion_id:suggestion.id,
-     p_decision:"accepted",p_expected_plan_version:Number(plan.version),
-    });
-    if(decisionError)throw new Error(`Automatic route suggestion could not be applied (${decisionError.code}).`);
-    dayOptimized=true;
-    await calculateDailyRoutes({
-     admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
-     actorUserId,onlyTechnicianId:affectedDay.technicianId,
+   try{
+    for(let round=0;round<maxRounds;round+=1){
+     const {data:plan}=await admin.from("route_plans")
+      .select("id,version").eq("business_id",businessId)
+      .eq("service_date",affectedDay.serviceDate).maybeSingle();
+     if(!plan)break;
+     const suggestionRun=await generateRouteOptimizationSuggestions({
+      admin,businessId,routePlanId:plan.id,actorUserId,expectedPlanVersion:Number(plan.version),
+     });
+     if(!suggestionRun.suggestions)break;
+     const {data:suggestions}=await authenticated.from("route_suggestions")
+      .select("id,payload").eq("business_id",businessId).eq("route_plan_id",plan.id)
+      .eq("status","pending").order("created_at",{ascending:false});
+     const suggestion=(suggestions??[]).find(item=>{
+      const payload=item.payload as Record<string,unknown>|null;
+      return String(payload?.technicianId??"")===affectedDay.technicianId;
+     });
+     if(!suggestion)break;
+     const {error:decisionError}=await authenticated.rpc("decide_route_suggestion",{
+      p_business_id:businessId,p_suggestion_id:suggestion.id,
+      p_decision:"accepted",p_expected_plan_version:Number(plan.version),
+     });
+     if(decisionError)throw new Error(`Automatic route suggestion could not be applied (${decisionError.code}).`);
+     dayOptimized=true;
+     await calculateDailyRoutes({
+      admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
+      actorUserId,onlyTechnicianId:affectedDay.technicianId,
+     });
+    }
+   }catch(optimizationError){
+    console.warn("Automatic route optimization skipped after base route calculation",{
+     businessId,serviceDate:affectedDay.serviceDate,technicianId:affectedDay.technicianId,
+     reason:optimizationError instanceof Error?optimizationError.message:String(optimizationError),
     });
    }
    await applyCalculatedDriveSchedule({
@@ -193,7 +210,7 @@ export async function refreshAffectedTechnicianRoutes({
    if(dayOptimized)result.optimizedDays+=1;
   }catch(error){
    result.failures+=1;
-   const failureCode="automatic_route_refresh_failed";
+   const failureCode=safeRouteFailureCode(error);
    const {data:failedPlan}=await admin.from("route_plans").update({
     calculation_status:"failed",error_code:failureCode,
    }).eq("business_id",businessId).eq("service_date",affectedDay.serviceDate)
