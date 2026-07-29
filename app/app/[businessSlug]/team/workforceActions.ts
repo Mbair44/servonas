@@ -14,6 +14,15 @@ import {createAndDeliverEmployeeInvitation} from "./actions";
 
 const values=(formData:FormData,key:string)=>formData.getAll(key).map(String).filter(Boolean);
 const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/team?${kind}=${encodeURIComponent(message)}`;
+const EMPLOYEE_PHOTO_TYPES=new Set(["image/jpeg","image/png","image/webp"]);
+const employeePhoto=(formData:FormData)=>{
+ const value=formData.get("profilePhoto");
+ if(!(value instanceof File)||value.size===0)return {file:null,error:null};
+ if(!EMPLOYEE_PHOTO_TYPES.has(value.type))return {file:null,error:"Choose a JPG, PNG, or WebP profile photo."};
+ if(value.size>5*1024*1024)return {file:null,error:"Profile photos must be 5MB or smaller."};
+ return {file:value,error:null};
+};
+const photoExtension=(type:string)=>type==="image/png"?"png":type==="image/webp"?"webp":"jpg";
 const employeePayload=(formData:FormData,userId:string)=>{
  const firstName=String(formData.get("firstName")??"").trim(),lastName=String(formData.get("lastName")??"").trim();
  const preferredName=String(formData.get("preferredName")??"").trim()||firstName;
@@ -38,6 +47,7 @@ async function replaceRoles(supabase:Awaited<ReturnType<typeof requireWorkspaceC
 export async function createEmployee(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can add employees."));
+ const photo=employeePhoto(formData);if(photo.error)redirect(path(slug,"error",photo.error));
  const {payload,error}=employeePayload(formData,user.id);if(error)redirect(path(slug,"error",error));
  if(payload.manager_employee_id){const {data:manager}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",payload.manager_employee_id).eq("is_active",true).maybeSingle();if(!manager)redirect(path(slug,"error","Choose an active manager from this business."));}
  const inviteNow=formData.get("inviteNow")==="on",accessRole=String(formData.get("accessRole")??"staff");
@@ -46,6 +56,13 @@ export async function createEmployee(slug:string,formData:FormData){
  if(inviteNow&&["manager","admin"].includes(accessRole)&&formData.get("confirmElevatedAccess")!=="on")redirect(path(slug,"error","Confirm elevated workspace access before inviting this employee."));
  const {data:employee,error:insertError}=await supabase.from("employees").insert({...payload,business_id:business.id,created_by:user.id}).select("id").single();
  if(insertError||!employee){console.error("Employee creation failed",{businessId:business.id,code:insertError?.code,message:insertError?.message});const message=insertError?.code==="23505"?"That employee email or employee number is already in use.":insertError?.code==="22023"?insertError.message:"Employee could not be created.";redirect(path(slug,"error",message));}
+ if(photo.file){
+  const photoPath=`${business.id}/${employee.id}/${crypto.randomUUID()}.${photoExtension(photo.file.type)}`;
+  const {error:uploadError}=await supabase.storage.from("employee-profile-photos").upload(photoPath,photo.file,{contentType:photo.file.type,upsert:false});
+  if(uploadError){await supabase.from("employees").delete().eq("business_id",business.id).eq("id",employee.id);console.error("Employee photo upload failed",{businessId:business.id,code:uploadError.name,message:uploadError.message});redirect(path(slug,"error","The employee was not created because the profile photo could not be uploaded."));}
+  const {error:photoSaveError}=await supabase.from("employees").update({profile_photo_path:photoPath,profile_photo_url:null}).eq("business_id",business.id).eq("id",employee.id);
+  if(photoSaveError){await supabase.storage.from("employee-profile-photos").remove([photoPath]);await supabase.from("employees").delete().eq("business_id",business.id).eq("id",employee.id);console.error("Employee photo reference save failed",{businessId:business.id,code:photoSaveError.code});redirect(path(slug,"error","The employee was not created because the profile photo could not be saved."));}
+ }
  try{await replaceRoles(supabase,business.id,employee.id,values(formData,"roleIds"),user.id);}catch(roleError){await supabase.from("employees").delete().eq("business_id",business.id).eq("id",employee.id);console.error("Employee role initialization failed",{businessId:business.id,errorName:roleError instanceof Error?roleError.name:"unknown"});redirect(path(slug,"error","Employee roles could not be saved."));}
  if(inviteNow){
   const invitation=await createAndDeliverEmployeeInvitation(slug,payload.email!,accessRole);
@@ -60,11 +77,22 @@ export async function createEmployee(slug:string,formData:FormData){
 export async function updateEmployee(slug:string,employeeId:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(path(slug,"error","Only owners and administrators can edit employees."));
+ const photo=employeePhoto(formData);if(photo.error)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent(photo.error)}`);
  const {payload,error}=employeePayload(formData,user.id);if(error)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent(error)}`);
  if(payload.manager_employee_id===employeeId)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("An employee cannot manage themselves.")}`);
  if(payload.manager_employee_id){const {data:manager}=await supabase.from("employees").select("id").eq("business_id",business.id).eq("id",payload.manager_employee_id).eq("is_active",true).maybeSingle();if(!manager)redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("Choose an active manager from this business.")}`);}
- const {error:updateError}=await supabase.from("employees").update(payload).eq("business_id",business.id).eq("id",employeeId);
+ let nextPhotoPath:string|null=null,previousPhotoPath:string|null=null;
+ if(photo.file){
+  const {data:existing}=await supabase.from("employees").select("profile_photo_path").eq("business_id",business.id).eq("id",employeeId).maybeSingle();
+  previousPhotoPath=existing?.profile_photo_path??null;
+  nextPhotoPath=`${business.id}/${employeeId}/${crypto.randomUUID()}.${photoExtension(photo.file.type)}`;
+  const {error:uploadError}=await supabase.storage.from("employee-profile-photos").upload(nextPhotoPath,photo.file,{contentType:photo.file.type,upsert:false});
+  if(uploadError){console.error("Employee photo upload failed",{businessId:business.id,employeeId,code:uploadError.name,message:uploadError.message});redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("The profile photo could not be uploaded.")}`);}
+ }
+ const {error:updateError}=await supabase.from("employees").update({...payload,...(nextPhotoPath?{profile_photo_path:nextPhotoPath,profile_photo_url:null}:{})}).eq("business_id",business.id).eq("id",employeeId);
+ if(updateError&&nextPhotoPath)await supabase.storage.from("employee-profile-photos").remove([nextPhotoPath]);
  if(updateError){console.error("Employee update failed",{businessId:business.id,employeeId,code:updateError.code,message:updateError.message});const message=updateError.code==="23505"?"That employee email or employee number is already in use.":updateError.code==="22023"?updateError.message:"Employee could not be updated.";redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent(message)}`);}
+ if(nextPhotoPath&&previousPhotoPath&&previousPhotoPath!==nextPhotoPath){const {error:removeError}=await supabase.storage.from("employee-profile-photos").remove([previousPhotoPath]);if(removeError)console.warn("Previous employee photo cleanup failed",{businessId:business.id,employeeId,code:removeError.name});}
  try{await replaceRoles(supabase,business.id,employeeId,values(formData,"roleIds"),user.id);}catch(roleError){console.error("Employee role update failed",{businessId:business.id,employeeId,errorName:roleError instanceof Error?roleError.name:"unknown"});redirect(`/app/${slug}/team/${employeeId}?error=${encodeURIComponent("Employee saved, but roles could not be updated.")}`);}
  revalidatePath(`/app/${slug}/team`);revalidatePath(`/app/${slug}/team/${employeeId}`);redirect(`/app/${slug}/team/${employeeId}?success=${encodeURIComponent("Employee profile saved.")}`);
 }
