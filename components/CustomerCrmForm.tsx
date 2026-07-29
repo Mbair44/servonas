@@ -25,18 +25,17 @@ export default function CustomerCrmForm({
   return <form action={formAction} className="crm-form">
     {state.error && <div className="workspace-notice error crm-wide" role="alert">{state.error}</div>}
     <input type="hidden" name="confirmDuplicate" value={state.values?.confirmDuplicate ?? ""}/>
-    <p className="crm-required-note crm-wide"><span aria-hidden="true">*</span> Required field</p>
-    <label>First name <span className="crm-required" aria-hidden="true">*</span><span className="sr-only">(required)</span><input name="firstName" required aria-required="true" maxLength={100} defaultValue={value("firstName", customer?.first_name ?? "")}/>{fieldError("firstName")}</label>
-    <label>Last name <small>Optional</small><input name="lastName" maxLength={100} defaultValue={value("lastName", customer?.last_name ?? "")}/></label>
-    <label className="crm-wide">Company <small>Optional</small><input name="companyName" maxLength={200} defaultValue={value("companyName", customer?.company_name ?? "")}/></label>
-    <label>Email <span className="crm-required" aria-hidden="true">*</span><span className="sr-only">(required)</span><input name="email" type="email" autoComplete="email" required aria-required="true" defaultValue={value("email", customer?.email ?? "")}/>{fieldError("email")}</label>
-    <label>Primary phone <span className="crm-required" aria-hidden="true">*</span><span className="sr-only">(required)</span><input name="phone" type="tel" autoComplete="tel" required aria-required="true" defaultValue={value("phone", customer?.phone ?? "")}/>{fieldError("phone")}</label>
-    <label>Secondary phone <small>Optional</small><input name="secondaryPhone" type="tel" defaultValue={value("secondaryPhone", customer?.secondary_phone ?? "")}/>{fieldError("secondaryPhone")}</label>
-    <label>Preferred contact<select name="preferredContactMethod" defaultValue={value("preferredContactMethod", customer?.preferred_contact_method ?? "email")}><option value="email">Email</option><option value="phone">Phone</option><option value="sms">SMS</option><option value="none">No preference</option></select></label>
-    <label>Lead source<input name="leadSource" defaultValue={value("leadSource", customer?.lead_source ?? "")} placeholder="Referral, Google, repeat customer…"/></label>
-    <label>Status<select name="isActive" defaultValue={value("isActive", String(customer?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
-    <label className="crm-wide">Tags<input name="tags" defaultValue={value("tags", customer?.tags?.join(", ") ?? "")} placeholder="VIP, commercial, maintenance"/></label>
-    <label className="crm-wide">Customer notes<textarea name="notes" rows={5} defaultValue={value("notes", customer?.notes ?? "")}/></label>
+    <label><span className="crm-label-title">First name <b aria-hidden="true">*</b><span className="sr-only">(required)</span></span><input name="firstName" required aria-required="true" maxLength={100} defaultValue={value("firstName", customer?.first_name ?? "")}/>{fieldError("firstName")}</label>
+    <label><span className="crm-label-title">Last name <small>Optional</small></span><input name="lastName" maxLength={100} defaultValue={value("lastName", customer?.last_name ?? "")}/></label>
+    <label><span className="crm-label-title">Company <small>Optional</small></span><input name="companyName" maxLength={200} defaultValue={value("companyName", customer?.company_name ?? "")}/></label>
+    <label><span className="crm-label-title">Email <b aria-hidden="true">*</b><span className="sr-only">(required)</span></span><input name="email" type="email" autoComplete="email" required aria-required="true" defaultValue={value("email", customer?.email ?? "")}/>{fieldError("email")}</label>
+    <label><span className="crm-label-title">Primary phone <b aria-hidden="true">*</b><span className="sr-only">(required)</span></span><input name="phone" type="tel" autoComplete="tel" required aria-required="true" defaultValue={value("phone", customer?.phone ?? "")}/>{fieldError("phone")}</label>
+    <label><span className="crm-label-title">Secondary phone <small>Optional</small></span><input name="secondaryPhone" type="tel" defaultValue={value("secondaryPhone", customer?.secondary_phone ?? "")}/>{fieldError("secondaryPhone")}</label>
+    <label><span className="crm-label-title">Preferred contact</span><select name="preferredContactMethod" defaultValue={value("preferredContactMethod", customer?.preferred_contact_method ?? "email")}><option value="email">Email</option><option value="phone">Phone</option><option value="sms">SMS</option><option value="none">No preference</option></select></label>
+    <label><span className="crm-label-title">Lead source</span><input name="leadSource" defaultValue={value("leadSource", customer?.lead_source ?? "")} placeholder="Referral, Google, repeat customer…"/></label>
+    <label><span className="crm-label-title">Status</span><select name="isActive" defaultValue={value("isActive", String(customer?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
+    <label className="crm-wide"><span className="crm-label-title">Tags <small>Optional</small></span><input name="tags" defaultValue={value("tags", customer?.tags?.join(", ") ?? "")} placeholder="VIP, commercial, maintenance"/></label>
+    <label className="crm-wide"><span className="crm-label-title">Customer notes <small>Optional</small></span><textarea name="notes" rows={3} defaultValue={value("notes", customer?.notes ?? "")}/></label>
     {fieldError("duplicate")}
     <button className="sv-button" disabled={pending}>{pending ? "Saving…" : state.values?.confirmDuplicate === "true" ? "Create anyway" : submitLabel}</button>
   </form>;
