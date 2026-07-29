@@ -14,13 +14,15 @@ import { actualRouteImpactSummary, type RoadMetrics } from "@/lib/routing/impact
 import { isRouteEditConflict, parseRoutePlanVersion, ROUTE_EDIT_CONFLICT_MESSAGE } from "@/lib/routing/concurrency";
 import { generateRouteOptimizationSuggestions } from "@/lib/routing/optimizationService";
 import { hasRouteCapability } from "@/lib/routing/permissions";
+import {refreshAffectedTechnicianRoutes} from "@/lib/routing/automaticRouteRefresh";
+import {addDays,zonedDateTimeToUtc} from "@/lib/bookingTime";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const dispatchPath = (slug: string, date: string, kind: "error" | "success", message: string) =>
   `/app/${slug}/dispatch?date=${encodeURIComponent(date)}&${kind}=${encodeURIComponent(message)}`;
 
 export async function calculateDispatchRoutes(slug: string, formData: FormData) {
-  const { user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
+  const { supabase,user, business, role } = await requireWorkspaceCapability(slug,"dispatch");
   const date = text(formData, "date");
   if (!hasRouteCapability(role,"recalculate_routes")) {
     console.warn("Route permission denied",{businessId:business.id,userId:user.id,operation:"recalculate_routes"});
@@ -34,12 +36,17 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
   }
   let result;
   try {
-    result = await calculateDailyRoutes({
-      admin,
-      businessId: business.id,
-      serviceDate: date,
-      businessTimeZone: business.timezone,
-      actorUserId: user.id,
+    const start=zonedDateTimeToUtc(date,"00:00",business.timezone);
+    const end=zonedDateTimeToUtc(addDays(date,1),"00:00",business.timezone);
+    const {data:jobs,error:jobsError}=await supabase.from("jobs")
+      .select("id,starts_at,assigned_technician_id").eq("business_id",business.id)
+      .eq("is_deleted",false).gte("starts_at",start.toISOString()).lt("starts_at",end.toISOString())
+      .not("status","in",'("completed","canceled","declined")')
+      .not("assigned_technician_id","is",null);
+    if(jobsError)throw new Error(`Scheduled jobs could not be loaded (${jobsError.code}).`);
+    result=await refreshAffectedTechnicianRoutes({
+      admin,authenticated:supabase,businessId:business.id,businessTimeZone:business.timezone,
+      actorUserId:user.id,jobs:jobs??[],
     });
   } catch (error) {
     console.error("Daily route calculation failed", {
@@ -50,9 +57,10 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
     redirect(dispatchPath(slug, date, "error", publicRouteCalculationError(error)));
   }
   revalidatePath(`/app/${slug}/dispatch`);
-  const message = result.failed || result.skipped || result.partial
-    ? `Routes updated with warnings: ${result.calculated} calculated, ${result.cached} cached, ${result.partial} partial, ${result.failed + result.skipped} need attention.`
-    : `Routes ready: ${result.calculated} calculated, ${result.cached} reused.`;
+  revalidatePath(`/app/${slug}/schedule`);
+  const message = result.failures || result.skippedDays
+    ? `Routes rescheduled with warnings: ${result.refreshedDays} technician day${result.refreshedDays===1?"":"s"} rebuilt, ${result.failures+result.skippedDays} need attention.`
+    : `Routes optimized: ${result.refreshedDays} technician day${result.refreshedDays===1?"":"s"} rebuilt with drive-aware job times.`;
   redirect(dispatchPath(slug, date, "success", message));
 }
 
