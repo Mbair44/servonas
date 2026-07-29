@@ -172,6 +172,23 @@ async function globallyOptimizeFlexibleDay({
   const nextId=orderedIds[index+1];
   if(nextId)cursor+=Math.max(0,driveSeconds.get(`${jobId}:${nextId}`)??0)*1000;
  }
+ const {data:plan,error:planError}=await admin.from("route_plans").select("id")
+  .eq("business_id",businessId).eq("service_date",serviceDate).maybeSingle();
+ if(planError)throw new Error(`Optimized route plan could not be loaded (${planError.code}).`);
+ if(plan){
+  const {data:route,error:routeError}=await admin.from("technician_routes").select("id")
+   .eq("business_id",businessId).eq("route_plan_id",plan.id)
+   .eq("technician_id",technicianId).maybeSingle();
+  if(routeError)throw new Error(`Optimized technician route could not be loaded (${routeError.code}).`);
+  if(route){
+   // The old stop rows encode the pre-optimization order. Their legs are
+   // calculation artifacts and cascade away; historical workforce snapshots
+   // retain their facts while nullable live lineage is cleared.
+   const {error:stopDeleteError}=await admin.from("route_stops").delete()
+    .eq("business_id",businessId).eq("technician_route_id",route.id);
+   if(stopDeleteError)throw new Error(`Obsolete optimized route stops could not be removed (${stopDeleteError.code}).`);
+  }
+ }
  return true;
 }
 
