@@ -10,10 +10,12 @@ export default function ServiceLocationForm({
   action,
   location,
   googleMapsApiKey,
+  onCancel,
 }: {
   action: (state: CrmActionState, formData: FormData) => Promise<CrmActionState>;
   location?: Location;
   googleMapsApiKey?: string;
+  onCancel?: () => void;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const [placeId, setPlaceId] = useState(String(location?.google_place_id ?? ""));
@@ -66,25 +68,36 @@ export default function ServiceLocationForm({
     return () => { if (timer) clearTimeout(timer); };
   }, [googleMapsApiKey]);
 
-  return <form action={formAction} className="crm-form">
+  return <form action={formAction} className="crm-form location-drawer-form">
     {state.error && <div className="workspace-notice error crm-wide" role="alert">{state.error}</div>}
     <input type="hidden" name="googlePlaceId" value={placeId}/>
-    <label>Location name<input name="locationName" required defaultValue={value("locationName", String(location?.location_name ?? "Home"))}/></label>
-    <label>Street address<input ref={addressRef} name="streetAddress" required autoComplete="off" value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }}/></label>
-    {state.fieldErrors?.address && <small className="crm-field-error crm-wide">{state.fieldErrors.address}</small>}
-    <label>Unit or suite<input name="unit" value={unit} onChange={(event) => setUnit(event.target.value)}/></label>
-    <label>City<input name="city" required value={city} onChange={(event) => { setCity(event.target.value); setPlaceId(""); }}/></label>
-    <label>State<input name="state" required value={region} onChange={(event) => { setRegion(event.target.value); setPlaceId(""); }}/></label>
-    <label>Postal code<input name="postalCode" required value={postalCode} onChange={(event) => { setPostalCode(event.target.value); setPlaceId(""); }}/></label>
-    <label>Country<input name="country" value={country} onChange={(event) => { setCountry(event.target.value); setPlaceId(""); }}/></label>
-    <label>Gate code<input name="gateCode" defaultValue={value("gateCode", String(location?.gate_code ?? ""))}/></label>
-    <label className="crm-wide">Access instructions<textarea name="accessInstructions" rows={3} defaultValue={value("accessInstructions", String(location?.access_instructions ?? ""))}/></label>
-    <label className="crm-wide">Parking notes<textarea name="parkingNotes" rows={2} defaultValue={value("parkingNotes", String(location?.parking_notes ?? ""))}/></label>
-    <label className="crm-wide">Property notes<textarea name="propertyNotes" rows={3} defaultValue={value("propertyNotes", String(location?.property_notes ?? ""))}/></label>
-    <label><span>Primary location</span><select name="isPrimary" defaultValue={value("isPrimary", String(location?.is_primary ?? false))}><option value="false">No</option><option value="true">Yes</option></select></label>
-    <label><span>Pets present</span><select name="petsPresent" defaultValue={value("petsPresent", String(location?.pets_present ?? false))}><option value="false">No / unknown</option><option value="true">Yes</option></select></label>
-    <label><span>Status</span><select name="isActive" defaultValue={value("isActive", String(location?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
-    <button className="sv-button" disabled={pending}>{pending ? "Saving…" : "Save location"}</button>
-    <small className="crm-wide crm-help">{googleMapsApiKey ? "Choose a Google suggestion to verify and standardize the address." : "Google verification is not configured; structured address fields will be saved."}</small>
+    <fieldset>
+      <legend><i aria-hidden="true">⌂</i><span>Location details<small>Basic information about this service location.</small></span></legend>
+      <label className="wide">Location name <b>*</b><input name="locationName" required defaultValue={value("locationName", String(location?.location_name ?? "Home"))}/><small>Give this location a name to help you identify it.</small></label>
+      <label className="wide">Street address <b>*</b><span className="location-address-input"><input ref={addressRef} name="streetAddress" required autoComplete="off" placeholder="Start typing an address…" value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }}/><i aria-hidden="true">⌖</i></span></label>
+      {state.fieldErrors?.address && <small className="crm-field-error wide">{state.fieldErrors.address}</small>}
+      <label>Unit or suite<input name="unit" placeholder="Apt, ste, unit, etc." value={unit} onChange={(event) => setUnit(event.target.value)}/></label>
+      <label>City <b>*</b><input name="city" required placeholder="City" value={city} onChange={(event) => { setCity(event.target.value); setPlaceId(""); }}/></label>
+      <label>State <b>*</b><select name="state" required value={region} onChange={(event) => { setRegion(event.target.value); setPlaceId(""); }}><option value="">Select state</option>{["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"].map(item=><option key={item} value={item}>{item}</option>)}</select></label>
+      <label>Postal code <b>*</b><input name="postalCode" required placeholder="ZIP / Postal code" value={postalCode} onChange={(event) => { setPostalCode(event.target.value); setPlaceId(""); }}/></label>
+      <label>Country <b>*</b><select name="country" required value={country} onChange={(event) => { setCountry(event.target.value); setPlaceId(""); }}><option value="US">United States</option><option value="CA">Canada</option></select></label>
+      <label>Gate code<input name="gateCode" placeholder="Optional" defaultValue={value("gateCode", String(location?.gate_code ?? ""))}/></label>
+      <small className="wide crm-help">{googleMapsApiKey ? "Choose a Google suggestion to verify and standardize the address." : "Google verification is not configured; structured address fields will be saved."}</small>
+    </fieldset>
+    <fieldset>
+      <legend><i className="notes" aria-hidden="true">▤</i><span>Location notes <em>(optional)</em><small>Notes to help your team when they arrive on site.</small></span></legend>
+      <label className="wide">Access instructions<textarea name="accessInstructions" rows={2} placeholder="e.g., Back gate is on the left. Ring doorbell." defaultValue={value("accessInstructions", String(location?.access_instructions ?? ""))}/></label>
+      <label className="wide">Parking notes<textarea name="parkingNotes" rows={2} placeholder="e.g., Park in driveway or on the street." defaultValue={value("parkingNotes", String(location?.parking_notes ?? ""))}/></label>
+      <label className="wide">Property notes<textarea name="propertyNotes" rows={2} placeholder="e.g., Dog in backyard. Beware of loose screen on side door." defaultValue={value("propertyNotes", String(location?.property_notes ?? ""))}/></label>
+    </fieldset>
+    <fieldset>
+      <legend><i className="service" aria-hidden="true">♧</i><span>Service information<small>Details that help us provide the best service.</small></span></legend>
+      <div className="location-service-grid wide">
+        <label><span>Primary location</span><select name="isPrimary" defaultValue={value("isPrimary", String(location?.is_primary ?? false))}><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label><span>Pets present</span><select name="petsPresent" defaultValue={value("petsPresent", String(location?.pets_present ?? false))}><option value="false">No / unknown</option><option value="true">Yes</option></select></label>
+        <label><span>Status</span><select name="isActive" defaultValue={value("isActive", String(location?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
+      </div>
+    </fieldset>
+    <footer><button type="button" className="sv-button sv-secondary" onClick={onCancel}>Cancel</button><button className="sv-button" disabled={pending}>{pending ? "Saving…" : "▣  Save location"}</button></footer>
   </form>;
 }
