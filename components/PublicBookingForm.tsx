@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib/googleAddressComponents";
 
@@ -220,7 +221,7 @@ export default function PublicBookingForm(props: Props) {
       <label>Last name<input name="lastName" autoComplete="family-name" defaultValue={state.values?.lastName} /></label>
       <label>Email <span aria-hidden="true">*</span><input name="email" type="email" autoComplete="email" required defaultValue={state.values?.email} />{fieldError("email")}</label>
       <label>Phone <span aria-hidden="true">*</span><input name="phone" type="tel" autoComplete="tel" required defaultValue={state.values?.phone} />{fieldError("phone")}</label>
-      <label className="wide toggle-row"><input name="smsConsent" type="checkbox" required defaultChecked={state.values?.smsConsent === "on"} aria-describedby="sms-consent-help" /><span><b>Text me booking updates <span aria-hidden="true">*</span></b><small id="sms-consent-help">By checking this box, you agree to receive transactional appointment texts from {props.businessName}. Message and data rates may apply. Reply STOP to opt out.</small>{fieldError("smsConsent")}</span></label>
+      <label className="wide toggle-row"><input name="smsConsent" type="checkbox" required defaultChecked={state.values?.smsConsent === "on"} aria-describedby="sms-consent-help" /><span><b>Text me booking updates <span aria-hidden="true">*</span></b><small id="sms-consent-help">By checking this box, you agree to receive transactional appointment texts from {props.businessName}. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not shared with third parties for marketing. <Link href={`/book/${props.publicSlug}/privacy`} target="_blank">Privacy Policy</Link></small>{fieldError("smsConsent")}</span></label>
       {props.collectAddress && <label className="wide">Service address<input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); setStructuredAddress({ line1: "", line2: "", city: "", region: "", postalCode: "", countryCode: "US" }); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
       <label className="wide">How can we help?<textarea name="details" rows={4} defaultValue={state.values?.details} /></label>
       <label className="wide booking-photo-field">Add a photo <span>Optional</span><input name="bookingPhoto" type="file" accept="image/jpeg,image/png,image/webp,image/heic"/>{fieldError("bookingPhoto")}<small className="field-help">You can attach one JPG, PNG, WebP, or HEIC image up to 10MB to help the business understand the job.</small></label>

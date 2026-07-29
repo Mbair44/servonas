@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import PublicBookingForm from "@/components/PublicBookingForm";
 import { submitPublicBooking } from "./actions";
@@ -91,7 +92,7 @@ export default async function PublicBookingPage({
         )}
       </section>
       <footer>
-        Powered by <b>Servonas</b>
+        Powered by <b>Servonas</b> · <Link href={`/book/${businessSlug}/privacy`}>Privacy Policy</Link>
       </footer>
     </main>
   );
