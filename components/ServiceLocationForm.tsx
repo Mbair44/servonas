@@ -6,6 +6,17 @@ import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib
 
 type Location = Record<string, string | boolean | number | null | undefined>;
 
+function LocationFormIcon({name}:{name:"home"|"notes"|"service"|"pin"|"save"}){
+ const paths={
+  home:<><path d="m3 11 9-7 9 7"/><path d="M5.5 10v10h13V10"/><path d="M9 20v-6h6v6"/></>,
+  notes:<><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 9h6M9 13h6M9 17h4"/></>,
+  service:<><circle cx="8" cy="8" r="3"/><circle cx="17" cy="7" r="2.5"/><path d="M3 20v-2a5 5 0 0 1 10 0v2M14 20v-1.5a4 4 0 0 1 7-2.7"/></>,
+  pin:<><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,
+  save:<><path d="M5 3h12l2 2v16H5Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/></>,
+ };
+ return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+}
+
 export default function ServiceLocationForm({
   action,
   location,
@@ -72,9 +83,9 @@ export default function ServiceLocationForm({
     {state.error && <div className="workspace-notice error crm-wide" role="alert">{state.error}</div>}
     <input type="hidden" name="googlePlaceId" value={placeId}/>
     <fieldset aria-labelledby="location-details-heading">
-      <div className="location-section-heading wide" id="location-details-heading"><i aria-hidden="true">⌂</i><span><strong>Location details</strong><small>Basic information about this service location.</small></span></div>
+      <div className="location-section-heading wide" id="location-details-heading"><i><LocationFormIcon name="home"/></i><span><strong>Location details</strong><small>Basic information about this service location.</small></span></div>
       <label className="wide"><span className="location-field-title">Location name <b>*</b></span><input name="locationName" required defaultValue={value("locationName", String(location?.location_name ?? "Home"))}/><small>Give this location a name to help you identify it.</small></label>
-      <label className="wide"><span className="location-field-title">Street address <b>*</b></span><span className="location-address-input"><input ref={addressRef} name="streetAddress" required autoComplete="off" placeholder="Start typing an address…" value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }}/><i aria-hidden="true">⌖</i></span></label>
+      <label className="wide"><span className="location-field-title">Street address <b>*</b></span><span className="location-address-input"><input ref={addressRef} name="streetAddress" required autoComplete="off" placeholder="Start typing an address…" value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); }}/><i><LocationFormIcon name="pin"/></i></span></label>
       {state.fieldErrors?.address && <small className="crm-field-error wide">{state.fieldErrors.address}</small>}
       <label><span className="location-field-title">Unit or suite</span><input name="unit" placeholder="Apt, ste, unit, etc." value={unit} onChange={(event) => setUnit(event.target.value)}/></label>
       <label><span className="location-field-title">City <b>*</b></span><input name="city" required placeholder="City" value={city} onChange={(event) => { setCity(event.target.value); setPlaceId(""); }}/></label>
@@ -85,19 +96,19 @@ export default function ServiceLocationForm({
       <small className="wide crm-help">{googleMapsApiKey ? "Choose a Google suggestion to verify and standardize the address." : "Google verification is not configured; structured address fields will be saved."}</small>
     </fieldset>
     <fieldset aria-labelledby="location-notes-heading">
-      <div className="location-section-heading wide" id="location-notes-heading"><i className="notes" aria-hidden="true">▤</i><span><strong>Location notes <em>(optional)</em></strong><small>Notes to help your team when they arrive on site.</small></span></div>
-      <label className="wide">Access instructions<textarea name="accessInstructions" rows={2} placeholder="e.g., Back gate is on the left. Ring doorbell." defaultValue={value("accessInstructions", String(location?.access_instructions ?? ""))}/></label>
-      <label className="wide">Parking notes<textarea name="parkingNotes" rows={2} placeholder="e.g., Park in driveway or on the street." defaultValue={value("parkingNotes", String(location?.parking_notes ?? ""))}/></label>
-      <label className="wide">Property notes<textarea name="propertyNotes" rows={2} placeholder="e.g., Dog in backyard. Beware of loose screen on side door." defaultValue={value("propertyNotes", String(location?.property_notes ?? ""))}/></label>
+      <div className="location-section-heading wide" id="location-notes-heading"><i className="notes"><LocationFormIcon name="notes"/></i><span><strong>Location notes <em>(optional)</em></strong><small>Notes to help your team when they arrive on site.</small></span></div>
+      <label className="wide"><span className="location-field-title">Access instructions</span><textarea name="accessInstructions" rows={2} placeholder="e.g., Back gate is on the left. Ring doorbell." defaultValue={value("accessInstructions", String(location?.access_instructions ?? ""))}/></label>
+      <label className="wide"><span className="location-field-title">Parking notes</span><textarea name="parkingNotes" rows={2} placeholder="e.g., Park in driveway or on the street." defaultValue={value("parkingNotes", String(location?.parking_notes ?? ""))}/></label>
+      <label className="wide"><span className="location-field-title">Property notes</span><textarea name="propertyNotes" rows={2} placeholder="e.g., Dog in backyard. Beware of loose screen on side door." defaultValue={value("propertyNotes", String(location?.property_notes ?? ""))}/></label>
     </fieldset>
     <fieldset aria-labelledby="location-service-heading">
-      <div className="location-section-heading wide" id="location-service-heading"><i className="service" aria-hidden="true">♧</i><span><strong>Service information</strong><small>Details that help us provide the best service.</small></span></div>
+      <div className="location-section-heading wide" id="location-service-heading"><i className="service"><LocationFormIcon name="service"/></i><span><strong>Service information</strong><small>Details that help us provide the best service.</small></span></div>
       <div className="location-service-grid wide">
         <label><span>Primary location</span><select name="isPrimary" defaultValue={value("isPrimary", String(location?.is_primary ?? false))}><option value="true">Yes</option><option value="false">No</option></select></label>
         <label><span>Pets present</span><select name="petsPresent" defaultValue={value("petsPresent", String(location?.pets_present ?? false))}><option value="false">No / unknown</option><option value="true">Yes</option></select></label>
         <label><span>Status</span><select name="isActive" defaultValue={value("isActive", String(location?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
       </div>
     </fieldset>
-    <footer><button type="button" className="sv-button sv-secondary" onClick={onCancel}>Cancel</button><button className="sv-button" disabled={pending}>{pending ? "Saving…" : "▣  Save location"}</button></footer>
+    <footer><button type="button" className="sv-button sv-secondary" onClick={onCancel}>Cancel</button><button className="sv-button location-save-button" disabled={pending}>{!pending&&<LocationFormIcon name="save"/>}{pending ? "Saving…" : "Save location"}</button></footer>
   </form>;
 }
