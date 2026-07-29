@@ -206,7 +206,30 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
   for(const job of generatedJobs??[]){const {error:assignmentError}=await supabase.rpc("set_job_primary_technician",{p_job_id:job.id,p_technician_id:employeeId});if(assignmentError)console.error("Generated service-plan job assignment failed",{businessId:business.id,planId:plan.id,jobId:job.id,code:assignmentError.code});}
  }
  revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);
- redirect(`${target}?success=${encodeURIComponent(generationError?"Service plan created; upcoming jobs need reconciliation.":"Service plan created and upcoming jobs generated.")}`);
+ redirect(generationError
+  ?`${target}?reconcilePlan=${plan.id}&warning=${encodeURIComponent("Service plan created, but upcoming jobs could not be generated.")}`
+  :`${target}?success=${encodeURIComponent("Service plan created and upcoming jobs generated.")}`);
+}
+
+export async function retryServicePlanJobGeneration(slug:string,customerId:string,planId:string){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to generate service-plan jobs.")}`);
+ const {data:plan}=await supabase.from("recurring_service_series").select("id,default_employee_id").eq("id",planId).eq("business_id",business.id).eq("customer_id",customerId).eq("status","active").maybeSingle();
+ if(!plan)redirect(`${target}?error=${encodeURIComponent("The active service plan could not be found.")}`);
+ const {error}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});
+ if(error){
+  console.error("Service plan job generation retry failed",{businessId:business.id,customerId,planId,code:error.code,message:error.message,hint:error.hint,details:error.details});
+  redirect(`${target}?reconcilePlan=${plan.id}&error=${encodeURIComponent(`Upcoming jobs still could not be generated. Reference code: ${error.code||"unknown"}.`)}`);
+ }
+ if(plan.default_employee_id){
+  const {data:generatedJobs}=await supabase.from("jobs").select("id").eq("business_id",business.id).eq("recurring_service_series_id",plan.id).is("assigned_technician_id",null);
+  for(const job of generatedJobs??[]){
+   const {error:assignmentError}=await supabase.rpc("set_job_primary_technician",{p_job_id:job.id,p_technician_id:plan.default_employee_id});
+   if(assignmentError)console.error("Retried service-plan job assignment failed",{businessId:business.id,planId,jobId:job.id,code:assignmentError.code});
+  }
+ }
+ revalidatePath(target);revalidatePath(`/app/${slug}/jobs`);
+ redirect(`${target}?success=${encodeURIComponent("Upcoming service-plan jobs generated successfully.")}`);
 }
 
 export async function changeServicePlanStatus(slug:string,customerId:string,planId:string,formData:FormData){
