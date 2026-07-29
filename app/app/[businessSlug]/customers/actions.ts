@@ -166,6 +166,44 @@ export async function archiveCustomer(slug: string, customerId: string) {
   redirect(`/app/${slug}/customers?success=Customer+archived`);
 }
 
+export async function assignCustomerOperations(slug:string,customerId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
+ const target=`/app/${slug}/customers/${customerId}`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to manage customer assignments.")}`);
+ const locationId=text(formData,"serviceLocationId"),mode=text(formData,"assignmentMode");
+ const territoryId=text(formData,"territoryId")||null,technicianId=text(formData,"technicianId")||null;
+ const {data:location}=await supabase.from("service_locations").select("id").eq("id",locationId).eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+ if(!location)redirect(`${target}?error=${encodeURIComponent("The service location could not be found.")}`);
+ if(mode==="automatic"){
+  const {error}=await supabase.from("service_locations").update({operational_assignment_source:"automatic",updated_by:user.id}).eq("id",locationId).eq("business_id",business.id);
+  if(error){console.error("Customer automatic assignment failed",{businessId:business.id,customerId,locationId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The address could not be matched to an operating assignment.")}`);}
+ }else{
+  if(territoryId){
+   const {data:territory}=await supabase.from("workforce_territories").select("id").eq("id",territoryId).eq("business_id",business.id).eq("is_active",true).maybeSingle();
+   if(!territory)redirect(`${target}?error=${encodeURIComponent("Choose an active territory from this workspace.")}`);
+  }
+  if(technicianId){
+   const {data:technician}=await supabase.from("technician_profiles").select("id").eq("id",technicianId).eq("business_id",business.id).eq("is_active",true).eq("is_technician",true).eq("can_be_assigned_jobs",true).maybeSingle();
+   if(!technician)redirect(`${target}?error=${encodeURIComponent("Choose an assignable technician from this workspace.")}`);
+  }
+  const {error}=await supabase.from("service_locations").update({
+   territory_id:territoryId,default_technician_id:technicianId,
+   operational_assignment_source:"manual",updated_by:user.id,
+  }).eq("id",locationId).eq("business_id",business.id);
+  if(error){console.error("Customer manual assignment failed",{businessId:business.id,customerId,locationId,code:error.code});redirect(`${target}?error=${encodeURIComponent("The customer assignment could not be saved.")}`);}
+ }
+ const {data:resolved}=await supabase.from("service_locations").select("default_technician_id").eq("id",locationId).eq("business_id",business.id).maybeSingle();
+ if(resolved?.default_technician_id){
+  const {data:jobs}=await supabase.from("jobs").select("id").eq("business_id",business.id).eq("customer_id",customerId).eq("service_location_id",locationId).eq("is_deleted",false).is("assigned_technician_id",null).gte("starts_at",new Date().toISOString()).not("status","in",'("completed","canceled","declined")');
+  for(const job of jobs??[]){
+   const {error}=await supabase.rpc("set_job_primary_technician",{p_job_id:job.id,p_technician_id:resolved.default_technician_id});
+   if(error)console.error("Customer future job assignment failed",{businessId:business.id,customerId,locationId,jobId:job.id,code:error.code});
+  }
+ }
+ revalidatePath(target);revalidatePath(`/app/${slug}/dispatch`);revalidatePath(`/app/${slug}/schedule`);
+ redirect(`${target}?success=${encodeURIComponent(mode==="automatic"?"Address assignment refreshed":"Customer assignment saved")}`);
+}
+
 export async function createServicePlan(slug:string,customerId:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
  const target=`/app/${slug}/customers/${customerId}`;
