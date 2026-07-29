@@ -67,6 +67,11 @@ const routeFailureReason=(route:RouteWarningRoute)=>{
  if(codes.includes("route_endpoint_coordinates_missing"))return "The configured route start or end location is missing usable coordinates.";
  if(codes.includes("daily_stop_limit"))return "This route exceeds the configured maximum number of stops for one calculation.";
  if(codes.includes("segment_provider_failed"))return "Google Routes could not calculate at least one road segment. Other visible segments may still be valid, but the full route and schedule cannot be verified.";
+ if(codes.includes("provider_timeout"))return "Google Routes did not respond before the server timeout. Recalculate the route; repeated timeouts require checking provider latency and function limits.";
+ const googleCode=codes.find(code=>/^google_http_\d{3}$/.test(code));
+ if(googleCode)return `Google Routes rejected the request with HTTP ${googleCode.slice(-3)}. Review the provider response in the server routing log.`;
+ const databaseCode=codes.find(code=>code.startsWith("database_"));
+ if(databaseCode)return `The routing database operation failed with reference ${databaseCode.slice("database_".length).toUpperCase()}. Review the matching server log entry.`;
  if(codes.length)return `The route failed while processing ${[...new Set(codes)].join(", ")}. Review the affected stops and server routing log.`;
  return `${route.technicianName} has no complete road route. Travel-time risk cannot be verified.`;
 };
