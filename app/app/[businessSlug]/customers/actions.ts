@@ -257,7 +257,8 @@ export async function retryServicePlanJobGeneration(slug:string,customerId:strin
  const {error}=await supabase.rpc("generate_service_plan_jobs",{p_plan_id:plan.id,p_horizon_days:60});
  if(error){
   console.error("Service plan job generation retry failed",{businessId:business.id,customerId,planId,code:error.code,message:error.message,hint:error.hint,details:error.details});
-  redirect(`${target}?reconcilePlan=${plan.id}&error=${encodeURIComponent(`Upcoming jobs still could not be generated. Reference code: ${error.code||"unknown"}.`)}`);
+  const safeDetail=error.code==="42703"&&/^column ["a-zA-Z0-9_.]+ does not exist$/.test(error.message)?` ${error.message}`:"";
+  redirect(`${target}?reconcilePlan=${plan.id}&error=${encodeURIComponent(`Upcoming jobs still could not be generated (${error.code||"unknown"}).${safeDetail}`)}`);
  }
  if(plan.default_employee_id){
   const {data:generatedJobs}=await supabase.from("jobs").select("id").eq("business_id",business.id).eq("recurring_service_series_id",plan.id).is("assigned_technician_id",null);
