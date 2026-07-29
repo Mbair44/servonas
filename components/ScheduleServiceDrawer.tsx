@@ -10,14 +10,15 @@ type Location={id:string;customer_id:string;location_name:string;street_address:
 type Service={id:string;name:string;duration_minutes?:number|null};
 type Technician={id:string;preferred_name:string};
 
-export function ScheduleServiceDrawer({customer,locations,services,technicians,action}:{
+export function ScheduleServiceDrawer({customer,locations,services,technicians,action,menuItem=false}:{
  customer:Customer;locations:Location[];services:Service[];technicians:Technician[];
  action:(state:JobActionState,formData:FormData)=>Promise<JobActionState>;
+ menuItem?:boolean;
 }){
  const [open,setOpen]=useState(false);
  const close=useCallback(()=>setOpen(false),[]);
  return <>
-  <button type="button" onClick={()=>setOpen(true)}>▣ Schedule service</button>
+  <button type="button" className={menuItem?"customer-action-item":undefined} onClick={()=>setOpen(true)}>{menuItem?<><i className="customer-action-icon schedule" aria-hidden="true">□</i><span><strong>Schedule service</strong><small>Schedule a visit for this customer</small></span><b aria-hidden="true">›</b></>:<>▣ Schedule service</>}</button>
   <ManagementDrawer open={open} title="Schedule service" onDirty={()=>{}} onClose={close}>
    <JobForm action={action} customers={[customer]} locations={locations} services={services} technicians={technicians} submitLabel="Schedule service" defaultCustomerId={customer.id}/>
   </ManagementDrawer>
