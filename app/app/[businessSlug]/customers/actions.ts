@@ -87,6 +87,34 @@ async function synchronizeServicePlanTechnician({
  }
 }
 
+async function synchronizeLocationServicePlans({
+ supabase,business,userId,locationId,
+}:{
+ supabase:Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"];
+ business:{id:string;timezone:string};
+ userId:string;
+ locationId:string;
+}){
+ const [{data:location},{data:plans}]=await Promise.all([
+  supabase.from("service_locations").select("default_technician_id")
+   .eq("business_id",business.id).eq("id",locationId).maybeSingle(),
+  supabase.from("recurring_service_series").select("id,default_employee_id")
+   .eq("business_id",business.id).eq("service_location_id",locationId)
+   .eq("status","active").eq("is_active",true),
+ ]);
+ let failures=0,skippedDays=0;
+ for(const plan of plans??[]){
+  await synchronizeServicePlanTechnician({
+   supabase,businessId:business.id,planId:plan.id,
+   technicianId:plan.default_employee_id??location?.default_technician_id??null,
+  });
+  const refresh=await refreshServicePlanRoutes({supabase,business,userId,planId:plan.id});
+  failures+=refresh?.failures??0;
+  skippedDays+=refresh?.skippedDays??0;
+ }
+ return {plans:(plans??[]).length,failures,skippedDays};
+}
+
 function validateCustomer(formData: FormData) {
   const errors: Record<string, string> = {};
   const first = text(formData, "firstName");
@@ -260,8 +288,13 @@ export async function assignCustomerOperations(slug:string,customerId:string,for
    if(error)console.error("Customer future job assignment failed",{businessId:business.id,customerId,locationId,jobId:job.id,code:error.code});
   }
  }
+ const routeRefresh=await synchronizeLocationServicePlans({supabase,business,userId:user.id,locationId});
  revalidatePath(target);revalidatePath(`/app/${slug}/dispatch`);revalidatePath(`/app/${slug}/schedule`);
- redirect(`${target}?success=${encodeURIComponent(mode==="automatic"?"Address assignment refreshed":"Customer assignment saved")}`);
+ redirect(`${target}?success=${encodeURIComponent(routeRefresh.failures||routeRefresh.skippedDays
+  ?"Customer assignment saved; some recurring route days still need attention."
+  :routeRefresh.plans
+   ?"Customer assignment saved and recurring route days optimized."
+   :mode==="automatic"?"Address assignment refreshed":"Customer assignment saved")}`);
 }
 
 export async function createServicePlan(slug:string,customerId:string,formData:FormData){
@@ -513,7 +546,17 @@ export async function saveServiceLocation(
     });
     if (!resolution.ok) geocodingMessage = "Location saved; address needs verification";
   }
+  const routeRefresh=await synchronizeLocationServicePlans({
+    supabase,business,userId:user.id,locationId:saveResult.data.id,
+  });
+  if(routeRefresh.plans){
+    geocodingMessage=routeRefresh.failures||routeRefresh.skippedDays
+      ?"Location saved; some recurring route days need attention"
+      :"Location saved and recurring route days optimized";
+  }
   revalidatePath(`/app/${slug}/customers/${customerId}`);
+  revalidatePath(`/app/${slug}/dispatch`);
+  revalidatePath(`/app/${slug}/schedule`);
   redirect(`/app/${slug}/customers/${customerId}?success=${encodeURIComponent(geocodingMessage)}`);
 }
 

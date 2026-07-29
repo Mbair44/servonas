@@ -16,6 +16,89 @@ export type AutomaticRouteRefreshResult={
  failures:number;
 };
 
+async function normalizeFlexibleJobs({
+ admin,businessId,serviceDate,businessTimeZone,technicianId,actorUserId,
+}:{
+ admin:SupabaseClient;businessId:string;serviceDate:string;businessTimeZone:string;
+ technicianId:string;actorUserId:string;
+}){
+ const dayStart=new Date(`${serviceDate}T00:00:00.000Z`);
+ const nextDay=new Date(dayStart);nextDay.setUTCDate(nextDay.getUTCDate()+1);
+ // Query a broad UTC envelope, then use the business-local service date.
+ const {data:jobs}=await admin.from("jobs")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status")
+  .eq("business_id",businessId).eq("assigned_technician_id",technicianId)
+  .eq("is_deleted",false).not("status","in",'("completed","canceled","declined")')
+  .gte("starts_at",new Date(dayStart.getTime()-14*60*60*1000).toISOString())
+  .lt("starts_at",new Date(nextDay.getTime()+14*60*60*1000).toISOString()).order("starts_at");
+ const dayJobs=(jobs??[]).filter(job=>job.starts_at&&dateInTimeZone(new Date(job.starts_at),businessTimeZone)===serviceDate);
+ if(dayJobs.length<2)return;
+ let cursor=Math.min(...dayJobs.map(job=>new Date(job.starts_at!).getTime()));
+ for(const job of dayJobs){
+  const originalStart=new Date(job.starts_at!).getTime();
+  const originalEnd=job.ends_at?new Date(job.ends_at).getTime():NaN;
+  const durationMs=Number.isFinite(originalEnd)&&originalEnd>originalStart
+   ?originalEnd-originalStart:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
+  if(!job.recurring_service_series_id){
+   cursor=Math.max(cursor,originalStart)+durationMs;
+   continue;
+  }
+  const startsAt=new Date(cursor).toISOString(),endsAt=new Date(cursor+durationMs).toISOString();
+  const {error}=await admin.from("jobs").update({starts_at:startsAt,ends_at:endsAt,updated_by:actorUserId})
+   .eq("business_id",businessId).eq("id",job.id);
+  if(error)throw new Error(`Flexible service time could not be normalized (${error.code}).`);
+  cursor+=durationMs;
+ }
+}
+
+async function applyCalculatedDriveSchedule({
+ admin,businessId,serviceDate,technicianId,actorUserId,
+}:{
+ admin:SupabaseClient;businessId:string;serviceDate:string;technicianId:string;actorUserId:string;
+}){
+ const {data:plan}=await admin.from("route_plans").select("id")
+  .eq("business_id",businessId).eq("service_date",serviceDate).maybeSingle();
+ if(!plan)return;
+ const {data:route}=await admin.from("technician_routes").select("id")
+  .eq("business_id",businessId).eq("route_plan_id",plan.id)
+  .eq("technician_id",technicianId).maybeSingle();
+ if(!route)return;
+ const [{data:stops},{data:legs}]=await Promise.all([
+  admin.from("route_stops").select("id,job_id,sequence").eq("business_id",businessId)
+   .eq("technician_route_id",route.id).order("sequence"),
+  admin.from("route_legs").select("from_route_stop_id,to_route_stop_id,driving_duration_seconds,calculation_status")
+   .eq("business_id",businessId).eq("technician_route_id",route.id).eq("calculation_status","ready"),
+ ]);
+ if(!stops?.length)return;
+ const {data:jobs}=await admin.from("jobs")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id")
+  .eq("business_id",businessId).in("id",stops.map(stop=>stop.job_id));
+ const jobById=new Map((jobs??[]).map(job=>[job.id,job]));
+ const driveToStop=new Map((legs??[]).flatMap(leg=>leg.to_route_stop_id
+  ?[[leg.to_route_stop_id,Number(leg.driving_duration_seconds??0)] as const]:[]));
+ const firstJob=jobById.get(stops[0].job_id);
+ if(!firstJob?.starts_at)return;
+ let cursor=new Date(firstJob.starts_at).getTime();
+ for(const [index,stop] of stops.entries()){
+  const job=jobById.get(stop.job_id);
+  if(!job?.starts_at)continue;
+  if(index>0)cursor+=Math.max(0,driveToStop.get(stop.id)??0)*1000;
+  const originalStart=new Date(job.starts_at).getTime();
+  const originalEnd=job.ends_at?new Date(job.ends_at).getTime():NaN;
+  const durationMs=Number.isFinite(originalEnd)&&originalEnd>originalStart
+   ?originalEnd-originalStart:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
+  if(!job.recurring_service_series_id){
+   cursor=Math.max(cursor,originalStart)+durationMs;
+   continue;
+  }
+  const {error}=await admin.from("jobs").update({
+   starts_at:new Date(cursor).toISOString(),ends_at:new Date(cursor+durationMs).toISOString(),updated_by:actorUserId,
+  }).eq("business_id",businessId).eq("id",job.id);
+  if(error)throw new Error(`Drive-aware service time could not be saved (${error.code}).`);
+  cursor+=durationMs;
+ }
+}
+
 /**
  * Rebuilds each affected technician's complete service day, then repeatedly
  * applies the existing road-based, appointment-window-safe adjacent optimizer
@@ -53,6 +136,10 @@ export async function refreshAffectedTechnicianRoutes({
 
  for(const affectedDay of affected.slice(0,maxDays)){
   try{
+   await normalizeFlexibleJobs({
+    admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
+    technicianId:affectedDay.technicianId,actorUserId,
+   });
    await calculateDailyRoutes({
     admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
     actorUserId,onlyTechnicianId:affectedDay.technicianId,
@@ -87,6 +174,14 @@ export async function refreshAffectedTechnicianRoutes({
      actorUserId,onlyTechnicianId:affectedDay.technicianId,
     });
    }
+   await applyCalculatedDriveSchedule({
+    admin,businessId,serviceDate:affectedDay.serviceDate,
+    technicianId:affectedDay.technicianId,actorUserId,
+   });
+   await calculateDailyRoutes({
+    admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
+    actorUserId,onlyTechnicianId:affectedDay.technicianId,
+   });
    if(dayOptimized)result.optimizedDays+=1;
   }catch(error){
    result.failures+=1;
