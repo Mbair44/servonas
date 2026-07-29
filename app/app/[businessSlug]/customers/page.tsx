@@ -3,7 +3,12 @@ import {WorkspaceNav} from "../WorkspaceNav";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageCustomers} from "@/lib/access";
 import {formatBusinessDate} from "@/lib/bookingTime";
-import {archiveCustomer} from "./actions";
+import {CustomerActionIcon} from "@/components/CustomerActionIcon";
+import {EditCustomerDrawer} from "@/components/EditCustomerDrawer";
+import {ScheduleServiceDrawer} from "@/components/ScheduleServiceDrawer";
+import {ServicePlanDrawer} from "@/components/ServicePlanDrawer";
+import {archiveCustomer,createServicePlan,updateCustomer} from "./actions";
+import {createJob} from "../jobs/actions";
 
 const pageSize=25;
 const clean=(value:string)=>value.toLowerCase().trim();
@@ -13,7 +18,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug),canEdit=canManageCustomers(role);
  const search=clean(q.q??""),status=["active","inactive","no_history","all"].includes(q.status??"")?q.status!:"all",type=["individual","company","all"].includes(q.type??"")?q.type!:"all";
  const page=Math.max(1,Number(q.page)||1);
- const {data:customers,error}=await supabase.from("customers").select("id,first_name,last_name,company_name,email,phone,is_active,created_at").eq("business_id",business.id).eq("is_deleted",false).limit(1000);
+ const {data:customers,error}=await supabase.from("customers").select("id,first_name,last_name,company_name,email,phone,secondary_phone,preferred_contact_method,notes,tags,lead_source,is_active,created_at").eq("business_id",business.id).eq("is_deleted",false).limit(1000);
  if(error) console.error("Customer directory could not be loaded",{businessId:business.id,code:error.code});
  const ids=(customers??[]).map(customer=>customer.id);
  const [locationsResult,jobsResult]=ids.length?await Promise.all([
@@ -36,6 +41,11 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
   .sort((a,b)=>a.displayName.localeCompare(b.displayName));
  const totalPages=Math.max(1,Math.ceil(rows.length/pageSize)),currentPage=Math.min(page,totalPages),visible=rows.slice((currentPage-1)*pageSize,currentPage*pageSize);
  const selected=directory.find(customer=>customer.id===q.customer)??null;
+ const [servicesResult,employeesResult]=selected?await Promise.all([
+  supabase.from("services").select("id,name,duration_minutes").eq("business_id",business.id).eq("is_deleted",false).eq("active",true).order("name"),
+  supabase.from("technician_directory").select("id,preferred_name").eq("business_id",business.id).eq("is_active",true).eq("is_technician",true).eq("can_be_assigned_jobs",true).order("preferred_name"),
+ ]):[{data:[]},{data:[]}];
+ const services=servicesResult.data??[],employees=employeesResult.data??[];
  const monthStart=new Date();monthStart.setUTCDate(1);monthStart.setUTCHours(0,0,0,0);
  const newThisMonth=directory.filter(customer=>new Date(customer.created_at)>=monthStart).length,noHistory=directory.filter(customer=>!customer.jobCount).length;
  const base=`/app/${businessSlug}/customers`;
@@ -79,7 +89,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
     <nav aria-label="Customer detail sections"><span className="active">Overview</span><Link href={`${base}/${selected.id}`}>Locations ({selected.locations.length})</Link><Link href={`${base}/${selected.id}`}>Jobs ({selected.jobCount})</Link><Link href={`${base}/${selected.id}`}>History</Link></nav>
     <dl><div><dt>Email</dt><dd>{selected.email||"Not provided"}</dd></div><div><dt>Phone</dt><dd>{selected.phone||"Not provided"}</dd></div><div><dt>Address</dt><dd>{selected.primary?<>{selected.primary.street_address}{selected.primary.unit?`, ${selected.primary.unit}`:""}<br/>{selected.primary.city}, {selected.primary.state} {selected.primary.postal_code}</>:"No service location"}</dd></div></dl>
     <section className="customer-facts"><h3>Customer details</h3><dl><div><dt>Type</dt><dd><em className={`customer-type ${selected.customerType}`}>{selected.customerType}</em></dd></div><div><dt>Since</dt><dd>{formatBusinessDate(selected.created_at,business.timezone)}</dd></div><div><dt>Last service</dt><dd>{selected.lastService?formatBusinessDate(selected.lastService,business.timezone):"—"}</dd></div><div><dt>Next service</dt><dd>{selected.nextService?formatBusinessDate(selected.nextService,business.timezone):"—"}</dd></div><div><dt>Total jobs</dt><dd>{selected.jobCount}</dd></div></dl></section>
-    <section><h3>Quick actions</h3><Link className="employee-quick-action" href={`${base}/${selected.id}`}>＋ Add service location</Link><Link className="employee-quick-action" href={`/app/${businessSlug}/jobs/new?customerId=${selected.id}`}>▣ Schedule job</Link><Link className="employee-quick-action" href={`${base}/${selected.id}/edit`}>✎ Edit customer</Link>{canEdit&&<form action={archiveCustomer.bind(null,businessSlug,selected.id)}><button className="employee-quick-action destructive">⊘ Archive customer</button></form>}</section>
+    {canEdit&&<section className="customer-panel-actions"><h3>Quick actions</h3><div><h4>Schedule &amp; work</h4><ScheduleServiceDrawer menuItem customer={{id:selected.id,first_name:selected.first_name,last_name:selected.last_name,company_name:selected.company_name}} locations={selected.locations.map(location=>({id:location.id,customer_id:location.customer_id,location_name:location.location_name,street_address:location.street_address,city:location.city,state:location.state}))} services={services} technicians={employees} action={createJob.bind(null,businessSlug)}/><ScheduleServiceDrawer menuItem mode="job" customer={{id:selected.id,first_name:selected.first_name,last_name:selected.last_name,company_name:selected.company_name}} locations={selected.locations.map(location=>({id:location.id,customer_id:location.customer_id,location_name:location.location_name,street_address:location.street_address,city:location.city,state:location.state}))} services={services} technicians={employees} action={createJob.bind(null,businessSlug)}/><ServicePlanDrawer menuItem customerName={selected.displayName} locations={selected.locations.map(location=>({id:location.id,name:location.location_name||location.street_address}))} services={services.map(service=>({id:service.id,name:service.name}))} employees={employees.map(employee=>({id:employee.id,name:employee.preferred_name}))} action={createServicePlan.bind(null,businessSlug,selected.id)}/></div><div><h4>Customer details</h4><EditCustomerDrawer customer={selected} action={updateCustomer.bind(null,businessSlug,selected.id)}/></div><div><h4>Other</h4><form action={archiveCustomer.bind(null,businessSlug,selected.id)}><button className="customer-action-item destructive"><i className="customer-action-icon archive"><CustomerActionIcon name="archive"/></i><span><strong>Archive customer</strong><small>Deactivate this customer</small></span><b aria-hidden="true">›</b></button></form></div></section>}
    </aside>}
   </section>
  </section></main>;
