@@ -55,10 +55,14 @@ export async function POST(request:Request,{params}:{params:Promise<{token:strin
     const state=error instanceof InvoicePaymentAmountError?"amount-invalid":"failed";
     return NextResponse.redirect(portal(base,token,state),303);
   }
-  const {data:account,error:accountError}=await supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled")
-    .eq("business_id",invoice.business_id).eq("provider","stripe").maybeSingle();
-  if(accountError||!account?.provider_account_id||!stripePaymentsReady(account)){
+  const [{data:account,error:accountError},{data:billingOptions,error:billingOptionsError}]=await Promise.all([
+    supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled")
+      .eq("business_id",invoice.business_id).eq("provider","stripe").maybeSingle(),
+    supabase.from("business_billing_settings").select("accept_online_card").eq("business_id",invoice.business_id).maybeSingle(),
+  ]);
+  if(accountError||billingOptionsError||billingOptions?.accept_online_card===false||!account?.provider_account_id||!stripePaymentsReady(account)){
     if(accountError)console.error("Invoice Checkout payment-account lookup failed",{invoiceId:invoice.id,code:accountError.code});
+    if(billingOptionsError)console.error("Invoice Checkout billing-options lookup failed",{invoiceId:invoice.id,code:billingOptionsError.code});
     return NextResponse.redirect(portal(base,token,"unavailable"),303);
   }
   const {data:existing,error:existingError}=await supabase.from("payments").select("id,provider_checkout_session_id,provider_account_id")

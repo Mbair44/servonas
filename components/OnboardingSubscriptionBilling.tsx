@@ -1,14 +1,12 @@
-import {startServonasSubscription} from "@/app/onboarding/actions";
+import Link from "next/link";
+import {completeOnboarding,startServonasSubscription} from "@/app/onboarding/actions";
 import {formatTrialDate,SERVONAS_TRIAL_DAYS} from "@/lib/platformBilling";
 
-export default function OnboardingSubscriptionBilling({businessSlug,trialEndsAt,timeZone}:{businessSlug:string;trialEndsAt:string;timeZone:string}){
+export default function OnboardingSubscriptionBilling({businessSlug,businessName,trialEndsAt,timeZone,billingAdded=false,error}:{businessSlug:string;businessName:string;trialEndsAt:string;timeZone:string;billingAdded?:boolean;error?:string}){
  const deadline=formatTrialDate(trialEndsAt,timeZone);
- return <section className="onboarding-subscription-card">
-  <span className="sv-kicker">Servonas subscription</span>
-  <h2>Your first {SERVONAS_TRIAL_DAYS} days are free</h2>
-  <p>Add a payment method now and your Servonas subscription will begin automatically after the free trial. You will not be charged today.</p>
-  <p><strong>Your free access ends {deadline}.</strong> If billing is not added by then, the workspace will be locked until a payment method is added. Your data will remain saved.</p>
-  <form action={startServonasSubscription.bind(null,businessSlug,"onboarding")}><button className="sv-button">Add subscription billing</button></form>
-  <small>You may skip this for now and add billing later from Business Settings before {deadline}.</small>
- </section>;
+ return <div className="onboarding-frame"><aside><span className="sv-kicker">Guided setup</span><h2>One last step</h2><ol>{["Welcome","Company","Business profile","Hours","First service","Review","Billing"].map((label,index)=><li className={index===6?"active":"complete"} key={label}><i>{index<6?"✓":7}</i><span>{label}</span></li>)}</ol><p>Subscription billing is separate from the Stripe account used to collect your own customer payments.</p></aside><section className="onboarding-card"><div className="onboarding-progress" aria-label="Step 7 of 7"><span style={{width:"100%"}}/></div><div className="onboarding-readiness"><header><span className="sv-kicker">Step 7 of 7</span><h1>{billingAdded?"Billing is ready":`Start ${businessName}’s free trial`}</h1><p>{billingAdded?"Your payment method has been added. You will not be charged until the trial ends.":`Your first ${SERVONAS_TRIAL_DAYS} days are free. Add billing now or come back before the deadline.`}</p></header>
+  {error&&<p className="auth-error" role="alert">{error}</p>}
+  {billingAdded?<div className="pilot-access-card"><strong>Subscription billing added.</strong><p>Your free trial ends {deadline}. Stripe will begin the subscription after the trial.</p></div>:<section className="onboarding-subscription-card"><span className="sv-kicker">Servonas subscription</span><h2>No charge today</h2><p>Add a payment method now and your Servonas subscription will begin automatically after the free trial.</p><p><strong>Your free access ends {deadline}.</strong> Without billing, the workspace will be locked on that date. Your data will remain saved.</p><form action={startServonasSubscription.bind(null,businessSlug,"onboarding")}><button className="sv-button">Add subscription billing</button></form><small>You may skip this and add billing later from Business Settings before {deadline}.</small></section>}
+  <div className="onboarding-actions"><Link className="sv-button sv-secondary" href={`/onboarding?business=${encodeURIComponent(businessSlug)}`}>Back to review</Link><form action={completeOnboarding.bind(null,businessSlug)}><button className="sv-button">{billingAdded?"Enter Servonas":"Skip billing for now"}</button></form></div>
+ </div></section></div>;
 }

@@ -130,8 +130,8 @@ export async function startServonasSubscription(slug:string,source:"onboarding"|
    payment_method_collection:"always",
    subscription_data:{trial_period_days:SERVONAS_TRIAL_DAYS,metadata:{business_id:business.id,platform:"servonas"}},
    metadata:{business_id:business.id,purpose:"servonas_subscription"},
-   success_url:`${base}/app/${encodeURIComponent(slug)}/settings?success=${encodeURIComponent("Subscription billing added. Your first 30 days are free.")}`,
-   cancel_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent("Subscription setup was canceled.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent("Subscription setup was canceled. You can skip it and add billing later.")}`,
+   success_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?success=${encodeURIComponent("Subscription billing added. Your first 30 days are free.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&billing=1&billingAdded=1`,
+   cancel_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent("Subscription setup was canceled.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&billing=1&error=${encodeURIComponent("Subscription setup was canceled. You can skip it and add billing later.")}`,
   });
   const {error}=await supabase.from("business_platform_subscriptions").upsert({
    business_id:business.id,stripe_customer_id:customerId,stripe_checkout_session_id:session.id,status:"checkout_pending",trial_ends_at:new Date(Date.now()+SERVONAS_TRIAL_DAYS*86_400_000).toISOString(),
