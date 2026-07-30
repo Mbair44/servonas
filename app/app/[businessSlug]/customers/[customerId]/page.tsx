@@ -43,7 +43,8 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
  const assignmentNeedsAttention=!primary||!assignedTerritory||!assignedTechnician;
  const usesBillingDefaults=billingProfile?.use_business_defaults??true;
  const billingMethod=usesBillingDefaults?billingSettings?.default_billing_method:billingProfile?.billing_method??billingSettings?.default_billing_method;
- const billingMethodLabel={auto_charge_after_completion:"Auto-charge",invoice_after_completion:"Invoice after service",manual_billing:"Manual billing"}[billingMethod??""]??"Invoice after service";
+ const billingMethodLabels:Record<string,string>={auto_charge_after_completion:"Auto-charge",invoice_after_completion:"Invoice after service",manual_billing:"Manual billing"};
+ const billingMethodLabel=billingMethodLabels[String(billingMethod??"")]??"Invoice after service";
  const paymentTerms=usesBillingDefaults?billingSettings?.default_payment_terms_days:billingProfile?.payment_terms_days??billingSettings?.default_payment_terms_days;
  const autoSend=usesBillingDefaults?!billingSettings?.review_before_processing:billingProfile?.auto_send_invoice??!billingSettings?.review_before_processing;
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content customer-record-page">
