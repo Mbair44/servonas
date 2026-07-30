@@ -882,6 +882,8 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .service-plan-create-form{gap:0!important}
 .service-plan-create-form>fieldset{padding:20px 0!important}
 .service-plan-create-form label b{color:#d92d20}
+.service-plan-label-title{display:inline-flex;align-items:baseline;gap:4px;white-space:nowrap}
+.service-plan-label-title small{color:#667085;font-size:.72rem;font-weight:500}
 .service-plan-overview{grid-template-columns:repeat(12,minmax(0,1fr))!important;gap:16px 26px!important}
 .service-plan-overview>label:nth-child(1){grid-column:span 5}
 .service-plan-overview>label:nth-child(2){grid-column:span 7}
@@ -900,6 +902,7 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .service-plan-switch input:checked:after{transform:translateX(14px)}
 .service-plan-section legend{display:flex;align-items:center;gap:9px;font-size:1rem}
 .service-plan-section legend>span{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;background:#eaf1ff;color:#155eef}
+.service-plan-section legend>span svg,.service-plan-next-icon svg{width:16px;height:16px}
 .service-plan-cadence-row{display:grid;grid-template-columns:110px 160px 1fr;align-items:end;gap:10px}
 .service-plan-cadence-row>label:nth-child(2){padding-top:18px}
 .service-plan-presets{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
@@ -909,6 +912,7 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .service-plan-toggle-row{display:flex;gap:36px;flex-wrap:wrap;margin-top:5px}
 .service-plan-window,.service-plan-anchor{max-width:360px}
 .service-plan-next{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:9px;background:#edf4ff;color:#155eef}
+.service-plan-next-icon{display:grid;flex:0 0 20px;place-items:center;width:20px;height:20px}
 .service-plan-next>div{display:grid;gap:3px}
 .service-plan-next small{color:#4f6079}
 .service-plan-pricing{grid-template-columns:repeat(12,minmax(0,1fr))!important;align-items:end;gap:12px 24px!important}
