@@ -922,6 +922,13 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .service-plan-submit{min-width:190px;gap:9px}
 .auth-field-error{margin-top:-8px;color:#be123c;font-size:.82rem;font-weight:700}
 .auth-form input[aria-invalid=true]{border-color:#e11d48;outline:3px solid #ffe4e6}
+.auth-password-field{position:relative;display:block}
+.auth-password-field input{padding-right:48px}
+.auth-password-field>button{position:absolute;top:50%;right:7px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:transparent;color:#52627a;transform:translateY(-50%);cursor:pointer}
+.auth-password-field>button:hover{background:#eef2f7;color:#155eef}
+.auth-password-field>button:focus-visible{outline:3px solid #93b4ff;outline-offset:1px}
+.auth-password-field>button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.auth-form label>.auth-field-error{margin-top:0}
 
 /* Servonas field-service marketing homepage. */
 .marketing-home{overflow:hidden;background:#fff;color:var(--sv-ink)}
@@ -955,6 +962,103 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 @media(max-width:1000px){.home-hero-grid{grid-template-columns:1fr;gap:50px}.home-product-preview{max-width:720px;transform:none}.home-workflow>.sv-container{grid-template-columns:1fr}.home-workflow ol{grid-template-columns:repeat(5,1fr)}.home-capability-grid{grid-template-columns:repeat(2,1fr)}.home-operations-grid{gap:45px}}
 @media(max-width:760px){.home-hero{padding:68px 0}.home-hero-copy h1{font-size:clamp(3rem,14vw,4.3rem)}.home-preview-body{grid-template-columns:145px 1fr;min-height:380px}.home-preview-body>aside{padding-inline:9px}.home-workflow ol{grid-template-columns:1fr 1fr}.home-workflow li{padding:12px;border-top:1px solid #dfe5ee;border-left:0}.home-capability-grid,.home-operations-grid{grid-template-columns:1fr}.home-operations-grid{gap:50px}.home-final-cta>.sv-container{align-items:flex-start;flex-direction:column}}
 @media(max-width:520px){.home-hero-copy h1{font-size:3rem}.home-proof{display:grid}.home-product-preview{margin-inline:-5px}.home-preview-body{grid-template-columns:116px 1fr;min-height:345px}.home-preview-body>aside>strong{font-size:.7rem}.home-route-stop{grid-template-columns:20px 1fr;gap:5px;padding:7px 4px}.home-route-stop>em{width:20px;height:20px}.home-route-stop b{font-size:.58rem}.home-route-stop small{font-size:.52rem}.route-summary{right:8px;bottom:8px;width:155px}.home-capability-grid{grid-template-columns:1fr}.home-capability-grid article{min-height:0;padding:21px}.home-attention-card article{margin-inline:13px}.home-attention-card article>b{display:none}}
+
+/* Wide two-column service-plan drawer. These selectors intentionally outrank
+   the older single-column safety rule used by standard management drawers. */
+@media(min-width:761px){
+ .management-drawer:has(.service-plan-create-form){
+  width:min(1040px,calc(100% - 48px))
+ }
+ .management-drawer .service-plan-create-form>.service-plan-overview{
+  display:grid!important;
+  grid-template-columns:repeat(12,minmax(0,1fr))!important;
+  gap:17px 28px!important
+ }
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(1){grid-column:span 5}
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(2){grid-column:span 7}
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(3){grid-column:span 5}
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(4){grid-column:span 3}
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(5){grid-column:span 4}
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(6){grid-column:span 5}
+ .management-drawer .service-plan-create-form>.service-plan-overview>label:nth-child(7){grid-column:span 7}
+ .management-drawer .service-plan-create-form>.service-plan-pricing{
+  display:grid!important;
+  grid-template-columns:repeat(12,minmax(0,1fr))!important;
+  align-items:end;
+  gap:13px 26px!important
+ }
+ .management-drawer .service-plan-create-form>.service-plan-pricing>legend{grid-column:1/-1}
+ .management-drawer .service-plan-create-form>.service-plan-pricing>label:nth-of-type(1){grid-column:span 4}
+ .management-drawer .service-plan-create-form>.service-plan-pricing>label:nth-of-type(2){grid-column:span 4}
+ .management-drawer .service-plan-create-form>.service-plan-pricing>.service-plan-tax{grid-column:span 4}
+ .management-drawer .service-plan-create-form>.service-plan-pricing>.service-plan-billing{grid-column:1/-1}
+ .management-drawer .service-plan-create-form .service-plan-initial .quick-form-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr))
+ }
+}
+.management-drawer:has(.service-plan-create-form)>header{
+ flex:0 0 auto;
+ min-height:78px;
+ padding:20px 32px
+}
+.management-drawer:has(.service-plan-create-form)>header h2{
+ font-size:1.32rem;
+ letter-spacing:-.02em
+}
+.management-drawer-body:has(.service-plan-create-form){
+ padding-inline:32px
+}
+.service-plan-create-form>fieldset{
+ padding-block:19px!important
+}
+.service-plan-create-form .service-plan-overview{
+ padding-top:14px!important
+}
+.service-plan-create-form label{
+ gap:7px;
+ font-size:.74rem
+}
+.service-plan-create-form input:not([type=checkbox]),
+.service-plan-create-form select{
+ min-height:46px
+}
+.service-plan-create-form .service-plan-initial{
+ padding-block:15px!important
+}
+.service-plan-create-form .service-plan-cadence-row{
+ margin-top:3px
+}
+.service-plan-create-form .service-plan-toggle-row{
+ margin-top:10px
+}
+.service-plan-create-form .service-plan-next{
+ margin-top:2px
+}
+.service-plan-create-form>footer{
+ z-index:5;
+ min-height:68px;
+ margin-inline:-32px!important;
+ padding:12px 32px!important
+}
+@media(max-width:760px){
+ .management-drawer:has(.service-plan-create-form)>header{
+  min-height:68px;
+  padding:15px 16px
+ }
+ .management-drawer-body:has(.service-plan-create-form){padding-inline:16px}
+ .management-drawer .service-plan-create-form>.service-plan-overview,
+ .management-drawer .service-plan-create-form>.service-plan-pricing{
+  grid-template-columns:1fr!important
+ }
+ .management-drawer .service-plan-create-form>.service-plan-overview>label,
+ .management-drawer .service-plan-create-form>.service-plan-pricing>label{
+  grid-column:1!important
+ }
+ .service-plan-create-form>footer{
+  margin-inline:-16px!important;
+  padding-inline:16px!important
+ }
+}
 .service-plan-spinner{display:inline-block;width:17px;height:17px;border:2px solid #ffffff66;border-top-color:#fff;border-radius:50%;animation:service-plan-spin .7s linear infinite}
 @keyframes service-plan-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.service-plan-spinner{animation-duration:1.5s}}

@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import {useState} from "react";
+import {useState,type FormEvent} from "react";
+
+function PasswordVisibilityIcon({visible}:{visible:boolean}){
+ return visible
+  ?<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.7M9.9 4.3A10.7 10.7 0 0112 4c5.5 0 9 6 9 6a16.8 16.8 0 01-2.1 2.8M6.6 6.6C4.3 8.1 3 10 3 10s3.5 6 9 6a9.6 9.6 0 004.1-.9"/></svg>
+  :<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/></svg>;
+}
 
 export default function AuthForm({
   title,
@@ -25,8 +31,22 @@ export default function AuthForm({
   const requiresConfirmation = isSignup || isReset;
   const [password,setPassword]=useState("");
   const [confirmation,setConfirmation]=useState("");
+  const [showPassword,setShowPassword]=useState(false);
+  const [showConfirmation,setShowConfirmation]=useState(false);
+  const [attempted,setAttempted]=useState(false);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
-  const passwordSubmitDisabled=requiresConfirmation&&(password.length<8||confirmation.length<8||passwordsDiffer);
+  const passwordMissing=attempted&&requiresConfirmation&&!password;
+  const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
+  const confirmationMissing=attempted&&requiresConfirmation&&!confirmation;
+  const confirmationTooShort=requiresConfirmation&&confirmation.length>0&&confirmation.length<8;
+  const passwordError=passwordMissing||passwordTooShort;
+  const confirmationError=confirmationMissing||confirmationTooShort||passwordsDiffer;
+  const preventInvalidPasswordSubmit=(event:FormEvent<HTMLFormElement>)=>{
+    setAttempted(true);
+    if(requiresConfirmation&&(!password||password.length<8||!confirmation||confirmation.length<8||password!==confirmation)){
+      event.preventDefault();
+    }
+  };
   const preservedQuery = new URLSearchParams();
   if (next) preservedQuery.set("next", next);
   if (email) preservedQuery.set("email", email);
@@ -39,7 +59,7 @@ export default function AuthForm({
         <h1>{title}</h1>
         <p>{subtitle}</p>
         {error && <div className="auth-error">{error}</div>}
-        <form action={action} className="auth-form" noValidate>
+        <form action={action} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
           {next && <input type="hidden" name="next" value={next} />}
           {!isReset && (
             <label>
@@ -50,17 +70,27 @@ export default function AuthForm({
           {mode !== "forgot" && (
             <label>
               Password
-              <input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={event=>setPassword(event.target.value)} />
+              <span className="auth-password-field">
+                <input name="password" type={showPassword?"text":"password"} autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={event=>setPassword(event.target.value)} aria-invalid={passwordError} aria-describedby={passwordError?"password-error":undefined}/>
+                <button type="button" onClick={()=>setShowPassword(value=>!value)} aria-label={showPassword?"Hide password":"Show password"} aria-pressed={showPassword}><PasswordVisibilityIcon visible={showPassword}/></button>
+              </span>
+              {passwordMissing&&<span className="auth-field-error" id="password-error" role="alert">Enter a password.</span>}
+              {passwordTooShort&&<span className="auth-field-error" id="password-error" role="alert">Password must be at least 8 characters.</span>}
             </label>
           )}
           {requiresConfirmation && (
             <label>
               Confirm password
-              <input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required value={confirmation} onChange={event=>setConfirmation(event.target.value)} aria-invalid={passwordsDiffer} aria-describedby={passwordsDiffer?"password-match-error":undefined}/>
+              <span className="auth-password-field">
+                <input name="confirmPassword" type={showConfirmation?"text":"password"} autoComplete="new-password" minLength={8} required value={confirmation} onChange={event=>setConfirmation(event.target.value)} aria-invalid={confirmationError} aria-describedby={confirmationError?"password-confirmation-error":undefined}/>
+                <button type="button" onClick={()=>setShowConfirmation(value=>!value)} aria-label={showConfirmation?"Hide confirmed password":"Show confirmed password"} aria-pressed={showConfirmation}><PasswordVisibilityIcon visible={showConfirmation}/></button>
+              </span>
+              {confirmationMissing&&<span className="auth-field-error" id="password-confirmation-error" role="alert">Confirm your password.</span>}
+              {!confirmationMissing&&confirmationTooShort&&<span className="auth-field-error" id="password-confirmation-error" role="alert">Confirmation must be at least 8 characters.</span>}
+              {!confirmationMissing&&!confirmationTooShort&&passwordsDiffer&&<span className="auth-field-error" id="password-confirmation-error" role="alert">Passwords do not match.</span>}
             </label>
           )}
-          {passwordsDiffer&&<div className="auth-field-error" id="password-match-error" role="alert">Passwords do not match.</div>}
-          <button className="sv-button sv-full" type="submit" disabled={passwordSubmitDisabled}>
+          <button className="sv-button sv-full" type="submit" disabled={passwordTooShort||confirmationTooShort||passwordsDiffer}>
             {mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
           </button>
         </form>
