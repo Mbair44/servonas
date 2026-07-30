@@ -56,7 +56,7 @@ export function PriceBookGridManager({items,services,categories,canEdit,updateIt
  return <>
   <section className="workspace-panel price-book-directory" id="services">
    <div className="panel-title"><div><h2>Services</h2><span>Work available across booking, jobs, estimates, and service plans.</span></div><span>{services.length} service{services.length===1?"":"s"}</span></div>
-   <div className="price-book-grid service-grid" role="table" aria-label="Services">
+   <div className="price-book-grid price-book-service-grid" role="table" aria-label="Services">
     <div className="price-book-grid-head" role="row"><SortHeader column="name" label="Service" sort={serviceSort} direction={serviceDirection} onSort={changeServiceSort}/><SortHeader column="duration" label="Duration" sort={serviceSort} direction={serviceDirection} onSort={changeServiceSort}/><SortHeader column="price" label="Price" sort={serviceSort} direction={serviceDirection} onSort={changeServiceSort}/><SortHeader column="recurring" label="Recurring" sort={serviceSort} direction={serviceDirection} onSort={changeServiceSort}/><SortHeader column="status" label="Status" sort={serviceSort} direction={serviceDirection} onSort={changeServiceSort}/><span role="columnheader">Actions</span></div>
     {sortedServices.length?sortedServices.map(service=><div className="price-book-grid-row" role="row" key={service.id}>
      <span className="price-book-grid-name" role="cell"><strong>{service.name}</strong><small>{service.description||"No description"}</small></span>
@@ -70,7 +70,7 @@ export function PriceBookGridManager({items,services,categories,canEdit,updateIt
   </section>
   <section className="workspace-panel price-book-directory" id="items">
    <div className="panel-title"><div><h2>Items</h2><span>Reusable charges for estimates and invoices.</span></div><span>{items.length} result{items.length===1?"":"s"}</span></div>
-   <div className="price-book-grid item-grid" role="table" aria-label="Price book items">
+   <div className="price-book-grid price-book-item-grid" role="table" aria-label="Price book items">
     <div className="price-book-grid-head" role="row"><SortHeader column="name" label="Item" sort={itemSort} direction={itemDirection} onSort={changeItemSort}/><SortHeader column="category" label="Category" sort={itemSort} direction={itemDirection} onSort={changeItemSort}/><SortHeader column="price" label="Price" sort={itemSort} direction={itemDirection} onSort={changeItemSort}/><SortHeader column="margin" label="Cost / margin" sort={itemSort} direction={itemDirection} onSort={changeItemSort}/><SortHeader column="status" label="Status" sort={itemSort} direction={itemDirection} onSort={changeItemSort}/><span role="columnheader">Actions</span></div>
     {sortedItems.length?sortedItems.map(item=>{const margin=marginPercent(item.default_unit_price_cents,item.internal_cost_cents);return <div className="price-book-grid-row" role="row" key={item.id}>
      <span className="price-book-grid-name" role="cell"><strong>{item.name}</strong><small>{item.description||"No description"}{item.sku?` · ${item.sku}`:""}</small></span>
