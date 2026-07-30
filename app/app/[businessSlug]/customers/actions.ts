@@ -43,7 +43,9 @@ function servicePlanWriteError(error:{code?:string;message?:string;details?:stri
   return `The service-plan settings failed database validation (${code}).`;
  }
  if(code==="PGRST204"||code==="42703"){
-  return `The recurring-service scheduling migration is not fully available (${code}). Refresh the Supabase schema cache and verify migration 20260729002100.`;
+  const missing=error?.message?.match(/(?:find the|column) ['"]?([a-z0-9_]+)['"]? column/i)?.[1]
+   ??error?.message?.match(/['"]([a-z0-9_]+)['"].*schema cache/i)?.[1];
+  return `The recurring-service scheduling field${missing?` “${missing}”`:""} is not available through the Supabase API (${code}).`;
  }
  return `The service plan could not be created (${code}).`;
 }
@@ -342,7 +344,7 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
  if(employeeId){const {data:employee}=await supabase.from("technician_profiles").select("id").eq("business_id",business.id).eq("id",employeeId).eq("is_active",true).eq("can_be_assigned_jobs",true).maybeSingle();if(!employee)redirect(`${target}?error=${encodeURIComponent("Choose an active assignable technician.")}`);}
  const initialRequired=formData.get("initialServiceRequired")==="on",initialDate=text(formData,"initialServiceDate")||null;
  if(initialRequired&&!initialDate)redirect(`${target}?error=${encodeURIComponent("Choose an initial-service date.")}`);
- const {data:plan,error}=await supabase.from("recurring_service_series").insert({
+ const payload={
   business_id:business.id,customer_id:customerId,service_location_id:locationId,service_id:serviceId,name,status:"active",is_active:true,
   start_date:startDate,end_date:endDate,first_recurring_date:firstDate,next_due_on:firstDate,cadence_interval:intervalValue,cadence_unit:intervalUnit,
   initial_service_required:initialRequired,initial_service_date:initialDate,initial_service_price:Number(text(formData,"initialServicePrice")||0),
@@ -350,7 +352,16 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
   recurring_price:price,taxable:formData.get("taxable")==="on",default_duration_minutes:duration,preferred_time_window:text(formData,"preferredTimeWindow")||"no_preference",
   scheduling_mode:automatic?"route_optimized":"fixed_date",scheduling_flex_days:schedulingFlexDays,
   default_employee_id:employeeId,billing_rule:"after_each_completed_service",created_by:user.id,updated_by:user.id,
- }).select("id").single();
+ };
+ let {data:plan,error}=await supabase.from("recurring_service_series").insert(payload).select("id").single();
+ // A fixed-date plan can safely use the database defaults while PostgREST
+ // refreshes newly added scheduling columns. Never downgrade an automatic plan.
+ if(error?.code==="PGRST204"&&!automatic){
+  const {scheduling_mode:_,scheduling_flex_days:__,...fixedDatePayload}=payload;
+  void _;void __;
+  const fallback=await supabase.from("recurring_service_series").insert(fixedDatePayload).select("id").single();
+  plan=fallback.data;error=fallback.error;
+ }
  if(error||!plan){
   console.error("Service plan creation failed",{
    businessId:business.id,customerId,code:error?.code,message:error?.message,
