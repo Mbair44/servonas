@@ -3,12 +3,14 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {validateOnboardingCompany,type OnboardingCompanyInput} from "@/lib/onboardingCompany";
 import {validateBusinessProfile,type BusinessProfileInput} from "@/lib/onboardingProfile";
-import {requireWorkspaceCapability} from "@/lib/workspace";
+import {requireWorkspace,requireWorkspaceCapability} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
 import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/onboardingHours";
 import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {sendBusinessSetupNotification} from "@/lib/communications/businessSetupEmailService";
+import {platformBillingEnabled,SERVONAS_TRIAL_DAYS} from "@/lib/platformBilling";
+import {stripeClient,stripeConnectBaseUrl} from "@/lib/stripeConnect";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -104,4 +106,43 @@ export async function completeOnboarding(slug:string){
  const {error}=await supabase.rpc("complete_guided_onboarding",{p_business_id:business.id});
  if(error){console.error("Guided onboarding completion failed",{businessId:business.id,code:error.code,message:error.message});redirect(`/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent(error.message||"Readiness could not be verified.")}`);}
  redirect(`/app/${slug}?onboarding=complete`);
+}
+
+export async function startServonasSubscription(slug:string,source:"onboarding"|"settings"="onboarding"){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ const returnPath=source==="settings"?`/app/${slug}/settings`:`/onboarding?business=${encodeURIComponent(slug)}`;
+ const withError=(message:string)=>`${returnPath}${returnPath.includes("?")?"&":"?"}error=${encodeURIComponent(message)}`;
+ if(!canManageBusiness(role))redirect(withError("Only owners and administrators can manage subscription billing."));
+ if(!platformBillingEnabled())redirect(returnPath);
+ const priceId=process.env.STRIPE_SERVONAS_PRICE_ID;
+ if(!priceId)redirect(withError("Servonas subscription billing is not configured."));
+ let destination:string;
+ try{
+  const stripe=stripeClient(),base=stripeConnectBaseUrl();
+  const {data:existing}=await supabase.from("business_platform_subscriptions").select("stripe_customer_id").eq("business_id",business.id).maybeSingle();
+  let customerId=existing?.stripe_customer_id??null;
+  if(!customerId){
+   const customer=await stripe.customers.create({email:business.email||undefined,name:business.display_name||business.name,metadata:{business_id:business.id,platform:"servonas"}});
+   customerId=customer.id;
+  }
+  const session=await stripe.checkout.sessions.create({
+   mode:"subscription",customer:customerId,line_items:[{price:priceId,quantity:1}],
+   payment_method_collection:"always",
+   subscription_data:{trial_period_days:SERVONAS_TRIAL_DAYS,metadata:{business_id:business.id,platform:"servonas"}},
+   metadata:{business_id:business.id,purpose:"servonas_subscription"},
+   success_url:`${base}/app/${encodeURIComponent(slug)}/settings?success=${encodeURIComponent("Subscription billing added. Your first 30 days are free.")}`,
+   cancel_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent("Subscription setup was canceled.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&error=${encodeURIComponent("Subscription setup was canceled. You can skip it and add billing later.")}`,
+  });
+  const {error}=await supabase.from("business_platform_subscriptions").upsert({
+   business_id:business.id,stripe_customer_id:customerId,stripe_checkout_session_id:session.id,status:"checkout_pending",trial_ends_at:new Date(Date.now()+SERVONAS_TRIAL_DAYS*86_400_000).toISOString(),
+  },{onConflict:"business_id"});
+  if(error)throw new Error(`Subscription setup could not be saved (${error.code}).`);
+  if(!session.url)throw new Error("Stripe did not return a subscription checkout URL.");
+  destination=session.url;
+ }catch(error){
+  const message=error instanceof Error?error.message:"Subscription checkout could not be started.";
+  console.error("Servonas subscription checkout failed",{businessId:business.id,message});
+  redirect(withError(message));
+ }
+ redirect(destination);
 }
