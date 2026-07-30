@@ -48,6 +48,25 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
   if(!email.ok)console.error("Automatic recurring invoice email failed",{jobId,invoiceId});
   return{ok:true,invoiceId,action:"sent"};
  }
+ if(billingMethod!=="auto_charge_after_completion"){
+  console.error("Completed-job billing method is unsupported",{jobId,invoiceId,billingMethod});
+  return{ok:false,invoiceId,action:"draft",error:"unsupported_billing_method"};
+ }
+ if(Number(invoice.balance_due_cents)<=0){
+  const now=new Date().toISOString();
+  const {error}=await db.from("invoices").update({
+   status:"paid",paid_at:now,balance_due_cents:0,
+  }).eq("id",invoiceId).in("status",["draft","ready"]);
+  if(error){
+   console.error("Zero-balance completed-job invoice finalization failed",{jobId,invoiceId,code:error.code});
+   return{ok:false,invoiceId,error:error.code};
+  }
+  await db.from("invoice_events").insert({
+   business_id:invoice.business_id,invoice_id:invoiceId,event_type:"paid",
+   metadata:{automatic:true,source:"job_completion",zero_balance:true},
+  });
+  return{ok:true,invoiceId,action:"paid"};
+ }
 
  const [{data:profile},{data:account}]=await Promise.all([
   db.from("customer_billing_profiles").select("provider_customer_id,default_payment_method_id,autopay_enabled")
@@ -76,6 +95,7 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
   const reason=!profile?.autopay_enabled?"autopay_not_enabled":!method?"payment_method_missing":"stripe_account_unavailable";
   if(attempt?.id)await db.from("payment_attempts").update({status:"failed",failure_code:reason,failure_reason:"Automatic payment could not start because billing setup is incomplete.",completed_at:new Date().toISOString()}).eq("id",attempt.id);
   await db.from("billing_audit_events").insert({business_id:invoice.business_id,customer_id:invoice.customer_id,job_id:invoice.job_id,invoice_id:invoiceId,event_type:"automatic_payment_failed",metadata:{reason,office_attention_required:true}});
+  await sendInvoiceFinancialEmail(invoiceId,"payment_failed");
   return{ok:true,invoiceId,action:"payment_failed"};
  }
  await db.from("invoices").update({status:"ready",auto_charge_attempted_at:new Date().toISOString()})
@@ -125,6 +145,7 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
    payment_id:payment.id,status:"failed",failure_code:detail.code,failure_reason:detail.message,completed_at:now,
   }).eq("id",attempt.id);
   await db.from("billing_audit_events").insert({business_id:invoice.business_id,customer_id:invoice.customer_id,job_id:invoice.job_id,invoice_id:invoiceId,payment_id:payment.id,event_type:"automatic_payment_failed",metadata:{reason:detail.message,office_attention_required:true}});
+  await sendInvoiceFinancialEmail(invoiceId,"payment_failed",{paymentId:payment.id});
   console.error("Automatic recurring payment failed",{jobId,invoiceId,paymentId:payment.id,...detail});
   return{ok:true,invoiceId,action:"payment_failed"};
  }
