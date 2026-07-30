@@ -45,7 +45,10 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
   await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"sent",metadata:{automatic:true,source:"job_completion"}});
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||"http://localhost:3000").replace(/\/$/,"");
   const email=await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
-  if(!email.ok)console.error("Automatic recurring invoice email failed",{jobId,invoiceId});
+  if(!email.ok||("skipped" in email&&email.skipped)){
+   console.error("Automatic completed-job invoice email failed",{jobId,invoiceId,reason:"skipped" in email&&email.skipped?"recipient_missing":"delivery_failed"});
+   return{ok:false,invoiceId,action:"sent",error:"invoice_email_failed"};
+  }
   return{ok:true,invoiceId,action:"sent"};
  }
  if(billingMethod!=="auto_charge_after_completion"){
