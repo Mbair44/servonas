@@ -41,12 +41,14 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
    <input type="hidden" name="name" value={generatedName}/>
 
    <fieldset className="service-plan-overview">
-    <label>Customer<input value={customerName} readOnly/></label>
-    <label>Service type <b>*</b><select name="serviceId" required value={serviceId} onChange={event=>setServiceId(event.target.value)}><option value="" disabled>Choose service</option>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Service location <b>*</b><select name="serviceLocationId" required defaultValue=""><option value="" disabled>Choose location</option>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Duration (minutes) <b>*</b><select name="durationMinutes" defaultValue="60" required><option value="30">30</option><option value="45">45</option><option value="60">60</option><option value="90">90</option><option value="120">120</option><option value="180">180</option></select></label>
-    <label>Default technician<select name="employeeId" defaultValue=""><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Plan effective date <b>*</b><input name="startDate" type="date" required value={effective} onChange={event=>setEffective(event.target.value)}/></label>
+    <label className="service-plan-customer">Customer<input value={customerName} readOnly/></label>
+    <label className="service-plan-service">Service type <b>*</b><select name="serviceId" required value={serviceId} onChange={event=>setServiceId(event.target.value)}><option value="" disabled>Choose service</option>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label className="service-plan-location">Service location <b>*</b><select name="serviceLocationId" required defaultValue=""><option value="" disabled>Choose location</option>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <div className="service-plan-staffing">
+     <label>Duration (minutes) <b>*</b><select name="durationMinutes" defaultValue="60" required><option value="30">30</option><option value="45">45</option><option value="60">60</option><option value="90">90</option><option value="120">120</option><option value="180">180</option></select></label>
+     <label>Default technician<select name="employeeId" defaultValue=""><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    </div>
+    <label className="service-plan-effective-date">Start date <b>*</b><input name="startDate" type="date" required value={effective} onChange={event=>setEffective(event.target.value)}/></label>
     <label className="service-plan-end-date">End date <small>Optional</small><input name="endDate" type="date"/></label>
    </fieldset>
 
