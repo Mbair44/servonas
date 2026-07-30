@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { parseCurrencyToCents, priceBookUnitTypes } from "@/lib/financial/priceBook";
+import { normalizeSkills, validateOnboardingService, type OnboardingServiceInput } from "@/lib/onboardingService";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 
 export type PriceBookActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
+export type ServiceCatalogActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const valuesFrom = (formData: FormData) => Object.fromEntries(
   [...formData.entries()].filter(([, value]) => typeof value === "string"),
@@ -113,6 +115,46 @@ export async function duplicatePriceBookItem(slug: string, itemId: string) {
   if (error || !data) redirect(`/app/${slug}/price-book?error=Item+could+not+be+duplicated`);
   revalidatePath(`/app/${slug}/price-book`);
   redirect(`/app/${slug}/price-book/${data.id}?success=Item+duplicated`);
+}
+
+export async function updateCatalogService(slug: string, serviceId: string, _state: ServiceCatalogActionState, formData: FormData): Promise<ServiceCatalogActionState> {
+  const { supabase, user, business, role } = await requireWorkspaceCapability(slug, "estimates");
+  const values = valuesFrom(formData);
+  if (!canManageCustomers(role)) return { error: "You do not have permission to manage services.", values };
+  const service: OnboardingServiceInput = {
+    name: text(formData, "name"),
+    description: text(formData, "description"),
+    durationMinutes: Number(text(formData, "durationMinutes")),
+    price: text(formData, "price"),
+    recurringAllowed: formData.get("recurringAllowed") === "on",
+    requiredSkills: normalizeSkills(text(formData, "requiredSkills")),
+    active: formData.get("active") === "on",
+  };
+  const fieldErrors = validateOnboardingService(service);
+  const priceLabel = text(formData, "priceLabel");
+  if (!["fixed", "starting_at", "quote"].includes(priceLabel)) fieldErrors.price = "Choose a valid price display.";
+  if (priceLabel !== "quote" && !service.price) fieldErrors.price = "Enter a price or choose Request quote.";
+  if (Object.keys(fieldErrors).length) return { error: "Review the highlighted service details.", fieldErrors, values };
+  const { error } = await supabase.from("services").update({
+    name: service.name,
+    description: service.description || null,
+    duration_minutes: service.durationMinutes,
+    price_amount: service.price ? Number(service.price) : null,
+    price_label: priceLabel,
+    recurring_allowed: service.recurringAllowed,
+    required_skills: service.requiredSkills,
+    active: service.active,
+    updated_at: new Date().toISOString(),
+    updated_by: user.id,
+  }).eq("id", serviceId).eq("business_id", business.id).eq("is_deleted", false);
+  if (error) {
+    console.error("Service catalog update failed", { code: error.code, businessId: business.id, serviceId });
+    return { error: "The service could not be saved.", values };
+  }
+  revalidatePath(`/app/${slug}/price-book`);
+  revalidatePath(`/app/${slug}/booking`);
+  revalidatePath(`/book/${slug}`);
+  redirect(`/app/${slug}/price-book/services/${serviceId}?success=Service+updated`);
 }
 
 export async function createPriceBookCategory(slug: string, formData: FormData) {
