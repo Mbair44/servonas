@@ -84,6 +84,7 @@ export async function updatePriceBookItem(slug: string, itemId: string, _state: 
     return { error: error.code === "23505" ? "That SKU is already in use." : "The price book item could not be saved.", values: prepared.values };
   }
   revalidatePath(`/app/${slug}/price-book`);
+  if (formData.get("returnToPriceBook") === "true") redirect(`/app/${slug}/price-book?success=Item+updated#items`);
   redirect(`/app/${slug}/price-book/${itemId}?success=Item+updated`);
 }
 
@@ -154,6 +155,7 @@ export async function updateCatalogService(slug: string, serviceId: string, _sta
   revalidatePath(`/app/${slug}/price-book`);
   revalidatePath(`/app/${slug}/booking`);
   revalidatePath(`/book/${slug}`);
+  if (formData.get("returnToPriceBook") === "true") redirect(`/app/${slug}/price-book?success=Service+updated#services`);
   redirect(`/app/${slug}/price-book/services/${serviceId}?success=Service+updated`);
 }
 

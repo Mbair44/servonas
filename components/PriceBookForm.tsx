@@ -8,13 +8,14 @@ type Option = { id: string; name: string };
 type Item = Record<string, string | number | boolean | null | undefined>;
 
 export default function PriceBookForm({
-  action, categories, services, item, submitLabel,
+  action, categories, services, item, submitLabel, returnToPriceBook = false,
 }: {
   action: (state: PriceBookActionState, data: FormData) => Promise<PriceBookActionState>;
   categories: Option[];
   services: Option[];
   item?: Item;
   submitLabel: string;
+  returnToPriceBook?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const value = (name: string, fallback = "") => state.values?.[name] ?? fallback;
@@ -26,6 +27,7 @@ export default function PriceBookForm({
   const error = (field: string) => state.fieldErrors?.[field] && <small className="crm-field-error">{state.fieldErrors[field]}</small>;
 
   return <form action={formAction} className="price-book-form">
+    {returnToPriceBook && <input type="hidden" name="returnToPriceBook" value="true"/>}
     {state.error && <div className="workspace-notice error wide" role="alert">{state.error}</div>}
     <label className="wide">Item name<input required name="name" defaultValue={value("name", String(item?.name ?? ""))} placeholder="Diagnostic fee"/>{error("name")}</label>
     <label>Category<select name="categoryId" defaultValue={value("categoryId", String(item?.category_id ?? ""))}><option value="">Uncategorized</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{error("categoryId")}</label>
