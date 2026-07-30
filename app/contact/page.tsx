@@ -1,7 +1,5 @@
 import { sendContactInquiry } from "./actions";
 
-const contactEmail = "mbair@servonas.com";
-
 export default async function Contact({
   searchParams,
 }: {
@@ -18,12 +16,8 @@ export default async function Contact({
             <h1>Let’s talk about your service business.</h1>
             <p>
               Tell us what you’re working on and we’ll respond directly. Your
-              message is sent securely to the Servonas team—no email app needed.
+              message is sent securely to the Servonas team.
             </p>
-            <small>
-              Prefer email? Reach us at{" "}
-              <a href={`mailto:${contactEmail}`}>{contactEmail}</a>.
-            </small>
           </div>
 
           <div className="contact-card">
