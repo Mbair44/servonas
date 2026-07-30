@@ -44,7 +44,7 @@ export default async function PriceBookPage({
   const canEdit = canManageCustomers(role);
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
-    <header className="epic3-header"><div><small>Billing foundation</small><h1>Price book</h1><p>Reusable services, labor, material, and fee pricing.</p></div>{canEdit && <div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/price-book/categories`}>Categories</Link><Link className="sv-button" href={`/app/${businessSlug}/price-book/new`}>Add item</Link></div>}</header>
+    <header className="epic3-header"><div><small>Billing foundation</small><h1>Services &amp; Pricing</h1><p>Reusable services, labor, material, and fee pricing.</p></div>{canEdit && <div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/price-book/categories`}>Categories</Link><Link className="sv-button" href={`/app/${businessSlug}/price-book/new`}>Add item</Link></div>}</header>
     {q.error && <div className="workspace-notice error">{q.error}</div>}{q.success && <div className="workspace-notice success">{q.success}</div>}
     <form className="price-book-toolbar">
       <label>Search<input name="q" defaultValue={q.q ?? ""} placeholder="Name, description, or SKU"/></label>

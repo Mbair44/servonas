@@ -7,7 +7,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  const customers=items.find(item=>item.id==="customers")!;
  const workforce=items.find(item=>item.id==="workforce")!;
  assert.deepEqual(customers.children?.map(item=>[item.label,item.href]),[
-  ["Customers","/app/acme/customers"],["Services","/app/acme/price-book"],
+  ["Customers","/app/acme/customers"],["Services & Pricing","/app/acme/price-book"],
  ]);
  assert.deepEqual(workforce.children?.map(item=>[item.label,item.href]),[
   ["Team","/app/acme/team"],["Field App","/tech"],
