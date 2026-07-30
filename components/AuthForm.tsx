@@ -26,7 +26,6 @@ export default function AuthForm({
   const [password,setPassword]=useState("");
   const [confirmation,setConfirmation]=useState("");
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
-  const passwordSubmitDisabled=requiresConfirmation&&(password.length<8||confirmation.length<8||passwordsDiffer);
   const preservedQuery = new URLSearchParams();
   if (next) preservedQuery.set("next", next);
   if (email) preservedQuery.set("email", email);
@@ -60,7 +59,7 @@ export default function AuthForm({
             </label>
           )}
           {passwordsDiffer&&<div className="auth-field-error" id="password-match-error" role="alert">Passwords do not match.</div>}
-          <button className="sv-button sv-full" type="submit" disabled={passwordSubmitDisabled}>
+          <button className="sv-button sv-full" type="submit" disabled={passwordsDiffer}>
             {mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
           </button>
         </form>
