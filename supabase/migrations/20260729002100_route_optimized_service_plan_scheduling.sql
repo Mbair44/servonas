@@ -151,4 +151,7 @@ create trigger service_plan_occurrence_choose_route_date
 before insert on public.service_plan_occurrences
 for each row execute function public.schedule_flexible_service_plan_occurrence();
 
+-- Ensure PostgREST exposes the newly added scheduling fields immediately.
+notify pgrst, 'reload schema';
+
 commit;
