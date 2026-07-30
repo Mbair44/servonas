@@ -13,11 +13,17 @@ type Customer={
  lead_source?:string|null;is_active?:boolean|null;
 };
 
-export function EditCustomerDrawer({customer,action}:{customer:Customer;action:(state:CrmActionState,formData:FormData)=>Promise<CrmActionState>}){
+export function EditCustomerDrawer({customer,action,trigger="menu"}:{
+ customer:Customer;
+ action:(state:CrmActionState,formData:FormData)=>Promise<CrmActionState>;
+ trigger?:"menu"|"header";
+}){
  const [open,setOpen]=useState(false);
  const close=useCallback(()=>setOpen(false),[]);
  return <>
-  <button type="button" className="customer-action-item" onClick={()=>setOpen(true)}><i className="customer-action-icon customer"><CustomerActionIcon name="customer"/></i><span><strong>Edit customer</strong><small>Update customer information</small></span><b aria-hidden="true">›</b></button>
+  {trigger==="header"
+   ?<button type="button" className="customer-detail-edit-trigger" onClick={()=>setOpen(true)}>Edit</button>
+   :<button type="button" className="customer-action-item" onClick={()=>setOpen(true)}><i className="customer-action-icon customer"><CustomerActionIcon name="customer"/></i><span><strong>Edit customer</strong><small>Update customer information</small></span><b aria-hidden="true">›</b></button>}
   <ManagementDrawer open={open} title="Edit customer" onDirty={()=>{}} onClose={close}>
    <CustomerCrmForm action={action} customer={customer} submitLabel="Save customer"/>
   </ManagementDrawer>
