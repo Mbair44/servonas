@@ -1,11 +1,20 @@
 "use client";
 
 import {useMemo,useState} from "react";
+import {useFormStatus} from "react-dom";
 import {ManagementDrawer} from "./ManagementDrawer";
 import {CustomerActionIcon} from "./CustomerActionIcon";
 import {previewOccurrences,type RecurrenceUnit} from "@/lib/servicePlanRecurrence";
 
 type Option={id:string;name:string};
+
+function CreateServicePlanButton(){
+ const {pending}=useFormStatus();
+ return <button className="sv-button service-plan-submit" disabled={pending} aria-busy={pending}>
+  {pending&&<span className="service-plan-spinner" aria-hidden="true"/>}
+  <span>{pending?"Creating and optimizing…":"Create service plan"}</span>
+ </button>;
+}
 
 export function ServicePlanDrawer({customerName,locations,services,employees,action,menuItem=false}:{
  customerName:string;locations:Option[];services:Option[];employees:Option[];
@@ -63,7 +72,7 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
     <label className="service-plan-billing">Billing<select aria-label="Billing rule" defaultValue="after_each_completed_service"><option value="after_each_completed_service">Bill after each completed service</option></select><small>An invoice will be created after each visit is completed.</small></label>
    </fieldset>
 
-   <footer><button type="button" className="sv-button sv-secondary" onClick={()=>setOpen(false)}>Cancel</button><button className="sv-button">Create service plan</button></footer>
+   <footer><button type="button" className="sv-button sv-secondary" onClick={()=>setOpen(false)}>Cancel</button><CreateServicePlanButton/></footer>
   </form>
  </ManagementDrawer></>;
 }
