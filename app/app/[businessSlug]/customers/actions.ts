@@ -322,24 +322,26 @@ export async function createServicePlan(slug:string,customerId:string,formData:F
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
  const target=`/app/${slug}/customers/${customerId}`;
  if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to create service plans.")}`);
- const name=text(formData,"name"),locationId=text(formData,"serviceLocationId"),serviceId=text(formData,"serviceId");
+ const locationId=text(formData,"serviceLocationId"),serviceId=text(formData,"serviceId");
  const automatic=formData.get("scheduleAutomatically")==="on";
  const startDate=text(formData,"startDate")||dateInTimeZone(new Date(),business.timezone),endDate=text(formData,"endDate")||null;
  const firstDate=text(formData,"firstRecurringDate")||startDate;
  const schedulingFlexDays=automatic?Number(text(formData,"schedulingFlexDays")||7):0;
  const intervalValue=Number(text(formData,"intervalValue")),intervalUnit=text(formData,"intervalUnit");
  const duration=Number(text(formData,"durationMinutes")),price=Number(text(formData,"recurringPrice"));
- if(!name||!locationId||!serviceId||!startDate||!firstDate)redirect(`${target}?error=${encodeURIComponent("Complete every required service-plan field.")}`);
+ if(!locationId||!serviceId||!startDate||!firstDate)redirect(`${target}?error=${encodeURIComponent("Complete every required service-plan field.")}`);
  if(!Number.isInteger(schedulingFlexDays)||schedulingFlexDays<0||schedulingFlexDays>30)redirect(`${target}?error=${encodeURIComponent("Choose a valid automatic scheduling window.")}`);
  if(!Number.isInteger(intervalValue)||intervalValue<1||intervalValue>120||!["day","week","month","year"].includes(intervalUnit))redirect(`${target}?error=${encodeURIComponent("Choose a valid recurring cadence.")}`);
  if(!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(price)||price<0)redirect(`${target}?error=${encodeURIComponent("Enter a valid duration and recurring price.")}`);
  if(endDate&&endDate<startDate)redirect(`${target}?error=${encodeURIComponent("The service-plan end date cannot be before its start date.")}`);
  const [{data:customer},{data:location},{data:service}]=await Promise.all([
-  supabase.from("customers").select("id").eq("business_id",business.id).eq("id",customerId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id",business.id).eq("id",customerId).eq("is_deleted",false).maybeSingle(),
   supabase.from("service_locations").select("id,default_technician_id").eq("business_id",business.id).eq("customer_id",customerId).eq("id",locationId).eq("is_deleted",false).maybeSingle(),
-  supabase.from("services").select("id").eq("business_id",business.id).eq("id",serviceId).eq("is_deleted",false).maybeSingle(),
+  supabase.from("services").select("id,name").eq("business_id",business.id).eq("id",serviceId).eq("is_deleted",false).maybeSingle(),
  ]);
  if(!customer||!location||!service)redirect(`${target}?error=${encodeURIComponent("The selected customer, location, or service is unavailable.")}`);
+ const customerName=customer.company_name||[customer.first_name,customer.last_name].filter(Boolean).join(" ")||"Customer";
+ const name=`${service.name} – ${customerName}`;
  const employeeId=text(formData,"employeeId")||null;
  if(employeeId){const {data:employee}=await supabase.from("technician_profiles").select("id").eq("business_id",business.id).eq("id",employeeId).eq("is_active",true).eq("can_be_assigned_jobs",true).maybeSingle();if(!employee)redirect(`${target}?error=${encodeURIComponent("Choose an active assignable technician.")}`);}
  const initialRequired=formData.get("initialServiceRequired")==="on",initialDate=text(formData,"initialServiceDate")||null;
