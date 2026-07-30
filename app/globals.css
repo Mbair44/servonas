@@ -922,6 +922,13 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .service-plan-submit{min-width:190px;gap:9px}
 .auth-field-error{margin-top:-8px;color:#be123c;font-size:.82rem;font-weight:700}
 .auth-form input[aria-invalid=true]{border-color:#e11d48;outline:3px solid #ffe4e6}
+.auth-password-field{position:relative;display:block}
+.auth-password-field input{padding-right:48px}
+.auth-password-field>button{position:absolute;top:50%;right:7px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:transparent;color:#52627a;transform:translateY(-50%);cursor:pointer}
+.auth-password-field>button:hover{background:#eef2f7;color:#155eef}
+.auth-password-field>button:focus-visible{outline:3px solid #93b4ff;outline-offset:1px}
+.auth-password-field>button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.auth-form label>.auth-field-error{margin-top:0}
 
 /* Servonas field-service marketing homepage. */
 .marketing-home{overflow:hidden;background:#fff;color:var(--sv-ink)}
