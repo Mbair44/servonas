@@ -8,8 +8,8 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
-  description: "Run bookings, scheduling, inventory, payments, customer communication, and operations from one flexible platform.",
-  keywords: ["service business software", "booking software", "rental management software", "field service platform", "inventory scheduling"],
+  description: "Run customers, recurring service plans, scheduling, dispatch, technicians, online booking, invoices, and payments from one field-service platform.",
+  keywords: ["field service management software", "service business software", "route optimization", "dispatch software", "recurring service software", "online booking"],
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
