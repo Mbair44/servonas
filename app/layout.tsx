@@ -27,7 +27,7 @@ function gtag(){dataLayer.push(arguments);}
 gtag('js', new Date());
 gtag('config', 'AW-18340749438');`}
     </Script>
-    <header className="sv-header"><div className="sv-container sv-nav">
+    <header className={`sv-header${user?" sv-header-authenticated":""}`}><div className="sv-container sv-nav">
       {user
         ? <form action={signOut} className="sv-authenticated-nav"><button className="sv-button sv-small">Log Out</button></form>
         : <><Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
