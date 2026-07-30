@@ -1,1 +1,27 @@
-export default function Contact(){return <main><section className="sv-page-hero"><div className="sv-container"><span className="sv-kicker">Contact</span><h1>Let’s talk about how your business sells and schedules work.</h1><p>This Phase 1 form opens an email draft until a transactional email provider is connected.</p></div></section><section className="sv-section"><div className="sv-container sv-form-card"><form action="mailto:hello@servonas.com" method="post" encType="text/plain"><label>Name<input name="name" required/></label><label>Business email<input type="email" name="email" required/></label><label>Company<input name="company"/></label><label>What do you need to manage?<textarea name="message" rows={6} required/></label><button className="sv-button" type="submit">Contact Servonas</button></form></div></section></main>}
+"use client";
+
+import { useEffect } from "react";
+
+const contactEmail = "mbair@servonas.com";
+const contactHref = `mailto:${contactEmail}?subject=${encodeURIComponent("Servonas inquiry")}`;
+
+export default function Contact() {
+  useEffect(() => {
+    window.location.href = contactHref;
+  }, []);
+
+  return (
+    <main>
+      <section className="sv-page-hero">
+        <div className="sv-container">
+          <span className="sv-kicker">Contact</span>
+          <h1>Opening your email app…</h1>
+          <p>
+            If it does not open automatically,{" "}
+            <a href={contactHref}>email {contactEmail}</a>.
+          </p>
+        </div>
+      </section>
+    </main>
+  );
+}
