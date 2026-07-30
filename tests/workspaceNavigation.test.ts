@@ -5,9 +5,17 @@ import {activeNavigationGroup,parseExpandedGroups,routeIsActive,visibleNavigatio
 test("navigation uses grouped labels without changing routes",()=>{
  const items=workspaceNavigation("acme");
  const customers=items.find(item=>item.id==="customers")!;
+ const operations=items.find(item=>item.id==="operations")!;
  const workforce=items.find(item=>item.id==="workforce")!;
  assert.deepEqual(customers.children?.map(item=>[item.label,item.href]),[
-  ["Customers","/app/acme/customers"],["Services & Pricing","/app/acme/price-book"],
+  ["Customers","/app/acme/customers"],
+ ]);
+ assert.deepEqual(operations.children?.map(item=>[item.label,item.href]),[
+  ["Schedule","/app/acme/schedule"],
+  ["Dispatch","/app/acme/dispatch"],
+  ["Jobs","/app/acme/jobs"],
+  ["Services & Pricing","/app/acme/price-book"],
+  ["Invoices","/app/acme/invoices"],
  ]);
  assert.deepEqual(workforce.children?.map(item=>[item.label,item.href]),[
   ["Team","/app/acme/team"],["Field App","/tech"],
