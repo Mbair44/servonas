@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import {useState} from "react";
 
 export default function AuthForm({
   title,
@@ -19,6 +22,11 @@ export default function AuthForm({
 }) {
   const isSignup = mode === "signup";
   const isReset = mode === "reset";
+  const requiresConfirmation = isSignup || isReset;
+  const [password,setPassword]=useState("");
+  const [confirmation,setConfirmation]=useState("");
+  const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
+  const passwordSubmitDisabled=requiresConfirmation&&(password.length<8||confirmation.length<8||passwordsDiffer);
   const preservedQuery = new URLSearchParams();
   if (next) preservedQuery.set("next", next);
   if (email) preservedQuery.set("email", email);
@@ -42,16 +50,17 @@ export default function AuthForm({
           {mode !== "forgot" && (
             <label>
               Password
-              <input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} required />
+              <input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={event=>setPassword(event.target.value)} />
             </label>
           )}
-          {(isSignup || isReset) && (
+          {requiresConfirmation && (
             <label>
               Confirm password
-              <input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required />
+              <input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required value={confirmation} onChange={event=>setConfirmation(event.target.value)} aria-invalid={passwordsDiffer} aria-describedby={passwordsDiffer?"password-match-error":undefined}/>
             </label>
           )}
-          <button className="sv-button sv-full" type="submit">
+          {passwordsDiffer&&<div className="auth-field-error" id="password-match-error" role="alert">Passwords do not match.</div>}
+          <button className="sv-button sv-full" type="submit" disabled={passwordSubmitDisabled}>
             {mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
           </button>
         </form>
