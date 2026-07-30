@@ -47,7 +47,7 @@ export function WorkspaceNav({slug,name}:{slug:string;name:string}){
     </div>;
    }
    const active=routeIsActive(pathname,item);
-   return <Link className={`${item.id==="settings"?"workspace-nav-settings ":""}${active?"active":""}`} aria-current={active?"page":undefined} href={item.href!} key={item.id}>{item.label}</Link>;
+   return <Link className={active?"active":undefined} aria-current={active?"page":undefined} href={item.href!} key={item.id}>{item.label}</Link>;
   })}
  </nav></aside>
 }
