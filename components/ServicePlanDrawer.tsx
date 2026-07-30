@@ -7,6 +7,7 @@ import {CustomerActionIcon} from "./CustomerActionIcon";
 import {previewOccurrences,type RecurrenceUnit} from "@/lib/servicePlanRecurrence";
 
 type Option={id:string;name:string};
+type ServiceOption=Option&{price_amount:number|null};
 
 function CreateServicePlanButton(){
  const {pending}=useFormStatus();
@@ -16,16 +17,18 @@ function CreateServicePlanButton(){
  </button>;
 }
 
-export function ServicePlanDrawer({customerName,locations,services,employees,action,menuItem=false}:{
- customerName:string;locations:Option[];services:Option[];employees:Option[];
+export function ServicePlanDrawer({customerName,locations,services,employees,action,defaultStartDate,menuItem=false}:{
+ customerName:string;locations:Option[];services:ServiceOption[];employees:Option[];
+ defaultStartDate:string;
  action:(formData:FormData)=>void|Promise<void>;menuItem?:boolean;
 }){
  const [open,setOpen]=useState(false);
  const [initial,setInitial]=useState(false);
  const [automatic,setAutomatic]=useState(false);
  const [customAnchor,setCustomAnchor]=useState(false);
- const [effective,setEffective]=useState("");
+ const [effective,setEffective]=useState(defaultStartDate);
  const [serviceId,setServiceId]=useState("");
+ const [recurringPrice,setRecurringPrice]=useState("");
  const [unit,setUnit]=useState<RecurrenceUnit>("month");
  const [interval,setInterval]=useState(1);
  const [first,setFirst]=useState("");
@@ -34,6 +37,11 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
  const recurrenceAnchor=initial||customAnchor?first:effective;
  const preview=useMemo(()=>recurrenceAnchor?previewOccurrences(recurrenceAnchor,interval,unit,2):[],[recurrenceAnchor,interval,unit]);
  const preset=(amount:number,nextUnit:RecurrenceUnit)=>{setInterval(amount);setUnit(nextUnit);};
+ const selectService=(nextServiceId:string)=>{
+  setServiceId(nextServiceId);
+  const service=services.find(item=>item.id===nextServiceId);
+  setRecurringPrice(service?.price_amount===null||service?.price_amount===undefined?"":String(service.price_amount));
+ };
 
  return <><button className={menuItem?"customer-action-item":"sv-button"} type="button" onClick={()=>setOpen(true)}>{menuItem?<><i className="customer-action-icon recurring"><CustomerActionIcon name="repeat"/></i><span><strong>Add service plan <em>Recurring</em></strong><small>Set up recurring service</small></span><b aria-hidden="true">›</b></>:<>＋ Add service plan</>}</button>
  <ManagementDrawer open={open} title={generatedName} onDirty={()=>{}} onClose={()=>setOpen(false)} size="wide">
@@ -42,7 +50,7 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
 
    <fieldset className="service-plan-overview">
     <label className="service-plan-customer">Customer<input value={customerName} readOnly/></label>
-    <label className="service-plan-service"><span className="service-plan-label-title">Service type <b>*</b></span><select name="serviceId" required value={serviceId} onChange={event=>setServiceId(event.target.value)}><option value="" disabled>Choose service</option>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label className="service-plan-service"><span className="service-plan-label-title">Service type <b>*</b></span><select name="serviceId" required value={serviceId} onChange={event=>selectService(event.target.value)}><option value="" disabled>Choose service</option>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label className="service-plan-location"><span className="service-plan-label-title">Service location <b>*</b></span><select name="serviceLocationId" required defaultValue=""><option value="" disabled>Choose location</option>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <div className="service-plan-staffing">
      <label><span className="service-plan-label-title">Duration (minutes) <b>*</b></span><select name="durationMinutes" defaultValue="60" required><option value="30">30</option><option value="45">45</option><option value="60">60</option><option value="90">90</option><option value="120">120</option><option value="180">180</option></select></label>
@@ -68,7 +76,7 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
 
    <fieldset className="service-plan-section service-plan-pricing">
     <legend><span aria-hidden="true">$</span> Pricing &amp; billing</legend>
-    <label><span className="service-plan-label-title">Price per visit <b>*</b></span><input name="recurringPrice" type="number" min="0" step=".01" defaultValue="0" required/></label>
+    <label><span className="service-plan-label-title">Price per visit <b>*</b></span><input name="recurringPrice" type="number" min="0" step=".01" value={recurringPrice} onChange={event=>setRecurringPrice(event.target.value)} placeholder="Select a service" required/></label>
     <label>Preferred time<select name="preferredTimeWindow" defaultValue="no_preference"><option value="no_preference">No preference</option><option value="morning">Morning</option><option value="afternoon">Afternoon</option><option value="08:00-10:00">8:00 AM–10:00 AM</option><option value="10:00-12:00">10:00 AM–12:00 PM</option></select></label>
     <label className="service-plan-tax"><input type="checkbox" name="taxable"/> Taxable</label>
     <label className="service-plan-billing">Billing<select aria-label="Billing rule" defaultValue="after_each_completed_service"><option value="after_each_completed_service">Bill after each completed service</option></select><small>An invoice will be created after each visit is completed.</small></label>
