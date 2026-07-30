@@ -18,7 +18,7 @@ export function workspaceNavigation(slug:string):WorkspaceNavigationItem[]{
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
   {id:"customers",label:"Customers",children:[
    {id:"customer-list",label:"Customers",href:`${base}/customers`},
-   {id:"services",label:"Services",href:`${base}/price-book`},
+   {id:"services",label:"Services & Pricing",href:`${base}/price-book`},
   ]},
   {id:"operations",label:"Operations",children:[
    {id:"schedule",label:"Schedule",href:`${base}/schedule`},
