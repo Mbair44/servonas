@@ -15,14 +15,15 @@ import {createJob} from "../../jobs/actions";
 
 export default async function CustomerDetail({params,searchParams}:{params:Promise<{businessSlug:string;customerId:string}>;searchParams:Promise<Record<string,string|undefined>>}){
  const {businessSlug,customerId}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
- const [{data:customer},{data:locations},{data:jobs},{data:plans},{data:services},{data:employees},{data:invoices},{data:territories},{data:billingProfile},{data:billingSettings}]=await Promise.all([
+ const [{data:customer},{data:locations},{data:jobs},{data:plans},{data:services},{data:employees},{data:invoices,error:invoiceMetricsError},{data:payments,error:paymentMetricsError},{data:territories},{data:billingProfile},{data:billingSettings}]=await Promise.all([
   supabase.from("customers").select("*").eq("id",customerId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
   supabase.from("service_locations").select("*").eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).order("is_primary",{ascending:false}),
   supabase.from("jobs").select("id,job_number,title,status,starts_at,ends_at,work_completed_at,total_amount,assigned_technician_id,recurring_service_series_id,service_plan_occurrence_id,occurrence_date,generation_type,cancellation_reason").eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).order("starts_at",{ascending:false,nullsFirst:false}),
   supabase.from("recurring_service_series").select("id,name,status,service_location_id,service_id,default_employee_id,start_date,end_date,first_recurring_date,cadence_unit,cadence_interval,default_duration_minutes,recurring_price,preferred_time_window,taxable,next_due_on,scheduling_mode,scheduling_flex_days").eq("customer_id",customerId).eq("business_id",business.id).order("created_at",{ascending:false}),
   supabase.from("services").select("id,name,price_amount").eq("business_id",business.id).eq("is_deleted",false).eq("active",true).order("name"),
   supabase.from("technician_directory").select("id,preferred_name").eq("business_id",business.id).eq("is_active",true).eq("is_technician",true).eq("can_be_assigned_jobs",true).order("preferred_name"),
-  supabase.from("invoices").select("balance_due_cents,paid_amount_cents").eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false),
+  supabase.from("invoices").select("balance_due_cents,amount_paid_cents,amount_refunded_cents").eq("business_id",business.id).eq("customer_id",customerId).eq("is_deleted",false),
+  supabase.from("payments").select("amount_cents,refunded_amount_cents,status").eq("business_id",business.id).eq("customer_id",customerId).in("status",["succeeded","partially_refunded","refunded"]),
   supabase.from("workforce_territories").select("id,name").eq("business_id",business.id).eq("is_active",true).order("name"),
   supabase.from("customer_billing_profiles").select("use_business_defaults,billing_method,payment_terms_days,auto_send_invoice,autopay_enabled,billing_email,billing_notes").eq("business_id",business.id).eq("customer_id",customerId).maybeSingle(),
   supabase.from("business_billing_settings").select("default_billing_method,default_payment_terms_days,review_before_processing").eq("business_id",business.id).maybeSingle(),
@@ -36,7 +37,17 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
  // A plan due date is not proof that a visit was generated and scheduled.
  // Only display an actual upcoming job as the customer's next service.
  const nextServiceDate=nextService?.starts_at??null;
- const outstanding=(invoices??[]).reduce((sum,item)=>sum+Number(item.balance_due_cents??0),0),spent=(invoices??[]).reduce((sum,item)=>sum+Number(item.paid_amount_cents??0),0);
+ if(invoiceMetricsError||paymentMetricsError){
+  console.error("Customer financial metrics could not be fully loaded",{
+   customerId,
+   invoiceError:invoiceMetricsError?.message,
+   paymentError:paymentMetricsError?.message
+  });
+ }
+ const outstanding=(invoices??[]).reduce((sum,item)=>sum+Number(item.balance_due_cents??0),0);
+ const ledgerSpent=(payments??[]).reduce((sum,item)=>sum+Math.max(0,Number(item.amount_cents??0)-Number(item.refunded_amount_cents??0)),0);
+ const invoiceSpent=(invoices??[]).reduce((sum,item)=>sum+Math.max(0,Number(item.amount_paid_cents??0)-Number(item.amount_refunded_cents??0)),0);
+ const spent=!paymentMetricsError&&(payments?.length??0)>0?ledgerSpent:invoiceSpent;
  const name=customer.company_name||`${customer.first_name} ${customer.last_name}`.trim(),primary=locations?.find(location=>location.is_primary)??locations?.[0];
  const primaryAddress=primary?[primary.street_address,primary.unit,primary.city,primary.state,primary.postal_code].filter(Boolean).join(", "):"";
  const assignedTerritory=territories?.find(territory=>territory.id===primary?.territory_id),assignedTechnician=employees?.find(employee=>employee.id===primary?.default_technician_id);
