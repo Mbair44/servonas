@@ -7,6 +7,8 @@ import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publi
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
+import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
+import { jobStatuses } from "@/lib/jobValidation";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 
@@ -17,27 +19,48 @@ async function technicianJob(jobId: string) {
   const { data: profiles } = await supabase.from("technician_profiles").select("id").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
   const technicianIds = (profiles ?? []).map((profile) => profile.id);
   if (!technicianIds.length) redirect("/tech?error=Technician+profile+not+found");
-  const { data: job } = await supabase.from("jobs").select("id,business_id,assigned_technician_id").eq("id", jobId).in("assigned_technician_id", technicianIds).eq("is_deleted", false).maybeSingle();
+  const { data: job } = await supabase.from("jobs").select("id,business_id,assigned_technician_id,status").eq("id", jobId).in("assigned_technician_id", technicianIds).eq("is_deleted", false).maybeSingle();
   if (!job) redirect("/tech?error=Assigned+job+not+found");
   return { supabase, user, job };
 }
 
 export async function transitionTechnicianJob(jobId: string, formData: FormData) {
-  const { supabase } = await technicianJob(jobId);
+  const { supabase, job } = await technicianJob(jobId);
   const status = text(formData, "status");
   const requestedReturn = text(formData, "returnTo");
   const returnTo = requestedReturn.startsWith("/tech/route") ? requestedReturn : `/tech/jobs/${jobId}`;
+  const redirectWith = (kind: "error" | "success", message: string) =>
+    `${returnTo}${returnTo.includes("?") ? "&" : "?"}${kind}=${encodeURIComponent(message)}`;
+  const currentStatus = String(job.status) as JobStatus;
+  if (!jobStatuses.includes(status as JobStatus) || !canTransitionJob(currentStatus, status as JobStatus)) {
+    redirect(redirectWith("error", "This job changed since the page loaded. Refresh and try the action shown."));
+  }
+  // A repeated tap may arrive after the first request has already succeeded.
+  if (currentStatus === status) redirect(redirectWith("success", "Job status updated."));
   const { error } = await supabase.rpc("transition_assigned_job_status", { p_job_id: jobId, p_status: status });
   if (error) {
-    console.error("Technician status transition failed", { code: error.code, jobId });
-    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("That status change is not available.")}`);
+    console.error("Technician status transition failed", {
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      jobId,
+      message: error.message,
+      requestedStatus: status,
+      status: currentStatus,
+    });
+    const message = error.code === "42501"
+      ? "This job is no longer assigned to your technician account."
+      : error.code === "23514"
+        ? "This job changed since the page loaded. Refresh and try again."
+        : "The job status could not be updated. Refresh and try again.";
+    redirect(redirectWith("error", message));
   }
   if(status==="completed"){
     const billing=await processCompletedJobBilling(jobId);
     if(!billing.ok)console.error("Technician completed-job billing orchestration failed",{jobId,reason:billing.error});
   }
   revalidatePath("/tech"); revalidatePath("/tech/route"); revalidatePath(`/tech/jobs/${jobId}`);
-  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}success=${encodeURIComponent("Job status updated.")}`);
+  redirect(redirectWith("success", "Job status updated."));
 }
 
 export async function addTechnicianNote(jobId: string, formData: FormData) {
