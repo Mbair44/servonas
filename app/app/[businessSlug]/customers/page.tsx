@@ -18,6 +18,10 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug),canEdit=canManageCustomers(role);
  const search=clean(q.q??""),status=["active","inactive","no_history","all"].includes(q.status??"")?q.status!:"all",type=["individual","company","all"].includes(q.type??"")?q.type!:"all";
  const page=Math.max(1,Number(q.page)||1);
+ const sortKeys=["customer","contact","type","status","locations","last_service","next_service","jobs"] as const;
+ type CustomerSort=typeof sortKeys[number];
+ const sort=(sortKeys as readonly string[]).includes(q.sort??"")?q.sort as CustomerSort:"customer";
+ const direction=q.direction==="desc"?"desc":"asc";
  const {data:customers,error}=await supabase.from("customers").select("id,first_name,last_name,company_name,email,phone,secondary_phone,preferred_contact_method,notes,tags,lead_source,is_active,created_at").eq("business_id",business.id).eq("is_deleted",false).limit(1000);
  if(error) console.error("Customer directory could not be loaded",{businessId:business.id,code:error.code});
  const ids=(customers??[]).map(customer=>customer.id);
@@ -38,7 +42,21 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const rows=directory.filter(customer=>(status==="all"||(status==="active"&&customer.is_active)||(status==="inactive"&&!customer.is_active)||(status==="no_history"&&!customer.jobCount))
   &&(type==="all"||customer.customerType===type)
   &&(!search||[customer.displayName,customer.first_name,customer.last_name,customer.email,customer.phone,customer.primary?.street_address,customer.primary?.city,customer.primary?.state].some(value=>String(value??"").toLowerCase().includes(search))))
-  .sort((a,b)=>a.displayName.localeCompare(b.displayName));
+  .sort((a,b)=>{
+   const value=(customer:typeof a):string|number=>{
+    if(sort==="contact")return customer.email||customer.phone||"";
+    if(sort==="type")return customer.customerType;
+    if(sort==="status")return customer.is_active?1:0;
+    if(sort==="locations")return customer.locations.length;
+    if(sort==="last_service")return customer.lastService?new Date(customer.lastService).getTime():-1;
+    if(sort==="next_service")return customer.nextService?new Date(customer.nextService).getTime():-1;
+    if(sort==="jobs")return customer.jobCount;
+    return customer.displayName;
+   };
+   const left=value(a),right=value(b);
+   const result=typeof left==="string"&&typeof right==="string"?left.localeCompare(right,undefined,{numeric:true,sensitivity:"base"}):Number(left)-Number(right);
+   return (direction==="asc"?result:-result)||a.displayName.localeCompare(b.displayName);
+  });
  const totalPages=Math.max(1,Math.ceil(rows.length/pageSize)),currentPage=Math.min(page,totalPages),visible=rows.slice((currentPage-1)*pageSize,currentPage*pageSize);
  const selected=directory.find(customer=>customer.id===q.customer)??null;
  const [servicesResult,employeesResult]=selected?await Promise.all([
@@ -49,7 +67,9 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const monthStart=new Date();monthStart.setUTCDate(1);monthStart.setUTCHours(0,0,0,0);
  const newThisMonth=directory.filter(customer=>new Date(customer.created_at)>=monthStart).length,noHistory=directory.filter(customer=>!customer.jobCount).length;
  const base=`/app/${businessSlug}/customers`;
- const href=(overrides:Record<string,string|undefined>)=>{const values={q:q.q,status,type,page:String(currentPage),...overrides};const query=new URLSearchParams(Object.entries(values).filter((entry):entry is [string,string]=>Boolean(entry[1])));return `${base}?${query}#customer-directory`;};
+ const href=(overrides:Record<string,string|undefined>)=>{const values={q:q.q,status,type,sort,direction,page:String(currentPage),...overrides};const query=new URLSearchParams(Object.entries(values).filter((entry):entry is [string,string]=>Boolean(entry[1])));return `${base}?${query}#customer-directory`;};
+ const sortHref=(column:CustomerSort)=>href({sort:column,direction:sort===column&&direction==="asc"?"desc":"asc",page:"1",customer:undefined});
+ const sortHeader=(column:CustomerSort,label:string)=><span role="columnheader" aria-sort={sort===column?(direction==="asc"?"ascending":"descending"):"none"}><Link className={sort===column?"active":""} href={sortHref(column)}>{label}<i aria-hidden="true">{sort===column?(direction==="asc"?"↑":"↓"):"↕"}</i></Link></span>;
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content employee-directory-page customer-directory-page">
   <header className="employee-page-header"><div><nav aria-label="Breadcrumb"><span>CRM</span><b aria-hidden="true">›</b><span>Customers</span></nav><h1>Customers</h1><p>Contacts, service locations, and job history in one place.</p></div>{canEdit&&<nav className="employee-primary-actions" aria-label="Customer actions"><Link className="sv-button sv-secondary" href={`${base}/imports`}><span aria-hidden="true">↥</span>Import customers</Link><Link className="sv-button" href={`${base}/new`}><span aria-hidden="true">＋</span>Add customer</Link></nav>}</header>
@@ -66,13 +86,14 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
   <section className={`employee-directory-shell customer-directory-shell${selected?" has-selection":""}`} id="customer-directory">
    <div className="employee-directory-main">
     <form className="employee-directory-toolbar customer-directory-toolbar">
+     <input type="hidden" name="sort" value={sort}/><input type="hidden" name="direction" value={direction}/>
      <label className="employee-search"><span className="sr-only">Search customers</span><input name="q" defaultValue={q.q??""} placeholder="Search by name, company, email, phone, or address..."/><b aria-hidden="true">⌕</b></label>
      <label><span>Status</span><select name="status" defaultValue={status}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="no_history">No service history</option></select></label>
      <label><span>Customer type</span><select name="type" defaultValue={type}><option value="all">All types</option><option value="individual">Individual</option><option value="company">Company</option></select></label>
      <button className="sv-button sv-secondary" type="submit">Filters</button>
     </form>
     <div className="customer-table" role="table" aria-label="Customers">
-     <div className="customer-table-head" role="row"><span role="columnheader">Customer</span><span role="columnheader">Primary contact</span><span role="columnheader">Type</span><span role="columnheader">Status</span><span role="columnheader">Locations</span><span role="columnheader">Last service</span><span role="columnheader">Next service</span><span role="columnheader">Total jobs</span></div>
+     <div className="customer-table-head" role="row">{sortHeader("customer","Customer")}{sortHeader("contact","Primary contact")}{sortHeader("type","Type")}{sortHeader("status","Status")}{sortHeader("locations","Locations")}{sortHeader("last_service","Last service")}{sortHeader("next_service","Next service")}{sortHeader("jobs","Total jobs")}</div>
      {visible.length?visible.map(customer=><Link role="row" className={selected?.id===customer.id?"selected":""} href={href({customer:customer.id})} key={customer.id}>
       <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{initials(customer.displayName)}</span><span><strong>{customer.displayName}</strong><small>{customer.company_name?`${customer.first_name} ${customer.last_name}`.trim():"Customer"}</small></span></span>
       <span className="customer-contact" role="cell"><strong>{customer.email||"No email"}</strong><small>{customer.phone||"No phone"}</small></span>
