@@ -28,7 +28,7 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
   }>
    <form action={updateAction} className="quick-employee-form service-plan-form edit-plan-form">
     <fieldset><legend>Plan details</legend>
-     <label>Plan name<input name="name" required defaultValue={plan.name}/></label>
+     <label><span className="service-plan-readonly-title">Plan name <small>Read only</small></span><input className="service-plan-readonly-input" name="name" readOnly aria-readonly="true" aria-describedby="service-plan-name-help" value={plan.name}/><small id="service-plan-name-help" className="service-plan-readonly-help">Generated from the selected service and customer.</small></label>
      <div className="quick-form-grid"><label>Service location<select name="serviceLocationId" required defaultValue={plan.service_location_id}>{locations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
      <label>Service type<select name="serviceId" required defaultValue={plan.service_id}>{services.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
      <div className="quick-form-grid"><label>Plan effective date<input name="startDate" type="date" required value={effective} onChange={event=>setEffective(event.target.value)}/></label><label>End date <small>Optional</small><input name="endDate" type="date" defaultValue={plan.end_date??""}/></label><label>Default technician<select name="employeeId" defaultValue={plan.default_employee_id??""}><option value="">Unassigned</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
