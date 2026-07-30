@@ -741,6 +741,7 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
  position:sticky;
  z-index:4;
  top:0;
+ grid-template-columns:auto minmax(0,1fr) auto auto auto;
  min-height:91px;
  padding:19px 18px 17px;
  border-bottom:0;
@@ -772,6 +773,22 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
  line-height:1
 }
 .customer-detail-panel>header>a:hover{background:#f2f4f7}
+.customer-detail-edit-trigger{
+ padding:6px 4px;
+ border:0;
+ background:transparent;
+ color:#155eef;
+ font:inherit;
+ font-size:.72rem;
+ font-weight:850;
+ cursor:pointer
+}
+.customer-detail-edit-trigger:hover{text-decoration:underline}
+.customer-detail-edit-trigger:focus-visible{
+ outline:3px solid #93b4ff;
+ outline-offset:2px;
+ border-radius:5px
+}
 .customer-detail-panel>nav{
  position:sticky;
  z-index:3;
