@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
-import { requireWorkspaceCapability } from "@/lib/workspace";
+import { requireWorkspace,requireWorkspaceCapability } from "@/lib/workspace";
 import { createStripeOnboardingLink,stripeClient,stripeConnectState,stripeProviderError,syncStripeConnectAccount } from "@/lib/stripeConnect";
 import {validateEmployeeNumbering} from "@/lib/employeeNumbering";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -92,6 +92,23 @@ export async function updateRoutingPolicy(slug:string,formData:FormData){
 }
 
 const stripeResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings?${kind}=${encodeURIComponent(message)}#payments`;
+
+export async function updateInvoicePaymentOptions(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(stripeResult(slug,"error","Only owners and admins can change payment options."));
+ const acceptCheck=formData.get("acceptCheck")==="on",acceptPhone=formData.get("acceptPayByPhone")==="on";
+ const checkPayableTo=text(formData,"checkPayableTo"),paymentPhone=text(formData,"paymentPhone");
+ if(acceptCheck&&!checkPayableTo)redirect(stripeResult(slug,"error","Enter who checks should be payable to."));
+ if(acceptPhone&&!paymentPhone)redirect(stripeResult(slug,"error","Enter a phone number for phone payments."));
+ const {error}=await supabase.from("business_billing_settings").upsert({
+  business_id:business.id,accept_online_card:formData.get("acceptOnlineCard")==="on",
+  accept_cash:formData.get("acceptCash")==="on",accept_check:acceptCheck,accept_pay_by_phone:acceptPhone,
+  check_payable_to:checkPayableTo||null,payment_phone:paymentPhone||null,updated_at:new Date().toISOString(),
+ },{onConflict:"business_id"});
+ if(error){console.error("Invoice payment options update failed",{businessId:business.id,code:error.code});redirect(stripeResult(slug,"error","Invoice payment options could not be saved."));}
+ revalidatePath(`/app/${slug}/settings`);
+ redirect(stripeResult(slug,"success","Invoice payment options saved."));
+}
 
 export async function connectStripe(slug:string){
  const {supabase,business,role}=await requireWorkspaceCapability(slug,"invoices");

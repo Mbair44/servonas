@@ -6,9 +6,10 @@ import OnboardingBusinessProfile from "@/components/OnboardingBusinessProfile";
 import OnboardingBusinessHours from "@/components/OnboardingBusinessHours";
 import OnboardingFirstService from "@/components/OnboardingFirstService";
 import OnboardingReadinessReview from "@/components/OnboardingReadinessReview";
+import OnboardingSubscriptionBilling from "@/components/OnboardingSubscriptionBilling";
 import {getCapabilityAccess} from "@/lib/entitlements/service";
 import {platformBillingEnabled,trialEndDate} from "@/lib/platformBilling";
-export default async function Onboarding({searchParams}:{searchParams:Promise<{business?:string;saved?:string;error?:string}>}){
+export default async function Onboarding({searchParams}:{searchParams:Promise<{business?:string;saved?:string;error?:string;billing?:string;billingAdded?:string}>}){
  const query=await searchParams,s=await createSupabaseServerClient();const {data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding");
  const subscriptionBillingEnabled=platformBillingEnabled();
  if(query.business){
@@ -32,7 +33,8 @@ export default async function Onboarding({searchParams}:{searchParams:Promise<{b
     s.rpc("business_team_onboarding_status",{p_business_id:business.id}),
    ]);const facts={company:Boolean(business.name&&business.display_name&&business.timezone),businessProfile:Boolean(profile?.operating_model&&profile?.industry_profile),businessHours:Boolean(hours),firstService:Boolean(services),pilotAccess:pilotAccess.allowed};
     const {data:trialEnd}=subscriptionBillingEnabled?await s.rpc("ensure_servonas_trial",{p_business_id:business.id,p_days:30}):{data:null};
-    return <main className="onboarding-shell"><OnboardingReadinessReview businessSlug={business.slug} businessName={business.display_name||business.name} facts={facts} teamStatus={teamStatus??"not_started"} error={query.error} subscriptionBillingEnabled={subscriptionBillingEnabled} trialEndsAt={trialEnd??trialEndDate().toISOString()} timeZone={business.timezone}/></main>;}
+    if(subscriptionBillingEnabled&&query.billing==="1")return <main className="onboarding-shell"><OnboardingSubscriptionBilling businessSlug={business.slug} businessName={business.display_name||business.name} trialEndsAt={trialEnd??trialEndDate().toISOString()} timeZone={business.timezone} billingAdded={query.billingAdded==="1"} error={query.error}/></main>;
+    return <main className="onboarding-shell"><OnboardingReadinessReview businessSlug={business.slug} businessName={business.display_name||business.name} facts={facts} teamStatus={teamStatus??"not_started"} error={query.error} subscriptionBillingEnabled={subscriptionBillingEnabled}/></main>;}
    return <main className="onboarding-resume"><section><span className="sv-kicker">Profile saved</span><h1>{business.display_name||business.name} is taking shape.</h1><p>Your company, business profile, and active {subscriptionBillingEnabled?"free trial":"Pilot access"} are saved. You can leave safely and return later.</p><div className="onboarding-resume-status"><strong>50% complete</strong><span>Next: Business hours</span><small>Last saved {state?.last_activity_at?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(state.last_activity_at)):"just now"}</small></div><p>Business Hours is the next onboarding checkpoint.</p><div><Link className="sv-button" href={`/app/${business.slug}`}>Continue to workspace</Link><Link className="sv-button sv-secondary" href="/app">Resume later</Link></div></section></main>;
   }}
  return <main className="onboarding-shell"><OnboardingWizard defaultEmail={user.email??""} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} subscriptionBillingEnabled={subscriptionBillingEnabled}/></main>;
