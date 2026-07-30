@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { canManageCustomers } from "@/lib/access";
-import { formatCents, marginPercent } from "@/lib/financial/priceBook";
+import { marginPercent } from "@/lib/financial/priceBook";
 import { requireWorkspace } from "@/lib/workspace";
+import { PriceBookGridManager } from "@/components/PriceBookGridManager";
 import { WorkspaceNav } from "../WorkspaceNav";
-import { setPriceBookItemArchived } from "./actions";
+import { setPriceBookItemArchived, updateCatalogService, updatePriceBookItem } from "./actions";
 
 export default async function PriceBookPage({
   params, searchParams,
@@ -23,7 +24,7 @@ export default async function PriceBookPage({
       .select("id,name,description,sku,unit_type,default_unit_price_cents,internal_cost_cents,currency,is_taxable,is_active,is_deleted,category_id,price_book_categories(name)")
       .eq("business_id", business.id).limit(1000),
     supabase.from("price_book_categories").select("id,name").eq("business_id", business.id).eq("is_deleted", false).order("sort_order").order("name"),
-    supabase.from("services").select("id,name,description,duration_minutes,price_amount,price_label,active,recurring_allowed")
+    supabase.from("services").select("id,name,description,duration_minutes,price_amount,price_label,active,recurring_allowed,required_skills")
       .eq("business_id", business.id).eq("is_deleted", false).order("name"),
   ]);
   if (error) throw new Error("Unable to load the price book.");
@@ -45,13 +46,6 @@ export default async function PriceBookPage({
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Billing foundation</small><h1>Price book</h1><p>Reusable services, labor, material, and fee pricing.</p></div>{canEdit && <div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/price-book/categories`}>Categories</Link><Link className="sv-button" href={`/app/${businessSlug}/price-book/new`}>Add item</Link></div>}</header>
     {q.error && <div className="workspace-notice error">{q.error}</div>}{q.success && <div className="workspace-notice success">{q.success}</div>}
-    <section className="workspace-panel"><div className="panel-title"><div><h2>Services</h2><span>Services available across booking, jobs, estimates, and service plans.</span></div><span>{services?.length ?? 0} service{services?.length === 1 ? "" : "s"}</span></div>
-      <div className="service-catalog-list">{services?.length ? services.map((service) => <article key={service.id}>
-        <div><strong>{service.name}</strong><span>{service.description || "No description"}</span><small>{service.duration_minutes} min · {service.recurring_allowed ? "Recurring available" : "One-time only"}</small></div>
-        <div><strong>{service.price_label === "quote" || service.price_amount === null ? "Request quote" : `${service.price_label === "starting_at" ? "Starting at " : ""}$${Number(service.price_amount).toFixed(2)}`}</strong><span className={`crm-status ${service.active ? "active" : "inactive"}`}>{service.active ? "Active" : "Inactive"}</span></div>
-        {canEdit && <Link className="sv-button sv-secondary" href={`/app/${businessSlug}/price-book/services/${service.id}`}>Edit service</Link>}
-      </article>) : <div className="sv-empty"><h3>No services yet</h3><p>Your onboarding service and any services created later will appear here.</p></div>}</div>
-    </section>
     <form className="price-book-toolbar">
       <label>Search<input name="q" defaultValue={q.q ?? ""} placeholder="Name, description, or SKU"/></label>
       <label>Category<select name="category" defaultValue={category}><option value="">All categories</option>{(categories ?? []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
@@ -59,15 +53,6 @@ export default async function PriceBookPage({
       <label>Sort<select name="sort" defaultValue={sort}><option value="name">Name</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option><option value="margin">Highest margin</option></select></label>
       <button className="sv-button sv-secondary">Apply</button>
     </form>
-    <section className="workspace-panel"><div className="panel-title"><h2>Items</h2><span>{rows.length} result{rows.length === 1 ? "" : "s"}</span></div>
-      <div className="price-book-list">{rows.length ? rows.map((item) => {
-        const relation = Array.isArray(item.price_book_categories) ? item.price_book_categories[0] : item.price_book_categories;
-        const margin = marginPercent(item.default_unit_price_cents, item.internal_cost_cents);
-        return <article key={item.id}>
-          <Link href={`/app/${businessSlug}/price-book/${item.id}`}><div><small>{relation?.name ?? "Uncategorized"}{item.sku ? ` · ${item.sku}` : ""}</small><strong>{item.name}</strong><span>{item.description || "No description"}</span></div><div><strong>{formatCents(item.default_unit_price_cents, item.currency)}</strong><span>per {item.unit_type.replaceAll("_", " ")}</span></div><div><strong>{formatCents(item.internal_cost_cents, item.currency)}</strong><span>cost · {margin === null ? "—" : `${margin.toFixed(2)}%`} margin</span></div><span className={`crm-status ${item.is_active && !item.is_deleted ? "active" : "inactive"}`}>{item.is_deleted ? "Archived" : item.is_active ? "Active" : "Inactive"}</span></Link>
-          {canEdit && <form action={setPriceBookItemArchived.bind(null, businessSlug, item.id, !item.is_deleted)}><button className="text-button">{item.is_deleted ? "Restore" : "Archive"}</button></form>}
-        </article>;
-      }) : <div className="sv-empty"><h3>No price book items</h3><p>Adjust the filters or add your first reusable item.</p></div>}</div>
-    </section>
+    <PriceBookGridManager items={rows} services={services??[]} categories={categories??[]} canEdit={canEdit} updateItemAction={updatePriceBookItem.bind(null,businessSlug)} updateServiceAction={updateCatalogService.bind(null,businessSlug)} archiveItemAction={setPriceBookItemArchived.bind(null,businessSlug)}/>
   </section></main>;
 }

@@ -14,9 +14,10 @@ type Service = {
   active: boolean;
 };
 
-export function ServiceCatalogForm({ service, action }: {
+export function ServiceCatalogForm({ service, action, returnToPriceBook = false }: {
   service: Service;
   action: (state: ServiceCatalogActionState, data: FormData) => Promise<ServiceCatalogActionState>;
+  returnToPriceBook?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const value = (name: string, fallback = "") => state.values?.[name] ?? fallback;
@@ -24,6 +25,7 @@ export function ServiceCatalogForm({ service, action }: {
   const error = (field: string) => state.fieldErrors?.[field] && <small className="crm-field-error">{state.fieldErrors[field]}</small>;
 
   return <form action={formAction} className="price-book-form service-catalog-form">
+    {returnToPriceBook && <input type="hidden" name="returnToPriceBook" value="true"/>}
     {state.error && <div className="workspace-notice error wide" role="alert">{state.error}</div>}
     <label className="wide">Service name<input required name="name" maxLength={150} defaultValue={value("name", service.name)}/>{error("name")}</label>
     <label>Default duration (minutes)<input required name="durationMinutes" type="number" min="15" max="1440" step="15" defaultValue={value("durationMinutes", String(service.duration_minutes))}/>{error("durationMinutes")}</label>
