@@ -5,13 +5,15 @@ import {canManageCustomers} from "@/lib/access";
 import {jobPriorities,jobStatuses} from "@/lib/jobValidation";
 
 const pageSize=25;
+const sortKeys=["job","customer","status","technician","scheduled","total","newest"] as const;
+type JobSort=typeof sortKeys[number];
 const relation=<T,>(value:T|T[]|null)=>Array.isArray(value)?value[0]??null:value;
 const initials=(value:string)=>value.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase()||"J";
 const label=(value:string)=>value.replaceAll("_"," ").replace(/\b\w/g,letter=>letter.toUpperCase());
 
 export default async function Jobs({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<Record<string,string|undefined>>}){
  const {businessSlug}=await params,query=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
- let jobsQuery=supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,total_amount,assigned_technician_id,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(location_name,street_address,city,state),services!jobs_service_tenant_fk(name)")
+ let jobsQuery=supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,total_amount,created_at,assigned_technician_id,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(location_name,street_address,city,state),services!jobs_service_tenant_fk(name)")
   .eq("business_id",business.id).eq("is_deleted",false);
  if(query.status&&query.status!=="all")jobsQuery=jobsQuery.eq("status",query.status);
  if(query.priority&&query.priority!=="all")jobsQuery=jobsQuery.eq("priority",query.priority);
@@ -24,9 +26,7 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
   const search=query.q.replaceAll(",","");
   jobsQuery=/^\d+$/.test(search)?jobsQuery.eq("job_number",Number(search)):jobsQuery.ilike("title",`%${search}%`);
  }
- jobsQuery=query.sort==="newest"?jobsQuery.order("created_at",{ascending:false})
-  :query.sort==="status"?jobsQuery.order("status").order("starts_at",{ascending:true,nullsFirst:false})
-  :jobsQuery.order("starts_at",{ascending:true,nullsFirst:false});
+ jobsQuery=jobsQuery.order("created_at",{ascending:false});
 
  const [{data:jobs,error},{data:summaryRows},{data:customers},{data:technicians},{data:services}]=await Promise.all([
   jobsQuery,
@@ -40,7 +40,26 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
   throw new Error("Jobs could not be loaded.");
  }
 
- const rows=jobs??[],page=Math.max(1,Number(query.page)||1),totalPages=Math.max(1,Math.ceil(rows.length/pageSize)),currentPage=Math.min(page,totalPages);
+ const requestedSort=query.sort==="status"?"status":query.sort==="newest"?"newest":query.sort==="scheduled"?"scheduled":query.sort;
+ const sort=(sortKeys as readonly string[]).includes(requestedSort??"")?requestedSort as JobSort:"scheduled";
+ const direction=query.direction==="desc"?"desc":query.direction==="asc"?"asc":sort==="newest"?"desc":"asc";
+ const technicianName=(id:string|null)=>technicians?.find(item=>item.id===id)?.preferred_name??"";
+ const customerName=(job:NonNullable<typeof jobs>[number])=>{const customer=relation(job.customers);return customer?.company_name||[customer?.first_name,customer?.last_name].filter(Boolean).join(" ")||"No customer";};
+ const rows=[...(jobs??[])].sort((left,right)=>{
+  const value=(job:typeof left):string|number=>{
+   if(sort==="customer")return customerName(job);
+   if(sort==="status")return job.status;
+   if(sort==="technician")return technicianName(job.assigned_technician_id)||"\uffff";
+   if(sort==="scheduled")return job.starts_at?new Date(job.starts_at).getTime():Number.MAX_SAFE_INTEGER;
+   if(sort==="total")return Number(job.total_amount??0);
+   if(sort==="newest")return new Date(job.created_at).getTime();
+   return Number(job.job_number);
+  };
+  const a=value(left),b=value(right);
+  const comparison=typeof a==="string"&&typeof b==="string"?a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}):Number(a)-Number(b);
+  return(direction==="asc"?comparison:-comparison)||Number(left.job_number)-Number(right.job_number);
+ });
+ const page=Math.max(1,Number(query.page)||1),totalPages=Math.max(1,Math.ceil(rows.length/pageSize)),currentPage=Math.min(page,totalPages);
  const visible=rows.slice((currentPage-1)*pageSize,currentPage*pageSize);
  const selected=rows.find(job=>job.id===query.job)??null;
  const selectedCustomer=selected?relation(selected.customers):null,selectedLocation=selected?relation(selected.service_locations):null,selectedService=selected?relation(selected.services):null;
@@ -51,10 +70,12 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
  const completed=all.filter(job=>job.status==="completed").length;
  const canEdit=canManageCustomers(role),base=`/app/${businessSlug}/jobs`;
  const href=(overrides:Record<string,string|undefined>)=>{
-  const values={q:query.q,date:query.date,status:query.status,technicianId:query.technicianId,assignment:query.assignment,customerId:query.customerId,priority:query.priority,serviceId:query.serviceId,sort:query.sort,page:String(currentPage),...overrides};
+  const values={q:query.q,date:query.date,status:query.status,technicianId:query.technicianId,assignment:query.assignment,customerId:query.customerId,priority:query.priority,serviceId:query.serviceId,sort,direction,page:String(currentPage),...overrides};
   const search=new URLSearchParams(Object.entries(values).filter((entry):entry is [string,string]=>Boolean(entry[1])));
   return `${base}?${search}#job-directory`;
  };
+ const sortHref=(column:Exclude<JobSort,"newest">)=>href({sort:column,direction:sort===column&&direction==="asc"?"desc":"asc",page:"1",job:undefined});
+ const sortHeader=(column:Exclude<JobSort,"newest">,text:string)=><span role="columnheader" aria-sort={sort===column?(direction==="asc"?"ascending":"descending"):"none"}><Link className={sort===column?"active":""} href={sortHref(column)}>{text}<i aria-hidden="true">{sort===column?(direction==="asc"?"↑":"↓"):"↕"}</i></Link></span>;
  const formatDate=(date:string|null)=>date?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:business.timezone}).format(new Date(date)):"Unscheduled";
  const money=(value:number|null)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(Number(value??0));
 
@@ -80,14 +101,14 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
       <label><span>Customer</span><select name="customerId" defaultValue={query.customerId??""}><option value="">All customers</option>{customers?.map(item=><option key={item.id} value={item.id}>{item.company_name||`${item.first_name} ${item.last_name}`}</option>)}</select></label>
       <label><span>Priority</span><select name="priority" defaultValue={query.priority??"all"}><option value="all">All priorities</option>{jobPriorities.map(priority=><option key={priority} value={priority}>{label(priority)}</option>)}</select></label>
       <label><span>Service</span><select name="serviceId" defaultValue={query.serviceId??""}><option value="">All services</option>{services?.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label><span>Sort</span><select name="sort" defaultValue={query.sort??"scheduled"}><option value="scheduled">Scheduled first</option><option value="newest">Newest first</option><option value="status">Status</option></select></label>
+      <label><span>Sort</span><select name="sort" defaultValue={sort}><option value="scheduled">Scheduled first</option><option value="newest">Newest first</option><option value="status">Status</option><option value="job">Job number</option><option value="customer">Customer</option><option value="technician">Technician</option><option value="total">Total</option></select></label>
      </div></details>
      <button className="sv-button sv-secondary" type="submit">Apply</button>
      <Link className="jobs-clear-filters" href={base}>Clear</Link>
     </form>
 
     <div className="jobs-table" role="table" aria-label="Jobs">
-     <div className="jobs-table-head" role="row"><span role="columnheader">Job</span><span role="columnheader">Customer</span><span role="columnheader">Status</span><span role="columnheader">Technician</span><span role="columnheader">Scheduled</span><span role="columnheader">Total</span></div>
+     <div className="jobs-table-head" role="row">{sortHeader("job","Job")}{sortHeader("customer","Customer")}{sortHeader("status","Status")}{sortHeader("technician","Technician")}{sortHeader("scheduled","Scheduled")}{sortHeader("total","Total")}</div>
      {visible.length?visible.map(job=>{
       const customer=relation(job.customers),location=relation(job.service_locations),service=relation(job.services),technician=technicians?.find(item=>item.id===job.assigned_technician_id);
       const customerName=customer?.company_name||[customer?.first_name,customer?.last_name].filter(Boolean).join(" ")||"No customer";

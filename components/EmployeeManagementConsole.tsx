@@ -12,6 +12,7 @@ type Employee={
  invitationRole:string|null;
 };
 type DrawerMode={kind:"add"}|{kind:"invite"}|{kind:"details";employeeId:string}|null;
+type EmployeeSort="employee"|"roles"|"status"|"contact"|"added";
 const initials=(name:string)=>name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase();
 
 export function EmployeeManagementConsole({businessSlug,employees,roles,numbering,canEdit,createAction,inviteAction,deactivateAction}:{
@@ -20,12 +21,26 @@ export function EmployeeManagementConsole({businessSlug,employees,roles,numberin
  deactivateAction:(employeeId:string,formData:FormData)=>void|Promise<void>;
 }){
  const [drawer,setDrawer]=useState<DrawerMode>(null),[dirty,setDirty]=useState(false),[search,setSearch]=useState(""),[status,setStatus]=useState("all"),[role,setRole]=useState("");
+ const [sort,setSort]=useState<EmployeeSort>("employee"),[direction,setDirection]=useState<"asc"|"desc">("asc");
  const [inviteNow,setInviteNow]=useState(false);
  const close=useCallback(()=>{setDrawer(null);setDirty(false);setInviteNow(false);},[]);
  const requestClose=useCallback(()=>{if(!dirty||window.confirm("Discard your unsaved changes?"))close();},[close,dirty]);
  const open=(next:DrawerMode)=>{setDirty(false);setInviteNow(false);setDrawer(next);};
  const visible=useMemo(()=>employees.filter(employee=>(!search||[employee.preferredName,employee.email,employee.employeeNumber].some(value=>String(value??"").toLowerCase().includes(search.toLowerCase())))
-  &&(status==="all"||employee.state===status)&&(!role||employee.roles.some(item=>item.id===role))),[employees,role,search,status]);
+  &&(status==="all"||employee.state===status)&&(!role||employee.roles.some(item=>item.id===role))).sort((left,right)=>{
+   const value=(employee:Employee)=>{
+    if(sort==="roles")return employee.roles.map(item=>item.name).sort().join(", ")||"Not assigned";
+    if(sort==="status")return employee.state;
+    if(sort==="contact")return employee.email||employee.phone||"\uffff";
+    if(sort==="added")return new Date(employee.createdAt).getTime();
+    return employee.preferredName;
+   };
+   const a=value(left),b=value(right);
+   const comparison=typeof a==="string"&&typeof b==="string"?a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}):Number(a)-Number(b);
+   return(direction==="asc"?comparison:-comparison)||left.preferredName.localeCompare(right.preferredName);
+  }),[direction,employees,role,search,sort,status]);
+ const changeSort=(column:EmployeeSort)=>{if(sort===column)setDirection(current=>current==="asc"?"desc":"asc");else{setSort(column);setDirection("asc");}};
+ const sortHeader=(column:EmployeeSort,text:string)=><span role="columnheader" aria-sort={sort===column?(direction==="asc"?"ascending":"descending"):"none"}><button type="button" className={sort===column?"active":""} onClick={()=>changeSort(column)}>{text}<i aria-hidden="true">{sort===column?(direction==="asc"?"↑":"↓"):"↕"}</i></button></span>;
  const selected=drawer?.kind==="details"?employees.find(employee=>employee.id===drawer.employeeId)??null:null;
  const pending=employees.filter(employee=>employee.state==="invited").length,missingEmail=employees.filter(employee=>employee.state==="missing_email").length,missingRoles=employees.filter(employee=>employee.state==="missing_role").length;
  return <>
@@ -46,7 +61,7 @@ export function EmployeeManagementConsole({businessSlug,employees,roles,numberin
      <button className="sv-button sv-secondary" type="button" onClick={()=>{setSearch("");setStatus("all");setRole("");}}>Clear</button>
     </div>
     <div className="employee-table" role="table" aria-label="Employees">
-     <div className="employee-table-head" role="row"><span role="columnheader">Employee</span><span role="columnheader">Role(s)</span><span role="columnheader">Status</span><span role="columnheader">Contact</span><span role="columnheader">Added</span></div>
+     <div className="employee-table-head" role="row">{sortHeader("employee","Employee")}{sortHeader("roles","Role(s)")}{sortHeader("status","Status")}{sortHeader("contact","Contact")}{sortHeader("added","Added")}</div>
      {visible.length?visible.map(employee=><button role="row" type="button" onClick={()=>open({kind:"details",employeeId:employee.id})} key={employee.id}>
       <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{employee.profilePhotoUrl?<img src={employee.profilePhotoUrl} alt=""/>:initials(employee.preferredName)}</span><span><strong>{employee.preferredName}</strong><small>{employee.employeeNumber?`#${employee.employeeNumber}`:employee.email||"No email"}</small></span></span>
       <span className="employee-table-roles" role="cell">{employee.roles.length?employee.roles.map(item=><em key={item.id}>{item.name}</em>):<em>Not assigned</em>}</span>
