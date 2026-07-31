@@ -20,7 +20,7 @@ export default function TechnicianLiveLocation({jobId,status}:{jobId:string;stat
   if(!response.ok)throw new Error(result.error||"Location could not be updated.");
   startTravel.current=false;setState("active");
   const distance=Number(result.distance_meters);
-  setMessage(Number.isFinite(distance)?distance<=150?"At the service-location geofence. Confirming arrival…":`${Math.max(0,Math.round(distance))} m from the service location.`:"Live location is being shared.");
+  setMessage(Number.isFinite(distance)?distance<=150?"At the service-location geofence. Confirming arrival…":`${(Math.max(0,distance)/1609.344).toFixed(1)} miles from the service location.`:"Live location is being shared.");
   if(result.arrived_automatically||result.job_status!==status)router.refresh();
  };
  const begin=()=>{
@@ -35,5 +35,5 @@ export default function TechnicianLiveLocation({jobId,status}:{jobId:string;stat
  };
  useEffect(()=>{if(window.sessionStorage.getItem(storageKey)==="true"&&["en_route","arrived","in_progress"].includes(status))begin();return stopWatch;},[]); // eslint-disable-line react-hooks/exhaustive-deps
  if(!["dispatched","en_route","arrived","in_progress"].includes(status))return null;
- return <section className={`tech-location-control ${state}`}><div><strong>{state==="active"?"Live location sharing is on":"Automatic arrival"}</strong><span>{message||"Share your location during travel so Servonas can mark you arrived after 30 seconds inside the service-area geofence."}</span></div>{state==="active"||state==="starting"?<button type="button" className="sv-button sv-secondary" onClick={()=>void stop()}>Stop sharing</button>:<button type="button" className="sv-button" onClick={begin}>{status==="dispatched"?"Start travel & share location":"Share live location"}</button>}</section>;
+ return <section className={`tech-location-control ${state}`}><div><strong>{state==="active"?"Live location sharing is on":"Automatic arrival"}</strong><span>{message||"Share your location during travel so Servonas can mark you arrived after 30 seconds inside the service-area geofence."}</span></div>{state==="active"||state==="starting"?<button type="button" className="sv-button sv-secondary" onClick={()=>void stop()}>Stop sharing</button>:<button type="button" className="sv-button" onClick={begin}>{status==="dispatched"?"Start Travel & Share Location":"Share live location"}</button>}</section>;
 }

@@ -32,6 +32,9 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
   const redirectWith = (kind: "error" | "success", message: string) =>
     `${returnTo}${returnTo.includes("?") ? "&" : "?"}${kind}=${encodeURIComponent(message)}`;
   const currentStatus = String(job.status) as JobStatus;
+  if (status === "in_progress" && currentStatus !== "arrived") {
+    redirect(redirectWith("error", "Start Job is only available after your location confirms you have arrived."));
+  }
   if (!jobStatuses.includes(status as JobStatus) || !canTransitionJob(currentStatus, status as JobStatus)) {
     redirect(redirectWith("error", "This job changed since the page loaded. Refresh and try the action shown."));
   }
