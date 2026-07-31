@@ -2,6 +2,7 @@
 
 import { useRef,useState } from "react";
 import { formatCents } from "@/lib/financial/priceBook";
+import InvoicePaymentIcon from "./InvoicePaymentIcon";
 
 export default function InvoicePaymentForm({token,balanceDueCents,depositRemainingCents,allowPartialPayments,minimumPartialPaymentCents,currency}:{
   token:string;
@@ -24,6 +25,6 @@ export default function InvoicePaymentForm({token,balanceDueCents,depositRemaini
       {allowPartialPayments&&<label><input type="radio" name="purpose" value="partial" checked={purpose==="partial"} onChange={()=>setPurpose("partial")}/><span><strong>Make a partial payment</strong><small>Minimum {formatCents(minimumPartialPaymentCents,currency)}</small></span></label>}
     </fieldset>}
     {purpose==="partial"&&<label className="invoice-partial-amount">Payment amount<input required name="partialAmount" type="number" inputMode="decimal" min={(Math.max(50,minimumPartialPaymentCents)/100).toFixed(2)} max={(balanceDueCents/100).toFixed(2)} step=".01" placeholder="0.00"/></label>}
-    <button type="submit">Pay {formatCents(balanceDueCents,currency)} Online&nbsp; ▣</button>
+    <button type="submit"><span>Pay {formatCents(balanceDueCents,currency)} Online</span><InvoicePaymentIcon name="lock"/></button>
   </form>;
 }
