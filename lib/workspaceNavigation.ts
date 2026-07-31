@@ -38,7 +38,8 @@ export function workspaceNavigation(slug:string):WorkspaceNavigationItem[]{
    {id:"territories",label:"Territories",href:`${base}/territories`},
   ]},
   {id:"assets",label:"Assets",children:[
-   {id:"inventory",label:"Inventory",disabled:true,badge:"Soon"},
+   {id:"equipment",label:"Equipment & Fleet",href:`${base}/equipment`},
+   {id:"inventory",label:"Rental Inventory",disabled:true,badge:"Soon"},
   ]},
   {id:"settings",label:"Settings",href:`${base}/settings`},
  ];

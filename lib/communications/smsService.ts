@@ -32,7 +32,7 @@ async function customerBookingConfirmation(jobId: string, consent: boolean) {
   if (!supabase) return { ok: false, error: "Supabase is unavailable." };
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,phone)")
+    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,phone,sms_consent_status)")
     .eq("id", jobId)
     .maybeSingle();
   if (jobError || !job) {
@@ -43,6 +43,7 @@ async function customerBookingConfirmation(jobId: string, consent: boolean) {
   const service = Array.isArray(job.services) ? job.services[0] : job.services;
   const customer = Array.isArray(job.customers) ? job.customers[0] : job.customers;
   if (!customer?.phone) return { ok: true, skipped: true, reason: "customer_phone_missing" };
+  if (customer.sms_consent_status === "opted_out") return { ok: true, skipped: true, reason: "sms_opted_out" };
   const existing = await supabase.from("job_communication_events").select("id,status")
     .eq("job_id", jobId).eq("channel", "sms").eq("template_key", "booking_confirmation").maybeSingle();
   if (existing.data && ["queued", "sent"].includes(existing.data.status)) return { ok: true, duplicate: true };
