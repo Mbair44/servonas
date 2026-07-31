@@ -51,10 +51,11 @@ async function prepareJob(
   const locationId = text(formData, "serviceLocationId");
   const serviceId = text(formData, "serviceId");
   const technicianId = text(formData, "technicianId");
+  const scheduleCommitment=text(formData,"scheduleCommitment")==="flexible"?"flexible":"fixed";
   const startsAt = localDate(text(formData, "startsAt"), business.timezone);
   const endsAt = localDate(text(formData, "endsAt"), business.timezone);
-  const arrivalStart = localDate(text(formData, "arrivalWindowStart"), business.timezone);
-  const arrivalEnd = localDate(text(formData, "arrivalWindowEnd"), business.timezone);
+  const arrivalStart = scheduleCommitment==="fixed"?localDate(text(formData, "arrivalWindowStart"), business.timezone):null;
+  const arrivalEnd = scheduleCommitment==="fixed"?localDate(text(formData, "arrivalWindowEnd"), business.timezone):null;
   if (!title) errors.title = "Enter a job title.";
   if (!customerId) errors.customerId = "Choose a customer.";
   const timeError = validateJobTimes(startsAt, endsAt, arrivalStart, arrivalEnd);
@@ -82,11 +83,11 @@ async function prepareJob(
   if (serviceId && !service) errors.serviceId = "Service does not belong to this business.";
   if (technicianId && !technician) errors.technicianId = "Technician is not assignable.";
   if (Object.keys(errors).length) return { error: "One or more selections are invalid.", errors, values };
-  const schedulingError = await validateJobSchedule({
+  const schedulingError = scheduleCommitment==="fixed"?await validateJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
     startsAt, endsAt, arrivalWindowStart: arrivalStart, arrivalWindowEnd: arrivalEnd,
     technicianId: technicianId || null, excludeJobId,
-  });
+  }):null;
   if (schedulingError) return { error: schedulingError, errors: { startsAt: schedulingError }, values };
   const estimatedDuration = Number(text(formData, "estimatedDurationMinutes") || 0);
   return {
@@ -102,6 +103,7 @@ async function prepareJob(
       customer_notes: text(formData, "customerNotes") || null,
       status,
       priority,
+      schedule_commitment:scheduleCommitment,
       starts_at: startsAt?.toISOString() ?? null,
       ends_at: endsAt?.toISOString() ?? null,
       arrival_window_start: arrivalStart?.toISOString() ?? null,
@@ -190,7 +192,7 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
   }
   const technicianId = text(formData, "technicianId") || null;
   const { data: job, error: jobError } = await supabase.from("jobs")
-    .select("id,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id")
+    .select("id,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,schedule_commitment")
     .eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (jobError || !job) {
     console.error("Job assignment lookup failed", { code: jobError?.code, businessId: business.id, jobId });
@@ -205,7 +207,7 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
       redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("That technician is currently off duty.")}`);
     }
   }
-  const conflict = await validateJobSchedule({
+  const conflict = job.schedule_commitment==="fixed"?await validateJobSchedule({
     supabase,
     businessId: business.id,
     timeZone: business.timezone,
@@ -215,7 +217,7 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
     arrivalWindowEnd: job.arrival_window_end ? new Date(job.arrival_window_end) : null,
     technicianId,
     excludeJobId: jobId,
-  });
+  }):null;
   if (conflict) {
     redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(conflict)}`);
   }

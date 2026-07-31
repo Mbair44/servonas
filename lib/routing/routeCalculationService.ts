@@ -22,6 +22,7 @@ type RouteJob = {
   ends_at: string | null;
   arrival_window_start: string | null;
   arrival_window_end: string | null;
+  schedule_commitment: "fixed" | "flexible";
   estimated_duration_minutes: number | null;
   service_id: string | null;
   routing_requirements: Record<string, unknown>;
@@ -90,7 +91,7 @@ export async function calculateDailyRoutes({
   const start = zonedDateTimeToUtc(serviceDate, "00:00", businessTimeZone);
   const end = zonedDateTimeToUtc(addDays(serviceDate, 1), "00:00", businessTimeZone);
   let jobsQuery = admin.from("jobs")
-    .select("id,job_number,title,assigned_technician_id,starts_at,ends_at,arrival_window_start,arrival_window_end,estimated_duration_minutes,service_id,service_location_id,routing_requirements,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(location_name,latitude,longitude,geocoding_status,street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(name,duration_minutes)")
+    .select("id,job_number,title,assigned_technician_id,starts_at,ends_at,arrival_window_start,arrival_window_end,schedule_commitment,estimated_duration_minutes,service_id,service_location_id,routing_requirements,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),service_locations!jobs_service_location_tenant_fk(location_name,latitude,longitude,geocoding_status,street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(name,duration_minutes)")
     .eq("business_id", businessId).eq("is_deleted", false)
     .not("assigned_technician_id", "is", null)
     .not("status", "in", '("canceled","declined")')
@@ -242,7 +243,8 @@ export async function calculateDailyRoutes({
       destination: endpoints.destination.waypoint,
       stops: routable.map(({ job, waypoint, duration }) => ({
         id: job.id, latitude: waypoint.latitude, longitude: waypoint.longitude,
-        startsAt: job.starts_at, endsAt: job.ends_at, duration: duration.minutes, durationSource: duration.source,
+        startsAt: job.starts_at, endsAt: job.ends_at,scheduleCommitment:job.schedule_commitment,
+        duration: duration.minutes, durationSource: duration.source,
       })),
     });
     const { data: existing } = await admin.from("technician_routes")
@@ -340,7 +342,9 @@ export async function calculateDailyRoutes({
       service_name_snapshot: service?.name ?? "Custom work",
       service_location_label_snapshot: location.location_name ?? "Service location",
       planned_arrival_at: job.starts_at, planned_departure_at: job.ends_at,
-      appointment_window_start: job.arrival_window_start, appointment_window_end: job.arrival_window_end,
+      appointment_window_start: job.schedule_commitment==="fixed"?(job.arrival_window_start??job.starts_at):null,
+      appointment_window_end: job.schedule_commitment==="fixed"?(job.arrival_window_end??job.starts_at):null,
+      is_locked:job.schedule_commitment==="fixed",
       service_duration_seconds: duration.minutes * 60, service_duration_source: duration.source,
       latitude: Number(location.latitude), longitude: Number(location.longitude),
       address_snapshot: [location.street_address, location.unit, location.city, location.state, location.postal_code].filter(Boolean).join(", "),

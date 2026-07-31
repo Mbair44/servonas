@@ -20,6 +20,8 @@ export default function JobForm({
   const [state, formAction, pending] = useActionState(action, {});
   const initialCustomer = state.values?.customerId ?? String(job?.customer_id ?? defaultCustomerId);
   const [customerId, setCustomerId] = useState(initialCustomer);
+  const initialCommitment=state.values?.scheduleCommitment??String(job?.schedule_commitment??"fixed");
+  const [fixedTime,setFixedTime]=useState(initialCommitment!=="flexible");
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
   const value = (name: string, fallback = "") => state.values?.[name] ?? fallback;
   const error = (name: string) => state.fieldErrors?.[name]
@@ -36,10 +38,12 @@ export default function JobForm({
     <label>Service location<select name="serviceLocationId" defaultValue={value("serviceLocationId", String(job?.service_location_id ?? ""))}><option value="">No saved location</option>{customerLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}, {location.city}</option>)}</select>{error("serviceLocationId")}</label>
     <label>Service<select name="serviceId" defaultValue={value("serviceId", String(job?.service_id ?? ""))}><option value="">Custom work</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{error("serviceId")}</label>
     <label>Primary technician<select name="technicianId" defaultValue={value("technicianId", String(job?.assigned_technician_id ?? ""))}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.preferred_name}</option>)}</select>{error("technicianId")}</label>
-    <label>Scheduled start<input name="startsAt" type="datetime-local" defaultValue={value("startsAt", String(job?.starts_at_local ?? ""))}/>{error("startsAt")}</label>
+    <input type="hidden" name="scheduleCommitment" value={fixedTime?"fixed":"flexible"}/>
+    <label className="wide job-time-commitment"><input type="checkbox" checked={fixedTime} onChange={event=>setFixedTime(event.target.checked)}/><span><strong>{fixedTime?"Appointment time is set":"Appointment time is flexible"}</strong><small>{fixedTime?"The technician must arrive at this time. Route calculation cannot move this stop.":"Route calculation may place this job anywhere on the selected service day."}</small></span></label>
+    <label>{fixedTime?"Scheduled start":"Service day (time may move)"}<input name="startsAt" type="datetime-local" defaultValue={value("startsAt", String(job?.starts_at_local ?? ""))}/>{error("startsAt")}</label>
     <label>Scheduled end<input name="endsAt" type="datetime-local" defaultValue={value("endsAt", String(job?.ends_at_local ?? ""))}/></label>
-    <label>Arrival window start<input name="arrivalWindowStart" type="datetime-local" defaultValue={value("arrivalWindowStart", String(job?.arrival_window_start_local ?? ""))}/></label>
-    <label>Arrival window end<input name="arrivalWindowEnd" type="datetime-local" defaultValue={value("arrivalWindowEnd", String(job?.arrival_window_end_local ?? ""))}/></label>
+    <label>Arrival window start<input disabled={!fixedTime} name="arrivalWindowStart" type="datetime-local" defaultValue={value("arrivalWindowStart", String(job?.arrival_window_start_local ?? ""))}/></label>
+    <label>Arrival window end<input disabled={!fixedTime} name="arrivalWindowEnd" type="datetime-local" defaultValue={value("arrivalWindowEnd", String(job?.arrival_window_end_local ?? ""))}/></label>
     <label>Estimated duration (minutes)<input name="estimatedDurationMinutes" type="number" min="1" max="10080" defaultValue={value("estimatedDurationMinutes", String(job?.estimated_duration_minutes ?? ""))}/></label>
     <label>Priority<select name="priority" defaultValue={value("priority", String(job?.priority ?? "normal"))}>{jobPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select>{error("priority")}</label>
     <label>Status<select name="status" defaultValue={value("status", String(job?.status ?? "draft"))}>{jobStatuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select>{error("status")}</label>
