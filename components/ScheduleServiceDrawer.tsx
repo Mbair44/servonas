@@ -23,7 +23,7 @@ export function ScheduleServiceDrawer({customer,locations,services,technicians,a
  return <>
   <button type="button" className={menuItem?"customer-action-item":undefined} onClick={()=>setOpen(true)}>{menuItem?<><i className={`customer-action-icon ${mode}`}><CustomerActionIcon name={mode==="job"?"briefcase":"calendar"}/></i><span><strong>{title}</strong><small>{description}</small></span><b aria-hidden="true">›</b></>:<>▣ {title}</>}</button>
   <ManagementDrawer open={open} title={title} onDirty={()=>{}} onClose={close}>
-   <JobForm action={action} customers={[customer]} locations={locations} services={services} technicians={technicians} submitLabel={title} defaultCustomerId={customer.id}/>
+   <JobForm action={action} customers={[customer]} locations={locations} services={services} technicians={technicians} submitLabel={title} defaultCustomerId={customer.id} onCancel={close}/>
   </ManagementDrawer>
  </>;
 }
