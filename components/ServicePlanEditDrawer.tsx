@@ -10,6 +10,7 @@ export type EditableServicePlan={
  start_date:string;end_date:string|null;first_recurring_date:string;cadence_interval:number;cadence_unit:string;
  default_duration_minutes:number;recurring_price:number;preferred_time_window:string;taxable:boolean;
  scheduling_mode?:"fixed_date"|"route_optimized";scheduling_flex_days?:number;
+ auto_dispatch?:boolean;
 };
 
 export function ServicePlanEditDrawer({plan,locations,services,employees,updateAction,deleteAction,menuItem=false}:{
@@ -35,6 +36,7 @@ export function ServicePlanEditDrawer({plan,locations,services,employees,updateA
      <label className="drawer-check"><input type="checkbox" checked={customAnchor} onChange={event=>setCustomAnchor(event.target.checked)}/>Use a different recurring start date</label>
      {customAnchor?<label>First recurring service date<input name="firstRecurringDate" type="date" required defaultValue={plan.first_recurring_date}/></label>:<input name="firstRecurringDate" type="hidden" value={effective}/>}
      <label className="drawer-check"><input type="checkbox" name="scheduleAutomatically" defaultChecked={plan.scheduling_mode==="route_optimized"}/>Let Servonas choose the best service day for the route</label>
+     <label className="drawer-check"><input type="checkbox" name="autoDispatch" defaultChecked={plan.auto_dispatch}/>Automatically dispatch assigned jobs on the appointment day</label>
      <label>Automatic scheduling window<select name="schedulingFlexDays" defaultValue={plan.scheduling_flex_days??7}><option value="3">Within 3 days</option><option value="7">Within 7 days</option><option value="14">Within 14 days</option><option value="30">Within 30 days</option></select></label>
     </fieldset>
     <fieldset><legend>Cadence and pricing</legend>
