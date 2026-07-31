@@ -38,7 +38,7 @@ async function normalizeFlexibleJobs({
  const nextDay=new Date(dayStart);nextDay.setUTCDate(nextDay.getUTCDate()+1);
  // Query a broad UTC envelope, then use the business-local service date.
  const {data:jobs}=await admin.from("jobs")
-  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status,arrival_window_start,arrival_window_end")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status,arrival_window_start,arrival_window_end,schedule_commitment")
   .eq("business_id",businessId).eq("assigned_technician_id",technicianId)
   .eq("is_deleted",false).not("status","in",'("completed","canceled","declined")')
   .gte("starts_at",new Date(dayStart.getTime()-14*60*60*1000).toISOString())
@@ -51,8 +51,7 @@ async function normalizeFlexibleJobs({
   const originalEnd=job.ends_at?new Date(job.ends_at).getTime():NaN;
   const durationMs=Number.isFinite(originalEnd)&&originalEnd>originalStart
    ?originalEnd-originalStart:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
-  const flexible=job.recurring_service_series_id
-   ||(job.status==="scheduled"&&!job.arrival_window_start&&!job.arrival_window_end);
+  const flexible=job.schedule_commitment==="flexible";
   if(!flexible){
    cursor=Math.max(cursor,originalStart)+durationMs;
    continue;
@@ -85,7 +84,7 @@ async function applyCalculatedDriveSchedule({
  ]);
  if(!stops?.length)return;
   const {data:jobs}=await admin.from("jobs")
-  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status,arrival_window_start,arrival_window_end")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,recurring_service_series_id,status,arrival_window_start,arrival_window_end,schedule_commitment")
   .eq("business_id",businessId).in("id",stops.map(stop=>stop.job_id));
  const jobById=new Map((jobs??[]).map(job=>[job.id,job]));
  const driveToStop=new Map((legs??[]).flatMap(leg=>leg.to_route_stop_id
@@ -101,8 +100,7 @@ async function applyCalculatedDriveSchedule({
   const originalEnd=job.ends_at?new Date(job.ends_at).getTime():NaN;
   const durationMs=Number.isFinite(originalEnd)&&originalEnd>originalStart
    ?originalEnd-originalStart:Math.max(1,Number(job.estimated_duration_minutes??60))*60_000;
-  const flexible=job.recurring_service_series_id
-   ||(job.status==="scheduled"&&!job.arrival_window_start&&!job.arrival_window_end);
+  const flexible=job.schedule_commitment==="flexible";
   if(!flexible){
    cursor=Math.max(cursor,originalStart)+durationMs;
    continue;
@@ -124,7 +122,7 @@ async function globallyOptimizeFlexibleDay({
  const dayStart=new Date(`${serviceDate}T00:00:00.000Z`);
  const nextDay=new Date(dayStart);nextDay.setUTCDate(nextDay.getUTCDate()+1);
  const {data:rows,error}=await admin.from("jobs")
-  .select("id,starts_at,ends_at,estimated_duration_minutes,status,arrival_window_start,arrival_window_end,service_locations!jobs_service_location_tenant_fk(latitude,longitude,geocoding_status)")
+  .select("id,starts_at,ends_at,estimated_duration_minutes,status,arrival_window_start,arrival_window_end,schedule_commitment,service_locations!jobs_service_location_tenant_fk(latitude,longitude,geocoding_status)")
   .eq("business_id",businessId).eq("assigned_technician_id",technicianId)
   .eq("is_deleted",false).not("status","in",'("completed","canceled","declined")')
   .gte("starts_at",new Date(dayStart.getTime()-14*60*60*1000).toISOString())
@@ -133,8 +131,7 @@ async function globallyOptimizeFlexibleDay({
  const jobs=(rows??[]).filter(job=>job.starts_at
   &&dateInTimeZone(new Date(job.starts_at),businessTimeZone)===serviceDate);
  if(jobs.length<3)return false;
- if(jobs.some(job=>!["pending","scheduled"].includes(job.status)
-  ||job.arrival_window_start||job.arrival_window_end))return false;
+ if(jobs.some(job=>job.schedule_commitment!=="flexible"||!["pending","scheduled"].includes(job.status)))return false;
  const normalized=jobs.flatMap(job=>{
   const relation=Array.isArray(job.service_locations)?job.service_locations[0]:job.service_locations;
   const latitude=Number(relation?.latitude),longitude=Number(relation?.longitude);
