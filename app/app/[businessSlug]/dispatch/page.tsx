@@ -62,11 +62,12 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   const date = validDate(query.date, today);
   const start = zonedDateTimeToUtc(date, "00:00", business.timezone).toISOString();
   const end = zonedDateTimeToUtc(addDays(date, 1), "00:00", business.timezone).toISOString();
-  const [{ data: jobRows, error }, { data: technicianRows }, { data: routePlan, error: routePlanError }] = await Promise.all([
+  const [{ data: jobRows, error }, { data: technicianRows }, { data: routePlan, error: routePlanError },{data:liveLocations,error:liveLocationError}] = await Promise.all([
     supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,service_address,customers!jobs_customer_tenant_fk(first_name,last_name,company_name,phone),service_locations!jobs_service_location_tenant_fk(street_address,unit,city,state,postal_code,latitude,longitude,geocoding_status),services!jobs_service_tenant_fk(name,duration_minutes)")
       .eq("business_id", business.id).eq("is_deleted", false).gte("starts_at", start).lt("starts_at", end).not("status", "in", '("canceled","declined")').order("starts_at"),
     supabase.from("technician_directory").select("id,preferred_name,phone,technician_status,schedule_color,service_areas").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).order("preferred_name"),
     routingSupabase.from("route_plans").select("id,calculation_status,version,calculation_revision,updated_at,updated_by").eq("business_id", business.id).eq("service_date", date).maybeSingle(),
+    supabase.from("technician_live_locations").select("technician_id,active_job_id,latitude,longitude,accuracy_meters,tracking_active,captured_at,updated_at").eq("business_id",business.id).eq("tracking_active",true),
   ]);
   if (error) {
     console.error("Dispatch board query failed", { code: error.code, businessId: business.id });
@@ -74,6 +75,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
   }
   const jobs = (jobRows ?? []) as unknown as DispatchJob[];
   const technicians = (technicianRows ?? []) as Technician[];
+  if(liveLocationError)console.error("Dispatch live technician locations could not be loaded",{businessId:business.id,code:liveLocationError.code});
+  const liveLocationByTechnician=new Map((liveLocations??[]).map(item=>[item.technician_id,item]));
   if (routePlanError) {
     console.error("Dispatch route plan query failed", { code: routePlanError.code, businessId: business.id });
   }
@@ -265,7 +268,8 @@ export default async function DispatchPage({ params, searchParams }: { params: P
       {technicians.map((technician) => {
         const assigned = jobs.filter((job) => job.assigned_technician_id === technician.id);
         const state = dispatchTechnicianState(technician.technician_status, assigned.map((job) => job.status));
-        return <section className="dispatch-column" key={technician.id}><header style={{ borderTopColor: technician.schedule_color }}><div><span className="dispatch-avatar" style={{ background: technician.schedule_color }}>{technician.preferred_name.slice(0, 1)}</span><div><h2>{technician.preferred_name}</h2><small>{assigned.length} jobs</small></div></div><span className={`technician-state ${state}`}>{state.replaceAll("_", " ")}</span></header><div className="dispatch-card-list">{assigned.length ? assigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone} routePlanId={routePlan?.id ?? null} planVersion={routePlan?.version ?? null}/>) : <div className="dispatch-empty">No jobs assigned.</div>}</div></section>;
+        const live=liveLocationByTechnician.get(technician.id);
+        return <section className="dispatch-column" key={technician.id}><header style={{ borderTopColor: technician.schedule_color }}><div><span className="dispatch-avatar" style={{ background: technician.schedule_color }}>{technician.preferred_name.slice(0, 1)}</span><div><h2>{technician.preferred_name}</h2><small>{assigned.length} jobs</small>{live&&<a className="dispatch-live-location" href={`https://www.google.com/maps/search/?api=1&query=${live.latitude},${live.longitude}`} target="_blank" rel="noreferrer">● Live location · {Math.round(Number(live.accuracy_meters))} m accuracy · {new Intl.DateTimeFormat("en-US",{timeZone:business.timezone,hour:"numeric",minute:"2-digit"}).format(new Date(live.captured_at))}</a>}</div></div><span className={`technician-state ${state}`}>{state.replaceAll("_", " ")}</span></header><div className="dispatch-card-list">{assigned.length ? assigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone} routePlanId={routePlan?.id ?? null} planVersion={routePlan?.version ?? null}/>) : <div className="dispatch-empty">No jobs assigned.</div>}</div></section>;
       })}
     </div>
   </section></main>;
