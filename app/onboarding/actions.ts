@@ -1,4 +1,5 @@
 "use server";
+import {revalidatePath} from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {validateOnboardingCompany,type OnboardingCompanyInput} from "@/lib/onboardingCompany";
@@ -129,8 +130,8 @@ export async function startServonasSubscription(slug:string,source:"onboarding"|
    mode:"subscription",customer:customerId,line_items:[{price:priceId,quantity:1}],
    payment_method_collection:"always",
    subscription_data:{trial_period_days:SERVONAS_TRIAL_DAYS,metadata:{business_id:business.id,platform:"servonas"}},
-   metadata:{business_id:business.id,purpose:"servonas_subscription"},
-   success_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?success=${encodeURIComponent("Subscription billing added. Your first 30 days are free.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&billing=1&billingAdded=1`,
+   metadata:{business_id:business.id,business_slug:slug,purpose:"servonas_subscription",return_source:source},
+   success_url:`${base}/api/stripe/subscription-return?session_id={CHECKOUT_SESSION_ID}`,
    cancel_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent("Subscription setup was canceled.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&billing=1&error=${encodeURIComponent("Subscription setup was canceled. You can skip it and add billing later.")}`,
   });
   const {error}=await supabase.from("business_platform_subscriptions").upsert({
@@ -145,4 +146,53 @@ export async function startServonasSubscription(slug:string,source:"onboarding"|
   redirect(withError(message));
  }
  redirect(destination);
+}
+
+export async function manageServonasSubscription(slug:string){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ const returnPath=`/app/${slug}/settings`;
+ if(!canManageBusiness(role))redirect(`${returnPath}?error=${encodeURIComponent("Only owners and administrators can manage subscription billing.")}#servonas-subscription`);
+ if(!platformBillingEnabled())redirect(returnPath);
+ const {data:subscription,error}=await supabase.from("business_platform_subscriptions").select("stripe_customer_id,status").eq("business_id",business.id).maybeSingle();
+ if(error||!subscription?.stripe_customer_id)redirect(`${returnPath}?error=${encodeURIComponent("Servonas subscription billing has not been set up yet.")}#servonas-subscription`);
+ if(!["trialing","active","past_due","paused"].includes(subscription.status))redirect(`${returnPath}?error=${encodeURIComponent("Complete subscription setup before managing billing.")}#servonas-subscription`);
+ let destination:string;
+ try{
+  const session=await stripeClient().billingPortal.sessions.create({
+   customer:subscription.stripe_customer_id,
+   return_url:`${stripeConnectBaseUrl()}${returnPath}#servonas-subscription`,
+  });
+  destination=session.url;
+ }catch(error){
+  const message=error instanceof Error?error.message:"The Stripe billing portal could not be opened.";
+  console.error("Servonas billing portal failed",{businessId:business.id,message});
+  redirect(`${returnPath}?error=${encodeURIComponent(message)}#servonas-subscription`);
+ }
+ redirect(destination);
+}
+
+export async function refreshServonasSubscription(slug:string){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ const returnPath=`/app/${slug}/settings`;
+ if(!canManageBusiness(role))redirect(`${returnPath}?error=${encodeURIComponent("Only owners and administrators can refresh subscription billing.")}#servonas-subscription`);
+ const {data:record}=await supabase.from("business_platform_subscriptions").select("stripe_customer_id").eq("business_id",business.id).maybeSingle();
+ if(!record?.stripe_customer_id)redirect(`${returnPath}?error=${encodeURIComponent("No Stripe billing customer was found.")}#servonas-subscription`);
+ try{
+  const subscriptions=await stripeClient().subscriptions.list({customer:record.stripe_customer_id,status:"all",limit:20});
+  const subscription=subscriptions.data.find(item=>["trialing","active","past_due","paused"].includes(item.status));
+  if(!subscription)throw new Error("Stripe does not show a completed subscription. Resume billing setup.");
+  const periodEnd=(subscription as typeof subscription&{current_period_end?:number}).current_period_end;
+  const {error}=await supabase.from("business_platform_subscriptions").update({
+   stripe_subscription_id:subscription.id,stripe_price_id:subscription.items.data[0]?.price.id??null,status:subscription.status,
+   trial_ends_at:subscription.trial_end?new Date(subscription.trial_end*1000).toISOString():null,
+   current_period_ends_at:periodEnd?new Date(periodEnd*1000).toISOString():null,cancel_at_period_end:subscription.cancel_at_period_end,updated_at:new Date().toISOString(),
+  }).eq("business_id",business.id);
+  if(error)throw new Error(`Subscription status could not be saved (${error.code}).`);
+ }catch(error){
+  const message=error instanceof Error?error.message:"Subscription status could not be refreshed.";
+  console.error("Servonas subscription refresh failed",{businessId:business.id,message});
+  redirect(`${returnPath}?error=${encodeURIComponent(message)}#servonas-subscription`);
+ }
+ revalidatePath(returnPath);
+ redirect(`${returnPath}?success=${encodeURIComponent("Subscription billing status refreshed.")}#servonas-subscription`);
 }
