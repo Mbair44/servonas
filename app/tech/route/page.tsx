@@ -65,7 +65,7 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
     </article>;
   };
   const mapStops = stops.filter((stop) => stop.latitude !== null && stop.longitude !== null).map((stop) => ({ id: stop.id, sequence: stop.sequence, latitude: Number(stop.latitude), longitude: Number(stop.longitude), title: stop.job.title, completed: stop.job.status === "completed" }));
-  return <main className="tech-shell tech-route-shell"><header className="tech-detail-header"><Link href="/tech">← Technician home</Link><Link href={`/tech/route${routeQuery}`}>Refresh route</Link></header>
+  return <main className="tech-shell tech-route-shell"><header className="tech-detail-header"><Link href="/tech">← Technician home</Link><div className="tech-header-actions"><Link href="/app">Main app</Link><Link href={`/tech/route${routeQuery}`}>Refresh route</Link></div></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     <section className="tech-route-heading"><span className="sv-kicker">Today’s planned route</span><h1>{new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long", month: "long", day: "numeric" }).format(new Date())}</h1><p>{business?.name} · {profile.preferred_name}</p>{plan && <small>Plan v{plan.version} · updated {new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(plan.updated_at))}. This is a planned route, not live GPS tracking.</small>}</section>
     {!plan || !route ? <section className="tech-empty-inline"><strong>No calculated route for today.</strong><p>Your assigned jobs remain available on the technician home screen.</p></section> : <>

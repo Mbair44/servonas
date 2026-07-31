@@ -11,11 +11,11 @@ type Technician = { id: string; preferred_name: string };
 type Job = Record<string, string | number | null | undefined>;
 
 export default function JobForm({
-  action, customers, locations, services, technicians, job, submitLabel, defaultCustomerId = "",
+  action, customers, locations, services, technicians, job, submitLabel, defaultCustomerId = "", onCancel,
 }: {
   action: (state: JobActionState, formData: FormData) => Promise<JobActionState>;
   customers: Customer[]; locations: Location[]; services: Service[]; technicians: Technician[];
-  job?: Job; submitLabel: string; defaultCustomerId?: string;
+  job?: Job; submitLabel: string; defaultCustomerId?: string; onCancel?:()=>void;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const initialCustomer = state.values?.customerId ?? String(job?.customer_id ?? defaultCustomerId);
@@ -32,6 +32,7 @@ export default function JobForm({
   );
   return <form action={formAction} className="job-form">
     {state.error && <div className="workspace-notice error wide" role="alert">{state.error}</div>}
+    {state.warning&&<div className="workspace-notice warning wide" role="alert"><strong>Scheduling notice</strong><p>{state.warning}</p><p>You can create this job anyway or cancel and return to the previous screen.</p><div className="job-warning-actions"><button className="sv-button" name="overrideMinimumNotice" value="true" disabled={pending}>{pending?"Creating…":"Create job anyway"}</button><button type="button" className="sv-button sv-secondary" onClick={onCancel??(()=>window.history.back())}>Cancel</button></div></div>}
     {!job && <input type="hidden" name="requestKey" value={requestKey.current}/>}
     <label className="wide">Job title<input required name="title" defaultValue={value("title", String(job?.title ?? ""))} placeholder="AC repair, landscape cleanup, annual inspection…"/>{error("title")}</label>
     <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
@@ -55,6 +56,6 @@ export default function JobForm({
     <label className="wide">Description<textarea name="description" rows={4} defaultValue={value("description", String(job?.description ?? ""))}/></label>
     <label className="wide">Customer-visible notes<textarea name="customerNotes" rows={3} defaultValue={value("customerNotes", String(job?.customer_notes ?? ""))}/></label>
     <label className="wide">Internal notes<textarea name="internalNotes" rows={3} defaultValue={value("internalNotes", String(job?.internal_notes ?? ""))}/></label>
-    <button className="sv-button" disabled={pending}>{pending ? "Saving…" : submitLabel}</button>
+    {!state.warning&&<button className="sv-button" disabled={pending}>{pending ? "Saving…" : submitLabel}</button>}
   </form>;
 }

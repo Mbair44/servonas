@@ -6,12 +6,12 @@ import { canManageCustomers } from "@/lib/access";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
-import { validateJobSchedule } from "@/lib/jobScheduling";
+import { checkJobSchedule, validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
 import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 
-export type JobActionState = { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
+export type JobActionState = { error?: string; warning?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const valuesFrom = (formData: FormData) => Object.fromEntries(
   [...formData.entries()].filter(([, value]) => typeof value === "string"),
@@ -42,6 +42,7 @@ async function prepareJob(
   formData: FormData,
   context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
   excludeJobId?: string,
+  allowMinimumNoticeOverride = false,
 ) {
   const { supabase, business } = context;
   const values = valuesFrom(formData);
@@ -83,12 +84,19 @@ async function prepareJob(
   if (serviceId && !service) errors.serviceId = "Service does not belong to this business.";
   if (technicianId && !technician) errors.technicianId = "Technician is not assignable.";
   if (Object.keys(errors).length) return { error: "One or more selections are invalid.", errors, values };
-  const schedulingError = scheduleCommitment==="fixed"?await validateJobSchedule({
+  const schedulingCheck = scheduleCommitment==="fixed"?await checkJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
     startsAt, endsAt, arrivalWindowStart: arrivalStart, arrivalWindowEnd: arrivalEnd,
     technicianId: technicianId || null, excludeJobId,
   }):null;
-  if (schedulingError) return { error: schedulingError, errors: { startsAt: schedulingError }, values };
+  if(schedulingCheck&&!schedulingCheck.available){
+    const schedulingMessage=schedulingCheck.message??"The requested schedule is unavailable.";
+    const isMinimumNotice=schedulingMessage==="The requested time does not meet the minimum scheduling notice.";
+    if(!(allowMinimumNoticeOverride&&isMinimumNotice&&text(formData,"overrideMinimumNotice")==="true")){
+      if(allowMinimumNoticeOverride&&isMinimumNotice)return {warning:schedulingMessage,values};
+      return {error:schedulingMessage,errors:{startsAt:schedulingMessage},values};
+    }
+  }
   const estimatedDuration = Number(text(formData, "estimatedDurationMinutes") || 0);
   return {
     values,
@@ -128,8 +136,8 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
   if (!/^[0-9a-f-]{36}$/i.test(requestKey)) return { error: "Refresh the page before submitting.", values };
   const { data: existing } = await supabase.from("jobs").select("id").eq("business_id", business.id).eq("request_key", requestKey).maybeSingle();
   if (existing) redirect(`/app/${slug}/jobs/${existing.id}`);
-  const prepared = await prepareJob(formData, context);
-  if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
+  const prepared = await prepareJob(formData, context, undefined, true);
+  if (!("payload" in prepared)) return { error: prepared.error, warning: prepared.warning, fieldErrors: prepared.errors, values: prepared.values };
   const payload = prepared.payload!;
   const { data: job, error } = await supabase.from("jobs").insert({
     ...payload, business_id: business.id, request_key: requestKey,
