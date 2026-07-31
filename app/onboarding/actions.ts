@@ -10,7 +10,7 @@ import {defaultBusinessHours,validateBusinessHours,type DayHours} from "@/lib/on
 import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} from "@/lib/onboardingService";
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {sendBusinessSetupNotification} from "@/lib/communications/businessSetupEmailService";
-import {platformBillingEnabled,SERVONAS_TRIAL_DAYS} from "@/lib/platformBilling";
+import {platformBillingEnabled,servonasTrialDays} from "@/lib/platformBilling";
 import {stripeClient,stripeConnectBaseUrl} from "@/lib/stripeConnect";
 
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
@@ -119,7 +119,7 @@ export async function startServonasSubscription(slug:string,source:"onboarding"|
  if(!priceId)redirect(withError("Servonas subscription billing is not configured."));
  let destination:string;
  try{
-  const stripe=stripeClient(),base=stripeConnectBaseUrl();
+  const stripe=stripeClient(),base=stripeConnectBaseUrl(),trialDays=servonasTrialDays();
   const {data:existing}=await supabase.from("business_platform_subscriptions").select("stripe_customer_id").eq("business_id",business.id).maybeSingle();
   let customerId=existing?.stripe_customer_id??null;
   if(!customerId){
@@ -129,13 +129,13 @@ export async function startServonasSubscription(slug:string,source:"onboarding"|
   const session=await stripe.checkout.sessions.create({
    mode:"subscription",customer:customerId,line_items:[{price:priceId,quantity:1}],
    payment_method_collection:"always",
-   subscription_data:{trial_period_days:SERVONAS_TRIAL_DAYS,metadata:{business_id:business.id,platform:"servonas"}},
+   subscription_data:{trial_period_days:trialDays,metadata:{business_id:business.id,platform:"servonas"}},
    metadata:{business_id:business.id,business_slug:slug,purpose:"servonas_subscription",return_source:source},
    success_url:`${base}/api/stripe/subscription-return?session_id={CHECKOUT_SESSION_ID}`,
    cancel_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent("Subscription setup was canceled.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&billing=1&error=${encodeURIComponent("Subscription setup was canceled. You can skip it and add billing later.")}`,
   });
   const {error}=await supabase.from("business_platform_subscriptions").upsert({
-   business_id:business.id,stripe_customer_id:customerId,stripe_checkout_session_id:session.id,status:"checkout_pending",trial_ends_at:new Date(Date.now()+SERVONAS_TRIAL_DAYS*86_400_000).toISOString(),
+   business_id:business.id,stripe_customer_id:customerId,stripe_checkout_session_id:session.id,status:"checkout_pending",trial_ends_at:new Date(Date.now()+trialDays*86_400_000).toISOString(),
   },{onConflict:"business_id"});
   if(error)throw new Error(`Subscription setup could not be saved (${error.code}).`);
   if(!session.url)throw new Error("Stripe did not return a subscription checkout URL.");
