@@ -7,12 +7,10 @@ import { transitionTechnicianJob } from "../actions";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const nextAction: Record<string, { status: string; label: string }> = {
-  dispatched: { status: "en_route", label: "Mark en route" },
-  en_route: { status: "arrived", label: "Mark arrived" },
   arrived: { status: "in_progress", label: "Start job" },
   in_progress: { status: "completed", label: "Complete job" },
 };
-const miles = (meters: number | null) => meters === null ? "Drive pending" : `${(meters / 1609.344).toFixed(1)} mi`;
+const miles = (meters: number | null) => meters === null ? "Drive pending" : `${(meters / 1609.344).toFixed(1)} miles`;
 const minutes = (seconds: number | null) => seconds === null ? "Time pending" : `${Math.max(1, Math.round(seconds / 60))} min`;
 
 export default async function TechnicianRoutePage({ searchParams }: { searchParams: Promise<{ business?: string; error?: string; success?: string }> }) {
@@ -63,7 +61,7 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
       {stop.appointment_window_start && <small>Appointment window: {new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(stop.appointment_window_start))}–{new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(stop.appointment_window_end!))}</small>}
       <div className="tech-route-metrics"><span>{miles(stop.leg?.calculation_status === "ready" ? stop.leg.driving_distance_meters : null)}</span><span>{minutes(stop.leg?.calculation_status === "ready" ? stop.leg.driving_duration_seconds : null)} from prior stop</span></div>
       <div className="tech-route-actions">{stop.customer?.phone && <a href={`tel:${stop.customer.phone}`}>Call customer</a>}<Link href={`/tech/jobs/${stop.job.id}`}>Job details</Link>{stop.address && <><a target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${mapsQuery}`}>Google Maps</a><a target="_blank" rel="noreferrer" href={`https://maps.apple.com/?daddr=${mapsQuery}`}>Apple Maps</a><a target="_blank" rel="noreferrer" href={`https://waze.com/ul?q=${mapsQuery}&navigate=yes`}>Waze</a></>}</div>
-      {action && <form action={transitionTechnicianJob.bind(null, stop.job.id)}><input type="hidden" name="status" value={action.status}/><input type="hidden" name="returnTo" value={`/tech/route${routeQuery}`}/><button className="sv-button sv-full">{action.label}</button></form>}
+      {stop.job.status === "dispatched" ? <Link className="sv-button sv-full" href={`/tech/jobs/${stop.job.id}`}>Start Travel &amp; Share Location</Link> : stop.job.status === "en_route" ? <><button type="button" className="sv-button sv-full" disabled>Start job</button><p className="tech-status-help">Start Job unlocks when automatic arrival is confirmed.</p></> : action && <form action={transitionTechnicianJob.bind(null, stop.job.id)}><input type="hidden" name="status" value={action.status}/><input type="hidden" name="returnTo" value={`/tech/route${routeQuery}`}/><button className="sv-button sv-full">{action.label}</button></form>}
     </article>;
   };
   const mapStops = stops.filter((stop) => stop.latitude !== null && stop.longitude !== null).map((stop) => ({ id: stop.id, sequence: stop.sequence, latitude: Number(stop.latitude), longitude: Number(stop.longitude), title: stop.job.title, completed: stop.job.status === "completed" }));

@@ -92,7 +92,7 @@ export default async function PublicBookingPage({
         )}
       </section>
       <footer>
-        Powered by <b>Servonas</b> · <Link href={`/book/${businessSlug}/privacy`}>Privacy Policy</Link>
+        Powered by <b>Servonas</b> · <Link href={`/book/${businessSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${businessSlug}/terms`}>Text Messaging Terms</Link>
       </footer>
     </main>
   );

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingSms } from "@/lib/sms";
+import {sendFleetRegistrationReminders} from "@/lib/communications/fleetRegistrationEmailService";
 
 function phoenixDate(offsetDays: number) {
   const now = new Date();
@@ -20,7 +21,10 @@ export async function GET(request: Request) {
   ]);
   const reminderIds = [...new Set((reminders.data ?? []).map((b) => b.id))];
   const reviewIds = [...new Set((reviews.data ?? []).map((b) => b.id))];
-  const reminderResults = await Promise.all(reminderIds.map((id) => sendBookingSms(id, "reminder")));
-  const reviewResults = await Promise.all(reviewIds.map((id) => sendBookingSms(id, "review")));
-  return NextResponse.json({ tomorrow, yesterday, reminders: reminderResults, reviews: reviewResults });
+  const [reminderResults,reviewResults,fleetRegistration]=await Promise.all([
+    Promise.all(reminderIds.map((id) => sendBookingSms(id, "reminder"))),
+    Promise.all(reviewIds.map((id) => sendBookingSms(id, "review"))),
+    sendFleetRegistrationReminders(),
+  ]);
+  return NextResponse.json({ tomorrow, yesterday, reminders: reminderResults, reviews: reviewResults,fleetRegistration });
 }

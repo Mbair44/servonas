@@ -70,10 +70,9 @@ export async function submitPublicBooking(
   if (!startRaw) fieldErrors.startsAt = "Choose an available date and time.";
   if (!first) fieldErrors.firstName = "Enter your first name.";
   if (!email) fieldErrors.email = "Enter your email address so we can send your booking confirmation.";
-  if (!phone) fieldErrors.phone = "Enter your phone number so we can text your booking confirmation.";
+  if (!phone) fieldErrors.phone = "Enter a phone number where the business can reach you about your appointment.";
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.email = "Enter a valid email address.";
   if (phone && phone.replace(/\D/g, "").length < 10) fieldErrors.phone = "Enter a valid phone number.";
-  if (!smsConsent) fieldErrors.smsConsent = "Consent is required to receive appointment text messages.";
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
     fieldErrors.form = "Refresh the page before submitting this booking.";
   }
