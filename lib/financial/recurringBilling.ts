@@ -28,11 +28,29 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
   console.error("Completed-job billing invoice lookup failed",{jobId,invoiceId,code:invoiceError?.code});
   return{ok:false,invoiceId,error:"invoice_lookup_failed"};
  }
- const billingMethod=invoice.billing_method_snapshot??result.billing_method;
+ const [{data:customerBilling},{data:businessBilling}]=await Promise.all([
+  db.from("customer_billing_profiles").select("use_business_defaults,billing_method,auto_send_invoice")
+   .eq("business_id",invoice.business_id).eq("customer_id",invoice.customer_id).maybeSingle(),
+  db.from("business_billing_settings").select("default_billing_method,review_before_processing")
+   .eq("business_id",invoice.business_id).maybeSingle(),
+ ]);
+ const useBusinessDefaults=!customerBilling||customerBilling.use_business_defaults;
+ const billingMethod=useBusinessDefaults
+  ?businessBilling?.default_billing_method??invoice.billing_method_snapshot??result.billing_method
+  :customerBilling.billing_method??businessBilling?.default_billing_method??invoice.billing_method_snapshot??result.billing_method;
+ const autoSend=useBusinessDefaults
+  ?!Boolean(businessBilling?.review_before_processing)
+  :customerBilling.auto_send_invoice??!Boolean(businessBilling?.review_before_processing);
+ if(invoice.billing_method_snapshot!==billingMethod){
+  await db.from("invoices").update({billing_method_snapshot:billingMethod}).eq("id",invoiceId);
+ }
  if(billingMethod==="manual_billing")return{ok:true,invoiceId,action:"draft"};
 
  if(billingMethod==="invoice_after_completion"){
-  if(!result.auto_send)return{ok:true,invoiceId,action:"draft"};
+  if(!autoSend){
+   console.info("Automatic completed-job invoice email skipped for review",{jobId,invoiceId,businessId:invoice.business_id,customerId:invoice.customer_id});
+   return{ok:true,invoiceId,action:"draft"};
+  }
   const token=generatePublicDocumentToken(),hash=await publicDocumentTokenHash(token);
   const {error}=await db.from("invoices").update({
    status:"sent",sent_at:new Date().toISOString(),public_token_hash:hash,
