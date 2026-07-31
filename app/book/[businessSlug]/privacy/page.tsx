@@ -23,7 +23,7 @@ export default async function BookingPrivacyPolicy({params}:{params:Promise<{bus
    <section><h2>Service providers</h2><p>Information may be processed by vendors that provide services necessary to operate appointment scheduling and communications. These providers may use the information only to perform services on behalf of {businessName}, subject to appropriate confidentiality and data-protection obligations.</p></section>
    <section><h2>Data protection and retention</h2><p>Reasonable safeguards are used to protect personal information. Information is retained only as long as reasonably necessary for service delivery, business records, legal obligations, and dispute resolution.</p></section>
    <section><h2>Your choices</h2><p>You may request access to, correction of, or deletion of your personal information by contacting {businessName} through its website or normal business contact channels.</p></section>
-   <footer><Link href={`/book/${businessSlug}`}>← Back to booking</Link>{business?.website_url&&<a href={business.website_url}>Business website</a>}</footer>
+   <footer><Link href={`/book/${businessSlug}`}>← Back to booking</Link><Link href={`/book/${businessSlug}/terms`}>Text Messaging Terms</Link>{business?.website_url&&<a href={business.website_url}>Business website</a>}</footer>
   </article>
  </main>;
 }
