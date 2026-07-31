@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { JobActionState } from "@/app/app/[businessSlug]/jobs/actions";
 import { jobPriorities, jobStatuses, paymentStatuses } from "@/lib/jobValidation";
 
@@ -20,6 +20,8 @@ export default function JobForm({
   const [state, formAction, pending] = useActionState(action, {});
   const initialCustomer = state.values?.customerId ?? String(job?.customer_id ?? defaultCustomerId);
   const [customerId, setCustomerId] = useState(initialCustomer);
+  const initialLocation = state.values?.serviceLocationId ?? String(job?.service_location_id ?? "");
+  const [locationId,setLocationId]=useState(initialLocation);
   const initialCommitment=state.values?.scheduleCommitment??String(job?.schedule_commitment??"fixed");
   const [fixedTime,setFixedTime]=useState(initialCommitment!=="flexible");
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
@@ -30,13 +32,20 @@ export default function JobForm({
     () => locations.filter((location) => !customerId || location.customer_id === customerId),
     [locations, customerId],
   );
+  useEffect(()=>{
+    if(customerLocations.length===1){
+      setLocationId(customerLocations[0].id);
+    }else if(locationId&&!customerLocations.some(location=>location.id===locationId)){
+      setLocationId("");
+    }
+  },[customerLocations,locationId]);
   return <form action={formAction} className="job-form">
     {state.error && <div className="workspace-notice error wide" role="alert">{state.error}</div>}
     {state.warning&&<div className="workspace-notice warning wide" role="alert"><strong>Scheduling notice</strong><p>{state.warning}</p><p>You can create this job anyway or cancel and return to the previous screen.</p><div className="job-warning-actions"><button className="sv-button" name="overrideMinimumNotice" value="true" disabled={pending}>{pending?"Creating…":"Create job anyway"}</button><button type="button" className="sv-button sv-secondary" onClick={onCancel??(()=>window.history.back())}>Cancel</button></div></div>}
     {!job && <input type="hidden" name="requestKey" value={requestKey.current}/>}
     <label className="wide">Job title<input required name="title" defaultValue={value("title", String(job?.title ?? ""))} placeholder="AC repair, landscape cleanup, annual inspection…"/>{error("title")}</label>
     <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
-    <label>Service location<select name="serviceLocationId" defaultValue={value("serviceLocationId", String(job?.service_location_id ?? ""))}><option value="">No saved location</option>{customerLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}, {location.city}</option>)}</select>{error("serviceLocationId")}</label>
+    <label>Service location<select name="serviceLocationId" value={locationId} onChange={event=>setLocationId(event.target.value)}><option value="">No saved location</option>{customerLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}, {location.city}</option>)}</select>{error("serviceLocationId")}</label>
     <label>Service<select name="serviceId" defaultValue={value("serviceId", String(job?.service_id ?? ""))}><option value="">Custom work</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{error("serviceId")}</label>
     <label>Primary technician<select name="technicianId" defaultValue={value("technicianId", String(job?.assigned_technician_id ?? ""))}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.preferred_name}</option>)}</select>{error("technicianId")}</label>
     <input type="hidden" name="scheduleCommitment" value={fixedTime?"fixed":"flexible"}/>
