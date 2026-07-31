@@ -12,7 +12,7 @@ type BookingSmsData = {
   balance_due_cents: number;
   receipt_token: string;
   stripe_receipt_url: string | null;
-  customers: { first_name: string; last_name: string; phone: string } | { first_name: string; last_name: string; phone: string }[] | null;
+  customers: { first_name: string; last_name: string; phone: string; sms_consent_status:string } | { first_name: string; last_name: string; phone: string; sms_consent_status:string }[] | null;
   booking_items: { rental_date: string; inventory_items: { name: string } | { name: string }[] | null }[] | null;
 };
 
@@ -39,7 +39,7 @@ export async function loadBookingSmsData(bookingId: string): Promise<BookingSmsD
   const supabase = getSupabaseAdmin();
   if (!supabase) return null;
   const { data, error } = await supabase.from("bookings")
-    .select("id,booking_number,delivery_address,delivery_city,delivery_state,delivery_zip,deposit_cents,balance_due_cents,receipt_token,stripe_receipt_url,customers(first_name,last_name,phone),booking_items(rental_date,inventory_items(name))")
+    .select("id,booking_number,delivery_address,delivery_city,delivery_state,delivery_zip,deposit_cents,balance_due_cents,receipt_token,stripe_receipt_url,customers(first_name,last_name,phone,sms_consent_status),booking_items(rental_date,inventory_items(name))")
     .eq("id", bookingId).single();
   if (error) { console.error("SMS booking lookup failed", error); return null; }
   return data as BookingSmsData;
@@ -73,6 +73,7 @@ export async function sendBookingSms(bookingId: string, templateKey: SmsTemplate
   if (!booking) return { ok: false, error: "Booking was not found." };
   const customer = first(booking.customers);
   if (!customer?.phone) return { ok: false, error: "Customer has no phone number." };
+  if (customer.sms_consent_status === "opted_out") return { ok: true, skipped: true, reason: "sms_opted_out" };
   const { data: template, error: templateError } = await supabase.from("sms_templates").select("body,enabled").eq("template_key", templateKey).single();
   if (templateError || !template) return { ok: false, error: "SMS template was not found." };
   if (!template.enabled) return { ok: true, skipped: true };

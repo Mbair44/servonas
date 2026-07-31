@@ -14,6 +14,20 @@ export async function updateBusinessSettings(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/settings`); redirect(`/app/${slug}/settings?success=Settings+saved`);
 }
 
+export async function updateInboundSmsSettings(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
+ const target=`/app/${slug}/settings#inbound-sms`;
+ if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change inbound SMS settings.")}#inbound-sms`);
+ const digits=text(formData,"inboundNumber").replace(/\D/g,"");
+ const inboundNumber=digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:null;
+ const autoReply=text(formData,"autoReply"),emergencyReply=text(formData,"emergencyReply");
+ if(!inboundNumber||!autoReply||!emergencyReply)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Enter a valid U.S. SMS number and both reply messages.")}#inbound-sms`);
+ const {error}=await supabase.from("business_inbound_sms_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",inbound_number_e164:inboundNumber,auto_reply_enabled:formData.get("autoReplyEnabled")==="on",auto_reply_body:autoReply,emergency_reply_body:emergencyReply,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
+ if(error){console.error("Inbound SMS settings update failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.code==="23505"?"That inbound number is already assigned to another workspace.":"Inbound SMS settings could not be saved. Apply the latest database migration first.")}#inbound-sms`);}
+ revalidatePath(`/app/${slug}/settings`);
+ redirect(`/app/${slug}/settings?success=${encodeURIComponent("Inbound SMS settings saved.")}#inbound-sms`);
+}
+
 export async function updateEmployeeNumbering(slug:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change employee numbering.")}#employee-numbering`);

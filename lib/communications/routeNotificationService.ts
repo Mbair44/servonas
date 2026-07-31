@@ -12,7 +12,7 @@ export async function prepareRouteNotification({
   const admin = getSupabaseAdmin();
   if (!admin) return { ok: false, outcome: "not_configured" as const };
   const { data: job, error } = await admin.from("jobs")
-    .select("business_id,status,customers!jobs_customer_tenant_fk(email,phone,preferred_contact_method)")
+    .select("business_id,status,customers!jobs_customer_tenant_fk(email,phone,preferred_contact_method,sms_consent_status)")
     .eq("id", jobId).maybeSingle();
   if (error || !job) {
     console.error("Route notification job lookup failed", { jobId, code: error?.code ?? "not_found" });
@@ -20,7 +20,7 @@ export async function prepareRouteNotification({
   }
   const customerValue = job.customers as unknown;
   const customer = (Array.isArray(customerValue) ? customerValue[0] : customerValue) as {
-    email: string | null; phone: string | null; preferred_contact_method: string;
+    email: string | null; phone: string | null; preferred_contact_method: string;sms_consent_status:string;
   } | null;
   const { data: policy, error: policyError } = await admin.from("business_routing_policies")
     .select("scheduled_window_notifications_enabled,en_route_notifications_enabled,proximity_eta_notifications_enabled")
@@ -43,6 +43,7 @@ export async function prepareRouteNotification({
     return { ok: true, outcome: "preference_skipped" as const };
   }
   const channel = customer.preferred_contact_method === "sms" ? "sms" : "email";
+  if(channel==="sms"&&customer.sms_consent_status==="opted_out")return {ok:true,outcome:"preference_skipped" as const};
   const recipient = channel === "sms" ? customer.phone : customer.email;
   if (!recipient) return { ok: false, outcome: "not_configured" as const };
   const eventKey = `${routePlanId}:${planRevision}:${kind}`;
