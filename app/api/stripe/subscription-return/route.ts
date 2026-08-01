@@ -23,7 +23,7 @@ export async function GET(request:Request){
    cancel_at_period_end:subscription.cancel_at_period_end,updated_at:new Date().toISOString(),
   }).eq("business_id",businessId).eq("stripe_checkout_session_id",session.id);
   if(error)throw new Error(`Subscription confirmation could not be saved (${error.code}).`);
-  const destination=source==="onboarding"?`/onboarding?business=${encodeURIComponent(slug)}&billing=1&billingAdded=1`:`/app/${encodeURIComponent(slug)}/settings?success=${encodeURIComponent("Subscription billing added. Your first 30 days are free.")}#servonas-subscription`;
+  const destination=source==="onboarding"?`/onboarding?business=${encodeURIComponent(slug)}`:`/app/${encodeURIComponent(slug)}/settings?success=${encodeURIComponent("Subscription billing updated.")}`;
   return NextResponse.redirect(`${base}${destination}`);
  }catch(error){
   console.error("Servonas subscription return failed",{sessionId,message:error instanceof Error?error.message:"Unknown error"});
