@@ -74,7 +74,7 @@ async function refreshServicePlanRoutes({
   return null;
  }
  return refreshAffectedTechnicianRoutes({
-  admin,authenticated:supabase,businessId:business.id,businessTimeZone:business.timezone,
+  admin,businessId:business.id,businessTimeZone:business.timezone,
   actorUserId:userId,jobs:jobs??[],
  });
 }
