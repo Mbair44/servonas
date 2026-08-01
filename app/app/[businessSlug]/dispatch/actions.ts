@@ -45,7 +45,7 @@ export async function calculateDispatchRoutes(slug: string, formData: FormData) 
       .not("assigned_technician_id","is",null);
     if(jobsError)throw new Error(`Scheduled jobs could not be loaded (${jobsError.code}).`);
     result=await refreshAffectedTechnicianRoutes({
-      admin,authenticated:supabase,businessId:business.id,businessTimeZone:business.timezone,
+      admin,businessId:business.id,businessTimeZone:business.timezone,
       actorUserId:user.id,jobs:jobs??[],
     });
   } catch (error) {

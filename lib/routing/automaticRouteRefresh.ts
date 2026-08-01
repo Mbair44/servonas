@@ -1,7 +1,6 @@
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {dateInTimeZone} from "@/lib/bookingTime";
 import {calculateDailyRoutes} from "./routeCalculationService";
-import {generateRouteOptimizationSuggestions} from "./optimizationService";
 import {GoogleRoutesProvider} from "./googleRoutesProvider";
 import {shortestFlexibleRoute} from "./flexibleRouteOrder";
 
@@ -190,24 +189,18 @@ async function globallyOptimizeFlexibleDay({
 }
 
 /**
- * Rebuilds each affected technician's complete service day, then repeatedly
- * applies the existing road-based, appointment-window-safe adjacent optimizer
- * until no further improvement is found (or the safety round limit is reached).
- *
- * The authenticated client applies suggestions so the existing tenant/role
- * authorization and decision audit remain authoritative. The service-role
- * client is restricted to provider orchestration and route persistence.
+ * Rebuilds each affected technician's complete service day. Fully flexible
+ * days are optimized directly. Suggestions for mixed routes remain explicit
+ * dispatcher decisions and are never accepted by this background workflow.
  */
 export async function refreshAffectedTechnicianRoutes({
  admin,
- authenticated,
  businessId,
  businessTimeZone,
  actorUserId,
  jobs,
 }:{
  admin:SupabaseClient;
- authenticated:SupabaseClient;
  businessId:string;
  businessTimeZone:string;
  actorUserId:string;
@@ -226,7 +219,6 @@ export async function refreshAffectedTechnicianRoutes({
  // optimization passes belong in queued orchestration; running dozens of
  // provider calls here can terminate the request and strand the route in
  // `calculating`.
- const maxRounds=Math.max(0,Math.min(3,Number(process.env.AUTO_ROUTE_OPTIMIZATION_ROUNDS??1)));
 
  for(const affectedDay of affected.slice(0,maxDays)){
   try{
@@ -243,42 +235,7 @@ export async function refreshAffectedTechnicianRoutes({
     actorUserId,onlyTechnicianId:affectedDay.technicianId,
    });
    result.refreshedDays+=1;
-   let dayOptimized=globallyOptimized;
-   try{
-    for(let round=0;round<(globallyOptimized?0:maxRounds);round+=1){
-     const {data:plan}=await admin.from("route_plans")
-      .select("id,version").eq("business_id",businessId)
-      .eq("service_date",affectedDay.serviceDate).maybeSingle();
-     if(!plan)break;
-     const suggestionRun=await generateRouteOptimizationSuggestions({
-      admin,businessId,routePlanId:plan.id,actorUserId,expectedPlanVersion:Number(plan.version),
-     });
-     if(!suggestionRun.suggestions)break;
-     const {data:suggestions}=await authenticated.from("route_suggestions")
-      .select("id,payload").eq("business_id",businessId).eq("route_plan_id",plan.id)
-      .eq("status","pending").order("created_at",{ascending:false});
-     const suggestion=(suggestions??[]).find(item=>{
-      const payload=item.payload as Record<string,unknown>|null;
-      return String(payload?.technicianId??"")===affectedDay.technicianId;
-     });
-     if(!suggestion)break;
-     const {error:decisionError}=await authenticated.rpc("decide_route_suggestion",{
-      p_business_id:businessId,p_suggestion_id:suggestion.id,
-      p_decision:"accepted",p_expected_plan_version:Number(plan.version),
-     });
-     if(decisionError)throw new Error(`Automatic route suggestion could not be applied (${decisionError.code}).`);
-     dayOptimized=true;
-     await calculateDailyRoutes({
-      admin,businessId,serviceDate:affectedDay.serviceDate,businessTimeZone,
-      actorUserId,onlyTechnicianId:affectedDay.technicianId,
-     });
-    }
-   }catch(optimizationError){
-    console.warn("Automatic route optimization skipped after base route calculation",{
-     businessId,serviceDate:affectedDay.serviceDate,technicianId:affectedDay.technicianId,
-     reason:optimizationError instanceof Error?optimizationError.message:String(optimizationError),
-    });
-   }
+   const dayOptimized=globallyOptimized;
    await applyCalculatedDriveSchedule({
     admin,businessId,serviceDate:affectedDay.serviceDate,
     technicianId:affectedDay.technicianId,actorUserId,
