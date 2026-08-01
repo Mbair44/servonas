@@ -1,6 +1,8 @@
 import BookingClient from "@/components/BookingClient";
+import {headers} from "next/headers";
 import { getInventoryCapacityUsage } from "@/lib/bookings";
 import { getActiveInventory } from "@/lib/inventory";
+import {logPublicRouteVisit} from "@/lib/publicVisitorLog";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,10 @@ function parseInitialQuantities(value: string | undefined) {
 
 export default async function BookPage({ searchParams }: Props) {
   const params = await searchParams;
+  logPublicRouteVisit(await headers(),"/book",{
+    hasCart:Boolean(params.cart),
+    requestedItemCount:(params.cart??params.items??params.item??"").split(",").filter(Boolean).length,
+  });
   const inventory = await getActiveInventory();
 
   if (inventory.length === 0) {
