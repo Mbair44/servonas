@@ -9,6 +9,8 @@ import { WorkspaceNav } from "./WorkspaceNav";
 import { formatCents } from "@/lib/financial/priceBook";
 import { disableTechnician, enableTechnician, inviteTeamMember, resendInvitation, revokeInvitation, updateTeamMemberRole } from "./team/actions";
 import { EntitlementBanner } from "./EntitlementBanner";
+import {hasIndustryCapability} from "@/lib/industryCapabilities";
+import {eventQualifies,poolWeatherProvider} from "@/lib/weather/poolWeatherProvider";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const activeStatuses = new Set(["pending","confirmed","scheduled","dispatched","en_route","arrived","in_progress"]);
@@ -80,6 +82,10 @@ export default async function Workspace({ params, searchParams }: {
   const {data:financial,error:financialError}=await supabase.rpc("financial_dashboard_summary",{p_business_id:business.id,p_as_of:today});
   if(financialError)console.error("Financial dashboard summary failed",{code:financialError.code,businessId:business.id});
   const money=(key:string)=>Number((financial as Record<string,unknown>|null)?.[key]??0);
+  const isPool=hasIndustryCapability(business.industry_profile,"poolWeatherScheduling");
+  const [{data:poolWeatherSettings},{data:poolDismissals}]=isPool?await Promise.all([supabase.from("pool_service_settings").select("weather_alerts_enabled,wind_threshold_mph,rain_threshold_inches,heat_threshold_f,freeze_threshold_f").eq("business_id",business.id).maybeSingle(),supabase.from("pool_weather_alert_dismissals").select("event_key").eq("business_id",business.id)]):[{data:null},{data:[]}];
+  const dismissedWeather=new Set((poolDismissals??[]).map(item=>item.event_key));
+  const poolWeatherEvents=isPool&&poolWeatherSettings?.weather_alerts_enabled?(await poolWeatherProvider().forecast({startDate:today,endDate:addDays(today,7),areaLabel:business.city??business.state??"Service area"})).filter(event=>eventQualifies(event,poolWeatherSettings)&&!dismissedWeather.has(event.id)):[];
 
   const allJobs = jobs ?? [];
   const todayJobs = allJobs.filter((job) => job.starts_at && job.starts_at >= todayStart && job.starts_at < todayEnd);
@@ -115,6 +121,7 @@ export default async function Workspace({ params, searchParams }: {
   return <main className="epic3-shell executive-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content executive-dashboard">
     <header className="executive-header"><div><span className="executive-workspace">{business.name} · {role.replaceAll("_"," ")} workspace</span><h1>{greeting}, {firstName}</h1><p>Today is {todayLabel}. Here&apos;s what&apos;s happening in your business.</p></div><Link className="workspace-switcher" href="/app">Switch workspace <span aria-hidden="true">⌄</span></Link></header>
     <EntitlementBanner summary={entitlementSummary}/>{query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}{query.teamError && <div className="workspace-notice error">{query.teamError}</div>}{query.teamSuccess && <div className="workspace-notice success">{query.teamSuccess}</div>}
+    {poolWeatherEvents.length>0&&<section className="pool-dashboard-weather"><div><span>Weather Service Alert</span><h2>{poolWeatherEvents[0].summary}</h2><p>{allJobs.filter(job=>job.starts_at&&dateInTimeZone(new Date(job.starts_at),business.timezone)===poolWeatherEvents[0].startsAt.slice(0,10)).length} scheduled pool visits may be affected. Review technicians and approve any one-time moves.</p></div><Link className="sv-button" href={`/app/${businessSlug}/pool/weather`}>Review affected jobs</Link></section>}
 
     <section aria-labelledby="overview-heading"><h2 className="sr-only" id="overview-heading">Business overview</h2><div className="executive-kpis">
       <article className="executive-card kpi-card"><div className="card-icon blue" aria-hidden="true">↗</div><div><span>Jobs today</span><strong>{todayJobs.length}</strong></div><p>{scheduledToday} Scheduled · {progressingToday} In progress · {waitingToday} Waiting</p><Link href={`/app/${businessSlug}/dispatch?date=${today}`}>Open dispatch <span aria-hidden="true">→</span></Link></article>

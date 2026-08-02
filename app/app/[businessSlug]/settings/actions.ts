@@ -5,6 +5,8 @@ import { canManageBusiness } from "@/lib/access";
 import { requireWorkspace,requireWorkspaceCapability } from "@/lib/workspace";
 import { createStripeOnboardingLink,stripeClient,stripeConnectState,stripeProviderError,syncStripeConnectAccount } from "@/lib/stripeConnect";
 import {validateEmployeeNumbering} from "@/lib/employeeNumbering";
+import {hasIndustryCapability} from "@/lib/industryCapabilities";
+import {poolChemistryFields} from "@/lib/poolService";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 export async function updateBusinessSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding"); if(!canManageBusiness(role)) redirect(`/app/${slug}/settings?error=Only+owners+and+admins+can+change+settings`);
@@ -37,6 +39,26 @@ export async function updateMissedCallRecoverySettings(slug:string,formData:Form
  const {error}=await supabase.from("business_missed_call_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",recovery_number_e164:recoveryNumber,initial_sms_body:initialSms,ai_enabled:formData.get("aiEnabled")==="on",ai_instructions:aiInstructions,booking_enabled:formData.get("bookingEnabled")==="on",alert_phone_e164:alertPhone,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error("Missed-call settings update failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.code==="42P01"||error.code==="PGRST205"?"Apply the missed-call recovery migration first.":"Missed-call recovery settings could not be saved.")}#missed-call-recovery`);}
  revalidatePath(`/app/${slug}/settings`);redirect(`/app/${slug}/settings?success=${encodeURIComponent("Missed-call recovery settings saved.")}#missed-call-recovery`);
+}
+
+export async function updatePoolServiceSettings(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role)||!hasIndustryCapability(business.industry_profile,"poolChemistryTracking"))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Pool Service settings are available only to Pool Service owners and admins.")}#pool-service-settings`);
+ const enabled=formData.getAll("chemistryFields").map(String).filter(key=>poolChemistryFields.some(([valid])=>valid===key));
+ const number=(key:string,fallback:number)=>{const value=Number(text(formData,key));return Number.isFinite(value)?value:fallback};
+ const {error}=await supabase.from("pool_service_settings").upsert({business_id:business.id,enabled_chemistry_fields:enabled,weather_alerts_enabled:formData.get("weatherEnabled")==="on",wind_threshold_mph:number("windThreshold",30),rain_threshold_inches:number("rainThreshold",1),heat_threshold_f:number("heatThreshold",110),freeze_threshold_f:number("freezeThreshold",32),updated_by:user.id},{onConflict:"business_id"});
+ if(error)redirect(`/app/${slug}/settings?error=${encodeURIComponent(`Pool settings could not be saved (${error.code}).`)}#pool-service-settings`);
+ const ranges=poolChemistryFields.map(([key])=>({business_id:business.id,field_key:key,minimum_value:text(formData,`${key}Min`)||null,maximum_value:text(formData,`${key}Max`)||null,consecutive_visits:Math.max(1,Math.min(10,number(`${key}Visits`,2)))}));
+ const {error:rangeError}=await supabase.from("pool_chemistry_ranges").upsert(ranges,{onConflict:"business_id,field_key"});
+ const lines=(key:string)=>[...new Set(text(formData,key).split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,100);
+ const chemicals=lines("chemicals"),checklist=lines("checklist");
+ await Promise.all([supabase.from("pool_chemical_catalog").update({active:false}).eq("business_id",business.id),supabase.from("pool_checklist_templates").update({active:false}).eq("business_id",business.id)]);
+ const [{error:chemicalError},{error:checklistError}]=await Promise.all([
+  chemicals.length?supabase.from("pool_chemical_catalog").upsert(chemicals.map((name,index)=>({business_id:business.id,name,active:true,sort_order:index})),{onConflict:"business_id,name"}):Promise.resolve({error:null}),
+  checklist.length?supabase.from("pool_checklist_templates").upsert(checklist.map((label,index)=>({business_id:business.id,label,active:true,sort_order:index})),{onConflict:"business_id,label"}):Promise.resolve({error:null}),
+ ]);
+ if(rangeError||chemicalError||checklistError)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Some Pool Service lists or ranges could not be saved.")}#pool-service-settings`);
+ revalidatePath(`/app/${slug}/settings`);redirect(`/app/${slug}/settings?success=${encodeURIComponent("Pool Service settings saved.")}#pool-service-settings`);
 }
 
 export async function updateEmployeeNumbering(slug:string,formData:FormData){

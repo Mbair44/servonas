@@ -4,6 +4,7 @@ import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {canManageCustomers} from "@/lib/access";
 import {requireWorkspaceCapability} from "@/lib/workspace";
+import {hasIndustryCapability} from "@/lib/industryCapabilities";
 
 const equipmentTypes=["central_air","heat_pump","furnace","mini_split","air_handler","package_unit","boiler","thermostat","evaporative_cooler","other"];
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
@@ -11,7 +12,7 @@ const path=(slug:string,customerId:string,kind:"success"|"error",message:string)
 
 async function context(slug:string,customerId:string){
  const workspace=await requireWorkspaceCapability(slug,"customer_management");
- if(workspace.business.industry_profile!=="hvac")redirect(path(slug,customerId,"error","HVAC equipment is available only for HVAC workspaces."));
+ if(!hasIndustryCapability(workspace.business.industry_profile,"equipmentTracking")||workspace.business.industry_profile!=="hvac")redirect(path(slug,customerId,"error","HVAC equipment is available only for HVAC workspaces."));
  if(!canManageCustomers(workspace.role))redirect(path(slug,customerId,"error","You do not have permission to manage customer equipment."));
  const {data:customer}=await workspace.supabase.from("customers").select("id").eq("business_id",workspace.business.id).eq("id",customerId).eq("is_deleted",false).maybeSingle();
  if(!customer)redirect(path(slug,customerId,"error","Customer not found."));
