@@ -11,6 +11,7 @@ import {CustomerActionIcon} from "@/components/CustomerActionIcon";
 import {ServicePlanRowMenu} from "@/components/ServicePlanRowMenu";
 import {ServiceLocationDrawer} from "@/components/ServiceLocationDrawer";
 import {CustomerHvacEquipment} from "@/components/CustomerHvacEquipment";
+import {MissedCallTranscript} from "@/components/MissedCallTranscript";
 import {archiveCustomer,assignCustomerOperations,createServicePlan,deleteServicePlan,retryServicePlanJobGeneration,saveServiceLocation,skipNextServicePlanOccurrence,updateCustomer,updateServicePlan} from "../actions";
 import {archiveCustomerHvacEquipment,createCustomerHvacEquipment,updateCustomerHvacEquipment} from "../hvacEquipmentActions";
 import {createJob} from "../../jobs/actions";
@@ -18,7 +19,7 @@ import {createJob} from "../../jobs/actions";
 export default async function CustomerDetail({params,searchParams}:{params:Promise<{businessSlug:string;customerId:string}>;searchParams:Promise<Record<string,string|undefined>>}){
  const {businessSlug,customerId}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
  const isHvac=business.industry_profile==="hvac";
- const [{data:customer},{data:locations},{data:jobs},{data:plans},{data:services},{data:employees},{data:invoices,error:invoiceMetricsError},{data:payments,error:paymentMetricsError},{data:territories},{data:billingProfile},{data:billingSettings},{data:hvacEquipment,error:hvacEquipmentError}]=await Promise.all([
+ const [{data:customer},{data:locations},{data:jobs},{data:plans},{data:services},{data:employees},{data:invoices,error:invoiceMetricsError},{data:payments,error:paymentMetricsError},{data:territories},{data:billingProfile},{data:billingSettings},{data:hvacEquipment,error:hvacEquipmentError},{data:recoveryMessages}]=await Promise.all([
   supabase.from("customers").select("*").eq("id",customerId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
   supabase.from("service_locations").select("*").eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).order("is_primary",{ascending:false}),
   supabase.from("jobs").select("id,job_number,title,status,starts_at,ends_at,work_completed_at,total_amount,assigned_technician_id,recurring_service_series_id,service_plan_occurrence_id,occurrence_date,generation_type,cancellation_reason").eq("customer_id",customerId).eq("business_id",business.id).eq("is_deleted",false).order("starts_at",{ascending:false,nullsFirst:false}),
@@ -31,6 +32,7 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
   supabase.from("customer_billing_profiles").select("use_business_defaults,billing_method,payment_terms_days,auto_send_invoice,autopay_enabled,billing_email,billing_notes").eq("business_id",business.id).eq("customer_id",customerId).maybeSingle(),
   supabase.from("business_billing_settings").select("default_billing_method,default_payment_terms_days,review_before_processing").eq("business_id",business.id).maybeSingle(),
   isHvac?supabase.from("customer_hvac_equipment").select("id,equipment_type,name,manufacturer,model,serial_number,model_year,capacity_tons,fuel_type,refrigerant_type,filter_size,installed_on,warranty_expires_on,notes,service_location_id").eq("business_id",business.id).eq("customer_id",customerId).eq("is_active",true).order("created_at",{ascending:false}):Promise.resolve({data:[],error:null}),
+  supabase.from("missed_call_recovery_messages").select("id,direction,body,ai_generated,delivery_status,created_at").eq("business_id",business.id).eq("customer_id",customerId).order("created_at"),
  ]);
  if(!customer)notFound();
  const canEdit=canManageCustomers(role),now=Date.now();
@@ -129,6 +131,7 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
    </section>
    </div>
    {isHvac&&<CustomerHvacEquipment equipment={hvacEquipment??[]} locations={(locations??[]).map(location=>({id:location.id,location_name:location.location_name,street_address:location.street_address}))} canEdit={canEdit} createAction={createCustomerHvacEquipment.bind(null,businessSlug,customerId)} updateAction={equipmentId=>updateCustomerHvacEquipment.bind(null,businessSlug,customerId,equipmentId)} archiveAction={equipmentId=>archiveCustomerHvacEquipment.bind(null,businessSlug,customerId,equipmentId)}/>}
+   <MissedCallTranscript messages={recoveryMessages??[]} timeZone={business.timezone}/>
    <section className="workspace-panel" id="jobs"><div className="panel-title"><div><h2>Recent jobs</h2><span>{jobs?.length??0} total</span></div><Link href={`/app/${businessSlug}/jobs?customerId=${customerId}`}>View all jobs</Link></div>{recentJobs.length?<div className="customer-job-history">{recentJobs.map(job=><Link key={job.id} href={`/app/${businessSlug}/jobs/${job.id}`}><span>{job.work_completed_at||job.starts_at?formatBusinessDate(job.work_completed_at??job.starts_at!,business.timezone):"Not scheduled"}</span><strong>{job.title}</strong><span className={`job-status ${job.status}`}>{job.status.replaceAll("_"," ")}</span><b>${Number(job.total_amount??0).toFixed(2)}</b></Link>)}</div>:<p className="muted">No jobs have been created for this customer.</p>}</section>
   </div><aside className="customer-record-aside">
    <section className="workspace-panel customer-side-card customer-billing-preferences">

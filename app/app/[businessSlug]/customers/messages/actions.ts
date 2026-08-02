@@ -24,3 +24,13 @@ export async function verifySmsExtraction(slug:string,formData:FormData){
  if(message.customer_id)await supabase.from("customers").update({intake_data:message.extracted_data,intake_data_verified:true}).eq("id",message.customer_id).eq("business_id",business.id);
  revalidatePath(target);redirect(`${target}?success=${encodeURIComponent("Extracted customer information marked verified.")}`);
 }
+
+export async function updateMissedCallLeadStatus(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/customers/messages`;
+ if(!canManageCustomers(role))redirect(`${target}?error=${encodeURIComponent("You do not have permission to update leads.")}`);
+ const leadId=String(formData.get("leadId")??""),status=String(formData.get("leadStatus")??"");
+ if(!["new","contacted","qualified","booked","lost"].includes(status))redirect(`${target}?error=${encodeURIComponent("Choose a valid lead status.")}`);
+ const {error}=await supabase.from("missed_call_recovery_leads").update({lead_status:status,conversation_status:status==="booked"?"booked":status==="lost"?"closed":"active"}).eq("business_id",business.id).eq("id",leadId);
+ if(error)redirect(`${target}?error=${encodeURIComponent("The lead status could not be updated.")}`);
+ revalidatePath(target);redirect(`${target}?success=${encodeURIComponent("Lead status updated.")}`);
+}

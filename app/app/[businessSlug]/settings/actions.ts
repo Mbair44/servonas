@@ -28,6 +28,17 @@ export async function updateInboundSmsSettings(slug:string,formData:FormData){
  redirect(`/app/${slug}/settings?success=${encodeURIComponent("Inbound SMS settings saved.")}#inbound-sms`);
 }
 
+export async function updateMissedCallRecoverySettings(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
+ if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change missed-call recovery settings.")}#missed-call-recovery`);
+ const phone=(key:string)=>{const digits=text(formData,key).replace(/\D/g,"");return !digits?null:digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:null;};
+ const recoveryNumber=phone("recoveryNumber"),alertPhone=phone("alertPhone"),initialSms=text(formData,"initialSms"),aiInstructions=text(formData,"aiInstructions");
+ if(!recoveryNumber||!initialSms||!aiInstructions)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Enter a valid recovery number, initial text, and AI instructions.")}#missed-call-recovery`);
+ const {error}=await supabase.from("business_missed_call_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",recovery_number_e164:recoveryNumber,initial_sms_body:initialSms,ai_enabled:formData.get("aiEnabled")==="on",ai_instructions:aiInstructions,booking_enabled:formData.get("bookingEnabled")==="on",alert_phone_e164:alertPhone,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
+ if(error){console.error("Missed-call settings update failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.code==="42P01"||error.code==="PGRST205"?"Apply the missed-call recovery migration first.":"Missed-call recovery settings could not be saved.")}#missed-call-recovery`);}
+ revalidatePath(`/app/${slug}/settings`);redirect(`/app/${slug}/settings?success=${encodeURIComponent("Missed-call recovery settings saved.")}#missed-call-recovery`);
+}
+
 export async function updateEmployeeNumbering(slug:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
  if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change employee numbering.")}#employee-numbering`);

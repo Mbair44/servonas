@@ -1,22 +1,16 @@
-import {createHmac,timingSafeEqual} from "node:crypto";
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
+import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
+import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
 
 export const runtime="nodejs";
 
-function validTwilioSignature(url:string,params:URLSearchParams,signature:string,token:string){
- const payload=url+[...params.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([key,value])=>key+value).join("");
- const expected=createHmac("sha1",token).update(payload).digest("base64");
- const left=Buffer.from(expected),right=Buffer.from(signature);
- return left.length===right.length&&timingSafeEqual(left,right);
-}
-
-type IntakeResult={duplicate:boolean;message_id:string;reply:boolean;reply_body?:string;to?:string;from?:string};
+type IntakeResult={duplicate:boolean;message_id:string;business_id:string;customer_id:string;reply:boolean;reply_body?:string;to?:string;from?:string};
 
 export async function POST(request:Request){
  const raw=await request.text(),params=new URLSearchParams(raw),signature=request.headers.get("x-twilio-signature")??"";
- const token=process.env.TWILIO_AUTH_TOKEN,webhookUrl=process.env.TWILIO_INBOUND_WEBHOOK_URL?.trim()||request.url;
+ const token=process.env.TWILIO_AUTH_TOKEN,webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
  if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
  const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",to=params.get("To")??"",body=params.get("Body")??"";
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
@@ -26,6 +20,8 @@ export async function POST(request:Request){
   return NextResponse.json({error:error.code==="P0002"?"Number not configured":"Processing failed"},{status:error.code==="P0002"?404:500});
  }
  const result=data as IntakeResult;
+ const recovery=await advanceMissedCallConversation(db,{businessId:result.business_id,customerId:result.customer_id,providerMessageId:sid,body});
+ if(recovery)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  if(result.duplicate||!result.reply)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  const twilio=getTwilioCredentials();
  if(!twilio.configured){
