@@ -9,6 +9,8 @@ import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailServ
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { jobStatuses } from "@/lib/jobValidation";
+import {hasIndustryCapability} from "@/lib/industryCapabilities";
+import {poolChemistryFields} from "@/lib/poolService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 
@@ -37,6 +39,13 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
   }
   if (!jobStatuses.includes(status as JobStatus) || !canTransitionJob(currentStatus, status as JobStatus)) {
     redirect(redirectWith("error", "This job changed since the page loaded. Refresh and try the action shown."));
+  }
+  if(status==="completed"){
+    const [{data:business},{data:details}]=await Promise.all([supabase.from("businesses").select("industry_profile").eq("id",job.business_id).maybeSingle(),supabase.from("jobs").select("recurring_service_series_id").eq("business_id",job.business_id).eq("id",jobId).maybeSingle()]);
+    if(details?.recurring_service_series_id&&hasIndustryCapability(business?.industry_profile,"poolServiceLogs")){
+      const {data:poolLog}=await supabase.from("pool_service_logs").select("status").eq("business_id",job.business_id).eq("job_id",jobId).maybeSingle();
+      if(poolLog?.status!=="completed")redirect(redirectWith("error","Complete the Pool Service chemistry and service log before completing this recurring visit."));
+    }
   }
   // A repeated tap may arrive after the first request has already succeeded.
   if (currentStatus === status) redirect(redirectWith("success", "Job status updated."));
@@ -77,6 +86,29 @@ export async function addTechnicianNote(jobId: string, formData: FormData) {
   }
   revalidatePath(`/tech/jobs/${jobId}`);
   redirect(`/tech/jobs/${jobId}?success=${encodeURIComponent("Note added.")}`);
+}
+
+export async function savePoolServiceLog(jobId:string,formData:FormData){
+ const {supabase,user,job}=await technicianJob(jobId);
+ const {data:business}=await supabase.from("businesses").select("industry_profile").eq("id",job.business_id).maybeSingle();
+ if(!hasIndustryCapability(business?.industry_profile,"poolServiceLogs"))redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent("Pool service logs are not enabled for this workspace.")}`);
+ const {data:jobDetails}=await supabase.from("jobs").select("customer_id,service_location_id,assigned_technician_id").eq("id",jobId).eq("business_id",job.business_id).maybeSingle();
+ if(!jobDetails?.customer_id||!jobDetails.service_location_id)redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent("This job needs a customer and service location before a pool log can be saved.")}`);
+ const numeric=(key:string)=>{const value=text(formData,key);if(!value)return null;const parsed=Number(value);return Number.isFinite(parsed)?parsed:null};
+ const payload:Record<string,unknown>={business_id:job.business_id,job_id:jobId,customer_id:jobDetails.customer_id,service_location_id:jobDetails.service_location_id,technician_id:jobDetails.assigned_technician_id,status:text(formData,"submission")==="completed"?"completed":"draft",notes:text(formData,"notes")||null,updated_by:user.id,completed_at:text(formData,"submission")==="completed"?new Date().toISOString():null};
+ for(const [key] of poolChemistryFields)payload[key]=numeric(key);
+ const {data:log,error}=await supabase.from("pool_service_logs").upsert({...payload,created_by:user.id},{onConflict:"business_id,job_id"}).select("id").single();
+ if(error||!log)redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent(`Pool service log could not be saved (${error?.code??"unknown"}).`)}`);
+ await Promise.all([supabase.from("pool_service_log_checklist").delete().eq("business_id",job.business_id).eq("pool_service_log_id",log.id),supabase.from("pool_service_log_chemicals").delete().eq("business_id",job.business_id).eq("pool_service_log_id",log.id)]);
+ const completedIds=formData.getAll("completedTask").map(String),savedIds=completedIds.filter(id=>!id.startsWith("label:"));
+ const {data:tasks}=savedIds.length?await supabase.from("pool_checklist_templates").select("id,label").eq("business_id",job.business_id).in("id",savedIds):{data:[]};
+ const taskRows=[...(tasks??[]).map(task=>({checklist_template_id:task.id,task_label:task.label})),...completedIds.filter(id=>id.startsWith("label:")).map(id=>({checklist_template_id:null,task_label:id.slice(6)}))];
+ if(taskRows.length)await supabase.from("pool_service_log_checklist").insert(taskRows.map(task=>({business_id:job.business_id,pool_service_log_id:log.id,...task,completed:true,completed_at:new Date().toISOString()})));
+ const ids=formData.getAll("chemicalId").map(String),custom=formData.getAll("chemicalCustom").map(String),amount=formData.getAll("chemicalAmount").map(String),units=formData.getAll("chemicalUnit").map(String),cost=formData.getAll("chemicalCost").map(String);
+ const catalogIds=ids.filter(id=>id&&id!=="custom"&&!id.startsWith("name:"));const {data:catalog}=catalogIds.length?await supabase.from("pool_chemical_catalog").select("id,name").eq("business_id",job.business_id).in("id",catalogIds):{data:[]};
+ const rows=ids.flatMap((id,index)=>{const name=id==="custom"?custom[index]?.trim():id.startsWith("name:")?id.slice(5):catalog?.find(item=>item.id===id)?.name;const quantity=Number(amount[index]);if(!name||!Number.isFinite(quantity)||quantity<=0||!units[index]?.trim())return [];return [{business_id:job.business_id,pool_service_log_id:log.id,chemical_catalog_id:id!=="custom"&&!id.startsWith("name:")?id:null,chemical_name:name,amount:quantity,unit:units[index].trim(),estimated_cost_cents:cost[index]?Math.round(Number(cost[index])*100):null}]});
+ if(rows.length)await supabase.from("pool_service_log_chemicals").insert(rows);
+ revalidatePath(`/tech/jobs/${jobId}`);redirect(`/tech/jobs/${jobId}?success=${encodeURIComponent(payload.status==="completed"?"Pool service log completed.":"Pool service draft saved.")}`);
 }
 
 export async function uploadTechnicianPhoto(jobId: string, formData: FormData) {
