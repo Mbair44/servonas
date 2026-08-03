@@ -7,7 +7,7 @@ import {requireWorkspaceCapability} from "@/lib/workspace";
 import {normalizeWebsiteDomain,validWebsiteColor,validWebsiteSlug,websiteTemplates} from "@/lib/website";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
-const target=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/website?${kind}=${encodeURIComponent(message)}`;
+const target=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}`;
 const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,12);
 
 export async function saveWebsiteSettings(slug:string,data:FormData){
@@ -24,7 +24,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"pending_verification";
  const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,google_review_url:googleReviewUrl||null,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error("Website settings save failed",{businessId:business.id,code:error.code});redirect(target(slug,"error",error.code==="23505"?"That website URL or domain is already in use.":"Website settings could not be saved. Apply the website migration first."));}
- revalidatePath(`/app/${slug}/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved."));
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved."));
 }
 
 export async function setWebsitePublished(slug:string,data:FormData){
@@ -35,7 +35,7 @@ export async function setWebsitePublished(slug:string,data:FormData){
  if(!settings)redirect(target(slug,"error","Save the website settings before publishing."));
  const {error}=await supabase.from("business_website_settings").update({status:publish?"published":"draft",published_at:publish?new Date().toISOString():null,updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
  if(error)redirect(target(slug,"error","Website publishing status could not be changed."));
- revalidatePath(`/app/${slug}/website`);revalidatePath(`/sites/${settings.public_slug}`);redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
 }
 
 export async function uploadWebsiteLogo(slug:string,data:FormData){
@@ -50,7 +50,7 @@ export async function uploadWebsiteLogo(slug:string,data:FormData){
  const {error}=await supabase.from("booking_settings").upsert({business_id:business.id,public_slug:booking?.public_slug??business.slug,logo_path:path,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
  if(error){await supabase.storage.from("booking-branding").remove([path]);redirect(target(slug,"error","The logo could not be saved."));}
  if(booking?.logo_path&&booking.logo_path!==path)await supabase.storage.from("booking-branding").remove([booking.logo_path]);
- revalidatePath(`/app/${slug}/website`);redirect(target(slug,"success","Website logo updated."));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success","Website logo updated."));
 }
 
 export async function updateWebsiteLeadStatus(slug:string,data:FormData){
@@ -59,5 +59,5 @@ export async function updateWebsiteLeadStatus(slug:string,data:FormData){
  if(!canManageBusiness(role)||!["new","contacted","qualified","booked","lost"].includes(status))redirect(target(slug,"error","The request status could not be changed."));
  const {error}=await supabase.from("website_service_requests").update({lead_status:status}).eq("business_id",business.id).eq("id",requestId);
  if(error)redirect(target(slug,"error","The request status could not be saved."));
- revalidatePath(`/app/${slug}/website`);redirect(target(slug,"success","Request status updated."));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success","Request status updated."));
 }

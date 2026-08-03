@@ -23,6 +23,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  ]);
  assert.deepEqual(settings.children?.map(item=>[item.label,item.href]),[
   ["General","/app/acme/settings"],
+  ["Website","/app/acme/settings/website"],
   ["Operations","/app/acme/settings/operations"],
   ["Billing","/app/acme/settings/billing"],
   ["Communications","/app/acme/settings/communications"],
