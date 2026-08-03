@@ -747,6 +747,10 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .employee-record-facts .employee-address-fact{align-items:flex-start}
 .employee-record-facts .employee-address-fact dd{max-width:62%;line-height:1.5;text-transform:none}
 @media(max-width:800px){.employee-form .employee-wide,.employee-form .employee-form-section{grid-column:auto}}
+.settings-auto-dispatch{align-items:flex-start!important;padding:14px!important;border:1px solid #bfd0f5!important;border-radius:11px;background:#f5f8ff}
+.settings-auto-dispatch>span{display:grid;gap:4px}
+.settings-auto-dispatch strong{color:#25324b}
+.settings-auto-dispatch small{color:#5d6b82;font-weight:500;line-height:1.45}
 .customer-record-aside .customer-service-plans>.panel-title>.sv-button{min-height:34px;padding:7px 10px;font-size:.72rem}
 .customer-record-aside .customer-plan-list{margin-top:12px}
 .customer-record-aside .customer-plan-list article{grid-template-columns:32px minmax(0,1fr) auto auto;gap:8px;padding:11px 9px}
@@ -922,6 +926,35 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .sv-authenticated-nav{margin-left:auto}
 .sv-header-authenticated .sv-nav{height:52px}
 .sv-header-authenticated .sv-button{padding:8px 14px;border-radius:9px;box-shadow:0 6px 18px rgba(37,99,235,.18)}
+
+/* Authenticated workspace ribbon and account menu */
+body:has(.epic3-sidebar) .sv-header-authenticated{position:fixed;z-index:45;top:0;right:0;left:250px}
+body:has(.epic3-sidebar.collapsed) .sv-header-authenticated{left:76px}
+body:has(.epic3-sidebar) .sv-header-authenticated .sv-container{width:100%;max-width:none;padding:0 22px}
+body:has(.epic3-sidebar) .sv-header-authenticated+.epic3-shell .epic3-content{padding-top:88px}
+body:has(.epic3-sidebar) .epic3-sidebar{z-index:55}
+.account-menu{position:relative;margin-left:auto}
+.account-menu>summary{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;min-width:220px;padding:6px 9px;border-radius:10px;color:#15213b;cursor:pointer;list-style:none}
+.account-menu>summary::-webkit-details-marker{display:none}
+.account-menu>summary:hover,.account-menu[open]>summary{background:#f2f6fc}
+.account-menu>summary>span:nth-child(2),.account-menu-popover header>span:nth-child(2){display:grid;min-width:0}
+.account-menu>summary strong,.account-menu>summary small,.account-menu-popover header strong,.account-menu-popover header small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-menu>summary strong{font-size:.78rem}.account-menu>summary small{color:#667085;font-size:.65rem}.account-menu>summary>b{font-size:.9rem}
+.account-menu-avatar{display:grid;flex:0 0 36px;place-items:center;width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#805ad5,#a78bfa);color:#fff;font-size:.72rem;font-weight:900}
+.account-menu-popover{position:absolute;z-index:200;top:calc(100% + 8px);right:0;width:310px;max-height:calc(100vh - 74px);overflow-y:auto;border:1px solid #dbe3ef;border-radius:13px;background:#fff;box-shadow:0 22px 55px #17203d29}
+.account-menu-popover>header{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:11px;padding:14px;border-bottom:1px solid #e7ebf1}
+.account-menu-popover header strong{font-size:.8rem}.account-menu-popover header small{margin-top:3px;color:#667085;font-size:.68rem}
+.account-menu-popover>section{display:grid;padding:9px;border-bottom:1px solid #e7ebf1}
+.account-menu-popover>section>b{padding:4px 8px 7px;color:#344054;font-size:.66rem}
+.account-menu-popover a,.account-menu-popover form button{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;padding:9px 8px;border:0;border-radius:8px;background:transparent;color:#25324b;text-align:left;text-decoration:none;font:inherit;cursor:pointer}
+.account-menu-popover a:hover,.account-menu-popover form button:hover{background:#f3f6fb}
+.account-menu-popover i{display:grid;place-items:center;color:#40577e;font-size:.85rem;font-style:normal}
+.account-menu-popover a>span,.account-menu-popover button>span{display:grid;gap:2px}
+.account-menu-popover strong{font-size:.72rem}.account-menu-popover small{color:#667085;font-size:.62rem;font-weight:500}
+.account-menu-popover .account-menu-switch:after{content:"›";color:#667085;font-size:1.1rem}
+.account-menu-popover>form{padding:9px}.account-menu-popover>form button{color:#d92d20}.account-menu-popover>form button i{color:#d92d20}
+@media(max-width:900px){body:has(.epic3-sidebar) .sv-header-authenticated{position:sticky;left:0}body:has(.epic3-sidebar) .sv-header-authenticated+.epic3-shell .epic3-content{padding-top:28px}body:has(.epic3-sidebar) .epic3-sidebar{z-index:auto}.account-menu>summary{min-width:0}.account-menu>summary>span:nth-child(2){display:none}}
+@media(max-width:420px){.account-menu-popover{position:fixed;top:60px;right:10px;left:10px;width:auto}}
 
 /* Compact service-plan creation drawer. */
 .management-drawer:has(.service-plan-create-form){width:min(1000px,100%)}
