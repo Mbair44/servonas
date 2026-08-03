@@ -1,13 +1,9 @@
 import Link from "next/link";
-import { headers } from "next/headers";
-import CopyInvitationLink from "@/components/CopyInvitationLink";
-import { canManageBusiness } from "@/lib/access";
-import { addDays, dateInTimeZone, formatBusinessDateTime, zonedDateTimeToUtc } from "@/lib/bookingTime";
+import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { calendarDays } from "@/lib/scheduleCalendar";
 import { requireWorkspace } from "@/lib/workspace";
 import { WorkspaceNav } from "./WorkspaceNav";
 import { formatCents } from "@/lib/financial/priceBook";
-import { disableTechnician, enableTechnician, inviteTeamMember, resendInvitation, revokeInvitation, updateTeamMemberRole } from "./team/actions";
 import { EntitlementBanner } from "./EntitlementBanner";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {eventQualifies,poolWeatherProvider} from "@/lib/weather/poolWeatherProvider";
@@ -32,7 +28,6 @@ export default async function Workspace({ params, searchParams }: {
   const { businessSlug } = await params;
   const query = await searchParams;
   const { supabase, user, business, role, entitlementSummary } = await requireWorkspace(businessSlug);
-  const canManage = canManageBusiness(role);
   const now = new Date();
   const nowMs = now.getTime();
   const today = dateInTimeZone(now, business.timezone);
@@ -47,10 +42,8 @@ export default async function Workspace({ params, searchParams }: {
   const [
     { data: jobs, error: jobsError },
     { data: customers, error: customersError },
-    { data: members },
     { data: technicians },
     { data: activity },
-    { data: invites },
     { data: employees },
   ] = await Promise.all([
     supabase.from("jobs")
@@ -60,18 +53,11 @@ export default async function Workspace({ params, searchParams }: {
     supabase.from("customers").select("id,first_name,last_name,company_name,created_at")
       .eq("business_id", business.id).eq("is_deleted", false)
       .order("created_at", { ascending: false }).limit(1000),
-    supabase.from("business_members")
-      .select("user_id,role,created_at,profiles!business_members_user_profile_fk(email)")
-      .eq("business_id", business.id).order("created_at"),
     supabase.from("technician_directory")
       .select("id,member_user_id,preferred_name,technician_status,is_active,is_technician,can_be_assigned_jobs")
       .eq("business_id", business.id),
     supabase.from("business_activity").select("id,summary,created_at")
       .eq("business_id", business.id).order("created_at", { ascending: false }).limit(10),
-    canManage
-      ? supabase.from("business_invitations").select("id,email,role,token,expires_at")
-          .eq("business_id", business.id).is("accepted_at", null).order("created_at", { ascending: false })
-      : Promise.resolve({ data: [] as Array<{ id: string; email: string; role: string; token: string; expires_at: string }> }),
     supabase.from("employees").select("auth_user_id,preferred_name")
       .eq("business_id", business.id).eq("employment_status", "active"),
   ]);
@@ -110,8 +96,6 @@ export default async function Workspace({ params, searchParams }: {
   const greetingHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, hour: "numeric", hourCycle: "h23" }).format(now));
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 18 ? "Good afternoon" : "Good evening";
   const todayLabel = new Intl.DateTimeFormat("en-US", { timeZone: business.timezone, weekday: "long", month: "long", day: "numeric" }).format(now);
-  const technicianByUser = new Map((technicians ?? []).map((item) => [item.member_user_id, item]));
-  const invitationOrigin = (process.env.NEXT_PUBLIC_SITE_URL || (await headers()).get("origin") || "http://localhost:3000").replace(/\/$/, "");
   const alerts = [
     { count: unassigned, label: "Jobs unassigned", href: `/app/${businessSlug}/dispatch?date=${today}` },
     { count: pending, label: "Pending bookings", href: `/app/${businessSlug}/jobs?status=pending` },
@@ -120,7 +104,7 @@ export default async function Workspace({ params, searchParams }: {
 
   return <main className="epic3-shell executive-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content executive-dashboard">
     <header className="executive-header"><div><span className="executive-workspace">{business.name} · {role.replaceAll("_"," ")} workspace</span><h1>{greeting}, {firstName}</h1><p>Today is {todayLabel}. Here&apos;s what&apos;s happening in your business.</p></div><Link className="workspace-switcher" href="/app">Switch workspace <span aria-hidden="true">⌄</span></Link></header>
-    <EntitlementBanner summary={entitlementSummary}/>{query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}{query.teamError && <div className="workspace-notice error">{query.teamError}</div>}{query.teamSuccess && <div className="workspace-notice success">{query.teamSuccess}</div>}
+    <EntitlementBanner summary={entitlementSummary}/>{query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}
     {poolWeatherEvents.length>0&&<section className="pool-dashboard-weather"><div><span>Weather Service Alert</span><h2>{poolWeatherEvents[0].summary}</h2><p>{allJobs.filter(job=>job.starts_at&&dateInTimeZone(new Date(job.starts_at),business.timezone)===poolWeatherEvents[0].startsAt.slice(0,10)).length} scheduled pool visits may be affected. Review technicians and approve any one-time moves.</p></div><Link className="sv-button" href={`/app/${businessSlug}/pool/weather`}>Review affected jobs</Link></section>}
 
     <section aria-labelledby="overview-heading"><h2 className="sr-only" id="overview-heading">Business overview</h2><div className="executive-kpis">
@@ -170,11 +154,5 @@ export default async function Workspace({ params, searchParams }: {
 
     <section className="quick-actions-section" aria-labelledby="quick-heading"><div className="section-heading compact"><div><span>Shortcuts</span><h2 id="quick-heading">Quick actions</h2></div></div><nav aria-label="Dashboard quick actions"><Link href={`/app/${businessSlug}/jobs/new`}><span>＋</span>New job</Link><Link href={`/app/${businessSlug}/customers/new`}><span>＋</span>New customer</Link><Link href={`/book/${businessSlug}`}><span>↗</span>New booking</Link><Link href={`/app/${businessSlug}/dispatch`}><span>⌁</span>Dispatch board</Link><Link href={`/app/${businessSlug}/schedule`}><span>▦</span>Schedule</Link></nav></section>
 
-    <section className="workspace-panel team-management" id="team"><div className="panel-title"><div><span className="sv-kicker">Team</span><h2>Access and technician capability</h2><p>Workspace role and field-technician access are managed separately.</p></div></div><div className="team-list">{(members ?? []).map((member) => {
-      const memberProfile=relation(member.profiles); const technician=technicianByUser.get(member.user_id); const assignable=Boolean(technician?.is_active&&technician.is_technician&&technician.can_be_assigned_jobs);
-      const employeeName=employeeByUser.get(member.user_id)||"Team member";
-      return <article key={member.user_id}><div><strong>{employeeName}</strong><span>{memberProfile?.email} · {member.role} · {assignable?"technician":"not a technician"}</span></div>{canManage&&member.role!=="owner"&&<form action={updateTeamMemberRole.bind(null,businessSlug)}><input type="hidden" name="memberUserId" value={member.user_id}/><select name="role" defaultValue={member.role} aria-label={`Workspace role for ${employeeName}`}><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select><button className="text-button">Save role</button></form>}{canManage&&<form action={(assignable?disableTechnician:enableTechnician).bind(null,businessSlug)}><input type="hidden" name="memberUserId" value={member.user_id}/><button className="text-button">{assignable?"Disable technician":"Enable as technician"}</button></form>}</article>;
-    })}</div></section>
-    {canManage&&<section className="workspace-panel"><div><span className="sv-kicker">Invite employees</span><h2>Add someone to {business.name}</h2><p>Invitations expire after seven days. Their role will not automatically make them a technician.</p></div>{query.inviteLink&&<div className="invite-link"><code>{query.inviteLink}</code><CopyInvitationLink url={query.inviteLink}/></div>}<form action={inviteTeamMember.bind(null,businessSlug)} className="team-invite-form"><label>Email<input required name="email" type="email" placeholder="employee@company.com"/></label><label>Role<select name="role" defaultValue="staff"><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label><button className="sv-button">Send invitation</button></form>{(invites??[]).length>0&&<div className="pending-invites"><h3>Pending invitations</h3>{(invites??[]).map(invite=><article key={invite.id}><div><strong>{invite.email}</strong><span>{invite.role} · expires {formatBusinessDateTime(invite.expires_at,business.timezone)}</span></div><div className="pending-invite-actions"><CopyInvitationLink url={`${invitationOrigin}/invite/accept?token=${invite.token}`}/><form action={resendInvitation.bind(null,businessSlug)}><input type="hidden" name="invitationId" value={invite.id}/><button className="text-button">Resend</button></form><form action={revokeInvitation.bind(null,businessSlug)}><input type="hidden" name="invitationId" value={invite.id}/><button className="text-button">Revoke</button></form></div></article>)}</div>}</section>}
   </section></main>;
 }

@@ -225,7 +225,7 @@ async function deliverInvitation({
 async function teamContext(businessSlug: string, capability: "team_management" | "employee_invitations") {
   const { supabase, user, business, role } = await requireWorkspaceCapability(businessSlug, capability);
   if (!["owner", "admin", "platform_admin"].includes(role)) {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Only owners and admins can manage team access.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Only owners and admins can manage team access.")}`);
   }
   return { supabase, user, business };
 }
@@ -235,28 +235,29 @@ export async function updateTeamMemberRole(businessSlug: string, formData: FormD
   const memberUserId = value(formData, "memberUserId");
   const role = value(formData, "role");
   if (!memberUserId || !["admin", "manager", "staff"].includes(role)) {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Choose a valid team member role.")}#team`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Choose a valid team member role.")}`);
   }
   const { data: member } = await supabase.from("business_members").select("role")
     .eq("business_id", business.id).eq("user_id", memberUserId).maybeSingle();
   if (!member || member.role === "owner") {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The business owner role cannot be changed here.")}#team`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("The business owner role cannot be changed here.")}`);
   }
   const { error } = await supabase.from("business_members").update({ role })
     .eq("business_id", business.id).eq("user_id", memberUserId);
   if (error) {
     console.error("Team member role update failed", { code: error.code, businessId: business.id, memberUserId });
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The team member role could not be updated.")}#team`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("The team member role could not be updated.")}`);
   }
   revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Team member role updated.")}#team`);
+  revalidatePath(`/app/${businessSlug}/team`);
+  redirect(`/app/${businessSlug}/team?success=${encodeURIComponent("Workspace role updated.")}`);
 }
 
 export async function inviteTeamMember(businessSlug: string, formData: FormData) {
   const result=await createAndDeliverEmployeeInvitation(businessSlug,value(formData,"email"),value(formData,"role"));
-  if(result.error)redirect(`/app/${businessSlug}?teamError=${encodeURIComponent(result.error)}`);
-  revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(result.outcome!))}&inviteLink=${encodeURIComponent(result.invitationLink!)}`);
+  if(result.error)redirect(`/app/${businessSlug}/team?error=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/app/${businessSlug}/team`);
+  redirect(`/app/${businessSlug}/team?success=${encodeURIComponent(invitationDeliveryMessage(result.outcome!))}&inviteLink=${encodeURIComponent(result.invitationLink!)}`);
 }
 
 export async function createAndDeliverEmployeeInvitation(businessSlug:string,emailInput:string,roleInput:string) {
@@ -303,11 +304,11 @@ export async function resendInvitation(businessSlug: string, formData: FormData)
   const invitationId = value(formData, "invitationId");
   const { data: invitation } = await supabase.from("business_invitations").select("id,email,token,accepted_at").eq("id", invitationId).eq("business_id", business.id).maybeSingle();
   if (!invitation || invitation.accepted_at) {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Pending invitation not found.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Pending invitation not found.")}`);
   }
   const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
   const { error } = await supabase.from("business_invitations").update({ expires_at: expiresAt }).eq("id", invitation.id).eq("business_id", business.id);
-  if (error) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be renewed.")}`);
+  if (error) redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("The invitation could not be renewed.")}`);
   const origin = await siteOrigin();
   const next = `/invite/accept?token=${invitation.token}`;
   const invitationLink = `${origin}${next}`;
@@ -319,7 +320,8 @@ export async function resendInvitation(businessSlug: string, formData: FormData)
     userAlreadyExists: Boolean(userId),
   });
   revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent(invitationDeliveryMessage(delivery.outcome))}&inviteLink=${encodeURIComponent(invitationLink)}`);
+  revalidatePath(`/app/${businessSlug}/team`);
+  redirect(`/app/${businessSlug}/team?success=${encodeURIComponent(invitationDeliveryMessage(delivery.outcome))}&inviteLink=${encodeURIComponent(invitationLink)}`);
 }
 
 export async function revokeInvitation(businessSlug: string, formData: FormData) {
@@ -328,10 +330,11 @@ export async function revokeInvitation(businessSlug: string, formData: FormData)
   const { error } = await supabase.from("business_invitations").delete().eq("id", invitationId).eq("business_id", business.id);
   if (error) {
     console.error("Business invitation revoke failed", { code: error.code, businessId: business.id, invitationId });
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("The invitation could not be revoked.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("The invitation could not be revoked.")}`);
   }
   revalidatePath(`/app/${businessSlug}`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Invitation revoked.")}`);
+  revalidatePath(`/app/${businessSlug}/team`);
+  redirect(`/app/${businessSlug}/team?success=${encodeURIComponent("Invitation revoked.")}`);
 }
 
 export async function enableTechnician(businessSlug: string, formData: FormData) {
@@ -340,7 +343,7 @@ export async function enableTechnician(businessSlug: string, formData: FormData)
   const { data: member } = await supabase.from("business_members")
     .select("user_id")
     .eq("business_id", business.id).eq("user_id", memberUserId).maybeSingle();
-  if (!member) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Team member not found.")}`);
+  if (!member) redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Team member not found.")}`);
   const { data: employee, error: employeeError } = await supabase.from("employees")
     .select("id,preferred_name")
     .eq("business_id", business.id).eq("auth_user_id", memberUserId).maybeSingle();
@@ -348,7 +351,7 @@ export async function enableTechnician(businessSlug: string, formData: FormData)
     console.error("Technician employee identity lookup failed", {
       code: employeeError?.code, businessId: business.id, memberUserId,
     });
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Create an employee record with a preferred name before enabling technician access.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Create an employee record with a preferred name before enabling technician access.")}`);
   }
   const { data: existing } = await supabase.from("technician_profiles").select("id")
     .eq("business_id", business.id).eq("member_user_id", memberUserId).maybeSingle();
@@ -367,11 +370,12 @@ export async function enableTechnician(businessSlug: string, formData: FormData)
     console.error("Technician capability enable failed", {
       code: result.error.code, businessId: business.id, memberUserId,
     });
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Technician access could not be enabled.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Technician access could not be enabled.")}`);
   }
   revalidatePath(`/app/${businessSlug}`);
   revalidatePath(`/app/${businessSlug}/dispatch`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Technician access enabled.")}#team`);
+  revalidatePath(`/app/${businessSlug}/team`);
+  redirect(`/app/${businessSlug}/team?success=${encodeURIComponent("Technician access enabled.")}`);
 }
 
 export async function disableTechnician(businessSlug: string, formData: FormData) {
@@ -379,12 +383,12 @@ export async function disableTechnician(businessSlug: string, formData: FormData
   const memberUserId = value(formData, "memberUserId");
   const { data: technician } = await supabase.from("technician_profiles").select("id")
     .eq("business_id", business.id).eq("member_user_id", memberUserId).maybeSingle();
-  if (!technician) redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Technician profile not found.")}`);
+  if (!technician) redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Technician profile not found.")}`);
   const { count } = await supabase.from("jobs").select("id", { count: "exact", head: true })
     .eq("business_id", business.id).eq("assigned_technician_id", technician.id)
     .eq("is_deleted", false).not("status", "in", '("completed","canceled","declined")');
   if ((count ?? 0) > 0) {
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Reassign this technician’s active jobs before disabling technician access.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Reassign this technician’s active jobs before disabling technician access.")}`);
   }
   const { error } = await supabase.from("technician_profiles").update({
     is_active: false, can_be_assigned_jobs: false, technician_status: "off_duty", updated_by: user.id,
@@ -393,9 +397,10 @@ export async function disableTechnician(businessSlug: string, formData: FormData
     console.error("Technician capability disable failed", {
       code: error.code, businessId: business.id, memberUserId,
     });
-    redirect(`/app/${businessSlug}?teamError=${encodeURIComponent("Technician access could not be disabled.")}`);
+    redirect(`/app/${businessSlug}/team?error=${encodeURIComponent("Technician access could not be disabled.")}`);
   }
   revalidatePath(`/app/${businessSlug}`);
   revalidatePath(`/app/${businessSlug}/dispatch`);
-  redirect(`/app/${businessSlug}?teamSuccess=${encodeURIComponent("Technician access disabled.")}#team`);
+  revalidatePath(`/app/${businessSlug}/team`);
+  redirect(`/app/${businessSlug}/team?success=${encodeURIComponent("Technician access disabled.")}`);
 }
