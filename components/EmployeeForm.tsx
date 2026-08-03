@@ -1,6 +1,6 @@
 type Role={id:string;name:string};
 type Manager={id:string;preferred_name:string};
-type Employee={id?:string;first_name?:string|null;last_name?:string|null;preferred_name?:string;legal_name?:string|null;email?:string|null;phone?:string|null;employee_number?:string|null;job_title?:string|null;employee_type?:string|null;employment_status?:string|null;manager_employee_id?:string|null;profile_photo_url?:string|null;hire_date?:string|null;termination_date?:string|null;notes?:string|null;is_active?:boolean};
+type Employee={id?:string;first_name?:string|null;last_name?:string|null;preferred_name?:string;legal_name?:string|null;email?:string|null;phone?:string|null;secondary_phone?:string|null;address_line_1?:string|null;address_line_2?:string|null;city?:string|null;state?:string|null;postal_code?:string|null;country?:string|null;emergency_contact_name?:string|null;emergency_contact_phone?:string|null;emergency_contact_relationship?:string|null;employee_number?:string|null;job_title?:string|null;employee_type?:string|null;employment_status?:string|null;manager_employee_id?:string|null;profile_photo_url?:string|null;hire_date?:string|null;termination_date?:string|null;notes?:string|null;is_active?:boolean};
 export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleIds=[],submitLabel,allowInvitation=false,allowEmployeeNumberOverride=false}:{action:(formData:FormData)=>void|Promise<void>;roles:Role[];managers?:Manager[];employee?:Employee;selectedRoleIds?:string[];submitLabel:string;allowInvitation?:boolean;allowEmployeeNumberOverride?:boolean}){
  return <form action={action} className="employee-form"><fieldset><legend>Employee profile</legend>
   <label>First name<input required maxLength={100} name="firstName" defaultValue={employee.first_name??""}/></label>
@@ -9,6 +9,7 @@ export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleI
   <label>Legal name<input maxLength={200} name="legalName" defaultValue={employee.legal_name??""}/></label>
   <label>Email<input type="email" name="email" defaultValue={employee.email??""}/></label>
   <label>Phone<input name="phone" type="tel" autoComplete="tel" defaultValue={employee.phone??""}/></label>
+  <label>Secondary phone <small>Optional</small><input name="secondaryPhone" type="tel" autoComplete="tel-national" maxLength={50} defaultValue={employee.secondary_phone??""}/></label>
   <label>Employee number<input name="employeeNumber" maxLength={64} pattern="[A-Za-z0-9_-]+" readOnly={!allowEmployeeNumberOverride} aria-describedby={!allowEmployeeNumberOverride?"employee-number-managed":undefined} defaultValue={employee.employee_number??""}/>{!allowEmployeeNumberOverride&&<small id="employee-number-managed">Managed by this workspace’s employee-numbering settings.</small>}</label>
   <label>Job title<input maxLength={120} name="jobTitle" defaultValue={employee.job_title??""}/></label>
   <label>Employee type<select name="employeeType" defaultValue={employee.employee_type??"other"}><option value="technician">Technician</option><option value="dispatcher">Dispatcher</option><option value="office_staff">Office staff</option><option value="sales">Sales</option><option value="manager">Manager</option><option value="owner">Owner</option><option value="other">Other</option></select></label>
@@ -17,6 +18,17 @@ export function EmployeeForm({action,roles,managers=[],employee={},selectedRoleI
   <label>Profile photo <small>JPG, PNG, or WebP up to 5MB</small><input type="file" name="profilePhoto" accept="image/jpeg,image/png,image/webp"/></label>
   <label>Hire date<input type="date" name="hireDate" defaultValue={employee.hire_date??""}/></label>
   <label>Termination date<input type="date" name="terminationDate" defaultValue={employee.termination_date??""}/></label>
+  <div className="employee-form-section"><strong>Home address</strong><small>Private employee information</small></div>
+  <label className="employee-wide">Street address<input name="addressLine1" autoComplete="street-address" maxLength={200} defaultValue={employee.address_line_1??""}/></label>
+  <label className="employee-wide">Apartment, suite, etc. <small>Optional</small><input name="addressLine2" autoComplete="address-line2" maxLength={200} defaultValue={employee.address_line_2??""}/></label>
+  <label>City<input name="city" autoComplete="address-level2" maxLength={120} defaultValue={employee.city??""}/></label>
+  <label>State<input name="state" autoComplete="address-level1" maxLength={100} defaultValue={employee.state??""}/></label>
+  <label>ZIP / postal code<input name="postalCode" autoComplete="postal-code" maxLength={30} defaultValue={employee.postal_code??""}/></label>
+  <label>Country<select name="country" autoComplete="country" defaultValue={employee.country??"US"}><option value="US">United States</option><option value="CA">Canada</option></select></label>
+  <div className="employee-form-section"><strong>Emergency contact</strong><small>Optional</small></div>
+  <label>Name<input name="emergencyContactName" maxLength={200} defaultValue={employee.emergency_contact_name??""}/></label>
+  <label>Phone<input name="emergencyContactPhone" type="tel" maxLength={50} defaultValue={employee.emergency_contact_phone??""}/></label>
+  <label>Relationship<input name="emergencyContactRelationship" maxLength={100} defaultValue={employee.emergency_contact_relationship??""}/></label>
   <label className="employee-notes">Notes<textarea name="notes" rows={4} maxLength={5000} defaultValue={employee.notes??""}/></label>
  </fieldset><fieldset className="employee-roles"><legend>Workforce roles</legend><p>These describe the employee’s work. They do not grant login access.</p>{roles.map(role=><label key={role.id}><input type="checkbox" name="roleIds" value={role.id} defaultChecked={selectedRoleIds.includes(role.id)}/>{role.name}</label>)}</fieldset>
  {allowInvitation&&<fieldset className="employee-invitation"><legend>Optional login access</legend><label className="employee-active"><input type="checkbox" name="inviteNow"/> Send an invitation after creating this employee</label><label>Workspace access<select name="accessRole" defaultValue="staff"><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Administrator</option></select></label><label className="employee-active"><input type="checkbox" name="confirmElevatedAccess"/> I understand manager or administrator access can view or change broader business information.</label><small>The employee record will remain saved if email delivery fails.</small></fieldset>}
