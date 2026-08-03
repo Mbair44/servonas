@@ -96,8 +96,14 @@ export async function signUp(formData: FormData) {
     identityCount: data.user?.identities?.length ?? null,
     redirectTo: `${origin}/auth/callback`,
   });
-  if (data.session) redirect(safeNext);
-  redirect(`/auth/confirm?email=${encodeURIComponent(email)}`);
+  // Supabase can intentionally return an obfuscated user with no identities for
+  // an existing email. Only a newly created identity is a completed signup.
+  const signupCompleted = Boolean(data.user && (data.user.identities?.length ?? 0) > 0);
+  return {
+    signupCompleted,
+    userId: signupCompleted ? data.user!.id : null,
+    redirectTo: data.session ? safeNext : `/auth/confirm?email=${encodeURIComponent(email)}`,
+  };
 }
 
 export async function resendSignupVerification(formData: FormData) {
