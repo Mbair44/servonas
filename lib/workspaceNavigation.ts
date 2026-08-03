@@ -12,7 +12,7 @@ export type WorkspaceNavigationItem={
 
 export const SIDEBAR_GROUPS_STORAGE_KEY="servonas.sidebar.groups.v1";
 
-export function workspaceNavigation(slug:string):WorkspaceNavigationItem[]{
+export function workspaceNavigation(slug:string,options:{poolService?:boolean}={}):WorkspaceNavigationItem[]{
  const base=`/app/${slug}`;
  return [
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
@@ -41,7 +41,14 @@ export function workspaceNavigation(slug:string):WorkspaceNavigationItem[]{
    {id:"equipment",label:"Equipment & Fleet",href:`${base}/equipment`},
    {id:"inventory",label:"Rental Inventory",disabled:true,badge:"Soon"},
   ]},
-  {id:"settings",label:"Settings",href:`${base}/settings`},
+  {id:"settings",label:"Settings",children:[
+   {id:"settings-general",label:"General",href:`${base}/settings`,exact:true},
+   {id:"settings-operations",label:"Operations",href:`${base}/settings/operations`},
+   {id:"settings-billing",label:"Billing",href:`${base}/settings/billing`},
+   {id:"settings-communications",label:"Communications",href:`${base}/settings/communications`},
+   {id:"settings-employees",label:"Employees",href:`${base}/settings/employees`},
+   {id:"settings-pool-service",label:"Pool Service",href:`${base}/settings/pool-service`,visible:options.poolService===true},
+  ]},
  ];
 }
 

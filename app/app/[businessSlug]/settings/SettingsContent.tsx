@@ -9,7 +9,7 @@ import {MissedCallRecoverySettings} from "@/components/MissedCallRecoverySetting
 import {PoolServiceSettings} from "@/components/PoolServiceSettings";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {defaultPoolChemicals,defaultPoolChecklist} from "@/lib/poolService";
-import {SettingsNavigation,type SettingsSection} from "@/components/SettingsNavigation";
+import type {SettingsSection} from "@/lib/settingsSections";
 import {notFound} from "next/navigation";
 
 export async function SettingsContent({businessSlug,q,section}:{businessSlug:string;q:Record<string,string|undefined>;section:SettingsSection}){
@@ -43,9 +43,8 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
   key:entitlementSummary.entitlement?.entitlement_key??null,startsAt:entitlementSummary.entitlement?.starts_at??null,
   endsAt:entitlementSummary.entitlement?.ends_at??null,capabilities:entitlementSummary.capabilities,
  };
- return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content settings-page-redesign">
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} poolService={isPool}/><section className="epic3-content settings-page-redesign">
   {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
-  <SettingsNavigation slug={businessSlug} active={section} isPool={isPool}/>
   {section!=="communications"&&section!=="pool-service"&&<SettingsDashboard section={section}
    business={business} timezone={business.timezone} editable={editable} entitlement={entitlement}
    endpointDefaults={endpointDefaults} technicians={technicians??[]} endpointOverrides={endpointOverrides??[]}
