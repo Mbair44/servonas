@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import {useState,type FormEvent} from "react";
+import {useActionState,useEffect,useRef,useState,type FormEvent} from "react";
+import {trackGoogleAdsSignupConversion} from "@/lib/googleAds";
+
+type AuthActionResult={signupCompleted:boolean;userId:string|null;redirectTo:string}|null|void;
 
 function PasswordVisibilityIcon({visible}:{visible:boolean}){
  return visible
@@ -20,7 +23,7 @@ export default function AuthForm({
 }: {
   title: string;
   subtitle: string;
-  action: (fd: FormData) => void | Promise<void>;
+  action: (fd: FormData) => AuthActionResult | Promise<AuthActionResult>;
   mode: "login" | "signup" | "forgot" | "reset";
   error?: string;
   next?: string;
@@ -34,6 +37,16 @@ export default function AuthForm({
   const [showPassword,setShowPassword]=useState(false);
   const [showConfirmation,setShowConfirmation]=useState(false);
   const [attempted,setAttempted]=useState(false);
+  const trackedSignup=useRef<string|null>(null);
+  const [actionResult,formAction,pending]=useActionState(async(_previous:AuthActionResult,formData:FormData)=>await action(formData),null);
+  useEffect(()=>{
+    if(!actionResult)return;
+    if(actionResult.signupCompleted&&actionResult.userId&&trackedSignup.current!==actionResult.userId){
+      trackedSignup.current=actionResult.userId;
+      trackGoogleAdsSignupConversion(actionResult.userId);
+    }
+    window.location.assign(actionResult.redirectTo);
+  },[actionResult]);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
   const passwordMissing=attempted&&requiresConfirmation&&!password;
   const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
@@ -59,7 +72,7 @@ export default function AuthForm({
         <h1>{title}</h1>
         <p>{subtitle}</p>
         {error && <div className="auth-error">{error}</div>}
-        <form action={action} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
+        <form action={formAction} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
           {next && <input type="hidden" name="next" value={next} />}
           {!isReset && (
             <label>
@@ -90,8 +103,8 @@ export default function AuthForm({
               {!confirmationMissing&&!confirmationTooShort&&passwordsDiffer&&<span className="auth-field-error" id="password-confirmation-error" role="alert">Passwords do not match.</span>}
             </label>
           )}
-          <button className="sv-button sv-full" type="submit" disabled={passwordTooShort||confirmationTooShort||passwordsDiffer}>
-            {mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
+          <button className="sv-button sv-full" type="submit" disabled={pending||passwordTooShort||confirmationTooShort||passwordsDiffer}>
+            {pending?"Please wait…":mode === "login" ? "Log in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
           </button>
         </form>
         <div className="auth-links">
