@@ -948,7 +948,7 @@ body:has(.epic3-sidebar) .epic3-sidebar{z-index:55}
 .account-menu-popover>section>b{padding:4px 8px 7px;color:#344054;font-size:.66rem}
 .account-menu-popover a,.account-menu-popover form button{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;padding:9px 8px;border:0;border-radius:8px;background:transparent;color:#25324b;text-align:left;text-decoration:none;font:inherit;cursor:pointer}
 .account-menu-popover a:hover,.account-menu-popover form button:hover{background:#f3f6fb}
-.account-menu-popover i{display:grid;place-items:center;color:#40577e;font-size:.85rem;font-style:normal}
+.account-menu-popover i{display:grid;place-items:center;color:#40577e;font-size:.85rem;font-style:normal}.account-menu-popover i svg{width:18px;height:18px}
 .account-menu-popover a>span,.account-menu-popover button>span{display:grid;gap:2px}
 .account-menu-popover strong{font-size:.72rem}.account-menu-popover small{color:#667085;font-size:.62rem;font-weight:500}
 .account-menu-popover .account-menu-switch:after{content:"›";color:#667085;font-size:1.1rem}
