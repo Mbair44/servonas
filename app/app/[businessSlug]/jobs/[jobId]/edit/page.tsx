@@ -17,12 +17,13 @@ export default async function EditJob({ params }: { params: Promise<{ businessSl
   const { businessSlug, jobId } = await params;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
   if (!canManageCustomers(role)) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content"><div className="workspace-notice error">You do not have permission to edit jobs.</div></section></main>;
-  const [{ data: job }, { data: customers }, { data: locations }, { data: services }, { data: technicians }] = await Promise.all([
+  const [{ data: job }, { data: customers }, { data: locations }, { data: services }, { data: technicians },{data:priorJobs}] = await Promise.all([
     supabase.from("jobs").select("*").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
     supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id", business.id).eq("is_deleted", false).order("last_name"),
     supabase.from("service_locations").select("id,customer_id,location_name,street_address,city,state,default_technician_id").eq("business_id", business.id).eq("is_deleted", false).order("location_name"),
     supabase.from("services").select("id,name,duration_minutes").eq("business_id", business.id).eq("is_deleted", false).order("name"),
     supabase.from("technician_directory").select("id,preferred_name").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("preferred_name"),
+    supabase.from("jobs").select("id,job_number,title,customer_id,starts_at").eq("business_id",business.id).eq("is_deleted",false).neq("id",jobId).order("starts_at",{ascending:false}).limit(500),
   ]);
   if (!job) notFound();
   const formJob = {
@@ -34,6 +35,6 @@ export default async function EditJob({ params }: { params: Promise<{ businessSl
   };
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Job #{job.job_number}</small><h1>Edit {job.title}</h1><p>All scheduling times are shown in {business.timezone}.</p></div><Link href={`/app/${businessSlug}/jobs/${jobId}`}>Back to job</Link></header>
-    <section className="workspace-panel"><JobForm action={updateJob.bind(null, businessSlug, jobId)} customers={customers ?? []} locations={locations ?? []} services={services ?? []} technicians={technicians ?? []} job={formJob} submitLabel="Save job"/></section>
+    <section className="workspace-panel"><JobForm action={updateJob.bind(null, businessSlug, jobId)} customers={customers ?? []} locations={locations ?? []} services={services ?? []} technicians={technicians ?? []} priorJobs={priorJobs??[]} job={formJob} submitLabel="Save job"/></section>
   </section></main>;
 }
