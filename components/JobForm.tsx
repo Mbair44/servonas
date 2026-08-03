@@ -8,13 +8,14 @@ type Customer = { id: string; first_name: string; last_name: string; company_nam
 type Location = { id: string; customer_id: string; location_name: string; street_address: string; city: string; state: string; default_technician_id?:string|null };
 type Service = { id: string; name: string; duration_minutes?: number | null };
 type Technician = { id: string; preferred_name: string };
-type Job = Record<string, string | number | null | undefined>;
+type PriorJob = {id:string;job_number:number;title:string;customer_id:string;starts_at:string|null};
+type Job = Record<string, string | number | boolean | null | undefined>;
 
 export default function JobForm({
-  action, customers, locations, services, technicians, job, submitLabel, defaultCustomerId = "", defaultStartAt="", onCancel,
+  action, customers, locations, services, technicians, priorJobs=[], job, submitLabel, defaultCustomerId = "", defaultStartAt="", onCancel,
 }: {
   action: (state: JobActionState, formData: FormData) => Promise<JobActionState>;
-  customers: Customer[]; locations: Location[]; services: Service[]; technicians: Technician[];
+  customers: Customer[]; locations: Location[]; services: Service[]; technicians: Technician[];priorJobs?:PriorJob[];
   job?: Job; submitLabel: string; defaultCustomerId?: string; defaultStartAt?:string; onCancel?:()=>void;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
@@ -29,6 +30,7 @@ export default function JobForm({
   const technicianTouched=useRef(false);
   const initialCommitment=state.values?.scheduleCommitment??String(job?.schedule_commitment??"fixed");
   const [fixedTime,setFixedTime]=useState(initialCommitment!=="flexible");
+  const [returnVisit,setReturnVisit]=useState(state.values?.isReturnVisit==="on"||job?.is_return_visit===true);
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
   const value = (name: string, fallback = "") => state.values?.[name] ?? fallback;
   const error = (name: string) => state.fieldErrors?.[name]
@@ -80,6 +82,8 @@ export default function JobForm({
     <label>Priority<select name="priority" defaultValue={value("priority", String(job?.priority ?? "normal"))}>{jobPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select>{error("priority")}</label>
     <label>Status<select name="status" defaultValue={value("status", String(job?.status ?? "draft"))}>{jobStatuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select>{error("status")}</label>
     <label>Source<input name="source" defaultValue={value("source", String(job?.booking_source ?? "dashboard"))}/></label>
+    <label className="wide job-return-visit"><input type="checkbox" name="isReturnVisit" checked={returnVisit} onChange={event=>setReturnVisit(event.target.checked)}/><span><strong>Mark as a return visit</strong><small>Use this for a callback or additional visit related to work already performed.</small></span></label>
+    {returnVisit&&<><label className="wide">Original job <small>Optional</small><select name="returnVisitForJobId" defaultValue={value("returnVisitForJobId",String(job?.return_visit_for_job_id??""))}><option value="">Not linked to a specific job</option>{priorJobs.filter(item=>item.customer_id===customerId&&item.id!==job?.id).map(item=><option key={item.id} value={item.id}>#{item.job_number} · {item.title}{item.starts_at?` · ${new Date(item.starts_at).toLocaleDateString()}`:""}</option>)}</select>{error("returnVisitForJobId")}</label><label className="wide">Return-visit reason <small>Optional</small><textarea name="returnVisitReason" rows={2} maxLength={1000} defaultValue={value("returnVisitReason",String(job?.return_visit_reason??""))} placeholder="Warranty callback, issue continued, follow-up repair…"/></label></>}
     <label>Subtotal<input name="subtotal" type="number" min="0" step="0.01" defaultValue={value("subtotal", String(job?.subtotal ?? 0))}/></label>
     <label>Tax<input name="taxAmount" type="number" min="0" step="0.01" defaultValue={value("taxAmount", String(job?.tax_amount ?? 0))}/></label>
     <label>Discount<input name="discountAmount" type="number" min="0" step="0.01" defaultValue={value("discountAmount", String(job?.discount_amount ?? 0))}/>{error("money")}</label>

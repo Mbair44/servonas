@@ -53,6 +53,7 @@ async function prepareJob(
   const serviceId = text(formData, "serviceId");
   const technicianId = text(formData, "technicianId");
   const scheduleCommitment=text(formData,"scheduleCommitment")==="flexible"?"flexible":"fixed";
+  const isReturnVisit=formData.get("isReturnVisit")==="on",returnVisitForJobId=isReturnVisit?text(formData,"returnVisitForJobId"):"";
   const startsAt = localDate(text(formData, "startsAt"), business.timezone);
   const endsAt = localDate(text(formData, "endsAt"), business.timezone);
   const arrivalStart = scheduleCommitment==="fixed"?localDate(text(formData, "arrivalWindowStart"), business.timezone):null;
@@ -84,6 +85,10 @@ async function prepareJob(
   if (serviceId && !service) errors.serviceId = "Service does not belong to this business.";
   if (technicianId && !technician) errors.technicianId = "Technician is not assignable.";
   if (Object.keys(errors).length) return { error: "One or more selections are invalid.", errors, values };
+  if(returnVisitForJobId){
+    const {data:originalJob}=await supabase.from("jobs").select("id,customer_id,starts_at").eq("business_id",business.id).eq("id",returnVisitForJobId).eq("is_deleted",false).maybeSingle();
+    if(!originalJob||originalJob.customer_id!==customerId||originalJob.id===excludeJobId||(startsAt&&originalJob.starts_at&&new Date(originalJob.starts_at)>=startsAt))return {error:"Choose an earlier job for the same customer.",errors:{returnVisitForJobId:"The original job must be an earlier job for this customer."},values};
+  }
   const schedulingCheck = scheduleCommitment==="fixed"?await checkJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
     startsAt, endsAt, arrivalWindowStart: arrivalStart, arrivalWindowEnd: arrivalEnd,
@@ -123,6 +128,9 @@ async function prepareJob(
       discount_amount: discount ?? 0,
       payment_status: paymentStatus,
       booking_source: text(formData, "source") || "dashboard",
+      is_return_visit:isReturnVisit,
+      return_visit_for_job_id:returnVisitForJobId||null,
+      return_visit_reason:isReturnVisit?(text(formData,"returnVisitReason")||null):null,
     },
   };
 }
