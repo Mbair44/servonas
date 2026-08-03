@@ -22,7 +22,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
   editable?supabase.from("business_route_endpoint_defaults").select("*").eq("business_id",business.id).maybeSingle():Promise.resolve({data:null}),
   editable?supabase.from("technician_directory").select("id,preferred_name").eq("business_id",business.id).eq("is_active",true).eq("is_technician",true).order("preferred_name"):Promise.resolve({data:[]}),
   editable?supabase.from("technician_route_endpoint_overrides").select("*").eq("business_id",business.id):Promise.resolve({data:[]}),
-  editable?supabase.from("business_routing_policies").select("default_service_duration_minutes,imminent_job_lock_minutes,scheduled_window_notifications_enabled,en_route_notifications_enabled,proximity_eta_notifications_enabled").eq("business_id",business.id).maybeSingle():Promise.resolve({data:null}),
+  editable?supabase.from("business_routing_policies").select("default_service_duration_minutes,imminent_job_lock_minutes,scheduled_window_notifications_enabled,en_route_notifications_enabled,proximity_eta_notifications_enabled,auto_dispatch_all_jobs").eq("business_id",business.id).maybeSingle():Promise.resolve({data:null}),
   supabase.from("employee_numbering_settings").select("auto_assign_enabled,prefix,starting_number,next_number,minimum_digits,allow_manual_override").eq("business_id",business.id).maybeSingle(),
   supabase.from("business_billing_settings").select("accept_online_card,accept_cash,accept_check,accept_pay_by_phone,check_payable_to,payment_phone").eq("business_id",business.id).maybeSingle(),
   supabase.from("business_inbound_sms_settings").select("enabled,inbound_number_e164,auto_reply_enabled,auto_reply_body,emergency_reply_body").eq("business_id",business.id).maybeSingle(),

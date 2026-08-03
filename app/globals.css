@@ -747,6 +747,10 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .employee-record-facts .employee-address-fact{align-items:flex-start}
 .employee-record-facts .employee-address-fact dd{max-width:62%;line-height:1.5;text-transform:none}
 @media(max-width:800px){.employee-form .employee-wide,.employee-form .employee-form-section{grid-column:auto}}
+.settings-auto-dispatch{align-items:flex-start!important;padding:14px!important;border:1px solid #bfd0f5!important;border-radius:11px;background:#f5f8ff}
+.settings-auto-dispatch>span{display:grid;gap:4px}
+.settings-auto-dispatch strong{color:#25324b}
+.settings-auto-dispatch small{color:#5d6b82;font-weight:500;line-height:1.45}
 .customer-record-aside .customer-service-plans>.panel-title>.sv-button{min-height:34px;padding:7px 10px;font-size:.72rem}
 .customer-record-aside .customer-plan-list{margin-top:12px}
 .customer-record-aside .customer-plan-list article{grid-template-columns:32px minmax(0,1fr) auto auto;gap:8px;padding:11px 9px}
