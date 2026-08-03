@@ -7,24 +7,29 @@ import {requireWorkspaceCapability} from "@/lib/workspace";
 import {normalizeWebsiteDomain,validWebsiteColor,validWebsiteSlug,websiteTemplates} from "@/lib/website";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
-const target=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/website?${kind}=${encodeURIComponent(message)}`;
+const target=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}`;
 const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,12);
+const reviews=(data:FormData)=>{
+ const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
+ return authors.map((author,index)=>({author:author.trim(),rating:ratings[index],text:texts[index]??""})).filter(review=>review.author||review.text).slice(0,6);
+};
 
 export async function saveWebsiteSettings(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can manage the website."));
- const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),photoUrls=urls(text(data,"photoUrls"));
+ const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),photoUrls=urls(text(data,"photoUrls")),googleReviews=reviews(data);
  if(!validWebsiteSlug(publicSlug))redirect(target(slug,"error","Use lowercase letters, numbers, and hyphens for the website URL."));
  if(!websiteTemplates.includes(template as typeof websiteTemplates[number]))redirect(target(slug,"error","Choose a valid website template."));
  if(!validWebsiteColor(primary)||!validWebsiteColor(secondary))redirect(target(slug,"error","Choose valid six-digit brand colors."));
  if(customDomainRaw&&!customDomain)redirect(target(slug,"error","Enter a valid domain name."));
  if(googleReviewUrl){try{const url=new URL(googleReviewUrl);if(url.protocol!=="https:")throw new Error();}catch{redirect(target(slug,"error","The Google review link must be a secure HTTPS URL."));}}
+ if(googleReviews.some(review=>review.author.length<1||review.author.length>100||review.text.length<3||review.text.length>600||!Number.isInteger(review.rating)||review.rating<1||review.rating>5))redirect(target(slug,"error","Complete each Google review with a customer name, rating, and review text."));
  if(photoUrls.some(url=>{try{return new URL(url).protocol!=="https:";}catch{return true;}}))redirect(target(slug,"error","Every photo must use a valid HTTPS URL."));
  const {data:existing}=await supabase.from("business_website_settings").select("custom_domain,status").eq("business_id",business.id).maybeSingle();
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"pending_verification";
- const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,google_review_url:googleReviewUrl||null,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
+ const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,google_review_url:googleReviewUrl||null,google_reviews:googleReviews,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error("Website settings save failed",{businessId:business.id,code:error.code});redirect(target(slug,"error",error.code==="23505"?"That website URL or domain is already in use.":"Website settings could not be saved. Apply the website migration first."));}
- revalidatePath(`/app/${slug}/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved."));
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved."));
 }
 
 export async function setWebsitePublished(slug:string,data:FormData){
@@ -35,7 +40,7 @@ export async function setWebsitePublished(slug:string,data:FormData){
  if(!settings)redirect(target(slug,"error","Save the website settings before publishing."));
  const {error}=await supabase.from("business_website_settings").update({status:publish?"published":"draft",published_at:publish?new Date().toISOString():null,updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
  if(error)redirect(target(slug,"error","Website publishing status could not be changed."));
- revalidatePath(`/app/${slug}/website`);revalidatePath(`/sites/${settings.public_slug}`);redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
 }
 
 export async function uploadWebsiteLogo(slug:string,data:FormData){
@@ -50,7 +55,7 @@ export async function uploadWebsiteLogo(slug:string,data:FormData){
  const {error}=await supabase.from("booking_settings").upsert({business_id:business.id,public_slug:booking?.public_slug??business.slug,logo_path:path,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
  if(error){await supabase.storage.from("booking-branding").remove([path]);redirect(target(slug,"error","The logo could not be saved."));}
  if(booking?.logo_path&&booking.logo_path!==path)await supabase.storage.from("booking-branding").remove([booking.logo_path]);
- revalidatePath(`/app/${slug}/website`);redirect(target(slug,"success","Website logo updated."));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success","Website logo updated."));
 }
 
 export async function updateWebsiteLeadStatus(slug:string,data:FormData){
@@ -59,5 +64,5 @@ export async function updateWebsiteLeadStatus(slug:string,data:FormData){
  if(!canManageBusiness(role)||!["new","contacted","qualified","booked","lost"].includes(status))redirect(target(slug,"error","The request status could not be changed."));
  const {error}=await supabase.from("website_service_requests").update({lead_status:status}).eq("business_id",business.id).eq("id",requestId);
  if(error)redirect(target(slug,"error","The request status could not be saved."));
- revalidatePath(`/app/${slug}/website`);redirect(target(slug,"success","Request status updated."));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success","Request status updated."));
 }

@@ -22,7 +22,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   heroHeading:settings.hero_heading??`${business.name} keeps your home or business running smoothly.`,
   heroSubheading:settings.hero_subheading??"Reliable local service, clear communication, and a team that is ready when you need help.",
   aboutText:settings.about_text??`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`,
-  googleReviewUrl:settings.google_review_url,photoUrls:(settings.photo_urls??[]).filter(Boolean),requestEnabled:settings.request_service_enabled??true,
+  googleReviewUrl:settings.google_review_url,googleReviews:(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6),photoUrls:(settings.photo_urls??[]).filter(Boolean),requestEnabled:settings.request_service_enabled??true,
   bookingEnabled:Boolean(settings.booking_enabled&&booking?.enabled),bookingUrl:settings.booking_enabled&&booking?.enabled?`/book/${booking.public_slug}`:null,
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
   hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],

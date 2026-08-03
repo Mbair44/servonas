@@ -41,9 +41,9 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean}={
    {id:"equipment",label:"Equipment & Fleet",href:`${base}/equipment`},
    {id:"inventory",label:"Rental Inventory",disabled:true,badge:"Soon"},
   ]},
-  {id:"website",label:"Website",href:`${base}/website`},
   {id:"settings",label:"Settings",children:[
    {id:"settings-general",label:"General",href:`${base}/settings`,exact:true},
+   {id:"settings-website",label:"Website",href:`${base}/settings/website`},
    {id:"settings-operations",label:"Operations",href:`${base}/settings/operations`},
    {id:"settings-billing",label:"Billing",href:`${base}/settings/billing`},
    {id:"settings-communications",label:"Communications",href:`${base}/settings/communications`},
