@@ -3,6 +3,7 @@ import Link from "next/link";
 import {useCallback,useMemo,useState} from "react";
 import {ManagementDrawer} from "./ManagementDrawer";
 import {formatEmployeeNumber,type EmployeeNumbering} from "@/lib/employeeNumbering";
+import CopyInvitationLink from "./CopyInvitationLink";
 
 type Role={id:string;name:string};
 type Employee={
@@ -10,15 +11,18 @@ type Employee={
  employeeNumber:string|null;jobTitle:string|null;hireDate:string|null;notes:string|null;active:boolean;authUserId:string|null;
  profilePhotoUrl:string|null;createdAt:string;roles:Role[];state:"active"|"inactive"|"invited"|"missing_email"|"missing_role";
  invitationRole:string|null;
+ workspaceRole:string|null;technicianEnabled:boolean;
 };
 type DrawerMode={kind:"add"}|{kind:"invite"}|{kind:"details";employeeId:string}|null;
 type EmployeeSort="employee"|"roles"|"status"|"contact"|"added";
 const initials=(name:string)=>name.split(/\s+/).map(part=>part[0]).join("").slice(0,2).toUpperCase();
 
-export function EmployeeManagementConsole({businessSlug,employees,roles,numbering,canEdit,createAction,inviteAction,deactivateAction}:{
+export function EmployeeManagementConsole({businessSlug,employees,roles,numbering,canEdit,createAction,inviteAction,deactivateAction,pendingInvitations,resendInvitationAction,revokeInvitationAction}:{
  businessSlug:string;employees:Employee[];roles:Role[];numbering:EmployeeNumbering;canEdit:boolean;
  createAction:(formData:FormData)=>void|Promise<void>;inviteAction:(formData:FormData)=>void|Promise<void>;
  deactivateAction:(employeeId:string,formData:FormData)=>void|Promise<void>;
+ pendingInvitations:{id:string;email:string;role:string;expiresAt:string;link:string}[];
+ resendInvitationAction:(formData:FormData)=>void|Promise<void>;revokeInvitationAction:(formData:FormData)=>void|Promise<void>;
 }){
  const [drawer,setDrawer]=useState<DrawerMode>(null),[dirty,setDirty]=useState(false),[search,setSearch]=useState(""),[status,setStatus]=useState("all"),[role,setRole]=useState("");
  const [sort,setSort]=useState<EmployeeSort>("employee"),[direction,setDirection]=useState<"asc"|"desc">("asc");
@@ -64,12 +68,13 @@ export function EmployeeManagementConsole({businessSlug,employees,roles,numberin
      <div className="employee-table-head" role="row">{sortHeader("employee","Employee")}{sortHeader("roles","Role(s)")}{sortHeader("status","Status")}{sortHeader("contact","Contact")}{sortHeader("added","Added")}</div>
      {visible.length?visible.map(employee=><button role="row" type="button" onClick={()=>open({kind:"details",employeeId:employee.id})} key={employee.id}>
       <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{employee.profilePhotoUrl?<img src={employee.profilePhotoUrl} alt=""/>:initials(employee.preferredName)}</span><span><strong>{employee.preferredName}</strong><small>{employee.employeeNumber?`#${employee.employeeNumber}`:employee.email||"No email"}</small></span></span>
-      <span className="employee-table-roles" role="cell">{employee.roles.length?employee.roles.map(item=><em key={item.id}>{item.name}</em>):<em>Not assigned</em>}</span>
+      <span className="employee-table-roles" role="cell">{employee.roles.length?employee.roles.map(item=><em key={item.id}>{item.name}</em>):<em>Not assigned</em>}{employee.workspaceRole&&<small>{employee.workspaceRole} access{employee.technicianEnabled?" · technician":""}</small>}</span>
       <span role="cell"><b className={`employee-state ${employee.state}`}>● {employee.state.replaceAll("_"," ")}</b></span><span className="employee-table-contact" role="cell">{employee.email||employee.phone||"—"}</span>
       <span role="cell">{new Date(employee.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
      </button>):<div className="dashboard-empty"><strong>No employees match these filters.</strong><p>Adjust the filters or add an employee.</p></div>}
     </div>
     <footer className="employee-table-footer">Showing {visible.length} of {employees.length} employees</footer>
+    {canEdit&&pendingInvitations.length>0&&<div className="employee-pending-access"><header><div><strong>Pending workspace invitations</strong><span>{pendingInvitations.length} awaiting acceptance</span></div></header>{pendingInvitations.map(invitation=><article key={invitation.id}><span className="employee-table-avatar">{initials(invitation.email)}</span><div><strong>{invitation.email}</strong><small>{invitation.role} access · expires {new Date(invitation.expiresAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</small></div><div className="employee-pending-actions"><CopyInvitationLink url={invitation.link}/><form action={resendInvitationAction}><input type="hidden" name="invitationId" value={invitation.id}/><button className="text-button">Resend</button></form><form action={revokeInvitationAction}><input type="hidden" name="invitationId" value={invitation.id}/><button className="text-button danger">Revoke</button></form></div></article>)}</div>}
    </div>
   </section>
 
@@ -88,7 +93,7 @@ export function EmployeeManagementConsole({businessSlug,employees,roles,numberin
   </ManagementDrawer>
 
   <ManagementDrawer open={Boolean(selected)} title={selected?.preferredName??"Employee details"} onDirty={()=>{}} onClose={close}>
-   {selected&&<div className="drawer-employee-details"><header><span className="employee-detail-avatar">{selected.profilePhotoUrl?<img src={selected.profilePhotoUrl} alt=""/>:initials(selected.preferredName)}</span><div><h3>{selected.preferredName}</h3><p>{selected.employeeNumber?`#${selected.employeeNumber} • `:""}{selected.roles[0]?.name??"No role"}</p></div><b className={`employee-state ${selected.state}`}>{selected.state.replaceAll("_"," ")}</b></header><nav><span>Overview</span><Link href={`/app/${businessSlug}/team/${selected.id}`}>Roles</Link><Link href={`/app/${businessSlug}/team/${selected.id}`}>Workspace access</Link><Link href={`/app/${businessSlug}/team/${selected.id}`}>History</Link><Link href={`/app/${businessSlug}/team/${selected.id}`}>Notes</Link></nav><dl><div><dt>Email</dt><dd>{selected.email||"Not provided"}</dd></div><div><dt>Phone</dt><dd>{selected.phone||"Not provided"}</dd></div><div><dt>Job title</dt><dd>{selected.jobTitle||"Not provided"}</dd></div><div><dt>Hired</dt><dd>{selected.hireDate||"Not provided"}</dd></div></dl><section><h3>Roles</h3><div className="employee-detail-roles">{selected.roles.length?selected.roles.map(item=><span key={item.id}>{item.name}</span>):<span>None assigned</span>}</div></section><section><h3>Workspace access</h3><p>{selected.authUserId?"Active account":selected.invitationRole?`${selected.invitationRole} invitation pending`:"No login access"}</p></section><footer><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/team/${selected.id}`}>Manage employee</Link>{canEdit&&<form action={deactivateAction.bind(null,selected.id)}><input type="hidden" name="active" value={selected.active?"false":"true"}/><button className={`sv-button ${selected.active?"danger":""}`}>{selected.active?"Deactivate":"Activate"}</button></form>}</footer></div>}
+   {selected&&<div className="drawer-employee-details"><header><span className="employee-detail-avatar">{selected.profilePhotoUrl?<img src={selected.profilePhotoUrl} alt=""/>:initials(selected.preferredName)}</span><div><h3>{selected.preferredName}</h3><p>{selected.employeeNumber?`#${selected.employeeNumber} • `:""}{selected.roles[0]?.name??"No role"}</p></div><b className={`employee-state ${selected.state}`}>{selected.state.replaceAll("_"," ")}</b></header><nav><span>Overview</span><Link href={`/app/${businessSlug}/team/${selected.id}`}>Roles</Link><Link href={`/app/${businessSlug}/team/${selected.id}`}>Workspace access</Link><Link href={`/app/${businessSlug}/team/${selected.id}`}>History</Link><Link href={`/app/${businessSlug}/team/${selected.id}`}>Notes</Link></nav><dl><div><dt>Email</dt><dd>{selected.email||"Not provided"}</dd></div><div><dt>Phone</dt><dd>{selected.phone||"Not provided"}</dd></div><div><dt>Job title</dt><dd>{selected.jobTitle||"Not provided"}</dd></div><div><dt>Hired</dt><dd>{selected.hireDate||"Not provided"}</dd></div></dl><section><h3>Roles</h3><div className="employee-detail-roles">{selected.roles.length?selected.roles.map(item=><span key={item.id}>{item.name}</span>):<span>None assigned</span>}</div></section><section><h3>Workspace access</h3><p>{selected.workspaceRole?`${selected.workspaceRole} account${selected.technicianEnabled?" · technician enabled":""}`:selected.invitationRole?`${selected.invitationRole} invitation pending`:"No login access"}</p></section><footer><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/team/${selected.id}`}>Manage employee &amp; access</Link>{canEdit&&<form action={deactivateAction.bind(null,selected.id)}><input type="hidden" name="active" value={selected.active?"false":"true"}/><button className={`sv-button ${selected.active?"danger":""}`}>{selected.active?"Deactivate":"Activate"}</button></form>}</footer></div>}
   </ManagementDrawer>
  </>;
 }
