@@ -18,16 +18,16 @@ export async function updateBusinessSettings(slug:string,formData:FormData){
 
 export async function updateInboundSmsSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
- const target=`/app/${slug}/settings#inbound-sms`;
- if(!canManageBusiness(role))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Only owners and admins can change inbound SMS settings.")}#inbound-sms`);
+ const target=`/app/${slug}/settings/communications`;
+ if(!canManageBusiness(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can change inbound SMS settings.")}#inbound-sms`);
  const digits=text(formData,"inboundNumber").replace(/\D/g,"");
  const inboundNumber=digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:null;
  const autoReply=text(formData,"autoReply"),emergencyReply=text(formData,"emergencyReply");
- if(!inboundNumber||!autoReply||!emergencyReply)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Enter a valid U.S. SMS number and both reply messages.")}#inbound-sms`);
+ if(!inboundNumber||!autoReply||!emergencyReply)redirect(`${target}?error=${encodeURIComponent("Enter a valid U.S. SMS number and both reply messages.")}#inbound-sms`);
  const {error}=await supabase.from("business_inbound_sms_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",inbound_number_e164:inboundNumber,auto_reply_enabled:formData.get("autoReplyEnabled")==="on",auto_reply_body:autoReply,emergency_reply_body:emergencyReply,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
- if(error){console.error("Inbound SMS settings update failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.code==="23505"?"That inbound number is already assigned to another workspace.":"Inbound SMS settings could not be saved. Apply the latest database migration first.")}#inbound-sms`);}
+ if(error){console.error("Inbound SMS settings update failed",{businessId:business.id,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="23505"?"That inbound number is already assigned to another workspace.":"Inbound SMS settings could not be saved. Apply the latest database migration first.")}#inbound-sms`);}
  revalidatePath(`/app/${slug}/settings`);
- redirect(`/app/${slug}/settings?success=${encodeURIComponent("Inbound SMS settings saved.")}#inbound-sms`);
+ redirect(`${target}?success=${encodeURIComponent("Inbound SMS settings saved.")}#inbound-sms`);
 }
 
 export async function updateMissedCallRecoverySettings(slug:string,formData:FormData){
@@ -38,7 +38,7 @@ export async function updateMissedCallRecoverySettings(slug:string,formData:Form
  if(!recoveryNumber||!initialSms||!aiInstructions)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Enter a valid recovery number, initial text, and AI instructions.")}#missed-call-recovery`);
  const {error}=await supabase.from("business_missed_call_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",recovery_number_e164:recoveryNumber,initial_sms_body:initialSms,ai_enabled:formData.get("aiEnabled")==="on",ai_instructions:aiInstructions,booking_enabled:formData.get("bookingEnabled")==="on",alert_phone_e164:alertPhone,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error("Missed-call settings update failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.code==="42P01"||error.code==="PGRST205"?"Apply the missed-call recovery migration first.":"Missed-call recovery settings could not be saved.")}#missed-call-recovery`);}
- revalidatePath(`/app/${slug}/settings`);redirect(`/app/${slug}/settings?success=${encodeURIComponent("Missed-call recovery settings saved.")}#missed-call-recovery`);
+ revalidatePath(`/app/${slug}/settings/communications`);redirect(`/app/${slug}/settings/communications?success=${encodeURIComponent("Missed-call recovery settings saved.")}#missed-call-recovery`);
 }
 
 export async function updatePoolServiceSettings(slug:string,formData:FormData){
@@ -58,7 +58,7 @@ export async function updatePoolServiceSettings(slug:string,formData:FormData){
   checklist.length?supabase.from("pool_checklist_templates").upsert(checklist.map((label,index)=>({business_id:business.id,label,active:true,sort_order:index})),{onConflict:"business_id,label"}):Promise.resolve({error:null}),
  ]);
  if(rangeError||chemicalError||checklistError)redirect(`/app/${slug}/settings?error=${encodeURIComponent("Some Pool Service lists or ranges could not be saved.")}#pool-service-settings`);
- revalidatePath(`/app/${slug}/settings`);redirect(`/app/${slug}/settings?success=${encodeURIComponent("Pool Service settings saved.")}#pool-service-settings`);
+ revalidatePath(`/app/${slug}/settings/pool-service`);redirect(`/app/${slug}/settings/pool-service?success=${encodeURIComponent("Pool Service settings saved.")}#pool-service-settings`);
 }
 
 export async function updateEmployeeNumbering(slug:string,formData:FormData){
@@ -70,7 +70,7 @@ export async function updateEmployeeNumbering(slug:string,formData:FormData){
  const {error}=await supabase.rpc("update_employee_numbering_settings",{p_business_id:business.id,p_auto_assign_enabled:value.autoAssignEnabled,p_prefix:value.prefix,p_starting_number:value.startingNumber,p_next_number:value.nextNumber,p_minimum_digits:value.minimumDigits,p_allow_manual_override:value.allowManualOverride});
  if(error){console.error("Employee numbering update failed",{businessId:business.id,code:error.code,message:error.message});const message=error.code==="23505"?"The next formatted employee number already belongs to an employee. Choose another next number.":error.code==="22023"?error.message:"Employee numbering settings could not be saved.";redirect(`/app/${slug}/settings?error=${encodeURIComponent(message)}#employee-numbering`);}
  revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/team`);
- redirect(`/app/${slug}/settings?success=${encodeURIComponent("Employee numbering settings saved.")}#employee-numbering`);
+ redirect(`/app/${slug}/settings/employees?success=${encodeURIComponent("Employee numbering settings saved.")}#employee-numbering`);
 }
 
 const coordinate=(formData:FormData,key:string)=>{
@@ -125,7 +125,7 @@ export async function updateRouteEndpoints(slug:string,formData:FormData){
   if(error){console.error("Business route endpoint update failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/settings?error=${encodeURIComponent("Business route defaults could not be saved.")}#route-endpoints`);}
  }
  revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/dispatch`);
- redirect(`/app/${slug}/settings?success=${encodeURIComponent("Route endpoints saved. Existing routes are marked stale.")}#route-endpoints`);
+ redirect(`/app/${slug}/settings/operations?success=${encodeURIComponent("Route endpoints saved. Existing routes are marked stale.")}#route-endpoints`);
 }
 export async function updateRoutingPolicy(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"dispatch");
@@ -135,10 +135,10 @@ export async function updateRoutingPolicy(slug:string,formData:FormData){
  const {error}=await supabase.from("business_routing_policies").upsert({business_id:business.id,default_service_duration_minutes:defaultDuration,imminent_job_lock_minutes:lockMinutes,scheduled_window_notifications_enabled:formData.get("scheduledWindowNotifications")==="on",en_route_notifications_enabled:formData.get("enRouteNotifications")==="on",proximity_eta_notifications_enabled:formData.get("proximityEtaNotifications")==="on",updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error("Business routing policy update failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/settings?error=${encodeURIComponent("Routing policy could not be saved.")}#route-endpoints`);}
  revalidatePath(`/app/${slug}/settings`);revalidatePath(`/app/${slug}/dispatch`);
- redirect(`/app/${slug}/settings?success=${encodeURIComponent("Routing policy saved.")}#route-endpoints`);
+ redirect(`/app/${slug}/settings/operations?success=${encodeURIComponent("Routing policy saved.")}#route-endpoints`);
 }
 
-const stripeResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings?${kind}=${encodeURIComponent(message)}#payments`;
+const stripeResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/billing?${kind}=${encodeURIComponent(message)}#payments`;
 
 export async function updateInvoicePaymentOptions(slug:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspace(slug);

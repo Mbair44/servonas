@@ -18,7 +18,8 @@ function SectionHeader({icon,title,description,onEdit,editable}:{icon:"briefcase
 }
 const modeLabel=(mode:string|undefined)=>({office:"Main office",custom:"Custom address",first_job:"First job",last_job:"Last job",none:"None"}[mode??""]??"Not configured");
 
-export function SettingsDashboard({business,timezone,editable,entitlement,endpointDefaults,technicians,endpointOverrides,routingPolicy,numbering,payment,invoicePaymentOptions,businessAction,routingAction,endpointAction,numberingAction,connectStripeAction,refreshStripeAction,disconnectStripeAction,invoicePaymentOptionsAction}:{
+export function SettingsDashboard({section,business,timezone,editable,entitlement,endpointDefaults,technicians,endpointOverrides,routingPolicy,numbering,payment,invoicePaymentOptions,businessAction,routingAction,endpointAction,numberingAction,connectStripeAction,refreshStripeAction,disconnectStripeAction,invoicePaymentOptionsAction}:{
+ section:"general"|"operations"|"billing"|"employees";
  business:Row;timezone:string;editable:boolean;entitlement:Row;endpointDefaults:Row|null;technicians:Row[];endpointOverrides:Row[];routingPolicy:Row|null;numbering:EmployeeNumbering;payment:Row;invoicePaymentOptions:Row|null;
  businessAction:Action;routingAction:Action;endpointAction:Action;numberingAction:Action;connectStripeAction:NoArgAction;refreshStripeAction:NoArgAction;disconnectStripeAction:Action;invoicePaymentOptionsAction:Action;
 }){
@@ -29,16 +30,16 @@ export function SettingsDashboard({business,timezone,editable,entitlement,endpoi
  const ends=entitlement.endsAt?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeZone:timezone}).format(new Date(entitlement.endsAt)):"No scheduled end date";
  const address=[business.address_line1,business.city,business.state,business.postal_code].filter(Boolean).join(", ")||"Not provided";
  return <>
-  <header className="settings-page-header"><span>Workspace configuration</span><h1>Business settings</h1><p>Manage your business information, defaults, and integrations.</p></header>
+  <header className="settings-page-header"><span>Workspace configuration</span><h1>{{general:"General settings",operations:"Operations settings",billing:"Billing settings",employees:"Employee settings"}[section]}</h1><p>{{general:"Manage business information and workspace access.",operations:"Configure routing, dispatch, and field-work defaults.",billing:"Manage payment collection and customer invoice methods.",employees:"Configure employee records and numbering defaults."}[section]}</p></header>
 
-  <section className="settings-access-card">
+  {section==="general"&&<section className="settings-access-card">
    <div className="settings-access-title"><div><span>Plan &amp; access</span><h2>{entitlement.name}</h2><p>{entitlement.key==="pilot"?"Your business currently has Servonas Pilot access. No payment method is required during the pilot.":"Your current access controls available workspace capabilities."}</p></div><b className={`estimate-status ${entitlement.status}`}>{String(entitlement.status).replaceAll("_"," ")}</b></div>
    <dl><div><i><CustomerActionIcon name="calendar"/></i><span><dt>Started</dt><dd>{started}</dd></span></div><div><i><CustomerActionIcon name="clock"/></i><span><dt>Ends</dt><dd>{ends}</dd></span></div><div><i><CustomerActionIcon name="briefcase"/></i><span><dt>Billing required</dt><dd>No</dd></span></div></dl>
    <details><summary>Included capabilities</summary><div className="settings-capabilities">{entitlement.capabilities.map((item:string)=><span key={item}>{item.replaceAll("_"," ")}</span>)}</div></details>
    <p className="settings-support-copy">Questions about access? Contact Servonas support. Your workspace data is preserved if access changes.</p>
-  </section>
+  </section>}
 
-  <section className="settings-summary-card">
+  {section==="general"&&<section className="settings-summary-card">
    <SectionHeader icon="briefcase" title="Business information" description="Manage your basic business details and contact information." onEdit={()=>setDrawer("business")} editable={editable}/>
    <dl className="settings-business-summary">
     <div><dt>Business name</dt><dd>{business.name}</dd></div><div><dt>Business email</dt><dd>{business.email||"Not provided"}</dd></div>
@@ -46,25 +47,25 @@ export function SettingsDashboard({business,timezone,editable,entitlement,endpoi
     <div><dt>Time zone</dt><dd>{business.timezone}</dd></div><div><dt>Brand color</dt><dd><i className="settings-color-dot" style={{background:business.primary_color??"#2563eb"}}/> {business.primary_color??"#2563eb"}</dd></div>
     <div><dt>Address</dt><dd>{address}</dd></div><div><dt>Default tax rate</dt><dd>{Number(business.tax_rate??0)}%</dd></div>
    </dl>
-  </section>
+  </section>}
 
-  <section className="settings-summary-card">
+  {section==="operations"&&<section className="settings-summary-card">
    <SectionHeader icon="location" title="Dispatch routing defaults" description="Set home locations and planning/notification defaults." onEdit={()=>setDrawer("routing")} editable={editable}/>
    <div className="settings-routing-summary"><div><h3>Route locations</h3><p><b>Default start</b>{modeLabel(endpointDefaults?.start_mode)}</p><p><b>Office</b>{endpointDefaults?.office_address||business.address_line1||"Not configured"}</p><p><b>Default end</b>{modeLabel(endpointDefaults?.end_mode)}</p></div>
     <div><h3>Planning &amp; notification defaults</h3><p><b>Fallback service duration</b>{routingPolicy?.default_service_duration_minutes??60} min</p><p><b>Protect imminent jobs within</b>{routingPolicy?.imminent_job_lock_minutes??60} min</p>
      <ul><li className={routingPolicy?.scheduled_window_notifications_enabled?"enabled":""}>Prepare scheduled arrival-window notifications</li><li className={routingPolicy?.proximity_eta_notifications_enabled?"enabled":""}>Prepare confidence-gated proximity ETA notifications</li><li className={routingPolicy?.en_route_notifications_enabled?"enabled":""}>Prepare en-route notifications</li></ul>
     </div><div><h3>Notifications</h3><p>Notifications use customer preferences and remain in provider stub mode until delivery is configured. Route ETAs are estimates, not live GPS tracking.</p></div></div>
-  </section>
+  </section>}
 
-  <section className="settings-summary-card" id="employee-numbering">
+  {section==="employees"&&<section className="settings-summary-card" id="employee-numbering">
    <SectionHeader icon="customer" title="Employee numbering" description="Control how employee numbers are assigned." onEdit={()=>setDrawer("numbering")} editable={editable}/>
    <dl className="settings-numbering-summary"><div><dt>Auto-assign numbers</dt><dd className={numbering.autoAssignEnabled?"enabled":""}>{numbering.autoAssignEnabled?"✓ Enabled":"Disabled"}</dd></div><div><dt>Prefix</dt><dd>{numbering.prefix||"None"}</dd></div><div><dt>Starting number</dt><dd>{numbering.startingNumber}</dd></div><div><dt>Minimum digits</dt><dd>{numbering.minimumDigits}</dd></div><div><dt>Next number</dt><dd>{formatEmployeeNumber(numbering.prefix,numbering.nextNumber,numbering.minimumDigits)}</dd></div><div><dt>Manual override</dt><dd>{numbering.allowManualOverride?"Allowed":"Not allowed"}</dd></div></dl>
-  </section>
+  </section>}
 
-  <section className="settings-summary-card" id="payments">
+  {section==="billing"&&<section className="settings-summary-card" id="payments">
    <SectionHeader icon="card" title="Payments" description="Connect a tenant-specific Express account for invoice payments and payouts." onEdit={()=>setDrawer("payments")} editable={editable}/>
    <div className="settings-payment-summary"><div><b>Stripe Connect</b><span className={`estimate-status ${payment.ready?"paid":payment.onboarding_status||"draft"}`}>{payment.ready?"Ready":String(payment.onboarding_status||"Not connected").replaceAll("_"," ")}</span></div><p>{payment.ready?"Stripe is ready for payment collection and payouts.":"Payment collection is unavailable until Stripe onboarding is complete."}</p></div>
-  </section>
+  </section>}
   <p className="settings-security-note">♙ Your workspace data is secure and only visible to authorized users.</p>
 
   <ManagementDrawer open={drawer==="business"} title="Edit business information" subtitle="Update the details used across your workspace." onDirty={()=>{}} onClose={close} size="wide">

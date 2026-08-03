@@ -4,7 +4,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { stripeConnectBaseUrl,stripeProviderError,syncStripeConnectAccount } from "@/lib/stripeConnect";
 
 export const runtime="nodejs";
-const settingsUrl=(slug:string,kind:"success"|"error",message:string)=>`${stripeConnectBaseUrl()}/app/${encodeURIComponent(slug)}/settings?${kind}=${encodeURIComponent(message)}#payments`;
+const settingsUrl=(slug:string,kind:"success"|"error",message:string)=>`${stripeConnectBaseUrl()}/app/${encodeURIComponent(slug)}/settings/billing?${kind}=${encodeURIComponent(message)}#payments`;
 
 export async function GET(_request:Request,{params}:{params:Promise<{businessSlug:string}>}){
   const {businessSlug}=await params;
