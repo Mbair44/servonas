@@ -9,10 +9,11 @@ export const dynamic="force-dynamic";
 export default async function CustomDomainBusinessSite({params}:{params:Promise<{domain:string}>}){
  const raw=decodeURIComponent((await params).domain),domain=normalizeWebsiteDomain(raw),db=getSupabaseAdmin();
  if(!domain||!db)notFound();
- // Vercel only sends this hostname to the Servonas deployment after the
- // domain has been attached there. Do not turn a temporarily stale dashboard
- // verification flag into a public 404; publishing remains the explicit gate.
- const {data:settings}=await db.from("business_website_settings").select("*").ilike("custom_domain",domain).eq("status","published").maybeSingle();
+ // Connecting a custom production hostname is an explicit go-live action.
+ // Keep draft Servonas URLs private, but do not return a 404 from a domain the
+ // owner has successfully connected and verified through Vercel.
+ const {data:settings,error}=await db.from("business_website_settings").select("*").ilike("custom_domain",domain).or("status.eq.published,domain_status.eq.connected").maybeSingle();
+ if(error)console.error("Custom website domain lookup failed",{domain,code:error.code});
  if(!settings)notFound();
  const site=await loadBusinessWebsiteData(db,settings);if(!site)notFound();
  return <BusinessWebsite site={site} requestAction={submitWebsiteRequest.bind(null,settings.public_slug)}/>;
