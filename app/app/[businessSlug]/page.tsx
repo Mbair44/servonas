@@ -74,8 +74,9 @@ export default async function Workspace({ params, searchParams }: {
   const poolWeatherEvents=isPool&&poolWeatherSettings?.weather_alerts_enabled?(await poolWeatherProvider().forecast({startDate:today,endDate:addDays(today,7),areaLabel:business.city??business.state??"Service area"})).filter(event=>eventQualifies(event,poolWeatherSettings)&&!dismissedWeather.has(event.id)):[];
 
   const allJobs = jobs ?? [];
-  const todayJobs = allJobs.filter((job) => job.starts_at && job.starts_at >= todayStart && job.starts_at < todayEnd);
-  const weekJobs = allJobs.filter((job) => job.starts_at && job.starts_at >= weekStart && job.starts_at < weekEnd);
+  const activeDashboardJobs = allJobs.filter((job) => job.status !== "canceled");
+  const todayJobs = activeDashboardJobs.filter((job) => job.starts_at && job.starts_at >= todayStart && job.starts_at < todayEnd);
+  const weekJobs = activeDashboardJobs.filter((job) => job.starts_at && job.starts_at >= weekStart && job.starts_at < weekEnd);
   const scheduledToday = todayJobs.filter((job) => ["confirmed","scheduled","dispatched"].includes(job.status)).length;
   const progressingToday = todayJobs.filter((job) => ["en_route","arrived","in_progress"].includes(job.status)).length;
   const waitingToday = todayJobs.filter((job) => job.status === "pending").length;
@@ -105,7 +106,7 @@ export default async function Workspace({ params, searchParams }: {
   return <main className="epic3-shell executive-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content executive-dashboard">
     <header className="executive-header"><div><span className="executive-workspace">{business.name} · {role.replaceAll("_"," ")} workspace</span><h1>{greeting}, {firstName}</h1><p>Today is {todayLabel}. Here&apos;s what&apos;s happening in your business.</p></div><Link className="workspace-switcher" href="/app">Switch workspace <span aria-hidden="true">⌄</span></Link></header>
     <EntitlementBanner summary={entitlementSummary}/>{query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}
-    {poolWeatherEvents.length>0&&<section className="pool-dashboard-weather"><div><span>Weather Service Alert</span><h2>{poolWeatherEvents[0].summary}</h2><p>{allJobs.filter(job=>job.starts_at&&dateInTimeZone(new Date(job.starts_at),business.timezone)===poolWeatherEvents[0].startsAt.slice(0,10)).length} scheduled pool visits may be affected. Review technicians and approve any one-time moves.</p></div><Link className="sv-button" href={`/app/${businessSlug}/pool/weather`}>Review affected jobs</Link></section>}
+    {poolWeatherEvents.length>0&&<section className="pool-dashboard-weather"><div><span>Weather Service Alert</span><h2>{poolWeatherEvents[0].summary}</h2><p>{activeDashboardJobs.filter(job=>job.starts_at&&dateInTimeZone(new Date(job.starts_at),business.timezone)===poolWeatherEvents[0].startsAt.slice(0,10)).length} scheduled pool visits may be affected. Review technicians and approve any one-time moves.</p></div><Link className="sv-button" href={`/app/${businessSlug}/pool/weather`}>Review affected jobs</Link></section>}
 
     <section aria-labelledby="overview-heading"><h2 className="sr-only" id="overview-heading">Business overview</h2><div className="executive-kpis">
       <article className="executive-card kpi-card"><div className="card-icon blue" aria-hidden="true">↗</div><div><span>Jobs today</span><strong>{todayJobs.length}</strong></div><p>{scheduledToday} Scheduled · {progressingToday} In progress · {waitingToday} Waiting</p><Link href={`/app/${businessSlug}/dispatch?date=${today}`}>Open dispatch <span aria-hidden="true">→</span></Link></article>
