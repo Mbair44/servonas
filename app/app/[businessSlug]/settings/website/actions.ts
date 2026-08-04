@@ -58,19 +58,30 @@ export async function connectWebsiteDomain(slug:string,data:FormData){
  redirect(target(slug,"success","Domain added. Update the displayed DNS records, then select Check connection."));
 }
 
-export async function checkWebsiteDomain(slug:string){
+export async function checkWebsiteDomain(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can verify a domain."));
- const {data:settings}=await supabase.from("business_website_settings").select("id,custom_domain").eq("business_id",business.id).maybeSingle();
- const domain=normalizeWebsiteDomain(settings?.custom_domain??"");
- if(!settings||!domain)redirect(target(slug,"error","Save and connect a domain first."));
+ const domain=normalizeWebsiteDomain(text(data,"customDomain"));
+ if(!domain)redirect(target(slug,"error","Enter a valid domain name before checking the connection."));
+ let {data:settings}=await supabase.from("business_website_settings").select("id,custom_domain").eq("business_id",business.id).maybeSingle();
+ if(!settings){
+  const publicSlug=text(data,"publicSlug").toLowerCase();
+  if(!validWebsiteSlug(publicSlug))redirect(target(slug,"error","Enter a valid Servonas website URL before connecting the domain."));
+  const {data:created,error}=await supabase.from("business_website_settings").insert({business_id:business.id,public_slug:publicSlug,custom_domain:domain,domain_status:"pending_verification",updated_by:user.id}).select("id,custom_domain").single();
+  if(error||!created)redirect(target(slug,"error",error?.code==="23505"?"That domain is already connected to another Servonas website.":"The domain could not be saved."));
+  settings=created;
+ }else if(settings.custom_domain!==domain){
+  const {error}=await supabase.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
+  if(error)redirect(target(slug,"error",error.code==="23505"?"That domain is already connected to another Servonas website.":"The domain could not be saved."));
+  settings={...settings,custom_domain:domain};
+ }
  let connected=false;
  try{
   await addVercelProjectDomain(domain);
   const before=await getVercelDomainStatus(domain);
   if(!before.verified)try{await verifyVercelProjectDomain(domain);}catch{/* The verification record remains visible for the customer. */}
   const current=await getVercelDomainStatus(domain);connected=current.verified&&!current.misconfigured;
-  await supabase.from("business_website_settings").update({domain_status:connected?"connected":"pending_verification",updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
+  await supabase.from("business_website_settings").update({custom_domain:domain,domain_status:connected?"connected":"pending_verification",updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
  }catch(error){console.error("Website domain verification failed",{businessId:business.id,domain,error:error instanceof Error?error.message:"unknown"});redirect(target(slug,"error","The domain connection could not be checked. Try again shortly."));}
  revalidatePath(`/app/${slug}/settings/website`);
  redirect(target(slug,connected?"success":"error",connected?"Domain connected. SSL will be issued automatically and the website is ready on this address.":"The DNS changes have not finished propagating. Confirm the records below and try again shortly."));
