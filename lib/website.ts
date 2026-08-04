@@ -4,7 +4,7 @@ export const validWebsiteSlug=(value:string)=>/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(
 export const validWebsiteColor=(value:string)=>/^#[0-9a-f]{6}$/i.test(value);
 export function normalizeWebsiteDomain(value:string){
  if(!value.trim())return null;
- try{const url=new URL(value.includes("://")?value:`https://${value}`);return url.hostname.toLowerCase();}catch{return null;}
+ try{const url=new URL(value.includes("://")?value:`https://${value}`),hostname=url.hostname.toLowerCase().replace(/\.$/,"");return /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname)?hostname:null;}catch{return null;}
 }
 export function normalizeWebsitePhone(value:string){
  const digits=value.replace(/\D/g,"");
