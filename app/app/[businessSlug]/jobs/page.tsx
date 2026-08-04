@@ -3,6 +3,7 @@ import {WorkspaceNav} from "../WorkspaceNav";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageCustomers} from "@/lib/access";
 import {jobPriorities,jobStatuses} from "@/lib/jobValidation";
+import {AddJobDrawer} from "@/components/AddJobDrawer";
 
 const pageSize=25;
 const sortKeys=["job","customer","status","technician","scheduled","total","newest"] as const;
@@ -83,7 +84,7 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
  const money=(value:number|null)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(Number(value??0));
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content employee-directory-page jobs-directory-page">
-  <header className="employee-page-header"><div><nav aria-label="Breadcrumb"><span>Operations</span><b aria-hidden="true">›</b><span>Jobs</span></nav><h1>Jobs</h1><p>Schedule, assign, and track work from intake through completion.</p></div>{canEdit&&<nav className="employee-primary-actions" aria-label="Job actions"><Link className="sv-button" href={`${base}/new${query.customerId?`?customerId=${query.customerId}`:""}`}><span aria-hidden="true">＋</span>Add job</Link></nav>}</header>
+  <header className="employee-page-header"><div><nav aria-label="Breadcrumb"><span>Operations</span><b aria-hidden="true">›</b><span>Jobs</span></nav><h1>Jobs</h1><p>Schedule, assign, and track work from intake through completion.</p></div>{canEdit&&<nav className="employee-primary-actions" aria-label="Job actions"><AddJobDrawer businessSlug={businessSlug} defaultCustomerId={query.customerId} autoOpen={query.addJob==="1"}/></nav>}</header>
   {query.error&&<div className="workspace-notice error">{query.error}</div>}{query.success&&<div className="workspace-notice success">{query.success}</div>}
 
   <section className="employee-stat-row jobs-stat-row" aria-label="Job summary">

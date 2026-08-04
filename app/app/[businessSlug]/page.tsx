@@ -7,6 +7,7 @@ import { formatCents } from "@/lib/financial/priceBook";
 import { EntitlementBanner } from "./EntitlementBanner";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {eventQualifies,poolWeatherProvider} from "@/lib/weather/poolWeatherProvider";
+import {AddJobDrawer} from "@/components/AddJobDrawer";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const activeStatuses = new Set(["pending","confirmed","scheduled","dispatched","en_route","arrived","in_progress"]);
@@ -153,7 +154,7 @@ export default async function Workspace({ params, searchParams }: {
       ].map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></article>
     </section>
 
-    <section className="quick-actions-section" aria-labelledby="quick-heading"><div className="section-heading compact"><div><span>Shortcuts</span><h2 id="quick-heading">Quick actions</h2></div></div><nav aria-label="Dashboard quick actions"><Link href={`/app/${businessSlug}/jobs/new`}><span>＋</span>New job</Link><Link href={`/app/${businessSlug}/customers/new`}><span>＋</span>New customer</Link><Link href={`/book/${businessSlug}`}><span>↗</span>New booking</Link><Link href={`/app/${businessSlug}/dispatch`}><span>⌁</span>Dispatch board</Link><Link href={`/app/${businessSlug}/schedule`}><span>▦</span>Schedule</Link></nav></section>
+    <section className="quick-actions-section" aria-labelledby="quick-heading"><div className="section-heading compact"><div><span>Shortcuts</span><h2 id="quick-heading">Quick actions</h2></div></div><nav aria-label="Dashboard quick actions"><AddJobDrawer businessSlug={businessSlug} label="New job" className="dashboard-job-drawer-trigger"/><Link href={`/app/${businessSlug}/customers/new`}><span>＋</span>New customer</Link><Link href={`/book/${businessSlug}`}><span>↗</span>New booking</Link><Link href={`/app/${businessSlug}/dispatch`}><span>⌁</span>Dispatch board</Link><Link href={`/app/${businessSlug}/schedule`}><span>▦</span>Schedule</Link></nav></section>
 
   </section></main>;
 }
