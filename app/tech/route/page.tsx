@@ -23,7 +23,8 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
   const { data: profiles } = await profileQuery.limit(1);
   const profile = profiles?.[0];
   if (!profile) redirect("/tech?error=Technician+profile+not+found");
-  const { data: business } = await supabase.from("businesses").select("name,timezone").eq("id", profile.business_id).maybeSingle();
+  const { data: business } = await supabase.from("businesses").select("name,timezone").eq("id", profile.business_id).eq("is_deleted", false).maybeSingle();
+  if (!business) redirect("/tech?error=Workspace+not+found");
   const timezone = business?.timezone ?? "UTC";
   const today = dateInTimeZone(new Date(), timezone);
   const { data: plan, error: planError } = await supabase.from("route_plans").select("id,version,updated_at,calculation_status").eq("business_id", profile.business_id).eq("service_date", today).maybeSingle();

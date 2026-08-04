@@ -12,7 +12,7 @@ export async function requireWorkspace(slug: string) {
   const isPlatformAdmin = isServonasPlatformAdmin(user);
   const supabase = isPlatformAdmin ? getSupabaseAdmin() : sessionSupabase;
   if (!supabase) throw new Error("Platform administration is unavailable.");
-  const { data: business, error } = await supabase.from("businesses").select("*").eq("slug", slug).maybeSingle();
+  const { data: business, error } = await supabase.from("businesses").select("*").eq("slug", slug).eq("is_deleted",false).maybeSingle();
   if (error) throw new Error(`Unable to load workspace: ${error.message}`);
   if (!business) notFound();
   if (isPlatformAdmin) {

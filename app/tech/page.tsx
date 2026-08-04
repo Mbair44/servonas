@@ -21,9 +21,11 @@ export default async function TechnicianHome({ searchParams }: { searchParams: P
   if (!user) redirect("/login?next=/tech");
   const { data: profiles } = await supabase.from("technician_directory").select("id,business_id,preferred_name,technician_status").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
   if (!profiles?.length) return <main className="tech-shell"><section className="tech-empty"><h1>No technician profile</h1><p>Your administrator must create and activate your technician profile before jobs can be assigned.</p><div className="tech-header-actions"><Link className="sv-button sv-secondary" href="/app">Back to main app</Link><form action={signOut}><button className="sv-button">Log out</button></form></div></section></main>;
-  const { data: businesses } = await supabase.from("businesses").select("id,name,timezone").in("id", profiles.map((profile) => profile.business_id));
+  const { data: businesses } = await supabase.from("businesses").select("id,name,timezone").in("id", profiles.map((profile) => profile.business_id)).eq("is_deleted", false);
   const businessById = new Map((businesses ?? []).map((business) => [business.id, business]));
-  const ids = profiles.map((profile) => profile.id);
+  const activeProfiles = profiles.filter((profile) => businessById.has(profile.business_id));
+  if (!activeProfiles.length) return <main className="tech-shell"><section className="tech-empty"><h1>No active workspace</h1><p>Your technician profiles belong to a workspace that is no longer active.</p><div className="tech-header-actions"><Link className="sv-button sv-secondary" href="/app">Back to main app</Link><form action={signOut}><button className="sv-button">Log out</button></form></div></section></main>;
+  const ids = activeProfiles.map((profile) => profile.id);
   const { data: rows, error } = await supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,arrival_window_start,arrival_window_end,service_address,business_id,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),services!jobs_service_tenant_fk(name),service_locations!jobs_service_location_tenant_fk(city,state)")
     .in("assigned_technician_id", ids).eq("is_deleted", false).not("status", "in", '("completed","canceled","declined")').order("starts_at", { ascending: true, nullsFirst: false });
   if (error) {
@@ -31,7 +33,7 @@ export default async function TechnicianHome({ searchParams }: { searchParams: P
     throw new Error("Assigned jobs could not be loaded.");
   }
   const jobs = (rows ?? []) as unknown as TechJob[];
-  const businessMap = new Map(profiles.map((profile) => {
+  const businessMap = new Map(activeProfiles.map((profile) => {
     const business = businessById.get(profile.business_id);
     return [profile.business_id, { name: business?.name ?? "Business", timezone: business?.timezone ?? "America/Phoenix", displayName: profile.preferred_name }];
   }));
@@ -43,7 +45,7 @@ export default async function TechnicianHome({ searchParams }: { searchParams: P
     const business = businessMap.get(job.business_id), customer = relation(job.customers), service = relation(job.services), location = relation(job.service_locations);
     return <Link className={`tech-job-card ${job.status}`} href={`/tech/jobs/${job.id}`}><div><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span><b>#{job.job_number} · {job.title}</b><strong>{customer?.company_name || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ")}</strong><small>{service?.name || "Custom work"} · {location ? `${location.city}, ${location.state}` : job.service_address || "No address"}</small></div><time>{job.starts_at ? new Intl.DateTimeFormat("en-US", { timeZone: business?.timezone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(job.starts_at)) : "Unscheduled"}</time></Link>;
   };
-  return <main className="tech-shell"><header className="tech-header"><div><span className="sv-kicker">Servonas Technician</span><h1>Hello, {profiles[0].preferred_name}</h1><p>{profiles.map((profile) => businessById.get(profile.business_id)?.name).filter(Boolean).join(" · ")}</p><Link className="sv-button sv-secondary" href={`/tech/route?business=${profiles[0].business_id}`}>View today’s route</Link></div><div className="tech-header-actions"><Link href="/app">Back to main app</Link><form action={signOut}><button className="text-button">Log out</button></form></div></header>{query.error&&<div className="workspace-notice error">{query.error}</div>}
+  return <main className="tech-shell"><header className="tech-header"><div><span className="sv-kicker">Servonas Technician</span><h1>Hello, {activeProfiles[0].preferred_name}</h1><p>{activeProfiles.map((profile) => businessById.get(profile.business_id)?.name).filter(Boolean).join(" · ")}</p><Link className="sv-button sv-secondary" href={`/tech/route?business=${activeProfiles[0].business_id}`}>View today’s route</Link></div><div className="tech-header-actions"><Link href="/app">Back to main app</Link><form action={signOut}><button className="text-button">Log out</button></form></div></header>{query.error&&<div className="workspace-notice error">{query.error}</div>}
     {currentJob&&<section className="tech-section current"><span className="sv-kicker">Current job</span><JobCard job={currentJob}/></section>}
     <section className="tech-section"><div className="tech-section-heading"><h2>Today’s jobs</h2><span>{todayJobs.length}</span></div><div className="tech-job-list">{todayJobs.length?todayJobs.map((job)=><JobCard key={job.id} job={job}/>):<div className="tech-empty-inline">No jobs scheduled today.</div>}</div></section>
     <section className="tech-section"><div className="tech-section-heading"><h2>Upcoming</h2><span>{upcomingJobs.length}</span></div><div className="tech-job-list">{upcomingJobs.length?upcomingJobs.map((job)=><JobCard key={job.id} job={job}/>):<div className="tech-empty-inline">No upcoming assigned jobs.</div>}</div></section>

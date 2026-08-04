@@ -16,6 +16,36 @@ export async function updateBusinessSettings(slug:string,formData:FormData){
  revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/settings`); redirect(`/app/${slug}/settings?success=Settings+saved`);
 }
 
+export async function deleteWorkspace(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspace(slug);
+ const target=`/app/${slug}/settings`;
+ if(role!=="owner"||business.owner_user_id!==user.id)redirect(`${target}?error=${encodeURIComponent("Only the workspace owner can delete this workspace.")}#delete-workspace`);
+ const confirmation=text(formData,"confirmation");
+ if(confirmation!==business.name||formData.get("acknowledge")!=="on")redirect(`${target}?error=${encodeURIComponent("Type the exact workspace name and confirm that you understand the deletion.")}#delete-workspace`);
+
+ const [{data:subscription},{data:paymentAccount}]=await Promise.all([
+  supabase.from("business_platform_subscriptions").select("stripe_subscription_id,status").eq("business_id",business.id).maybeSingle(),
+  supabase.from("business_payment_accounts").select("provider_account_id").eq("business_id",business.id).eq("provider","stripe").maybeSingle(),
+ ]);
+ try{
+  const stripeNeeded=Boolean(subscription?.stripe_subscription_id||paymentAccount?.provider_account_id);
+  const stripe=stripeNeeded?stripeClient():null;
+  if(subscription?.stripe_subscription_id&&!['canceled','incomplete_expired'].includes(subscription.status))await stripe!.subscriptions.cancel(subscription.stripe_subscription_id);
+  if(paymentAccount?.provider_account_id)await stripe!.accounts.del(paymentAccount.provider_account_id);
+ }catch(error){
+  const detail=stripeProviderError(error);
+  console.error("Workspace external billing cleanup failed",{businessId:business.id,userId:user.id,...detail});
+  redirect(`${target}?error=${encodeURIComponent(`The workspace was not deleted because Stripe cleanup failed: ${detail.message}`)}#delete-workspace`);
+ }
+ const {error}=await supabase.rpc("delete_owned_workspace",{p_business_id:business.id,p_confirmation:confirmation});
+ if(error){
+  console.error("Workspace deletion failed",{businessId:business.id,userId:user.id,code:error.code,message:error.message});
+  redirect(`${target}?error=${encodeURIComponent(error.code==="PGRST202"||error.code==="42883"?"Workspace deletion is not installed. Apply the latest database migration first.":error.message||"The workspace could not be deleted.")}#delete-workspace`);
+ }
+ revalidatePath("/app");
+ redirect("/app?workspaceDeleted=1");
+}
+
 export async function updateInboundSmsSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management");
  const target=`/app/${slug}/settings/communications`;

@@ -4,7 +4,7 @@ import { canManageBusiness } from "@/lib/access";
 import { defaultEmployeeNumbering } from "@/lib/employeeNumbering";
 import { stripePaymentsReady } from "@/lib/stripeConnect";
 import { SettingsDashboard } from "@/components/SettingsDashboard";
-import { connectStripe, disconnectStripe, refreshStripeStatus, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy } from "./actions";
+import { connectStripe, deleteWorkspace, disconnectStripe, refreshStripeStatus, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy } from "./actions";
 import {MissedCallRecoverySettings} from "@/components/MissedCallRecoverySettings";
 import {PoolServiceSettings} from "@/components/PoolServiceSettings";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
@@ -13,7 +13,7 @@ import type {SettingsSection} from "@/lib/settingsSections";
 import {notFound} from "next/navigation";
 
 export async function SettingsContent({businessSlug,q,section}:{businessSlug:string;q:Record<string,string|undefined>;section:SettingsSection}){
- const {supabase,business,role,entitlementSummary}=await requireWorkspace(businessSlug);
+ const {supabase,user,business,role,entitlementSummary}=await requireWorkspace(businessSlug);
  const editable=canManageBusiness(role);
  const isPool=hasIndustryCapability(business.industry_profile,"poolServiceLogs");
  if(section==="pool-service"&&!isPool)notFound();
@@ -47,6 +47,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
   {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
   {section!=="communications"&&section!=="pool-service"&&<SettingsDashboard section={section}
    business={business} timezone={business.timezone} editable={editable} entitlement={entitlement}
+   canDelete={role==="owner"&&business.owner_user_id===user.id}
    endpointDefaults={endpointDefaults} technicians={technicians??[]} endpointOverrides={endpointOverrides??[]}
    routingPolicy={routingPolicy} numbering={employeeNumbering} payment={payment} invoicePaymentOptions={invoicePaymentOptions}
    businessAction={updateBusinessSettings.bind(null,businessSlug)}
@@ -57,6 +58,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
    refreshStripeAction={refreshStripeStatus.bind(null,businessSlug)}
    disconnectStripeAction={disconnectStripe.bind(null,businessSlug)}
    invoicePaymentOptionsAction={updateInvoicePaymentOptions.bind(null,businessSlug)}
+   deleteWorkspaceAction={deleteWorkspace.bind(null,businessSlug)}
   />}
   {section==="communications"&&<header className="settings-page-header"><span>Workspace configuration</span><h1>Communication settings</h1><p>Manage inbound messages, automatic responses, and missed-call recovery.</p></header>}
   {editable&&section==="communications"&&<section className="settings-summary-card" id="inbound-sms"><header className="settings-section-header"><div><span>Customer communications</span><h2>Inbound text messages</h2><p>Turn texts to a designated Twilio number into matched customer conversations and optional automatic replies.</p></div></header><form action={updateInboundSmsSettings.bind(null,businessSlug)} className="settings-drawer-form single"><label className="settings-check wide"><input name="enabled" type="checkbox" defaultChecked={inboundSmsSettings?.enabled}/>Enable inbound SMS intake</label><label className="wide">Designated Twilio phone number<input required name="inboundNumber" type="tel" defaultValue={inboundSmsSettings?.inbound_number_e164??process.env.TWILIO_PHONE_NUMBER??""} placeholder="+14805550123"/></label><label className="settings-check wide"><input name="autoReplyEnabled" type="checkbox" defaultChecked={inboundSmsSettings?.auto_reply_enabled??true}/>Send an automatic acknowledgment</label><label className="wide">Automatic reply<textarea required name="autoReply" maxLength={1200} defaultValue={inboundSmsSettings?.auto_reply_body??"Thanks for contacting us. We received your message and a team member will follow up shortly. Reply STOP to opt out."}/></label><label className="wide">Urgent-message reply<textarea required name="emergencyReply" maxLength={1200} defaultValue={inboundSmsSettings?.emergency_reply_body??"We received your urgent message. If anyone is in immediate danger, call 911. A team member has been alerted."}/></label><p className="wide">Configure Twilio’s incoming-message webhook as <code>{`${process.env.NEXT_PUBLIC_APP_URL??"https://your-domain.com"}/api/twilio/inbound`}</code>. STOP messages are recorded and never receive an automated Servonas reply.</p><button className="sv-button">Save inbound SMS settings</button></form></section>}
