@@ -18,10 +18,10 @@ function SectionHeader({icon,title,description,onEdit,editable}:{icon:"briefcase
 }
 const modeLabel=(mode:string|undefined)=>({office:"Main office",custom:"Custom address",first_job:"First job",last_job:"Last job",none:"None"}[mode??""]??"Not configured");
 
-export function SettingsDashboard({section,business,timezone,editable,entitlement,endpointDefaults,technicians,endpointOverrides,routingPolicy,numbering,payment,invoicePaymentOptions,businessAction,routingAction,endpointAction,numberingAction,connectStripeAction,refreshStripeAction,disconnectStripeAction,invoicePaymentOptionsAction}:{
+export function SettingsDashboard({section,business,timezone,editable,canDelete,entitlement,endpointDefaults,technicians,endpointOverrides,routingPolicy,numbering,payment,invoicePaymentOptions,businessAction,routingAction,endpointAction,numberingAction,connectStripeAction,refreshStripeAction,disconnectStripeAction,invoicePaymentOptionsAction,deleteWorkspaceAction}:{
  section:"general"|"operations"|"billing"|"employees";
- business:Row;timezone:string;editable:boolean;entitlement:Row;endpointDefaults:Row|null;technicians:Row[];endpointOverrides:Row[];routingPolicy:Row|null;numbering:EmployeeNumbering;payment:Row;invoicePaymentOptions:Row|null;
- businessAction:Action;routingAction:Action;endpointAction:Action;numberingAction:Action;connectStripeAction:NoArgAction;refreshStripeAction:NoArgAction;disconnectStripeAction:Action;invoicePaymentOptionsAction:Action;
+ business:Row;timezone:string;editable:boolean;canDelete:boolean;entitlement:Row;endpointDefaults:Row|null;technicians:Row[];endpointOverrides:Row[];routingPolicy:Row|null;numbering:EmployeeNumbering;payment:Row;invoicePaymentOptions:Row|null;
+ businessAction:Action;routingAction:Action;endpointAction:Action;numberingAction:Action;connectStripeAction:NoArgAction;refreshStripeAction:NoArgAction;disconnectStripeAction:Action;invoicePaymentOptionsAction:Action;deleteWorkspaceAction:Action;
 }){
  const [drawer,setDrawer]=useState<DrawerName>(null);
  const [prefix,setPrefix]=useState(numbering.prefix),[next,setNext]=useState(numbering.nextNumber),[digits,setDigits]=useState(numbering.minimumDigits);
@@ -47,6 +47,11 @@ export function SettingsDashboard({section,business,timezone,editable,entitlemen
     <div><dt>Time zone</dt><dd>{business.timezone}</dd></div><div><dt>Brand color</dt><dd><i className="settings-color-dot" style={{background:business.primary_color??"#2563eb"}}/> {business.primary_color??"#2563eb"}</dd></div>
     <div><dt>Address</dt><dd>{address}</dd></div><div><dt>Default tax rate</dt><dd>{Number(business.tax_rate??0)}%</dd></div>
    </dl>
+  </section>}
+
+  {section==="general"&&canDelete&&<section className="settings-danger-zone" id="delete-workspace">
+   <div><span>Danger zone</span><h2>Delete workspace</h2><p>Remove <strong>{business.name}</strong> from Servonas, disable its public pages, disconnect Stripe, and cancel its Servonas subscription. This action cannot be undone from the app.</p></div>
+   <details><summary>Delete this workspace</summary><form action={deleteWorkspaceAction} onSubmit={event=>{if(!window.confirm(`Permanently delete the ${business.name} workspace?`))event.preventDefault();}}><label>Type <strong>{business.name}</strong> to confirm<input required name="confirmation" autoComplete="off"/></label><label className="settings-danger-confirm"><input required type="checkbox" name="acknowledge"/>I understand this removes the workspace for every team member.</label><button className="sv-button sv-danger">Delete workspace</button></form></details>
   </section>}
 
   {section==="operations"&&<section className="settings-summary-card">

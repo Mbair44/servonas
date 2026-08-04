@@ -43,7 +43,22 @@ export default function AuthForm({
     if(!actionResult)return;
     if(actionResult.signupCompleted&&actionResult.userId&&trackedSignup.current!==actionResult.userId){
       trackedSignup.current=actionResult.userId;
-      trackGoogleAdsSignupConversion(actionResult.userId);
+      let navigated=false;
+      const navigate=()=>{
+        if(navigated)return;
+        navigated=true;
+        window.location.assign(actionResult.redirectTo);
+      };
+      const fallback=window.setTimeout(navigate,900);
+      const handedToGoogle=trackGoogleAdsSignupConversion(actionResult.userId,()=>{
+        window.clearTimeout(fallback);
+        navigate();
+      });
+      if(!handedToGoogle){
+        window.clearTimeout(fallback);
+        navigate();
+      }
+      return;
     }
     window.location.assign(actionResult.redirectTo);
   },[actionResult]);

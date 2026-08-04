@@ -14,7 +14,7 @@ export default async function AppHome(){
   if(isPlatformAdmin&&!admin)throw new Error("Platform administration is unavailable.");
   const {data:memberships}=isPlatformAdmin
     ? await admin!.from("businesses").select("id,name,slug").eq("is_deleted",false).order("name")
-    : await s.from("business_members").select("role,businesses(id,name,slug)").eq("user_id",user.id);
+    : await s.from("business_members").select("role,businesses!inner(id,name,slug,is_deleted)").eq("user_id",user.id).eq("businesses.is_deleted",false);
   const workspaces=isPlatformAdmin
     ? (memberships??[]).map((business:any)=>({...business,role:platformAdminRole}))
     : (memberships??[]).map((m:any)=>({...m.businesses,role:m.role})).filter(Boolean);

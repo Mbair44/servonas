@@ -14,14 +14,26 @@ test("signup conversion uses the configured Google Ads destination",()=>{
 test("signup conversion fires once for a confirmed Supabase user",()=>{
  const calls:unknown[][]=[];
  Object.defineProperty(globalThis,"window",{value:browserWindow((...args)=>calls.push(args)),configurable:true});
- assert.equal(trackGoogleAdsSignupConversion("user-1"),true);
+ const callback=()=>{};
+ assert.equal(trackGoogleAdsSignupConversion("user-1",callback),true);
  assert.equal(trackGoogleAdsSignupConversion("user-1"),false);
- assert.deepEqual(calls,[["event","conversion",{send_to:"AW-18340749438/-fjTCKncxtscEP7AxqlE"}]]);
+ assert.deepEqual(calls,[["event","conversion",{send_to:"AW-18340749438/-fjTCKncxtscEP7AxqlE",event_callback:callback}]]);
  Reflect.deleteProperty(globalThis,"window");
 });
 
 test("unavailable Google tag never throws or marks a conversion sent",()=>{
  Object.defineProperty(globalThis,"window",{value:browserWindow(),configurable:true});
- assert.equal(trackGoogleAdsConversion("AW-test","missing"),false);
+ assert.equal(trackGoogleAdsConversion("AW-test",{onceKey:"missing"}),false);
+ Reflect.deleteProperty(globalThis,"window");
+});
+
+test("a throwing Google tag does not mark the conversion as sent",()=>{
+ const testWindow=browserWindow(()=>{throw new Error("blocked");});
+ Object.defineProperty(globalThis,"window",{value:testWindow,configurable:true});
+ assert.equal(trackGoogleAdsConversion("AW-test",{onceKey:"retryable"}),false);
+ let handedOff=false;
+ testWindow.gtag=()=>{handedOff=true;};
+ assert.equal(trackGoogleAdsConversion("AW-test",{onceKey:"retryable"}),true);
+ assert.equal(handedOff,true);
  Reflect.deleteProperty(globalThis,"window");
 });

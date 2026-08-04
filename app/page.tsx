@@ -1,12 +1,25 @@
 import Link from "next/link";
 
+type CapabilityIconName="customers"|"recurring"|"dispatch"|"schedule"|"booking"|"payments";
+const capabilityIconPaths:Record<CapabilityIconName,React.ReactNode>={
+ customers:<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
+ recurring:<><path d="M20 7h-9a4 4 0 0 0-4 4v1"/><path d="m17 4 3 3-3 3M4 17h9a4 4 0 0 0 4-4v-1"/><path d="m7 20-3-3 3-3"/></>,
+ dispatch:<><path d="M21 10c0 5-9 12-9 12S3 15 3 10a9 9 0 1 1 18 0Z"/><circle cx="12" cy="10" r="3"/><path d="M8.5 3.7 6 1M15.5 3.7 18 1"/></>,
+ schedule:<><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/><path d="m9 16 2 2 4-4"/></>,
+ booking:<><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M8 12h3M8 16h5"/><path d="m16 14 1.5 1.5L21 12"/></>,
+ payments:<><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/><path d="M17 3v4M15 5h4"/></>,
+};
+function CapabilityIcon({name}:{name:CapabilityIconName}){
+ return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{capabilityIconPaths[name]}</svg>;
+}
+
 const capabilities=[
- {icon:"◎",title:"Customer CRM",description:"Keep contacts, service locations, access notes, service history, balances, and recurring plans together."},
- {icon:"↻",title:"Recurring service",description:"Build repeatable service plans, generate upcoming work, and keep routine customers from falling through the cracks."},
- {icon:"⌖",title:"Smart dispatch",description:"Assign technicians, visualize the day, calculate road routes, and reduce unnecessary drive time."},
- {icon:"▣",title:"Jobs & scheduling",description:"Schedule one-time or recurring work and follow every job from intake through completion."},
- {icon:"◉",title:"Online booking",description:"Give customers a branded booking experience with live availability, confirmations, email, and text updates."},
- {icon:"$",title:"Invoices & payments",description:"Turn completed work into an invoice, collect or record payments, and maintain an accurate customer balance."},
+ {icon:"customers" as const,title:"Customer CRM",description:"Keep contacts, service locations, access notes, service history, balances, and recurring plans together."},
+ {icon:"recurring" as const,title:"Recurring service",description:"Build repeatable service plans, generate upcoming work, and keep routine customers from falling through the cracks."},
+ {icon:"dispatch" as const,title:"Smart dispatch",description:"Assign technicians, visualize the day, calculate road routes, and reduce unnecessary drive time."},
+ {icon:"schedule" as const,title:"Jobs & scheduling",description:"Schedule one-time or recurring work and follow every job from intake through completion."},
+ {icon:"booking" as const,title:"Online booking",description:"Give customers a branded booking experience with live availability, confirmations, email, and text updates."},
+ {icon:"payments" as const,title:"Invoices & payments",description:"Turn completed work into an invoice, collect or record payments, and maintain an accurate customer balance."},
 ];
 
 const workflow=[
@@ -55,7 +68,7 @@ export default function HomePage(){
 
   <section className="sv-section home-capabilities"><div className="sv-container">
    <div className="sv-heading"><span className="sv-kicker">Your operation in one place</span><h2>Everything your office and field team need to stay in sync.</h2><p>Each part of Servonas shares the same customer, location, job, employee, and billing information—so your team can act without re-entering data.</p></div>
-   <div className="home-capability-grid">{capabilities.map(item=><article key={item.title}><i aria-hidden="true">{item.icon}</i><div><h3>{item.title}</h3><p>{item.description}</p></div></article>)}</div>
+   <div className="home-capability-grid">{capabilities.map(item=><article key={item.title}><i><CapabilityIcon name={item.icon}/></i><div><h3>{item.title}</h3><p>{item.description}</p></div></article>)}</div>
   </div></section>
 
   <section className="home-operations"><div className="sv-container home-operations-grid">

@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "./supabaseAdmin";
 export async function getBusinessBySlug(slug:string){
   const supabase=getSupabaseAdmin();
   if(!supabase) return null;
-  const {data,error}=await supabase.from("businesses").select("*").eq("slug",slug).maybeSingle();
+  const {data,error}=await supabase.from("businesses").select("*").eq("slug",slug).eq("is_deleted",false).maybeSingle();
   if(error) throw error;
   return data;
 }
