@@ -11,6 +11,7 @@ import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {defaultPoolChemicals,defaultPoolChecklist} from "@/lib/poolService";
 import type {SettingsSection} from "@/lib/settingsSections";
 import {notFound} from "next/navigation";
+import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 
 export async function SettingsContent({businessSlug,q,section}:{businessSlug:string;q:Record<string,string|undefined>;section:SettingsSection}){
  const {supabase,user,business,role,entitlementSummary}=await requireWorkspace(businessSlug);
@@ -47,7 +48,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
   {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
   {section!=="communications"&&section!=="pool-service"&&<SettingsDashboard section={section}
    business={business} timezone={business.timezone} editable={editable} entitlement={entitlement}
-   canDelete={role==="owner"&&business.owner_user_id===user.id}
+   canDelete={isServonasPlatformAdmin(user)}
    endpointDefaults={endpointDefaults} technicians={technicians??[]} endpointOverrides={endpointOverrides??[]}
    routingPolicy={routingPolicy} numbering={employeeNumbering} payment={payment} invoicePaymentOptions={invoicePaymentOptions}
    businessAction={updateBusinessSettings.bind(null,businessSlug)}

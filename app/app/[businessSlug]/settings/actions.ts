@@ -7,6 +7,8 @@ import { createStripeOnboardingLink,stripeClient,stripeConnectState,stripeProvid
 import {validateEmployeeNumbering} from "@/lib/employeeNumbering";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {poolChemistryFields} from "@/lib/poolService";
+import {isServonasPlatformAdmin} from "@/lib/platformAccess";
+import {createSupabaseServerClient} from "@/lib/supabaseServer";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 export async function updateBusinessSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding"); if(!canManageBusiness(role)) redirect(`/app/${slug}/settings?error=Only+owners+and+admins+can+change+settings`);
@@ -17,9 +19,9 @@ export async function updateBusinessSettings(slug:string,formData:FormData){
 }
 
 export async function deleteWorkspace(slug:string,formData:FormData){
- const {supabase,user,business,role}=await requireWorkspace(slug);
+ const {supabase,user,business}=await requireWorkspace(slug);
  const target=`/app/${slug}/settings`;
- if(role!=="owner"||business.owner_user_id!==user.id)redirect(`${target}?error=${encodeURIComponent("Only the workspace owner can delete this workspace.")}#delete-workspace`);
+ if(!isServonasPlatformAdmin(user))redirect(`${target}?error=${encodeURIComponent("Only a confirmed Servonas administrator can delete a workspace.")}#delete-workspace`);
  const confirmation=text(formData,"confirmation");
  if(confirmation!==business.name||formData.get("acknowledge")!=="on")redirect(`${target}?error=${encodeURIComponent("Type the exact workspace name and confirm that you understand the deletion.")}#delete-workspace`);
 
@@ -37,7 +39,10 @@ export async function deleteWorkspace(slug:string,formData:FormData){
   console.error("Workspace external billing cleanup failed",{businessId:business.id,userId:user.id,...detail});
   redirect(`${target}?error=${encodeURIComponent(`The workspace was not deleted because Stripe cleanup failed: ${detail.message}`)}#delete-workspace`);
  }
- const {error}=await supabase.rpc("delete_owned_workspace",{p_business_id:business.id,p_confirmation:confirmation});
+ // Use the authenticated session for the database's independent @servonas.com
+ // authorization check. The workspace context uses the admin client here.
+ const sessionSupabase=await createSupabaseServerClient();
+ const {error}=await sessionSupabase.rpc("delete_owned_workspace",{p_business_id:business.id,p_confirmation:confirmation});
  if(error){
   console.error("Workspace deletion failed",{businessId:business.id,userId:user.id,code:error.code,message:error.message});
   redirect(`${target}?error=${encodeURIComponent(error.code==="PGRST202"||error.code==="42883"?"Workspace deletion is not installed. Apply the latest database migration first.":error.message||"The workspace could not be deleted.")}#delete-workspace`);

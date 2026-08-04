@@ -50,7 +50,7 @@ export function SettingsDashboard({section,business,timezone,editable,canDelete,
   </section>}
 
   {section==="general"&&canDelete&&<section className="settings-danger-zone" id="delete-workspace">
-   <div><span>Danger zone</span><h2>Delete workspace</h2><p>Remove <strong>{business.name}</strong> from Servonas, disable its public pages, disconnect Stripe, and cancel its Servonas subscription. This action cannot be undone from the app.</p></div>
+   <div><span>Servonas administration · Danger zone</span><h2>Delete workspace</h2><p>Remove <strong>{business.name}</strong> from Servonas, disable its public pages, disconnect Stripe, and cancel its Servonas subscription. Only confirmed Servonas administrators can perform this action, and it cannot be undone from the app.</p></div>
    <details><summary>Delete this workspace</summary><form action={deleteWorkspaceAction} onSubmit={event=>{if(!window.confirm(`Permanently delete the ${business.name} workspace?`))event.preventDefault();}}><label>Type <strong>{business.name}</strong> to confirm<input required name="confirmation" autoComplete="off"/></label><label className="settings-danger-confirm"><input required type="checkbox" name="acknowledge"/>I understand this removes the workspace for every team member.</label><button className="sv-button sv-danger">Delete workspace</button></form></details>
   </section>}
 
