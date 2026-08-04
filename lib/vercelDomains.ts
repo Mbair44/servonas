@@ -24,7 +24,16 @@ export async function addVercelProjectDomain(domain:string){
  if(!token||!project)throw new Error("Servonas custom-domain management is not configured.");
  const response=await fetch(`https://api.vercel.com/v10/projects/${encodeURIComponent(project)}/domains${query(team)}`,{method:"POST",headers:headers(token),body:JSON.stringify({name:domain}),cache:"no-store"});
  const body=await json(response);
- if(!response.ok&&body?.error?.code!=="domain_already_in_project")throw new Error(message(body,"Vercel could not add this domain."));
+ if(!response.ok&&body?.error?.code!=="domain_already_in_project"){
+  // Vercel may return domain_already_in_use even when the domain is already
+  // attached to this exact project. Confirm project ownership before treating
+  // that response as a conflict with another project.
+  if(body?.error?.code==="domain_already_in_use"){
+   const existing=await fetch(`https://api.vercel.com/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}${query(team)}`,{headers:headers(token),cache:"no-store"});
+   if(existing.ok)return await json(existing);
+  }
+  throw new Error(message(body,"Vercel could not add this domain."));
+ }
  return body;
 }
 
@@ -47,7 +56,7 @@ export async function getVercelDomainStatus(domain:string):Promise<VercelDomainS
  ]);
  const [projectBody,configBody]=await Promise.all([json(projectResponse),json(configResponse)]);
  if(!projectResponse.ok)return {configured:true,verified:false,misconfigured:true,error:message(projectBody,"Domain has not been added to Servonas hosting."),verification:[],dnsRecords:[]};
- const recommended=(Array.isArray(configBody?.recommendedCNAME)?configBody.recommendedCNAME:Array.isArray(configBody?.recommendedIPv4)?configBody.recommendedIPv4:[]) as RecommendedRecord[];
+ const recommended=((Array.isArray(configBody?.recommendedCNAME)?configBody.recommendedCNAME:Array.isArray(configBody?.recommendedIPv4)?configBody.recommendedIPv4:[]) as RecommendedRecord[]).filter(record=>typeof record?.value==="string"&&record.value).sort((left,right)=>(left.rank??Number.MAX_SAFE_INTEGER)-(right.rank??Number.MAX_SAFE_INTEGER)).slice(0,1);
  const isSubdomain=domain.split(".").length>2;
  const dnsRecords=recommended.length?recommended.map(record=>({type:isSubdomain?"CNAME":"A",name:isSubdomain?domain.split(".")[0]:"@",value:record.value})):[{type:isSubdomain?"CNAME":"A",name:isSubdomain?domain.split(".")[0]:"@",value:isSubdomain?"cname.vercel-dns.com":"76.76.21.21"}];
  return {configured:true,verified:Boolean(projectBody.verified),misconfigured:configResponse.ok?Boolean(configBody.misconfigured):true,verification:Array.isArray(projectBody.verification)?projectBody.verification:[],dnsRecords};
