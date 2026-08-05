@@ -16,6 +16,8 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   territory.name,...(territory.strategy_config?.cities??[]),...(territory.neighborhoods??[]),...(territory.postal_codes??[]).map((zip:string)=>`ZIP ${zip}`),
  ]).filter(Boolean))].slice(0,30) as string[];
  const fallbackArea=[business.city,business.state].filter(Boolean).join(", ");
+ const platformUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"");
+ const bookingSlug=booking?.public_slug?String(booking.public_slug):null,bookingEnabled=Boolean(settings.booking_enabled&&booking?.enabled&&bookingSlug);
  return {
   name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",
@@ -23,7 +25,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   heroSubheading:settings.hero_subheading??"Reliable local service, clear communication, and a team that is ready when you need help.",
   aboutText:settings.about_text??`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`,
   googleReviewUrl:settings.google_review_url,googleReviews:(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6),photoUrls:(settings.photo_urls??[]).filter(Boolean),requestEnabled:settings.request_service_enabled??true,
-  bookingEnabled:Boolean(settings.booking_enabled&&booking?.enabled),bookingUrl:settings.booking_enabled&&booking?.enabled?`/book/${booking.public_slug}`:null,
+  bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
   hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],
  };
