@@ -1,4 +1,10 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+ title: "Pest Control Business Software | Servonas",
+ description: "Pest control business software for scheduling, recurring service, route planning, dispatch, technicians, invoicing, payments, and customer management.",
+};
 
 type CapabilityIconName="customers"|"recurring"|"dispatch"|"schedule"|"booking"|"payments";
 const capabilityIconPaths:Record<CapabilityIconName,React.ReactNode>={
@@ -36,11 +42,11 @@ export default function HomePage(){
    <div className="home-hero-glow one"/><div className="home-hero-glow two"/>
    <div className="sv-container home-hero-grid">
     <div className="home-hero-copy">
-     <span className="sv-kicker">Field service, finally connected</span>
-     <h1>Run every service visit from <span>first call to final payment.</span></h1>
-     <p>Servonas brings customers, recurring service plans, scheduling, dispatch, technicians, online booking, invoices, and payments into one field-service operating system.</p>
+     <span className="sv-kicker">Pest control business software</span>
+     <h1>Run your pest control business from <span>first call to final payment.</span></h1>
+     <p>Servonas gives pest control companies one place to manage customers, recurring treatments, scheduling, route planning, dispatch, technicians, online booking, invoices, and payments.</p>
      <div className="sv-actions"><Link className="sv-button home-primary-cta" href="/signup">Start Free <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" href="/demo">See Servonas in action</Link></div>
-     <div className="home-proof"><span>✓ Built for recurring service</span><span>✓ Route-aware dispatch</span><span>✓ One customer record</span></div>
+     <div className="home-proof"><span>✓ Built for pest control</span><span>✓ Route-aware dispatch</span><span>✓ Recurring treatments</span></div>
     </div>
 
     <div className="home-product-preview" aria-label="Example Servonas dispatch workspace">
