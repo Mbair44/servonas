@@ -18,6 +18,12 @@ import {archiveCustomer,assignCustomerOperations,createServicePlan,deleteService
 import {archiveCustomerHvacEquipment,createCustomerHvacEquipment,updateCustomerHvacEquipment} from "../hvacEquipmentActions";
 import {createJob} from "../../jobs/actions";
 
+const planCadenceLabel=(plan:{cadence_interval:number;cadence_unit:string;first_recurring_date:string})=>{
+ if(plan.cadence_unit!=="month_weekday")return plan.cadence_interval===1?`${plan.cadence_unit}ly`:`Every ${plan.cadence_interval} ${plan.cadence_unit}s`;
+ const date=new Date(`${plan.first_recurring_date}T00:00:00Z`),ordinal=["first","second","third","fourth"][Math.min(3,Math.ceil(date.getUTCDate()/7)-1)],weekday=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][date.getUTCDay()];
+ return `${plan.cadence_interval===1?"Monthly":`Every ${plan.cadence_interval} months`} · ${ordinal} ${weekday}`;
+};
+
 export default async function CustomerDetail({params,searchParams}:{params:Promise<{businessSlug:string;customerId:string}>;searchParams:Promise<Record<string,string|undefined>>}){
  const {businessSlug,customerId}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
  const isHvac=hasIndustryCapability(business.industry_profile,"equipmentTracking")&&business.industry_profile==="hvac";
@@ -179,7 +185,7 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
     </div>
     {activePlans.length?<div className="customer-plan-list">{activePlans.map(plan=><article key={plan.id}>
      <i className="plan-repeat-icon"><CustomerActionIcon name="repeat"/></i>
-     <div><strong>{plan.name}</strong><span>{plan.cadence_interval===1?`${plan.cadence_unit}ly`:`Every ${plan.cadence_interval} ${plan.cadence_unit}s`} · ${Number(plan.recurring_price).toFixed(2)} / visit</span></div>
+     <div><strong>{plan.name}</strong><span>{planCadenceLabel(plan)} · ${Number(plan.recurring_price).toFixed(2)} / visit</span></div>
      <b className="employee-state active">Active</b>
      {canEdit&&<ServicePlanRowMenu plan={{...plan,recurring_price:Number(plan.recurring_price)}} locations={(locations??[]).map(location=>({id:location.id,name:location.location_name||location.street_address}))} services={(services??[]).map(service=>({id:service.id,name:service.name}))} employees={(employees??[]).map(employee=>({id:employee.id,name:employee.preferred_name}))} skipAction={skipNextServicePlanOccurrence.bind(null,businessSlug,customerId,plan.id)} updateAction={updateServicePlan.bind(null,businessSlug,customerId,plan.id)} deleteAction={deleteServicePlan.bind(null,businessSlug,customerId,plan.id)}/>}
     </article>)}</div>:<div className="dashboard-empty"><strong>No active service plans</strong><p>Add a recurring plan for this customer.</p></div>}

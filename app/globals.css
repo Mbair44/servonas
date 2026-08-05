@@ -987,6 +987,7 @@ body:has(.epic3-sidebar) .epic3-sidebar{z-index:55}
 .service-plan-section legend>span svg,.service-plan-next-icon svg{width:16px;height:16px}
 .service-plan-cadence-row{display:grid;grid-template-columns:110px 160px 1fr;align-items:end;gap:10px}
 .service-plan-cadence-row>label:nth-child(2){padding-top:18px}
+.service-plan-monthly-pattern{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px;border:1px solid #cddbf2;border-radius:11px;background:#f6f9ff}.service-plan-monthly-pattern label{display:grid;gap:6px;color:#344054;font-size:.72rem;font-weight:800}.service-plan-monthly-pattern select{width:100%;min-height:40px;padding:8px 10px;border:1px solid #c8d3e2;border-radius:8px;background:#fff}@media(max-width:640px){.service-plan-monthly-pattern{grid-template-columns:1fr}}
 .service-plan-presets{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
 .service-plan-presets>span{flex-basis:100%;color:#344054;font-size:.77rem;font-weight:750}
 .service-plan-presets button{min-height:42px;padding:9px 14px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#344054;font:inherit;font-size:.78rem;font-weight:750;cursor:pointer}
