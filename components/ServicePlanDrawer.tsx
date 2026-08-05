@@ -4,10 +4,11 @@ import {useMemo,useState} from "react";
 import {useFormStatus} from "react-dom";
 import {ManagementDrawer} from "./ManagementDrawer";
 import {CustomerActionIcon} from "./CustomerActionIcon";
-import {previewOccurrences,type RecurrenceUnit} from "@/lib/servicePlanRecurrence";
+import {nextMonthlyDayAnchor,nextMonthlyWeekdayAnchor,previewOccurrences,type RecurrenceUnit} from "@/lib/servicePlanRecurrence";
 
 type Option={id:string;name:string};
 type ServiceOption=Option&{price_amount:number|null};
+const weekdays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 function CreateServicePlanButton(){
  const {pending}=useFormStatus();
@@ -32,10 +33,15 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
  const [unit,setUnit]=useState<RecurrenceUnit>("month");
  const [interval,setInterval]=useState(1);
  const [first,setFirst]=useState("");
+ const [monthlyMode,setMonthlyMode]=useState<"day"|"weekday">("day");
+ const effectiveDate=effective?new Date(`${effective}T00:00:00Z`):null;
+ const [monthDay,setMonthDay]=useState(effectiveDate?.getUTCDate()??1),[monthOrdinal,setMonthOrdinal]=useState(1),[monthWeekday,setMonthWeekday]=useState(effectiveDate?.getUTCDay()??1);
  const serviceName=services.find(service=>service.id===serviceId)?.name;
  const generatedName=serviceName?`${serviceName} – ${customerName}`:`Service plan – ${customerName}`;
- const recurrenceAnchor=initial||customAnchor?first:effective;
- const preview=useMemo(()=>recurrenceAnchor?previewOccurrences(recurrenceAnchor,interval,unit,2):[],[recurrenceAnchor,interval,unit]);
+ const monthlyAnchor=useMemo(()=>effective?(monthlyMode==="day"?nextMonthlyDayAnchor(effective,monthDay):nextMonthlyWeekdayAnchor(effective,monthOrdinal,monthWeekday)):"",[effective,monthDay,monthOrdinal,monthWeekday,monthlyMode]);
+ const recurrenceAnchor=unit==="month"?monthlyAnchor:initial||customAnchor?first:effective;
+ const submittedUnit:RecurrenceUnit=unit==="month"&&monthlyMode==="weekday"?"month_weekday":unit;
+ const preview=useMemo(()=>recurrenceAnchor?previewOccurrences(recurrenceAnchor,interval,submittedUnit,2):[],[recurrenceAnchor,interval,submittedUnit]);
  const preset=(amount:number,nextUnit:RecurrenceUnit)=>{setInterval(amount);setUnit(nextUnit);};
  const selectService=(nextServiceId:string)=>{
   setServiceId(nextServiceId);
@@ -67,11 +73,12 @@ export function ServicePlanDrawer({customerName,locations,services,employees,act
 
    <fieldset className="service-plan-section">
     <legend><span aria-hidden="true"><CustomerActionIcon name="repeat"/></span> Cadence</legend>
-    <div className="service-plan-cadence-row"><label>Repeat every<input name="intervalValue" type="number" min="1" max="120" value={interval} onChange={event=>setInterval(Number(event.target.value))}/></label><label><span className="sr-only">Cadence unit</span><select name="intervalUnit" value={unit} onChange={event=>setUnit(event.target.value as RecurrenceUnit)}><option value="day">Days</option><option value="week">Weeks</option><option value="month">Months</option><option value="year">Years</option></select></label><div className="service-plan-presets" aria-label="Quick cadence presets"><span>Quick presets</span><button type="button" onClick={()=>preset(1,"week")}>Weekly</button><button type="button" className={interval===1&&unit==="month"?"active":""} onClick={()=>preset(1,"month")}>Monthly</button><button type="button" onClick={()=>preset(3,"month")}>Quarterly</button><button type="button" onClick={()=>preset(2,"month")}>Every 2 Months</button></div></div>
-    <div className="service-plan-toggle-row"><label className="service-plan-switch"><input type="checkbox" name="scheduleAutomatically" checked={automatic} onChange={event=>setAutomatic(event.target.checked)}/><span>Let Servonas choose the best day for the route</span></label><label className="service-plan-switch"><input type="checkbox" checked={customAnchor} onChange={event=>setCustomAnchor(event.target.checked)}/><span>Use a different recurring start date</span></label></div>
+    <input type="hidden" name="intervalUnit" value={submittedUnit}/><div className="service-plan-cadence-row"><label>Repeat every<input name="intervalValue" type="number" min="1" max="120" value={interval} onChange={event=>setInterval(Number(event.target.value))}/></label><label><span className="sr-only">Cadence unit</span><select value={unit==="month_weekday"?"month":unit} onChange={event=>setUnit(event.target.value as RecurrenceUnit)}><option value="day">Days</option><option value="week">Weeks</option><option value="month">Months</option><option value="year">Years</option></select></label><div className="service-plan-presets" aria-label="Quick cadence presets"><span>Quick presets</span><button type="button" onClick={()=>preset(1,"week")}>Weekly</button><button type="button" className={interval===1&&unit==="month"?"active":""} onClick={()=>preset(1,"month")}>Monthly</button><button type="button" onClick={()=>preset(3,"month")}>Quarterly</button><button type="button" onClick={()=>preset(2,"month")}>Every 2 Months</button></div></div>
+    {unit==="month"&&<div className="service-plan-monthly-pattern"><label>Repeat by<select value={monthlyMode} onChange={event=>setMonthlyMode(event.target.value as "day"|"weekday")}><option value="day">Day of the month</option><option value="weekday">Day of the week</option></select></label>{monthlyMode==="day"?<label>Day<select value={monthDay} onChange={event=>setMonthDay(Number(event.target.value))}>{Array.from({length:31},(_,index)=>index+1).map(day=><option value={day} key={day}>{day}{day===1?"st":day===2?"nd":day===3?"rd":"th"}</option>)}</select></label>:<><label>Week<select value={monthOrdinal} onChange={event=>setMonthOrdinal(Number(event.target.value))}><option value="1">First</option><option value="2">Second</option><option value="3">Third</option><option value="4">Fourth</option></select></label><label>Weekday<select value={monthWeekday} onChange={event=>setMonthWeekday(Number(event.target.value))}>{weekdays.map((day,index)=><option value={index} key={day}>{day}</option>)}</select></label></>}</div>}
+    <div className="service-plan-toggle-row"><label className="service-plan-switch"><input type="checkbox" name="scheduleAutomatically" checked={automatic} onChange={event=>setAutomatic(event.target.checked)}/><span>Let Servonas choose the best day for the route</span></label>{unit!=="month"&&<label className="service-plan-switch"><input type="checkbox" checked={customAnchor} onChange={event=>setCustomAnchor(event.target.checked)}/><span>Use a different recurring start date</span></label>}</div>
     <label className="service-plan-switch"><input type="checkbox" name="autoDispatch"/><span>Automatically dispatch this job on the appointment day</span><small>Assigned visits will appear as dispatched on the technician’s list. Unassigned visits stay scheduled for office review.</small></label>
     {automatic&&<label className="service-plan-window">Scheduling window<select name="schedulingFlexDays" defaultValue="7"><option value="3">Within 3 days of due date</option><option value="7">Within 7 days of due date</option><option value="14">Within 14 days of due date</option><option value="30">Within 30 days of due date</option></select></label>}
-    {initial||customAnchor?<label className="service-plan-anchor">{automatic?"Begin automatic scheduling on or after":"First recurring service date"}<input name="firstRecurringDate" type="date" required value={first} onChange={event=>setFirst(event.target.value)}/></label>:<input name="firstRecurringDate" type="hidden" value={effective}/>}
+    {unit==="month"?<input name="firstRecurringDate" type="hidden" value={monthlyAnchor}/>:initial||customAnchor?<label className="service-plan-anchor">{automatic?"Begin automatic scheduling on or after":"First recurring service date"}<input name="firstRecurringDate" type="date" required value={first} onChange={event=>setFirst(event.target.value)}/></label>:<input name="firstRecurringDate" type="hidden" value={effective}/>} 
     <div className="service-plan-next"><span className="service-plan-next-icon" aria-hidden="true"><CustomerActionIcon name="calendar"/></span><div><strong>{preview[0]?`Next service: ${preview[0]}`:"Choose an effective date to preview the next service"}</strong><small>{automatic?"Servonas can place the visit within the selected route window.":`Future visits are calculated from the ${customAnchor?"recurring start":"effective"} date.`}</small></div></div>
    </fieldset>
 
