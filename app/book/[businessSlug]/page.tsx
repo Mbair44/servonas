@@ -75,7 +75,7 @@ export default async function PublicBookingPage({
   let rentalInventory: any[] = [];
   let rentalCapacity: Record<string, Record<string, number>> = {};
   if (isPartyRental) {
-    const { data } = await supabase.from("inventory_items").select("id,name,description,daily_price_cents,image_url,allow_quantity,stock_quantity").eq("business_id", settings.business_id).eq("active", true).order("created_at");
+    const { data } = await supabase.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url,allow_quantity,stock_quantity").eq("business_id", settings.business_id).eq("active", true).order("category").order("created_at");
     rentalInventory = data ?? [];
     const start = new Date(); start.setDate(1);
     const end = new Date(start.getFullYear(), start.getMonth() + 13, 0);
