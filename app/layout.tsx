@@ -21,8 +21,11 @@ export const metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createSupabaseServerClient();
   const {data:{user}} = await supabase.auth.getUser();
-  const {data:profile}=user?await supabase.from("profiles").select("full_name,email").eq("id",user.id).maybeSingle():{data:null};
-  const accountName=profile?.full_name?.trim()||String(user?.user_metadata?.full_name??"").trim()||user?.email?.split("@")[0]||"Account";
+  const [{data:profile},{data:employee}]=user?await Promise.all([
+    supabase.from("profiles").select("full_name,email").eq("id",user.id).maybeSingle(),
+    supabase.from("employees").select("preferred_name").eq("auth_user_id",user.id).eq("is_active",true).order("updated_at",{ascending:false}).limit(1).maybeSingle(),
+  ]):[{data:null},{data:null}];
+  const accountName=employee?.preferred_name?.trim()||profile?.full_name?.trim()||String(user?.user_metadata?.full_name??"").trim()||user?.email?.split("@")[0]||"Account";
   const accountEmail=profile?.email||user?.email||"";
   return <html lang="en"><body>
     <PhoneInputFormatter/>
