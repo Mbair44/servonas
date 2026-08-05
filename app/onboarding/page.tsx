@@ -32,5 +32,7 @@ export default async function Onboarding({searchParams}:{searchParams:Promise<{b
     return <main className="onboarding-shell"><OnboardingReadinessReview businessSlug={business.slug} businessName={business.display_name||business.name} facts={facts} teamStatus={teamStatus??"not_started"} error={query.error}/></main>;}
    return <main className="onboarding-resume"><section><span className="sv-kicker">Profile saved</span><h1>{business.display_name||business.name} is taking shape.</h1><p>Your company and business profile are saved. You can leave safely and return later.</p><div className="onboarding-resume-status"><strong>50% complete</strong><span>Next: Business hours</span><small>Last saved {state?.last_activity_at?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(state.last_activity_at)):"just now"}</small></div><p>Business Hours is the next onboarding checkpoint.</p><div><Link className="sv-button" href={`/app/${business.slug}`}>Continue to workspace</Link><Link className="sv-button sv-secondary" href="/app">Resume later</Link></div></section></main>;
   }}
- return <main className="onboarding-shell"><OnboardingWizard defaultEmail={user.email??""} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/></main>;
+ const {data:userProfile}=await s.from("profiles").select("full_name").eq("id",user.id).maybeSingle();
+ const defaultUserName=userProfile?.full_name?.trim()||String(user.user_metadata?.full_name??"").trim();
+ return <main className="onboarding-shell"><OnboardingWizard defaultEmail={user.email??""} defaultUserName={defaultUserName} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/></main>;
 }

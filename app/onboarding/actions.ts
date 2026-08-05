@@ -13,7 +13,8 @@ import {sendBusinessSetupNotification} from "@/lib/communications/businessSetupE
 import {platformBillingEnabled,servonasTrialDays} from "@/lib/platformBilling";
 import {stripeClient,stripeConnectBaseUrl} from "@/lib/stripeConnect";
 
-export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput,string>>;values?:Partial<OnboardingCompanyInput>};
+type GuidedOnboardingValues=Partial<OnboardingCompanyInput>&{userName?:string};
+export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput|string,string>>;values?:GuidedOnboardingValues};
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 export async function createWorkspace(_:OnboardingState,formData:FormData):Promise<OnboardingState>{
   const s=await createSupabaseServerClient();
@@ -40,24 +41,31 @@ export async function createWorkspace(_:OnboardingState,formData:FormData):Promi
 }
 export async function createGuidedWorkspace(_:OnboardingState,formData:FormData):Promise<OnboardingState>{
  const s=await createSupabaseServerClient();const {data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding");
+ const userName=text(formData,"userName");
  const values:OnboardingCompanyInput={name:text(formData,"name"),displayName:text(formData,"displayName"),slug:text(formData,"slug").toLowerCase(),
   addressLine1:text(formData,"addressLine1"),addressLine2:text(formData,"addressLine2"),city:text(formData,"city"),region:text(formData,"region"),
   postalCode:text(formData,"postalCode"),country:text(formData,"country")||"US",phone:text(formData,"phone"),email:text(formData,"email"),
   website:text(formData,"website"),timezone:text(formData,"timezone")};
  const googlePlaceId=text(formData,"googlePlaceId");
+ const returnedValues={...values,userName};
+ if(userName.length<2||userName.length>100)return {error:"Enter your name to continue.",fieldErrors:{userName:"Enter your full name."},values:returnedValues};
  if(process.env.GOOGLE_MAPS_API_KEY){
-  if(!googlePlaceId)return {error:"Choose the business address from Google’s suggestions.",fieldErrors:{addressLine1:"Select a verified Google address."},values};
+  if(!googlePlaceId)return {error:"Choose the business address from Google’s suggestions.",fieldErrors:{addressLine1:"Select a verified Google address."},values:returnedValues};
   const verified=await verifyGooglePlace(googlePlaceId);
-  if(!verified)return {error:"The selected Google address could not be verified. Search for it again.",fieldErrors:{addressLine1:"Choose a valid Google suggestion."},values};
+  if(!verified)return {error:"The selected Google address could not be verified. Search for it again.",fieldErrors:{addressLine1:"Choose a valid Google suggestion."},values:returnedValues};
   values.addressLine1=verified.streetAddress;values.addressLine2=verified.unit||values.addressLine2;values.city=verified.city;values.region=verified.state;values.postalCode=verified.postalCode;values.country=verified.country;
  }
  const fieldErrors=validateOnboardingCompany(values);
- if(Object.keys(fieldErrors).length)return {error:"Review the highlighted company information.",fieldErrors,values};
+ if(Object.keys(fieldErrors).length)return {error:"Review the highlighted company information.",fieldErrors,values:returnedValues};
+ const {error:profileError}=await s.from("profiles").update({full_name:userName}).eq("id",user.id);
+ if(profileError){console.error("Onboarding user name save failed",{userId:user.id,code:profileError.code,message:profileError.message});return {error:"Your name could not be saved. Please try again.",values:returnedValues};}
+ const {error:authNameError}=await s.auth.updateUser({data:{full_name:userName}});
+ if(authNameError)console.warn("Onboarding auth name metadata save failed",{userId:user.id,message:authNameError.message});
  const {data,error}=await s.rpc("create_guided_business_workspace",{p_name:values.name,p_display_name:values.displayName,p_slug:values.slug,
   p_email:values.email,p_phone:values.phone,p_website_url:values.website||null,p_address_line1:values.addressLine1,p_address_line2:values.addressLine2||null,
   p_city:values.city,p_state:values.region,p_postal_code:values.postalCode,p_country:values.country,p_timezone:values.timezone});
  if(error){console.error("Guided workspace creation failed",{provider:"supabase",operation:"create_guided_business_workspace",code:error.code,message:error.message,userId:user.id});
-  return {error:error.code==="23505"?"That workspace URL is already taken.":"Your company could not be saved. Please review the information and try again.",values};}
+  return {error:error.code==="23505"?"That workspace URL is already taken.":"Your company could not be saved. Please review the information and try again.",values:returnedValues};}
  const created=Array.isArray(data)?data[0]:data;
  await sendBusinessSetupNotification({
   businessId:created?.id,

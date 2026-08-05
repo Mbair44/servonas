@@ -32,7 +32,7 @@ export function AuthenticatedAccountMenu({name,email}:{name:string;email:string}
   return ()=>{document.removeEventListener("pointerdown",closeOnOutside);document.removeEventListener("keydown",closeOnEscape);};
  },[]);
  return <details ref={menuRef} className="account-menu">
-  <summary aria-label="Open account menu"><span className="account-menu-avatar">{initials}</span><span><strong>{name}</strong><small>{email}</small></span><b aria-hidden="true">⌄</b></summary>
+  <summary aria-label="Open account menu"><span className="account-menu-avatar">{initials}</span><span><strong>{name}</strong></span><b aria-hidden="true">⌄</b></summary>
   <div className="account-menu-popover">
    <header><span className="account-menu-avatar">{initials}</span><span><strong>{name}</strong><small>{email}</small></span></header>
    {slug&&<section><b>Workspace</b>{item("settings","Business Settings","Manage your business details",`/app/${slug}/settings`)}{item("profile","My Profile","View your employee profile",`/app/${slug}/profile`)}{item("members","Members","Manage team members and permissions",`/app/${slug}/team`)}{item("invoices","Billing","View customer invoices and payments",`/app/${slug}/invoices`)}</section>}
