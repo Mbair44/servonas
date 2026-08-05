@@ -56,8 +56,8 @@ async function prepareJob(
   const isReturnVisit=formData.get("isReturnVisit")==="on",returnVisitForJobId=isReturnVisit?text(formData,"returnVisitForJobId"):"";
   const startsAt = localDate(text(formData, "startsAt"), business.timezone);
   const endsAt = localDate(text(formData, "endsAt"), business.timezone);
-  const arrivalStart = scheduleCommitment==="fixed"?localDate(text(formData, "arrivalWindowStart"), business.timezone):null;
-  const arrivalEnd = scheduleCommitment==="fixed"?localDate(text(formData, "arrivalWindowEnd"), business.timezone):null;
+  const arrivalStart = localDate(text(formData, "arrivalWindowStart"), business.timezone);
+  const arrivalEnd = localDate(text(formData, "arrivalWindowEnd"), business.timezone);
   if (!title) errors.title = "Enter a job title.";
   if (!customerId) errors.customerId = "Choose a customer.";
   const timeError = validateJobTimes(startsAt, endsAt, arrivalStart, arrivalEnd);

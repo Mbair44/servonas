@@ -1,6 +1,7 @@
 "use client";
 
 import {useCallback,useState} from "react";
+import {usePathname} from "next/navigation";
 import type {JobActionState} from "@/app/app/[businessSlug]/jobs/actions";
 import JobForm from "./JobForm";
 import {ManagementDrawer} from "./ManagementDrawer";
@@ -17,11 +18,14 @@ export function JobCreateDrawer({customers,locations,services,technicians,priorJ
  defaultCustomerId?:string;defaultStartAt?:string;label?:string;className?:string;autoOpen?:boolean;icon?:boolean;
 }){
  const [open,setOpen]=useState(autoOpen);
+ const pathname=usePathname();
  const close=useCallback(()=>setOpen(false),[]);
+ const source=pathname.includes("/customers/")?"customer":pathname.includes("/schedule")?"schedule":pathname.includes("/dispatch")?"dispatch":pathname.includes("/settings/website")?"website":"dashboard";
+ const formId="servonas-create-job-form";
  return <>
   <button type="button" className={className} onClick={()=>setOpen(true)}>{icon&&<span aria-hidden="true">＋</span>}{label}</button>
-  <ManagementDrawer open={open} size="wide" title="Add job" subtitle="Create, schedule, and assign a job without leaving this page." onDirty={()=>{}} onClose={close}>
-   <JobForm action={action} customers={customers} locations={locations} services={services} technicians={technicians} priorJobs={priorJobs} submitLabel="Create job" defaultCustomerId={defaultCustomerId} defaultStartAt={defaultStartAt} onCancel={close}/>
+  <ManagementDrawer open={open} size="wide" title="Create job" subtitle="Add the details, schedule, and billing in one streamlined workflow." onDirty={()=>{}} onClose={close} headerAction={<><button type="button" className="job-drawer-header-cancel" onClick={close}>Cancel</button><button type="submit" form={formId} className="job-drawer-header-submit">Create job</button></>}>
+   <JobForm id={formId} action={action} customers={customers} locations={locations} services={services} technicians={technicians} priorJobs={priorJobs} submitLabel="Create job" defaultCustomerId={defaultCustomerId} defaultStartAt={defaultStartAt} source={source} onCancel={close}/>
   </ManagementDrawer>
  </>;
 }
