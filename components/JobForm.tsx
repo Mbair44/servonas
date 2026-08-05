@@ -11,6 +11,16 @@ type Technician = { id: string; preferred_name: string };
 type PriorJob = {id:string;job_number:number;title:string;customer_id:string;starts_at:string|null};
 type Job = Record<string, string | number | boolean | null | undefined>;
 
+function JobSectionIcon({name}:{name:"details"|"schedule"|"billing"|"notes"}){
+ const paths={
+  details:<><path d="M9 5h6"/><path d="M9 9h6"/><path d="M9 13h4"/><path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></>,
+  schedule:<><path d="M7 2v3M17 2v3M3 9h18"/><rect x="3" y="4" width="18" height="17" rx="2"/><path d="m8 15 2.5 2.5L16 12"/></>,
+  billing:<><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 9h19M7 15h3"/></>,
+  notes:<><path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-1-1.73V5a2 2 0 0 1 2-2Z"/><path d="M8 8h8M8 12h6"/></>,
+ };
+ return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
 export default function JobForm({
   action, customers, locations, services, technicians, priorJobs=[], job, submitLabel, defaultCustomerId = "", defaultStartAt="", onCancel,
 }: {
@@ -67,14 +77,14 @@ export default function JobForm({
     {state.error && <div className="workspace-notice error wide" role="alert">{state.error}</div>}
     {state.warning&&<div className="workspace-notice warning wide" role="alert"><strong>Scheduling notice</strong><p>{state.warning}</p><p>You can create this job anyway or cancel and return to the previous screen.</p><div className="job-warning-actions"><button className="sv-button" name="overrideMinimumNotice" value="true" disabled={pending}>{pending?"Creating…":"Create job anyway"}</button><button type="button" className="sv-button sv-secondary" onClick={onCancel??(()=>window.history.back())}>Cancel</button></div></div>}
     {!job && <input type="hidden" name="requestKey" value={requestKey.current}/>}
-    <fieldset className="job-form-section job-details-section"><legend><i aria-hidden="true">◆</i><span><strong>Job details</strong><small>Choose the customer, location, service, and technician.</small></span></legend><div className="job-form-grid">
+    <fieldset className="job-form-section job-details-section"><legend><i><JobSectionIcon name="details"/></i><span><strong>Job details</strong><small>Choose the customer, location, service, and technician.</small></span></legend><div className="job-form-grid">
       <label className="wide">Job title<input required name="title" defaultValue={value("title", String(job?.title ?? ""))} placeholder="AC repair, landscape cleanup, annual inspection…"/>{error("title")}</label>
       <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
       <label>Service location<select name="serviceLocationId" value={locationId} onChange={event=>setLocationId(event.target.value)}><option value="">No saved location</option>{customerLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}, {location.city}</option>)}</select>{error("serviceLocationId")}</label>
       <label>Service<select name="serviceId" value={serviceId} onChange={event=>setServiceId(event.target.value)}><option value="">Custom work</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{error("serviceId")}</label>
       <label>Primary technician<select name="technicianId" value={technicianId} onChange={event=>{technicianTouched.current=true;setTechnicianId(event.target.value);}}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.preferred_name}</option>)}</select>{error("technicianId")}</label>
     </div></fieldset>
-    <fieldset className="job-form-section job-schedule-section"><legend><i aria-hidden="true">▦</i><span><strong>Schedule &amp; dispatch</strong><small>Set the appointment commitment, timing, and priority.</small></span></legend><div className="job-form-grid">
+    <fieldset className="job-form-section job-schedule-section"><legend><i><JobSectionIcon name="schedule"/></i><span><strong>Schedule &amp; dispatch</strong><small>Set the appointment commitment, timing, and priority.</small></span></legend><div className="job-form-grid">
       <input type="hidden" name="scheduleCommitment" value={fixedTime?"fixed":"flexible"}/>
       <label className="wide job-time-commitment"><input type="checkbox" checked={fixedTime} onChange={event=>setFixedTime(event.target.checked)}/><span><strong>{fixedTime?"Appointment time is set":"Appointment time is flexible"}</strong><small>{fixedTime?"The technician must arrive at this time. Route calculation cannot move this stop.":"Route calculation may place this job anywhere on the selected service day."}</small></span></label>
       <label>{fixedTime?"Scheduled start":"Service day (time may move)"}<input name="startsAt" type="datetime-local" value={startsAt} onChange={event=>setStartsAt(event.target.value)}/>{error("startsAt")}</label>
@@ -88,13 +98,13 @@ export default function JobForm({
       <label className="wide job-return-visit"><input type="checkbox" name="isReturnVisit" checked={returnVisit} onChange={event=>setReturnVisit(event.target.checked)}/><span><strong>Mark as a return visit</strong><small>Use this for a callback or additional visit related to work already performed.</small></span></label>
       {returnVisit&&<><label className="wide">Original job <small>Optional</small><select name="returnVisitForJobId" defaultValue={value("returnVisitForJobId",String(job?.return_visit_for_job_id??""))}><option value="">Not linked to a specific job</option>{priorJobs.filter(item=>item.customer_id===customerId&&item.id!==job?.id).map(item=><option key={item.id} value={item.id}>#{item.job_number} · {item.title}{item.starts_at?` · ${new Date(item.starts_at).toLocaleDateString()}`:""}</option>)}</select>{error("returnVisitForJobId")}</label><label className="wide">Return-visit reason <small>Optional</small><textarea name="returnVisitReason" rows={2} maxLength={1000} defaultValue={value("returnVisitReason",String(job?.return_visit_reason??""))} placeholder="Warranty callback, issue continued, follow-up repair…"/></label></>}
     </div></fieldset>
-    <fieldset className="job-form-section job-billing-section"><legend><i aria-hidden="true">$</i><span><strong>Billing</strong><small>Set the job value and current payment status.</small></span></legend><div className="job-form-grid">
+    <fieldset className="job-form-section job-billing-section"><legend><i><JobSectionIcon name="billing"/></i><span><strong>Billing</strong><small>Set the job value and current payment status.</small></span></legend><div className="job-form-grid">
       <label>Subtotal<input name="subtotal" type="number" min="0" step="0.01" defaultValue={value("subtotal", String(job?.subtotal ?? 0))}/></label>
       <label>Tax<input name="taxAmount" type="number" min="0" step="0.01" defaultValue={value("taxAmount", String(job?.tax_amount ?? 0))}/></label>
       <label>Discount<input name="discountAmount" type="number" min="0" step="0.01" defaultValue={value("discountAmount", String(job?.discount_amount ?? 0))}/>{error("money")}</label>
       <label>Payment status<select name="paymentStatus" defaultValue={value("paymentStatus", String(job?.payment_status ?? "unpaid"))}>{paymentStatuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label>
     </div></fieldset>
-    <fieldset className="job-form-section job-notes-section"><legend><i aria-hidden="true">≡</i><span><strong>Work details &amp; notes</strong><small>Record the scope and choose what the customer can see.</small></span></legend><div className="job-form-grid">
+    <fieldset className="job-form-section job-notes-section"><legend><i><JobSectionIcon name="notes"/></i><span><strong>Work details &amp; notes</strong><small>Record the scope and choose what the customer can see.</small></span></legend><div className="job-form-grid">
       <label className="wide">Description<textarea name="description" rows={4} defaultValue={value("description", String(job?.description ?? ""))}/></label>
       <label className="wide">Customer-visible notes<textarea name="customerNotes" rows={3} defaultValue={value("customerNotes", String(job?.customer_notes ?? ""))}/></label>
       <label className="wide">Internal notes<textarea name="internalNotes" rows={3} defaultValue={value("internalNotes", String(job?.internal_notes ?? ""))}/></label>
