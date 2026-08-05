@@ -5,8 +5,19 @@ import PublicBookingForm from "@/components/PublicBookingForm";
 import PartyRentalBookingClient from "@/components/PartyRentalBookingClient";
 import { getInventoryCapacityUsage } from "@/lib/bookings";
 import { submitPublicBooking } from "./actions";
+import type {Metadata} from "next";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({params}:{params:Promise<{businessSlug:string}>}):Promise<Metadata>{
+  const {businessSlug}=await params,supabase=getSupabaseAdmin();if(!supabase)return {};
+  const {data:settings}=await supabase.from("booking_settings").select("business_id,logo_path,logo_url,businesses(name)").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();
+  if(!settings)return {};
+  const business=Array.isArray(settings.businesses)?settings.businesses[0]:settings.businesses;
+  const {data:signed}=settings.logo_path?await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path,3600):{data:null};
+  const logo=signed?.signedUrl??settings.logo_url??null;
+  return {title:`Book Online | ${business?.name??"Business"}`,icons:logo?{icon:[{url:logo}],shortcut:logo,apple:logo}:undefined};
+}
 
 export default async function PublicBookingPage({
   params,
