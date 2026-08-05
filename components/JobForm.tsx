@@ -136,6 +136,6 @@ export default function JobForm({
       <label>Customer-visible notes<textarea name="customerNotes" rows={3} defaultValue={value("customerNotes", String(job?.customer_notes ?? ""))} placeholder="What the customer will see"/></label>
       <label>Internal notes<textarea name="internalNotes" rows={3} defaultValue={value("internalNotes", String(job?.internal_notes ?? ""))} placeholder="Only your team will see"/></label>
     </div></fieldset>
-    {!state.warning&&<footer className="job-form-footer">{onCancel&&<button type="button" className="sv-button sv-secondary" onClick={onCancel}>Cancel</button>}<button className="sv-button" disabled={pending}>{pending ? "Saving…" : submitLabel}</button></footer>}
+    {!state.warning&&(!isCreate||!onCancel)&&<footer className="job-form-footer">{onCancel&&<button type="button" className="sv-button sv-secondary" onClick={onCancel}>Cancel</button>}<button className="sv-button" disabled={pending}>{pending ? "Saving…" : submitLabel}</button></footer>}
   </form>;
 }
