@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     if (!supabase) return NextResponse.json({ error: "Booking is temporarily unavailable." }, { status: 503 });
 
     const {data: publicBooking}=hasText(body.businessSlug)
-      ? await supabase.from("booking_settings").select("business_id").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
+      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
       : {data:null};
     const {data: business}=publicBooking
       ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
@@ -74,8 +74,10 @@ export async function POST(request: Request) {
     const {data:paymentAccount}=business?await supabase.from("business_payment_accounts")
       .select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",business.id).eq("provider","stripe").maybeSingle():{data:null};
+    const configuredDepositPercent=business?Number(publicBooking?.rental_deposit_percent??25):25;
+    const depositPercent=Math.min(100,Math.max(0,Number.isFinite(configuredDepositPercent)?configuredDepositPercent:25));
     const onlinePaymentsReady=business
-      ? Boolean(stripeKey&&paymentAccount?.provider_account_id&&stripePaymentsReady(paymentAccount))
+      ? Boolean(depositPercent>0&&stripeKey&&paymentAccount?.provider_account_id&&stripePaymentsReady(paymentAccount))
       : Boolean(stripeKey);
     if(onlinePaymentsReady&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
 
@@ -118,7 +120,7 @@ export async function POST(request: Request) {
     if (!booking?.booking_id) return NextResponse.json({ error: "The reservation was not created. Please try again." }, { status: 500 });
 
     const totalCents = orderedItems.reduce((sum, item) => sum + item.daily_price_cents * item.quantity, 0);
-    const depositCents = Math.round(totalCents * 0.25);
+    const depositCents = Math.round(totalCents * depositPercent / 100);
     if(!onlinePaymentsReady){
       const {error:confirmationError}=await supabase.from("bookings").update({
         ...(business?{business_id:business.id}:{}),status:"confirmed",deposit_cents:0,
@@ -141,9 +143,9 @@ export async function POST(request: Request) {
           quantity: item.quantity,
           price_data: {
             currency: "usd",
-            unit_amount: Math.round(item.daily_price_cents * 0.25),
+            unit_amount: Math.round(item.daily_price_cents * depositPercent / 100),
             product_data: {
-              name: `25% Non-Refundable Deposit — ${item.name}`,
+              name: `${depositPercent}% Non-Refundable Deposit — ${item.name}`,
               description: `Reserves ${body.rentalDate}. Unit rental price: ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(item.daily_price_cents / 100)}.`,
             },
           },
