@@ -11,6 +11,10 @@ export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
   description: "Run customers, recurring service plans, scheduling, dispatch, technicians, online booking, invoices, and payments from one field-service platform.",
   keywords: ["field service management software", "service business software", "route optimization", "dispatch software", "recurring service software", "online booking"],
+  icons: {
+    icon: [{url: "/icon.svg", type: "image/svg+xml"}],
+    shortcut: "/icon.svg",
+  },
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
