@@ -112,7 +112,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} onlinePaymentsReady={rentalOnlinePaymentsReady} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
