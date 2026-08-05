@@ -29,11 +29,12 @@ async function uploadImage(businessId:string,entry:FormDataEntryValue|null){
 }
 
 function values(data:FormData){
- const name=text(data,"name"),description=text(data,"description"),price=Number(text(data,"price")),stock=Number(text(data,"stockQuantity"));
+ const name=text(data,"name"),category=text(data,"category"),description=text(data,"description"),price=Number(text(data,"price")),stock=Number(text(data,"stockQuantity"));
  if(!name||name.length>120)throw new Error("Enter a rental name up to 120 characters.");
+ if(category.length>80)throw new Error("Enter a category up to 80 characters.");
  if(!Number.isFinite(price)||price<0||price>100000)throw new Error("Enter a valid daily rental price.");
  if(!Number.isInteger(stock)||stock<1||stock>10000)throw new Error("Stock quantity must be between 1 and 10,000.");
- return {name,description:description||null,daily_price_cents:Math.round(price*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
+ return {name,category:category||null,description:description||null,daily_price_cents:Math.round(price*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
 }
 
 export async function createRentalItem(slug:string,data:FormData){
