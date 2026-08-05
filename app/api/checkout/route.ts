@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {verifyGooglePlace} from "@/lib/googleAddress";
+import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
@@ -129,6 +130,7 @@ export async function POST(request: Request) {
       if(confirmationError)throw confirmationError;
       const {error:itemConfirmationError}=await supabase.from("booking_items").update({status:"confirmed"}).eq("booking_id",booking.booking_id);
       if(itemConfirmationError)throw itemConfirmationError;
+      await ensureRentalBookingJob(supabase,booking.booking_id);
       return NextResponse.json({paymentMode:"invoice_later",bookingId:booking.booking_id,bookingNumber:booking.booking_number});
     }
     const stripe = new Stripe(stripeKey!);

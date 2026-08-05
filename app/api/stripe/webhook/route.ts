@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingSms } from "@/lib/sms";
 import { stripeConnectState } from "@/lib/stripeConnect";
@@ -283,6 +284,7 @@ const couponId =
       }).eq("id", bookingId);
 
       await supabase.from("booking_items").update({ status: "confirmed" }).eq("booking_id", bookingId);
+      try{await ensureRentalBookingJob(supabase,bookingId);}catch(jobError){console.error("Confirmed rental job creation failed",{bookingId,error:jobError instanceof Error?jobError.message:"unknown"});}
 
       try {
         const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
