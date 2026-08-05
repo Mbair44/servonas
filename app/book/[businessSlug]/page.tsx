@@ -6,6 +6,7 @@ import PartyRentalBookingClient from "@/components/PartyRentalBookingClient";
 import { getInventoryCapacityUsage } from "@/lib/bookings";
 import { submitPublicBooking } from "./actions";
 import type {Metadata} from "next";
+import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,7 @@ export default async function PublicBookingPage({
   }
 
   return (
-    <main
+    <>{embedded&&<EmbeddedBookingBridge/>}<main
       className={`public-booking${embedded ? " embedded-booking" : ""}`}
       style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
     >
@@ -105,7 +106,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
@@ -124,6 +125,6 @@ export default async function PublicBookingPage({
         )}
       </section>
       <footer>{embedded ? <>Powered by <b>Servonas</b></> : <>Powered by <b>Servonas</b> · <Link href={`/book/${businessSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${businessSlug}/terms`}>Text Messaging Terms</Link></>}</footer>
-    </main>
+    </main></>
   );
 }
