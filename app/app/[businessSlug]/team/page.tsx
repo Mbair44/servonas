@@ -36,7 +36,7 @@ export default async function TeamPage({params,searchParams}:{params:Promise<{bu
    profilePhotoUrl:signedPhoto?.signedUrl??employee.profile_photo_url,createdAt:employee.created_at,roles:employeeRoles,state,invitationRole:invitation?.role??null,
    workspaceRole:employee.auth_user_id?membershipByUser.get(employee.auth_user_id)?.role??null:null,technicianEnabled:employee.auth_user_id?Boolean(technicianByUser.get(employee.auth_user_id)?.is_active&&technicianByUser.get(employee.auth_user_id)?.is_technician&&technicianByUser.get(employee.auth_user_id)?.can_be_assigned_jobs):false};
  }));
- return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content employee-directory-page">
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content employee-directory-page">
   {q.success&&<div className="workspace-notice success">{q.success}</div>}{q.error&&<div className="workspace-notice error">{q.error}</div>}
   {q.inviteLink&&<div className="invite-link"><code>{q.inviteLink}</code><CopyInvitationLink url={q.inviteLink}/></div>}
   {error&&<div className="workspace-notice error">The workforce migration must be applied before Team can load.</div>}

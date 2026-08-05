@@ -4,9 +4,9 @@ import {usePathname} from "next/navigation";
 import {useEffect,useMemo,useState} from "react";
 import {activeNavigationGroup,parseExpandedGroups,routeIsActive,SIDEBAR_GROUPS_STORAGE_KEY,visibleNavigation,workspaceNavigation} from "@/lib/workspaceNavigation";
 
-export function WorkspaceNav({slug,name,poolService=false}:{slug:string;name:string;poolService?:boolean}){
+export function WorkspaceNav({slug,name,poolService=false,industry}:{slug:string;name:string;poolService?:boolean;industry?:string|null}){
  const base=`/app/${slug}`;
- const pathname=usePathname(),items=useMemo(()=>visibleNavigation(workspaceNavigation(slug,{poolService})),[poolService,slug]);
+ const pathname=usePathname(),items=useMemo(()=>visibleNavigation(workspaceNavigation(slug,{poolService,partyRental:industry==="party_rental"})),[industry,poolService,slug]);
  const groupIds=useMemo(()=>items.filter(item=>item.children).map(item=>item.id),[items]);
  const activeGroup=activeNavigationGroup(pathname,items);
  const [expanded,setExpanded]=useState<string|null>(()=>activeGroup??null);

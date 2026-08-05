@@ -21,7 +21,7 @@ export default async function EditCatalogService({
   if (!service) notFound();
   const canEdit = canManageCustomers(role);
 
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Price book service</small><h1>{service.name}</h1><p>Edit the service used across booking, jobs, estimates, and recurring plans.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/price-book`}>Back to price book</Link></header>
     {q.success && <div className="workspace-notice success">{q.success}</div>}
     <section className="workspace-panel">{canEdit

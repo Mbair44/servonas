@@ -115,7 +115,7 @@ export default async function TerritoriesPage({
     console.error("Territory manager load failed", { businessId: business.id, code: error.code });
   }
   return <main className="epic3-shell territory-shell">
-    <WorkspaceNav slug={businessSlug} name={business.name}/>
+    <WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/>
     <section className="epic3-content territory-content">
       {query.success && <div className="workspace-notice success">{query.success}</div>}
       {query.error && <div className="workspace-notice error">{query.error}</div>}

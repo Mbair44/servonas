@@ -44,7 +44,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
   key:entitlementSummary.entitlement?.entitlement_key??null,startsAt:entitlementSummary.entitlement?.starts_at??null,
   endsAt:entitlementSummary.entitlement?.ends_at??null,capabilities:entitlementSummary.capabilities,
  };
- return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} poolService={isPool}/><section className="epic3-content settings-page-redesign">
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} poolService={isPool}/><section className="epic3-content settings-page-redesign">
   {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
   {section!=="communications"&&section!=="pool-service"&&<SettingsDashboard section={section}
    business={business} timezone={business.timezone} editable={editable} entitlement={entitlement}

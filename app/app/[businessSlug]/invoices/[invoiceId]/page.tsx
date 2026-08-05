@@ -32,7 +32,7 @@ export default async function InvoiceDetail({params,searchParams}:{params:Promis
   const job=Array.isArray(invoice.jobs)?invoice.jobs[0]:invoice.jobs;
   const estimate=Array.isArray(invoice.estimates)?invoice.estimates[0]:invoice.estimates;
   const canEdit=canManageCustomers(role),canPay=canEdit&&invoice.balance_due_cents>0&&!["draft","void","refunded"].includes(invoice.status);
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>{invoice.invoice_number}</small><h1>{invoice.title}</h1><p><span className={`estimate-status ${invoice.status}`}>{invoice.status.replaceAll("_"," ")}</span> {customer?.company_name||`${customer?.first_name??""} ${customer?.last_name??""}`}</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/invoices`}>Back</Link>{canEdit&&invoice.status==="draft"&&<Link className="sv-button" href={`/app/${businessSlug}/invoices/${invoiceId}/edit`}>Edit</Link>}<PrintButton/></div></header>
     {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
     {q.publicLink&&<div className="estimate-public-link"><div><strong>Customer invoice link</strong><span>This secure link is shown once. Copy it now for customer delivery.</span></div><CopyLinkButton url={q.publicLink} label="Copy invoice link"/></div>}

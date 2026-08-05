@@ -12,7 +12,7 @@ export type WorkspaceNavigationItem={
 
 export const SIDEBAR_GROUPS_STORAGE_KEY="servonas.sidebar.groups.v1";
 
-export function workspaceNavigation(slug:string,options:{poolService?:boolean}={}):WorkspaceNavigationItem[]{
+export function workspaceNavigation(slug:string,options:{poolService?:boolean;partyRental?:boolean}={}):WorkspaceNavigationItem[]{
  const base=`/app/${slug}`;
  return [
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
@@ -39,7 +39,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean}={
   ]},
   {id:"assets",label:"Assets",children:[
    {id:"equipment",label:"Equipment & Fleet",href:`${base}/equipment`},
-   {id:"inventory",label:"Rental Inventory",disabled:true,badge:"Soon"},
+   {id:"inventory",label:"Rental Inventory",href:`${base}/rental-inventory`,visible:options.partyRental===true},
   ]},
   {id:"settings",label:"Settings",children:[
    {id:"settings-general",label:"General",href:`${base}/settings`,exact:true},
