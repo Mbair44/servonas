@@ -4,7 +4,7 @@ import type {BusinessSiteData} from "@/components/BusinessWebsite";
 type WebsiteRow=Record<string,any>;
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow):Promise<BusinessSiteData|null>{
  const [{data:business},{data:services},{data:hours},{data:territories},{data:booking}]=await Promise.all([
-  db.from("businesses").select("id,name,phone,email,primary_color,address_line1,city,state,postal_code").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
+  db.from("businesses").select("id,name,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
   db.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",settings.business_id).eq("active",true).order("weekday"),
   db.from("workforce_territories").select("name,postal_codes,neighborhoods,strategy_config").eq("business_id",settings.business_id).eq("is_active",true).order("name"),
@@ -19,7 +19,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const platformUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"");
  const bookingSlug=booking?.public_slug?String(booking.public_slug):null,bookingEnabled=Boolean(settings.booking_enabled&&booking?.enabled&&bookingSlug);
  return {
-  name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,
+  name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",
   heroHeading:settings.hero_heading??`${business.name} keeps your home or business running smoothly.`,
   heroSubheading:settings.hero_subheading??"Reliable local service, clear communication, and a team that is ready when you need help.",

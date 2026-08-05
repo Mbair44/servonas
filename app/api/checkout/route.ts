@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import {stripePaymentsReady} from "@/lib/stripeConnect";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
@@ -47,12 +48,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "The same rental item cannot appear more than once." }, { status: 400 });
     }
     if (body.agreementAccepted !== "true" && body.agreementAccepted !== true) return NextResponse.json({ error: "Please accept the rental agreement and safety rules." }, { status: 400 });
-    if (body.depositAccepted !== "true" && body.depositAccepted !== true) return NextResponse.json({ error: "Please acknowledge the non-refundable deposit policy." }, { status: 400 });
-
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const supabase = getSupabaseAdmin();
-    if (!stripeKey || !supabase) return NextResponse.json({ error: "Stripe or Supabase is not configured." }, { status: 503 });
+    if (!supabase) return NextResponse.json({ error: "Booking is temporarily unavailable." }, { status: 503 });
 
     const {data: publicBooking}=hasText(body.businessSlug)
       ? await supabase.from("booking_settings").select("business_id").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
@@ -61,6 +60,13 @@ export async function POST(request: Request) {
       ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
+    const {data:paymentAccount}=business?await supabase.from("business_payment_accounts")
+      .select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled")
+      .eq("business_id",business.id).eq("provider","stripe").maybeSingle():{data:null};
+    const onlinePaymentsReady=business
+      ? Boolean(stripeKey&&paymentAccount?.provider_account_id&&stripePaymentsReady(paymentAccount))
+      : Boolean(stripeKey);
+    if(onlinePaymentsReady&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
 
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
@@ -102,7 +108,17 @@ export async function POST(request: Request) {
 
     const totalCents = orderedItems.reduce((sum, item) => sum + item.daily_price_cents * item.quantity, 0);
     const depositCents = Math.round(totalCents * 0.25);
-    const stripe = new Stripe(stripeKey);
+    if(!onlinePaymentsReady){
+      const {error:confirmationError}=await supabase.from("bookings").update({
+        ...(business?{business_id:business.id}:{}),status:"confirmed",deposit_cents:0,
+        amount_paid_cents:0,balance_due_cents:totalCents,
+      }).eq("id",booking.booking_id);
+      if(confirmationError)throw confirmationError;
+      const {error:itemConfirmationError}=await supabase.from("booking_items").update({status:"confirmed"}).eq("booking_id",booking.booking_id);
+      if(itemConfirmationError)throw itemConfirmationError;
+      return NextResponse.json({paymentMode:"invoice_later",bookingId:booking.booking_id,bookingNumber:booking.booking_number});
+    }
+    const stripe = new Stripe(stripeKey!);
     let session: Stripe.Checkout.Session;
     try {
       session = await stripe.checkout.sessions.create({
@@ -134,7 +150,7 @@ export async function POST(request: Request) {
           total_cents: String(totalCents),
           deposit_cents: String(depositCents),
         },
-      });
+      },business?{stripeAccount:paymentAccount!.provider_account_id!}:undefined);
     } catch (stripeError) {
       await supabase.from("bookings").update({ status: "expired" }).eq("id", booking.booking_id);
       await supabase.from("booking_items").update({ status: "expired" }).eq("booking_id", booking.booking_id);

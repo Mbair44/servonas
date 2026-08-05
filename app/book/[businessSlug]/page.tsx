@@ -7,6 +7,7 @@ import { getInventoryCapacityUsage } from "@/lib/bookings";
 import { submitPublicBooking } from "./actions";
 import type {Metadata} from "next";
 import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
+import {stripePaymentsReady} from "@/lib/stripeConnect";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +76,12 @@ export default async function PublicBookingPage({
   const isPartyRental = businessProfile?.industry_profile === "party_rental";
   let rentalInventory: any[] = [];
   let rentalCapacity: Record<string, Record<string, number>> = {};
+  let rentalOnlinePaymentsReady = false;
   if (isPartyRental) {
+    const {data:paymentAccount}=await supabase.from("business_payment_accounts")
+      .select("onboarding_status,charges_enabled,payouts_enabled")
+      .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
+    rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
     const { data } = await supabase.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url,allow_quantity,stock_quantity").eq("business_id", settings.business_id).eq("active", true).order("category").order("created_at");
     rentalInventory = data ?? [];
     const start = new Date(); start.setDate(1);
@@ -106,7 +112,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} onlinePaymentsReady={rentalOnlinePaymentsReady} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
