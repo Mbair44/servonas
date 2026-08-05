@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
+import {verifyGooglePlace} from "@/lib/googleAddress";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
@@ -20,6 +21,7 @@ type CheckoutBody = {
   notes?: string;
   agreementAccepted?: string | boolean;
   depositAccepted?: string | boolean;
+  googlePlaceId?: string;
 };
 
 function hasText(value: unknown): value is string {
@@ -48,6 +50,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "The same rental item cannot appear more than once." }, { status: 400 });
     }
     if (body.agreementAccepted !== "true" && body.agreementAccepted !== true) return NextResponse.json({ error: "Please accept the rental agreement and safety rules." }, { status: 400 });
+
+    if(process.env.GOOGLE_MAPS_API_KEY&&process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY){
+      if(!hasText(body.googlePlaceId))return NextResponse.json({error:"Select the delivery address from Google’s suggestions so it can be verified."},{status:400});
+      const verified=await verifyGooglePlace(body.googlePlaceId.trim());
+      if(!verified?.streetAddress||!verified.city||!verified.postalCode)return NextResponse.json({error:"The selected delivery address could not be verified. Search for it again and choose a Google suggestion."},{status:400});
+      body.address=verified.streetAddress;
+      body.city=verified.city;
+      body.zipCode=verified.postalCode;
+    }
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const supabase = getSupabaseAdmin();
