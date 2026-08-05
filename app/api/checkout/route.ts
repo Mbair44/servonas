@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
+  businessSlug?: string;
   items?: RequestedItem[];
   rentalDate?: string;
   firstName?: string;
@@ -53,11 +54,20 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdmin();
     if (!stripeKey || !supabase) return NextResponse.json({ error: "Stripe or Supabase is not configured." }, { status: 503 });
 
+    const {data: publicBooking}=hasText(body.businessSlug)
+      ? await supabase.from("booking_settings").select("business_id").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
+      : {data:null};
+    const {data: business}=publicBooking
+      ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
+      : {data:null};
+    if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
+
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
       .select("id,name,daily_price_cents,active,allow_quantity,stock_quantity")
       .in("id", ids)
+      .match(business?{business_id:business.id}:{})
       .eq("active", true);
     if (itemError || !items || items.length !== ids.length) return NextResponse.json({ error: "One or more selected rental items are no longer available." }, { status: 404 });
 
@@ -112,10 +122,11 @@ export async function POST(request: Request) {
           },
         })),
         success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${siteUrl}/book?cart=${orderedItems.map((item) => `${item.id}:${item.quantity}`).join(",")}&cancelled=1`,
+        cancel_url: business?`${siteUrl}/book/${encodeURIComponent(body.businessSlug!.trim())}`:`${siteUrl}/book?cart=${orderedItems.map((item) => `${item.id}:${item.quantity}`).join(",")}&cancelled=1`,
         expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
         metadata: {
           booking_id: String(booking.booking_id),
+          ...(business?{business_id:business.id}:{}),
           booking_number: String(booking.booking_number),
           rental_date: String(body.rentalDate),
           inventory_item_ids: ids.join(","),
@@ -131,6 +142,7 @@ export async function POST(request: Request) {
     }
 
     await supabase.from("bookings").update({
+      ...(business?{business_id:business.id}:{}),
       stripe_checkout_session_id: session.id,
       deposit_cents: depositCents,
       balance_due_cents: totalCents - depositCents,

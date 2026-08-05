@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import PublicBookingForm from "@/components/PublicBookingForm";
+import PartyRentalBookingClient from "@/components/PartyRentalBookingClient";
+import { getInventoryCapacityUsage } from "@/lib/bookings";
 import { submitPublicBooking } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +58,22 @@ export default async function PublicBookingPage({
     : { data: null };
   const bookingLogo = signedLogo?.signedUrl ?? settings.logo_url ?? null;
 
+  const { data: businessProfile } = await supabase.from("businesses").select("industry_profile").eq("id", settings.business_id).maybeSingle();
+  const isPartyRental = businessProfile?.industry_profile === "party_rental";
+  let rentalInventory: any[] = [];
+  let rentalCapacity: Record<string, Record<string, number>> = {};
+  if (isPartyRental) {
+    const { data } = await supabase.from("inventory_items").select("id,name,description,daily_price_cents,image_url,allow_quantity,stock_quantity").eq("business_id", settings.business_id).eq("active", true).order("created_at");
+    rentalInventory = data ?? [];
+    const start = new Date(); start.setDate(1);
+    const end = new Date(start.getFullYear(), start.getMonth() + 13, 0);
+    const iso = (value: Date) => value.toISOString().slice(0, 10);
+    rentalCapacity = Object.fromEntries(await Promise.all(rentalInventory.map(async (item) => {
+      const rows = await getInventoryCapacityUsage(item.id, iso(start), iso(end));
+      return [item.id, Object.fromEntries(rows.map((row) => [row.rental_date, row.available_quantity]))];
+    })));
+  }
+
   return (
     <main
       className="public-booking"
@@ -74,7 +92,9 @@ export default async function PublicBookingPage({
         </header>
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
-        {!services?.length ? (
+        {isPartyRental ? (
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+        ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
           <PublicBookingForm
