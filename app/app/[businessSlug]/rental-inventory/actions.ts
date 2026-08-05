@@ -63,3 +63,13 @@ export async function archiveRentalItem(slug:string,itemId:string){
  if(error)redirect(path(slug,"error","The rental item could not be deactivated."));
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item deactivated."));
 }
+export async function saveRentalItemUpsells(slug:string,itemId:string,data:FormData){
+ const {supabase,business}=await context(slug);
+ const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];
+ const {data:valid}=requested.length?await supabase.from("inventory_items").select("id").eq("business_id",business.id).eq("active",true).in("id",requested):{data:[]};
+ if((valid??[]).length!==requested.length)redirect(path(slug,"error","One or more related items are unavailable."));
+ const {error:removeError}=await supabase.from("rental_item_upsells").delete().eq("business_id",business.id).eq("source_item_id",itemId);
+ if(removeError)redirect(path(slug,"error","Related items could not be saved. Apply the latest rental upsell migration."));
+ if(requested.length){const {error}=await supabase.from("rental_item_upsells").insert(requested.map((suggested_item_id,sort_order)=>({business_id:business.id,source_item_id:itemId,suggested_item_id,sort_order})));if(error)redirect(path(slug,"error","Related items could not be saved."));}
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Related item suggestions saved."));
+}
