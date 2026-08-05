@@ -72,6 +72,7 @@ export default function PublicBookingForm(props: Props) {
   const [availabilityError, setAvailabilityError] = useState("");
   const [addressLookupError, setAddressLookupError] = useState("");
   const addressRef = useRef<HTMLInputElement>(null);
+  const calendarRef = useRef<HTMLElement>(null);
   const sessionId = useRef(crypto.randomUUID());
   const requestKey = useRef(crypto.randomUUID());
 
@@ -85,6 +86,7 @@ export default function PublicBookingForm(props: Props) {
   };
 
   useEffect(() => { track("page_viewed"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const listener=(event:MessageEvent)=>{if(event.data?.type==="servonas:focus-calendar"){calendarRef.current?.focus({preventScroll:true});calendarRef.current?.scrollIntoView({behavior:"smooth",block:"start"});}};window.addEventListener("message",listener);return()=>window.removeEventListener("message",listener); }, []);
   useEffect(() => {
     if (!serviceId) { setAvailability({}); return; }
     const year = month.getFullYear();
@@ -187,7 +189,7 @@ export default function PublicBookingForm(props: Props) {
         {fieldError("serviceId")}
       </label>
 
-      <section className="booking-calendar wide" aria-label="Choose an appointment date">
+      <section ref={calendarRef} tabIndex={-1} className="booking-calendar wide" aria-label="Choose an appointment date">
         <div className="booking-calendar-head">
           <button type="button" aria-label="Previous month" disabled={month <= todayMonth} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button>
           <h2>{month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h2>
