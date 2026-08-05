@@ -24,10 +24,11 @@ export default async function PublicBookingPage({
   searchParams,
 }: {
   params: Promise<{ businessSlug: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; embed?: string }>;
 }) {
   const { businessSlug } = await params;
   const query = await searchParams;
+  const embedded = query.embed === "1";
   const supabase = getSupabaseAdmin();
   if (!supabase) notFound();
 
@@ -87,11 +88,11 @@ export default async function PublicBookingPage({
 
   return (
     <main
-      className="public-booking"
+      className={`public-booking${embedded ? " embedded-booking" : ""}`}
       style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
     >
       <section className="public-booking-card">
-        <header>
+        {!embedded && <header>
           {bookingLogo ? (
             <img src={bookingLogo} alt={`${businessName ?? "Business"} logo`} />
           ) : (
@@ -100,7 +101,7 @@ export default async function PublicBookingPage({
           <small>Online booking</small>
           <h1>{businessName}</h1>
           <p>{settings.welcome_message}</p>
-        </header>
+        </header>}
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
@@ -122,9 +123,7 @@ export default async function PublicBookingPage({
           />
         )}
       </section>
-      <footer>
-        Powered by <b>Servonas</b> · <Link href={`/book/${businessSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${businessSlug}/terms`}>Text Messaging Terms</Link>
-      </footer>
+      <footer>{embedded ? <>Powered by <b>Servonas</b></> : <>Powered by <b>Servonas</b> · <Link href={`/book/${businessSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${businessSlug}/terms`}>Text Messaging Terms</Link></>}</footer>
     </main>
   );
 }
