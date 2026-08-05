@@ -16,7 +16,7 @@ function localInput(value: string | null, timeZone: string) {
 export default async function EditJob({ params }: { params: Promise<{ businessSlug: string; jobId: string }> }) {
   const { businessSlug, jobId } = await params;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
-  if (!canManageCustomers(role)) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content"><div className="workspace-notice error">You do not have permission to edit jobs.</div></section></main>;
+  if (!canManageCustomers(role)) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content"><div className="workspace-notice error">You do not have permission to edit jobs.</div></section></main>;
   const [{ data: job }, { data: customers }, { data: locations }, { data: services }, { data: technicians },{data:priorJobs}] = await Promise.all([
     supabase.from("jobs").select("*").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
     supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id", business.id).eq("is_deleted", false).order("last_name"),
@@ -33,7 +33,7 @@ export default async function EditJob({ params }: { params: Promise<{ businessSl
     arrival_window_start_local: localInput(job.arrival_window_start, business.timezone),
     arrival_window_end_local: localInput(job.arrival_window_end, business.timezone),
   };
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Job #{job.job_number}</small><h1>Edit {job.title}</h1><p>All scheduling times are shown in {business.timezone}.</p></div><Link href={`/app/${businessSlug}/jobs/${jobId}`}>Back to job</Link></header>
     <section className="workspace-panel"><JobForm action={updateJob.bind(null, businessSlug, jobId)} customers={customers ?? []} locations={locations ?? []} services={services ?? []} technicians={technicians ?? []} priorJobs={priorJobs??[]} job={formJob} submitLabel="Save job"/></section>
   </section></main>;

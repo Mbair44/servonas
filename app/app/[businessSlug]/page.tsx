@@ -104,7 +104,7 @@ export default async function Workspace({ params, searchParams }: {
     { count: canceled, label: "Cancelled jobs", href: `/app/${businessSlug}/jobs?status=canceled` },
   ].filter((alert) => alert.count > 0);
 
-  return <main className="epic3-shell executive-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content executive-dashboard">
+  return <main className="epic3-shell executive-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content executive-dashboard">
     <header className="executive-header"><div><span className="executive-workspace">{business.name} · {role.replaceAll("_"," ")} workspace</span><h1>{greeting}, {firstName}</h1><p>Today is {todayLabel}. Here&apos;s what&apos;s happening in your business.</p></div><Link className="workspace-switcher" href="/app">Switch workspace <span aria-hidden="true">⌄</span></Link></header>
     <EntitlementBanner summary={entitlementSummary}/>{query.created && <div className="workspace-notice success">Workspace created. You are the owner.</div>}{query.joined && <div className="workspace-notice success">Invitation accepted. Welcome to the team.</div>}
     {poolWeatherEvents.length>0&&<section className="pool-dashboard-weather"><div><span>Weather Service Alert</span><h2>{poolWeatherEvents[0].summary}</h2><p>{activeDashboardJobs.filter(job=>job.starts_at&&dateInTimeZone(new Date(job.starts_at),business.timezone)===poolWeatherEvents[0].startsAt.slice(0,10)).length} scheduled pool visits may be affected. Review technicians and approve any one-time moves.</p></div><Link className="sv-button" href={`/app/${businessSlug}/pool/weather`}>Review affected jobs</Link></section>}

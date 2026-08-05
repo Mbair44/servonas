@@ -18,7 +18,7 @@ export default async function EstimateDetail({ params, searchParams }: { params:
   ]);
   if(!estimate) notFound(); const customer=Array.isArray(estimate.customers)?estimate.customers[0]:estimate.customers; const location=Array.isArray(estimate.service_locations)?estimate.service_locations[0]:estimate.service_locations;
   const canEdit=canManageCustomers(role);
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>{estimate.estimate_number} · Version {estimate.version_number}</small><h1>{estimate.title}</h1><p><span className={`estimate-status ${estimate.status}`}>{estimate.status}</span> {customer?.company_name||`${customer?.first_name??""} ${customer?.last_name??""}`}</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/estimates`}>Back</Link>{canEdit&&estimate.status==="draft"&&<Link className="sv-button" href={`/app/${businessSlug}/estimates/${estimateId}/edit`}>Edit</Link>}</div></header>
     {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}{q.publicLink&&<div className="estimate-public-link"><div><strong>Customer estimate link</strong><span>This secure link is shown once. Copy it now as a delivery fallback.</span></div><CopyLinkButton url={q.publicLink} label="Copy customer link"/></div>}
     {canEdit&&<section className="estimate-actions workspace-panel">

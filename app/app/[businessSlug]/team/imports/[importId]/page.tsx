@@ -22,7 +22,7 @@ export default async function EmployeeImportSessionPage({params,searchParams}:{p
   const {data,error}=await supabase.from("employee_imports").select("id,file_name,file_extension,file_size_bytes,status,current_stage,total_row_count,valid_row_count,warning_row_count,invalid_row_count,duplicate_row_count,imported_row_count,failed_row_count,version,created_at,last_activity_at,completed_at,canceled_at,rollback_status,source_columns").eq("business_id",business.id).eq("id",importId).maybeSingle();
   if(error){
     console.error("Employee import session load failed",{businessId:business.id,importId,code:error.code});
-    if(error.code==="42703"||error.code==="42P01") return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content"><div className="workspace-notice error">Apply the Epic 2.2 Checkpoint 4 migration to resume imports.</div></section></main>;
+    if(error.code==="42703"||error.code==="42P01") return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content"><div className="workspace-notice error">Apply the Epic 2.2 Checkpoint 4 migration to resume imports.</div></section></main>;
     throw new Error("The import session could not be loaded.");
   }
   if(!data) notFound();
@@ -57,7 +57,7 @@ export default async function EmployeeImportSessionPage({params,searchParams}:{p
     ["Rows",session.total_row_count],["Ready",session.valid_row_count],["Warnings",session.warning_row_count],
     ["Needs attention",session.invalid_row_count],["Duplicates",session.duplicate_row_count],["Imported",session.imported_row_count],["Failed",session.failed_row_count],
   ] as const;
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content workforce-page">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content workforce-page">
     <header className="epic3-header"><div><small>Employee import</small><h1>{session.file_name}</h1><p>Last saved {new Date(session.last_activity_at).toLocaleString()}</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/team/imports`}>All imports</Link></header>
     {query.error&&<p className="form-error" role="alert">{query.error}</p>}{query.success&&<p className="form-success" role="status">{query.success}</p>}
     <section className="workspace-panel import-session-hero"><div><span className={`import-session-state ${session.status}`}>{session.status.replaceAll("_"," ")}</span><h2>{employeeImportStageLabel(session.current_stage)}</h2><p>{active?"Your progress is saved. You can safely leave and return to this import.":"This import is no longer active."}</p></div><div><strong>Version {session.version}</strong><span>{(session.file_size_bytes/1024).toFixed(1)} KB · {session.file_extension.toUpperCase()}</span></div></section>

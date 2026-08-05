@@ -59,7 +59,7 @@ export default async function RouteReportingPage({
   const appliedDistanceSavings = (acceptedSuggestions ?? []).reduce((sum, item) => sum + Number(item.estimated_distance_saved_meters ?? 0), 0);
   const appliedTimeSavings = (acceptedSuggestions ?? []).reduce((sum, item) => sum + Number(item.estimated_time_saved_seconds ?? 0), 0);
   const jobsCount = jobs?.length ?? 0;
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content route-reporting">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content route-reporting">
     <header className="epic3-header"><div><small>Estimated provider route data</small><h1>Route reporting</h1><p>Operational route trends for {business.name}. These are not GPS or odometer measurements.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/dispatch`}>Back to dispatch</Link></header>
     <section className="workspace-panel"><form className="route-report-filters"><label>From<input type="date" name="from" defaultValue={safeFrom}/></label><label>Through<input type="date" name="to" defaultValue={safeTo}/></label><button className="sv-button">Update report</button></form></section>
     {(planError || jobError) && <div className="workspace-notice error">Some route reporting data could not be loaded.</div>}

@@ -234,7 +234,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
     ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: business.timezone }).format(new Date(value))
     : "Not available";
   const hrefFor = (nextDate: string) => `/app/${businessSlug}/dispatch?date=${nextDate}`;
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content dispatch-page">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content dispatch-page">
     <header className="epic3-header"><div><small>Field service operations</small><h1>Dispatch board</h1><p>Coordinate today’s field work in {business.timezone}.</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/dispatch/reporting`}>Route reporting</Link><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/schedule?date=${date}&view=day`}>Open schedule</Link></div></header>
     {query.error && <div className="workspace-notice error">{query.error}{query.error.includes("changed while you were editing") && <> <Link href={`/app/${businessSlug}/dispatch?date=${date}`}>Refresh latest plan</Link></>}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     {routePlanError&&<div className="workspace-notice error">Route plan could not be loaded ({routePlanError.code}): {routePlanError.message}</div>}

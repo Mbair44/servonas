@@ -183,7 +183,7 @@ export default async function EstimatesPage({
 
   return (
     <main className="epic3-shell">
-      <WorkspaceNav slug={businessSlug} name={business.name} />
+      <WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} />
       <section className="epic3-content employee-directory-page estimate-directory-page">
         <header className="employee-page-header">
           <div>

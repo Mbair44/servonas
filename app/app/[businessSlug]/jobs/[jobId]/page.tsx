@@ -31,7 +31,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
     const { data } = await supabase.storage.from("job-photos").createSignedUrl(photo.storage_path, 3600);
     return { ...photo, url: data?.signedUrl ?? null };
   }));
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Job #{job.job_number}</small><h1>{job.title}</h1><p><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span> <span className={`job-priority ${job.priority}`}>{job.priority} priority</span>{job.is_return_visit&&<span className="return-visit-badge">Return visit</span>}</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/jobs`}>Back to jobs</Link>{canEdit&&<Link className="sv-button sv-secondary" href={`/app/${businessSlug}/invoices/new?jobId=${jobId}`}>Create invoice</Link>}{canEdit && <Link className="sv-button" href={`/app/${businessSlug}/jobs/${jobId}/edit`}>Edit job</Link>}</div></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     <div className="job-detail-grid">

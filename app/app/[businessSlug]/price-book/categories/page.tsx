@@ -18,7 +18,7 @@ export default async function PriceBookCategories({
     .eq("business_id", business.id).order("sort_order").order("name");
   if (error) throw new Error("Unable to load price book categories.");
   const canEdit = canManageCustomers(role);
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Price book</small><h1>Categories</h1><p>Organize reusable pricing without deleting historical item references.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/price-book`}>Back to price book</Link></header>
     {q.error && <div className="workspace-notice error">{q.error}</div>}{q.success && <div className="workspace-notice success">{q.success}</div>}
     {canEdit && <section className="workspace-panel"><h2>Add category</h2><form action={createPriceBookCategory.bind(null, businessSlug)} className="price-category-create"><label>Name<input required name="name" maxLength={160}/></label><label>Description<input name="description"/></label><label>Sort order<input name="sortOrder" type="number" defaultValue={0}/></label><button className="sv-button">Add category</button></form></section>}

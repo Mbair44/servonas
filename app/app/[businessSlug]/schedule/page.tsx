@@ -86,7 +86,7 @@ export default async function SchedulePage({ params, searchParams }: { params: P
   const canEdit = canManageCustomers(role);
   const scheduleJobs = (jobs ?? []) as unknown as JobRow[];
   const unassignedJobs = (unassigned ?? []) as unknown as JobRow[];
-  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content schedule-page">
+  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content schedule-page">
     <header className="epic3-header"><div><small>Field service operations</small><h1>Schedule</h1><p>Times are displayed in {business.timezone}.</p></div>{canEdit&&<AddJobDrawer businessSlug={businessSlug}/>}</header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
     {!canEdit && <div className="workspace-notice">Your {role.replaceAll("_", " ")} role can view this schedule but cannot change assignments. Ask an owner or admin to grant manager access.</div>}

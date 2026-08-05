@@ -55,7 +55,7 @@ export default async function ScenarioPlannerPage({params,searchParams}:{params:
   if(metric.unit==="minutes")return `${Math.round(value)} min`;
   return String(value);
  };
- return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name}/><section className="epic3-content scenario-planner">
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content scenario-planner">
   <header className="scenario-header"><div><span className="sv-kicker">Territory intelligence</span><h1>Scenario planner</h1><p>Explore operating changes without affecting live customers or territories.</p></div><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/territories`}>Back to territories</Link></header>
   {q.success&&<div className="workspace-notice success">{q.success}</div>}{q.error&&<div className="workspace-notice error">{q.error}</div>}
   {error?<div className="workspace-notice error">{error.code==="42703"?"Apply the Epic 8.5 Checkpoint 11 live simulation migration.":"Scenario planning could not be loaded. Review the server logs."}</div>:<div className="scenario-workspace">
