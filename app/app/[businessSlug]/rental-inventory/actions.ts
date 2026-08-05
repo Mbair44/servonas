@@ -5,6 +5,7 @@ import {redirect} from "next/navigation";
 import {canManageBusiness} from "@/lib/access";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {requireWorkspace} from "@/lib/workspace";
+import type {SupabaseClient} from "@supabase/supabase-js";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/rental-inventory?${kind}=${encodeURIComponent(message)}`;
@@ -36,13 +37,22 @@ function values(data:FormData){
  if(!Number.isInteger(stock)||stock<1||stock>10000)throw new Error("Stock quantity must be between 1 and 10,000.");
  return {name,category:category||null,description:description||null,daily_price_cents:Math.round(price*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
 }
+async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:string,data:FormData){
+ const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];
+ const {data:valid}=requested.length?await supabase.from("inventory_items").select("id").eq("business_id",businessId).eq("active",true).in("id",requested):{data:[]};
+ if((valid??[]).length!==requested.length)throw new Error("One or more upsell items are unavailable.");
+ const {error:removeError}=await supabase.from("rental_item_upsells").delete().eq("business_id",businessId).eq("source_item_id",itemId);
+ if(removeError)throw new Error("Upsell items could not be saved. Apply the latest rental upsell migration.");
+ if(requested.length){const {error}=await supabase.from("rental_item_upsells").insert(requested.map((suggested_item_id,sort_order)=>({business_id:businessId,source_item_id:itemId,suggested_item_id,sort_order})));if(error)throw new Error("Upsell items could not be saved.");}
+}
 
 export async function createRentalItem(slug:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
   const payload=values(data),image=await uploadImage(business.id,data.get("image"));
-  const {error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,image_url:image});
-  if(error)throw new Error(error.code==="23505"?"A rental with that identifier already exists.":"The rental item could not be added. Apply the rental inventory migration first.");
+  const {data:item,error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,image_url:image}).select("id").single();
+  if(error||!item)throw new Error(error?.code==="23505"?"A rental with that identifier already exists.":"The rental item could not be added. Apply the rental inventory migration first.");
+  await replaceUpsells(supabase,business.id,item.id,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be added."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item added."));
 }
@@ -53,6 +63,7 @@ export async function updateRentalItem(slug:string,itemId:string,data:FormData){
   const payload=values(data),image=await uploadImage(business.id,data.get("image"));
   const {error}=await supabase.from("inventory_items").update({...payload,...(image?{image_url:image}:{})}).eq("id",itemId).eq("business_id",business.id);
   if(error)throw new Error("The rental item could not be updated.");
+  await replaceUpsells(supabase,business.id,itemId,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be updated."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item updated."));
 }
