@@ -19,6 +19,15 @@ export async function saveBookingSettings(slug:string,formData:FormData){
  const {error}=await supabase.from("booking_settings").upsert({business_id:business.id,enabled:checked(formData,"enabled"),public_slug:publicSlug,logo_url:text(formData,"logoUrl")||null,brand_color:brand,welcome_message:text(formData,"welcomeMessage"),confirmation_message:text(formData,"confirmationMessage"),timezone:text(formData,"timezone")||"America/Phoenix",minimum_notice_hours:number(formData,"minimumNoticeHours",2),maximum_days_ahead:number(formData,"maximumDaysAhead",60),buffer_minutes:number(formData,"bufferMinutes",0),daily_appointment_limit:limitRaw?number(formData,"dailyAppointmentLimit"):null,rental_duration_minutes:business.industry_profile==="party_rental"?rentalDuration:240,intake_questions:questions,auto_confirm:checked(formData,"autoConfirm"),collect_address:checked(formData,"collectAddress"),booking_manager_phone:managerPhone||null,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error(error);redirect(`/app/${slug}/booking?error=${encodeURIComponent(error.code==="23505"?"That public booking slug is already in use.":"We couldn’t save booking settings.")}`)} refresh(slug);redirect(`/app/${slug}/booking?success=Booking+settings+saved`);
 }
+export async function saveRentalDeposit(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"online_booking");
+ if(!canManageBusiness(role)||business.industry_profile!=="party_rental")redirect(`/app/${slug}/booking?error=Permission+denied`);
+ const raw=text(formData,"rentalDepositPercent"),percent=Number(raw);
+ if(!raw||!Number.isFinite(percent)||percent<0||percent>100)redirect(`/app/${slug}/booking?error=Rental+deposit+must+be+between+0+and+100+percent`);
+ const {error}=await supabase.from("booking_settings").update({rental_deposit_percent:percent,updated_at:new Date().toISOString()}).eq("business_id",business.id);
+ if(error){console.error("Rental deposit setting save failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/booking?error=Rental+deposit+could+not+be+saved.+Apply+the+latest+database+migration`);}
+ refresh(slug);redirect(`/app/${slug}/booking?success=Rental+deposit+updated`);
+}
 export async function uploadBookingLogo(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageBusiness(role))redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+the+booking+logo`);
  const file=formData.get("logo");

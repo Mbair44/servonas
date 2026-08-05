@@ -76,6 +76,7 @@ export default async function PublicBookingPage({
   const isPartyRental = businessProfile?.industry_profile === "party_rental";
   let rentalInventory: any[] = [];
   let rentalCapacity: Record<string, Record<string, number>> = {};
+  let rentalUpsells: Record<string,string[]> = {};
   let rentalOnlinePaymentsReady = false;
   if (isPartyRental) {
     const {data:paymentAccount}=await supabase.from("business_payment_accounts")
@@ -84,6 +85,8 @@ export default async function PublicBookingPage({
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
     const { data } = await supabase.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url,allow_quantity,stock_quantity").eq("business_id", settings.business_id).eq("active", true).order("category").order("created_at");
     rentalInventory = data ?? [];
+    const {data:upsells}=await supabase.from("rental_item_upsells").select("source_item_id,suggested_item_id,sort_order").eq("business_id",settings.business_id).order("sort_order");
+    rentalUpsells=(upsells??[]).reduce((map:Record<string,string[]>,row)=>{(map[row.source_item_id]??=[]).push(row.suggested_item_id);return map;},{});
     const start = new Date(); start.setDate(1);
     const end = new Date(start.getFullYear(), start.getMonth() + 13, 0);
     const iso = (value: Date) => value.toISOString().slice(0, 10);
@@ -112,7 +115,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} relatedItems={rentalUpsells} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
