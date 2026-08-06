@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -46,9 +47,10 @@ export async function signUp(formData: FormData) {
   const email = value(formData, "email");
   const password = value(formData, "password");
   const confirm = value(formData, "confirmPassword");
+  const utmContent=value(formData,"utmContent");
   const next = value(formData, "next") || "/app";
   const safeNext = next.startsWith("/") ? next : "/app";
-  const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}`;
+  const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
 
   if (!email || password.length < 8) {
     redirectWithError(
@@ -99,6 +101,10 @@ export async function signUp(formData: FormData) {
   // Supabase can intentionally return an obfuscated user with no identities for
   // an existing email. Only a newly created identity is a completed signup.
   const signupCompleted = Boolean(data.user && (data.user.identities?.length ?? 0) > 0);
+  if(signupCompleted&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)){
+    const admin=getSupabaseAdmin();
+    if(admin){const {error:attributionError}=await admin.rpc("record_marketing_content_signup",{p_content_code:utmContent,p_user_id:data.user!.id});if(attributionError)console.error("Marketing signup attribution could not be saved",{utmContent,userId:data.user!.id,code:attributionError.code});}
+  }
   return {
     signupCompleted,
     userId: signupCompleted ? data.user!.id : null,
