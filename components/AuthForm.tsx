@@ -20,6 +20,7 @@ export default function AuthForm({
   error,
   next,
   email,
+  utmContent,
 }: {
   title: string;
   subtitle: string;
@@ -28,6 +29,7 @@ export default function AuthForm({
   error?: string;
   next?: string;
   email?: string;
+  utmContent?: string;
 }) {
   const isSignup = mode === "signup";
   const isReset = mode === "reset";
@@ -37,6 +39,7 @@ export default function AuthForm({
   const [showPassword,setShowPassword]=useState(false);
   const [showConfirmation,setShowConfirmation]=useState(false);
   const [attempted,setAttempted]=useState(false);
+  const [contentLead,setContentLead]=useState(utmContent??"");
   const trackedSignup=useRef<string|null>(null);
   const [actionResult,formAction,pending]=useActionState(async(_previous:AuthActionResult,formData:FormData)=>await action(formData),null);
   useEffect(()=>{
@@ -62,6 +65,7 @@ export default function AuthForm({
     }
     window.location.assign(actionResult.redirectTo);
   },[actionResult]);
+  useEffect(()=>{if(contentLead)return;try{setContentLead(window.localStorage.getItem("servonas.utm_content")??"");}catch{}},[contentLead]);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
   const passwordMissing=attempted&&requiresConfirmation&&!password;
   const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
@@ -78,6 +82,7 @@ export default function AuthForm({
   const preservedQuery = new URLSearchParams();
   if (next) preservedQuery.set("next", next);
   if (email) preservedQuery.set("email", email);
+  if (contentLead) preservedQuery.set("utm_content", contentLead);
   const queryString = preservedQuery.toString();
 
   return (
@@ -89,6 +94,7 @@ export default function AuthForm({
         {error && <div className="auth-error">{error}</div>}
         <form action={formAction} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
           {next && <input type="hidden" name="next" value={next} />}
+          {isSignup&&contentLead&&<input type="hidden" name="utmContent" value={contentLead}/>} 
           {!isReset && (
             <label>
               Email

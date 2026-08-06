@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import {MarketingContentAttribution} from "@/components/MarketingContentAttribution";
 
 export const metadata: Metadata = {
  title: "Pest Control Business Software | Servonas",
@@ -36,8 +37,10 @@ const workflow=[
  ["05","Invoice and payment follow"],
 ];
 
-export default function HomePage(){
+export default async function HomePage({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
+ const content=(await searchParams).utm_content?.trim()??"",validContent=/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(content)?content:"";
  return <main className="marketing-home">
+  {validContent&&<MarketingContentAttribution content={validContent}/>} 
   <section className="home-hero">
    <div className="home-hero-glow one"/><div className="home-hero-glow two"/>
    <div className="sv-container home-hero-grid">
