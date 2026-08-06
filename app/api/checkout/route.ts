@@ -75,6 +75,10 @@ export async function POST(request: Request) {
       : {data:null};
     if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
     if(business&&publicBooking){
+      const weekday=new Date(`${body.rentalDate}T12:00:00Z`).getUTCDay();
+      const {data:availableHours,error:hoursError}=await supabase.from("booking_availability").select("start_time,end_time").eq("business_id",business.id).eq("weekday",weekday).eq("active",true);
+      if(hoursError)return NextResponse.json({error:"Business hours could not be verified. Please try again."},{status:500});
+      if(!(availableHours??[]).some(row=>body.startTime!>=String(row.start_time).slice(0,5)&&body.endTime!<=String(row.end_time).slice(0,5)))return NextResponse.json({error:"Choose a rental time within the business’s available hours."},{status:409});
       const timezone=publicBooking.timezone??"America/Phoenix";
       const requestedStartsAt=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,timezone),requestedEndsAt=zonedDateTimeToUtc(body.rentalDate!,body.endTime!,timezone);
       if(requestedEndsAt<=requestedStartsAt)return NextResponse.json({error:"Choose a valid event start and end time."},{status:400});
