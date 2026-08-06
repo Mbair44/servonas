@@ -40,6 +40,7 @@ export default function AuthForm({
   const [showConfirmation,setShowConfirmation]=useState(false);
   const [attempted,setAttempted]=useState(false);
   const [contentLead,setContentLead]=useState(utmContent??"");
+  const [marketingVisitorId,setMarketingVisitorId]=useState(""),[marketingSessionId,setMarketingSessionId]=useState("");
   const trackedSignup=useRef<string|null>(null);
   const [actionResult,formAction,pending]=useActionState(async(_previous:AuthActionResult,formData:FormData)=>await action(formData),null);
   useEffect(()=>{
@@ -65,7 +66,7 @@ export default function AuthForm({
     }
     window.location.assign(actionResult.redirectTo);
   },[actionResult]);
-  useEffect(()=>{if(contentLead)return;try{setContentLead(window.localStorage.getItem("servonas.utm_content")??"");}catch{}},[contentLead]);
+  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");}catch{}},[contentLead]);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
   const passwordMissing=attempted&&requiresConfirmation&&!password;
   const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
@@ -95,6 +96,8 @@ export default function AuthForm({
         <form action={formAction} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
           {next && <input type="hidden" name="next" value={next} />}
           {isSignup&&contentLead&&<input type="hidden" name="utmContent" value={contentLead}/>} 
+          {isSignup&&marketingVisitorId&&<input type="hidden" name="marketingVisitorId" value={marketingVisitorId}/>} 
+          {isSignup&&marketingSessionId&&<input type="hidden" name="marketingSessionId" value={marketingSessionId}/>} 
           {!isReset && (
             <label>
               Email

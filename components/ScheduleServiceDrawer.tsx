@@ -20,10 +20,11 @@ export function ScheduleServiceDrawer({customer,locations,services,technicians,a
  const close=useCallback(()=>setOpen(false),[]);
  const title=mode==="job"?"Create job":"Schedule service";
  const description=mode==="job"?"Create a one-time job":"Schedule a visit for this customer";
+ const formId=`servonas-${mode}-${customer.id}-form`;
  return <>
   <button type="button" className={menuItem?"customer-action-item":undefined} onClick={()=>setOpen(true)}>{menuItem?<><i className={`customer-action-icon ${mode}`}><CustomerActionIcon name={mode==="job"?"briefcase":"calendar"}/></i><span><strong>{title}</strong><small>{description}</small></span><b aria-hidden="true">›</b></>:<>▣ {title}</>}</button>
-  <ManagementDrawer open={open} title={title} onDirty={()=>{}} onClose={close}>
-   <JobForm action={action} customers={[customer]} locations={locations} services={services} technicians={technicians} submitLabel={title} defaultCustomerId={customer.id} defaultStartAt={defaultStartAt} onCancel={close}/>
+  <ManagementDrawer open={open} size="wide" title={title} onDirty={()=>{}} onClose={close} headerAction={<><button type="button" className="job-drawer-header-cancel" onClick={close}>Cancel</button><button type="submit" form={formId} className="job-drawer-header-submit">{title}</button></>}>
+   <JobForm id={formId} action={action} customers={[customer]} locations={locations} services={services} technicians={technicians} submitLabel={title} defaultCustomerId={customer.id} defaultStartAt={defaultStartAt} source="customer" onCancel={close}/>
   </ManagementDrawer>
  </>;
 }

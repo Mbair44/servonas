@@ -48,6 +48,7 @@ export async function signUp(formData: FormData) {
   const password = value(formData, "password");
   const confirm = value(formData, "confirmPassword");
   const utmContent=value(formData,"utmContent");
+  const marketingVisitorId=value(formData,"marketingVisitorId"),marketingSessionId=value(formData,"marketingSessionId");
   const next = value(formData, "next") || "/app";
   const safeNext = next.startsWith("/") ? next : "/app";
   const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
@@ -104,6 +105,9 @@ export async function signUp(formData: FormData) {
   if(signupCompleted&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)){
     const admin=getSupabaseAdmin();
     if(admin){const {error:attributionError}=await admin.rpc("record_marketing_content_signup",{p_content_code:utmContent,p_user_id:data.user!.id});if(attributionError)console.error("Marketing signup attribution could not be saved",{utmContent,userId:data.user!.id,code:attributionError.code});}
+  }
+  if(signupCompleted&&/^[0-9a-f-]{36}$/i.test(marketingVisitorId)){
+    const admin=getSupabaseAdmin();if(admin){await admin.from("marketing_visitors").update({converted_user_id:data.user!.id,converted_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("visitor_id",marketingVisitorId);if(/^[0-9a-f-]{36}$/i.test(marketingSessionId))await admin.from("marketing_page_events").insert({visitor_id:marketingVisitorId,session_id:marketingSessionId,event_type:"signup_completed",path:"/signup",utm_content:utmContent||null,metadata:{user_id:data.user!.id}});}
   }
   return {
     signupCompleted,
