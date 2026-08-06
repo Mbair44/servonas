@@ -5,6 +5,7 @@ import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
+import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
@@ -67,12 +68,21 @@ export async function POST(request: Request) {
     if (!supabase) return NextResponse.json({ error: "Booking is temporarily unavailable." }, { status: 503 });
 
     const {data: publicBooking}=hasText(body.businessSlug)
-      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
+      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent,timezone").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
       : {data:null};
     const {data: business}=publicBooking
       ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
+    if(business&&publicBooking){
+      const timezone=publicBooking.timezone??"America/Phoenix";
+      const requestedStartsAt=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,timezone),requestedEndsAt=zonedDateTimeToUtc(body.rentalDate!,body.endTime!,timezone);
+      if(requestedEndsAt<=requestedStartsAt)return NextResponse.json({error:"Choose a valid event start and end time."},{status:400});
+      const {data:blackout,error:blackoutError}=await supabase.from("booking_blackouts").select("id").eq("business_id",business.id)
+        .lt("starts_at",requestedEndsAt.toISOString()).gt("ends_at",requestedStartsAt.toISOString()).limit(1);
+      if(blackoutError)return NextResponse.json({error:"The selected time could not be verified. Please try again."},{status:500});
+      if(blackout?.length)return NextResponse.json({error:"That date or time is blocked by the business. Please choose another time."},{status:409});
+    }
     const {data:paymentAccount}=business?await supabase.from("business_payment_accounts")
       .select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",business.id).eq("provider","stripe").maybeSingle():{data:null};

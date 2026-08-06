@@ -8,6 +8,7 @@ import { submitPublicBooking } from "./actions";
 import type {Metadata} from "next";
 import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
+import {addDays, dateInTimeZone, zonedDateTimeToUtc} from "@/lib/bookingTime";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,7 @@ export default async function PublicBookingPage({
   let rentalCapacity: Record<string, Record<string, number>> = {};
   let rentalUpsells: Record<string,string[]> = {};
   let rentalOnlinePaymentsReady = false;
+  const rentalBlockedDates: string[] = [];
   if (isPartyRental) {
     const {data:paymentAccount}=await supabase.from("business_payment_accounts")
       .select("onboarding_status,charges_enabled,payouts_enabled")
@@ -94,6 +96,19 @@ export default async function PublicBookingPage({
       const rows = await getInventoryCapacityUsage(item.id, iso(start), iso(end));
       return [item.id, Object.fromEntries(rows.filter((row) => row.is_blocked).map((row) => [row.rental_date, 0]))];
     })));
+    const timezone=settings.timezone??"America/Phoenix";
+    const firstDate=dateInTimeZone(new Date(),timezone),lastDate=iso(end);
+    const {data:blackouts}=await supabase.from("booking_blackouts").select("starts_at,ends_at")
+      .eq("business_id",settings.business_id)
+      .lt("starts_at",zonedDateTimeToUtc(addDays(lastDate,1),"00:00",timezone).toISOString())
+      .gt("ends_at",zonedDateTimeToUtc(firstDate,"00:00",timezone).toISOString());
+    const blackoutWindows=(blackouts??[]).map(row=>({start:new Date(row.starts_at).getTime(),end:new Date(row.ends_at).getTime()}));
+    for(let value=firstDate;value<=lastDate;value=addDays(value,1)){
+      const dayStart=zonedDateTimeToUtc(value,"00:00",timezone).getTime(),dayEnd=zonedDateTimeToUtc(addDays(value,1),"00:00",timezone).getTime();
+      const coveredByBusiness=blackoutWindows.some(window=>window.start<=dayStart&&window.end>=dayEnd);
+      const everyItemBlocked=rentalInventory.length>0&&rentalInventory.every(item=>rentalCapacity[item.id]?.[value]===0);
+      if(coveredByBusiness||everyItemBlocked)rentalBlockedDates.push(value);
+    }
   }
 
   return (
@@ -115,7 +130,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} relatedItems={rentalUpsells} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
