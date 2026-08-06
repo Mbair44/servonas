@@ -92,7 +92,7 @@ export default async function PublicBookingPage({
     const iso = (value: Date) => value.toISOString().slice(0, 10);
     rentalCapacity = Object.fromEntries(await Promise.all(rentalInventory.map(async (item) => {
       const rows = await getInventoryCapacityUsage(item.id, iso(start), iso(end));
-      return [item.id, Object.fromEntries(rows.map((row) => [row.rental_date, row.available_quantity]))];
+      return [item.id, Object.fromEntries(rows.filter((row) => row.is_blocked).map((row) => [row.rental_date, 0]))];
     })));
   }
 

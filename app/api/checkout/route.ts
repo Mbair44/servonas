@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       if (item.quantity > item.stock_quantity) return NextResponse.json({ error: `Only ${item.stock_quantity} of ${item.name} are in inventory.` }, { status: 400 });
     }
 
-    const { data, error: bookingError } = await supabase.rpc("create_public_booking_quantities", {
+    const { data, error: bookingError } = await supabase.rpc("create_public_booking_quantities_timed", {
       p_items: requestedItems,
       p_rental_date: body.rentalDate,
       p_first_name: body.firstName!.trim(),
