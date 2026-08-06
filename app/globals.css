@@ -103,6 +103,7 @@ h3 { font-size: 1.4rem; }
 }
 .day.booked { background: var(--red); color: var(--red-ink); cursor: not-allowed; text-decoration: line-through; }
 .day.past { background: #f1f2f5; color: #9aa0ad; cursor: not-allowed; }
+.day.blocked { background: #fff1f2; color: #be123c; border-color: #fecdd3; cursor: not-allowed; text-decoration: line-through; }
 .day.selected { background: var(--purple); color: white; }
 .day.blank { background: transparent; cursor: default; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; font-weight: 700; font-size: .9rem; }
