@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
-import {sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
+import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
@@ -134,6 +134,8 @@ export async function POST(request: Request) {
       const jobId=await ensureRentalBookingJob(supabase,booking.booking_id);
       const emailResult=await sendRentalBookingConfirmationEmail(booking.booking_id,jobId);
       if(!emailResult.ok)console.error("Invoice-later rental confirmation email was not delivered",{bookingId:booking.booking_id,reason:emailResult.error});
+      const businessEmailResult=await sendRentalBookingBusinessNotification(booking.booking_id,jobId);
+      if(!businessEmailResult.ok)console.error("Invoice-later rental business notification was not delivered",{bookingId:booking.booking_id,reason:businessEmailResult.error});
       return NextResponse.json({paymentMode:"invoice_later",bookingId:booking.booking_id,bookingNumber:booking.booking_number});
     }
     const stripe = new Stripe(stripeKey!);
