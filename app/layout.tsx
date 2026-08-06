@@ -2,10 +2,11 @@ import "./globals.css";
 import "./public-estimate.css";
 import "./website.css";
 import Link from "next/link";
-import Script from "next/script";
 import { PhoneInputFormatter } from "@/components/PhoneInputFormatter";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {AuthenticatedAccountMenu} from "@/components/AuthenticatedAccountMenu";
+import {MarketingAnalytics} from "@/components/MarketingAnalytics";
+import {ConsentAwareGoogleTag} from "@/components/ConsentAwareGoogleTag";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
@@ -29,16 +30,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const accountEmail=profile?.email||user?.email||"";
   return <html lang="en"><body>
     <PhoneInputFormatter/>
-    <Script
-      src="https://www.googletagmanager.com/gtag/js?id=AW-18340749438"
-      strategy="afterInteractive"
-    />
-    <Script id="google-ads-tag" strategy="afterInteractive">
-      {`window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', 'AW-18340749438');`}
-    </Script>
+    <MarketingAnalytics/>
+    <ConsentAwareGoogleTag/>
     <header className={`sv-header${user?" sv-header-authenticated":""}`}><div className="sv-container sv-nav">
       {user
         ? <AuthenticatedAccountMenu name={accountName} email={accountEmail}/>
@@ -50,7 +43,7 @@ gtag('config', 'AW-18340749438');`}
       <div><img className="sv-footer-logo" src="/servonas-logo-light.svg" alt="Servonas"/><p>The operating system for modern service businesses.</p></div>
       <div><h3>Product</h3><Link href="/features">Features</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link></div>
       <div><h3>Solutions</h3><Link href="/industries">Rentals</Link><Link href="/industries">Appointments</Link><Link href="/industries">Field services</Link></div>
-      <div><h3>Company</h3><Link href="/contact">Contact</Link><Link href="/onboarding">Create your business</Link><span>Privacy</span><span>Terms</span></div>
+      <div><h3>Company</h3><Link href="/contact">Contact</Link><Link href="/onboarding">Create your business</Link><Link href="/privacy">Privacy</Link><span>Terms</span></div>
     </div><div className="sv-container sv-footer-bottom">© {new Date().getFullYear()} Servonas. Built for businesses that keep the world moving.</div></footer>
   </body></html>;
 }

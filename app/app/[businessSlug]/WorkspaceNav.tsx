@@ -30,7 +30,8 @@ export function WorkspaceNav({slug,name,poolService=false,industry}:{slug:string
    return next;
   });
  };
- return <aside className={`epic3-sidebar${collapsed?" collapsed":""}`}><div className="workspace-nav-header"><Link href={base} className="epic3-brand"><img src="/servonas-logo-light.svg" alt="Servonas"/></Link><button type="button" className="workspace-sidebar-control" onClick={toggleSidebar} aria-expanded={!collapsed} aria-label={collapsed?"Open workspace navigation":"Close workspace navigation"} title={collapsed?"Open navigation":"Close navigation"}>{collapsed?"›":"‹"}</button></div><small className="workspace-context">{name}</small><nav aria-label="Workspace navigation">
+ const closeMobileNavigation=()=>{if(!window.matchMedia("(max-width: 900px)").matches)return;setCollapsed(true);window.localStorage.setItem("servonas.sidebar.collapsed.v1","true");};
+ return <aside className={`epic3-sidebar${collapsed?" collapsed":""}`}><div className="workspace-nav-header"><Link href={base} className="epic3-brand" onClick={closeMobileNavigation}><img src="/servonas-logo-light.svg" alt="Servonas"/></Link><button type="button" className="workspace-sidebar-control" onClick={toggleSidebar} aria-expanded={!collapsed} aria-label={collapsed?"Open workspace navigation":"Close workspace navigation"} title={collapsed?"Open navigation":"Close navigation"}>{collapsed?"›":"‹"}</button></div><small className="workspace-context">{name}</small><nav aria-label="Workspace navigation">
   {items.map(item=>{
    if(item.children){
     const open=expanded===item.id;
@@ -41,13 +42,13 @@ export function WorkspaceNav({slug,name,poolService=false,industry}:{slug:string
       {item.children.map(child=>{
        const active=routeIsActive(pathname,child);
        return child.disabled?<span className="workspace-nav-disabled" aria-disabled="true" key={child.id}><span>{child.label}</span>{child.badge&&<em>{child.badge}</em>}</span>:
-        <Link href={child.href!} aria-current={active?"page":undefined} className={active?"active":undefined} key={child.id}>{child.label}{child.badge&&<em>{child.badge}</em>}</Link>;
+        <Link href={child.href!} onClick={closeMobileNavigation} aria-current={active?"page":undefined} className={active?"active":undefined} key={child.id}>{child.label}{child.badge&&<em>{child.badge}</em>}</Link>;
       })}
      </div>
     </div>;
    }
    const active=routeIsActive(pathname,item);
-   return <Link className={active?"active":undefined} aria-current={active?"page":undefined} href={item.href!} key={item.id}>{item.label}</Link>;
+   return <Link className={active?"active":undefined} aria-current={active?"page":undefined} href={item.href!} onClick={closeMobileNavigation} key={item.id}>{item.label}</Link>;
   })}
  </nav></aside>
 }
