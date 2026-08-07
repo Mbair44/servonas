@@ -71,6 +71,8 @@ export default function PublicBookingForm(props: Props) {
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
   const [addressLookupError, setAddressLookupError] = useState("");
+  const [requiredFieldsComplete, setRequiredFieldsComplete] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const calendarRef = useRef<HTMLElement>(null);
   const sessionId = useRef(crypto.randomUUID());
@@ -166,9 +168,10 @@ export default function PublicBookingForm(props: Props) {
   const todayMonth = new Date(); todayMonth.setDate(1); todayMonth.setHours(0, 0, 0, 0);
   const maxMonth = new Date(); maxMonth.setDate(1); maxMonth.setMonth(maxMonth.getMonth() + Math.ceil(props.maximumDaysAhead / 30));
   const fieldError = (name: string) => state.fieldErrors?.[name] ? <small className="field-error">{state.fieldErrors[name]}</small> : null;
+  const refreshRequiredFields = () => setRequiredFieldsComplete(formRef.current?.checkValidity() ?? false);
 
   return (
-    <form action={formAction} className="public-booking-form" onSubmit={() => track("booking_submitted")}>
+    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => track("booking_submitted")}>
       <input className="honeypot" name="companyWebsite" tabIndex={-1} autoComplete="off" />
       <input type="hidden" name="requestKey" value={requestKey.current} />
       <input type="hidden" name="startsAt" value={date && time ? `${date}T${time}` : ""} />
@@ -180,8 +183,9 @@ export default function PublicBookingForm(props: Props) {
       <input type="hidden" name="addressPostalCode" value={structuredAddress.postalCode} />
       <input type="hidden" name="addressCountryCode" value={structuredAddress.countryCode} />
       {state.error && <div className="booking-form-error wide" role="alert">{state.error}</div>}
+      <p className="booking-required-note wide"><span>*</span> Required fields</p>
 
-      <label className="wide">Service
+      <label className="wide">Service <span className="booking-required" aria-hidden="true">*</span>
         <select name="serviceId" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setDate(""); }}>
           <option value="" disabled>Choose a service</option>
           {props.services.map((service) => <option value={service.id} key={service.id}>{serviceLabel(service)}</option>)}
@@ -192,7 +196,7 @@ export default function PublicBookingForm(props: Props) {
       <section ref={calendarRef} tabIndex={-1} className="booking-calendar wide" aria-label="Choose an appointment date">
         <div className="booking-calendar-head">
           <button type="button" aria-label="Previous month" disabled={month <= todayMonth} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button>
-          <h2>{month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h2>
+          <h2>Appointment date <span className="booking-required" aria-hidden="true">*</span><small>{month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</small></h2>
           <button type="button" aria-label="Next month" disabled={month >= maxMonth} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button>
         </div>
         <div className="booking-weekdays" aria-hidden="true">{weekdays.map((day) => <span key={day}>{day}</span>)}</div>
@@ -211,7 +215,7 @@ export default function PublicBookingForm(props: Props) {
       </section>
 
       <fieldset className="booking-times wide" disabled={!date || loadingAvailability}>
-        <legend>Available times</legend>
+        <legend>Available times <span className="booking-required" aria-hidden="true">*</span></legend>
         {!date ? <p>Choose an available date.</p> : availableTimes.length ? (
           <div className="booking-time-grid">{availableTimes.map((value) => <button type="button" className={time === value ? "selected" : ""} aria-pressed={time === value} key={value} onClick={() => { setTime(value); track("time_selected", { date, time: value }); }}>{timeLabel(value)}</button>)}</div>
         ) : <p>No appointment times remain on this date.</p>}
@@ -219,16 +223,16 @@ export default function PublicBookingForm(props: Props) {
       </fieldset>
 
       <div className="booking-hours wide"><b>Business hours</b><span>{Object.entries(props.schedule).map(([day, hours]) => `${weekdays[Number(day)]} ${hours.start}–${hours.end}`).join(" · ")}</span></div>
-      <label>First name<input name="firstName" required autoComplete="given-name" defaultValue={state.values?.firstName} />{fieldError("firstName")}</label>
-      <label>Last name<input name="lastName" autoComplete="family-name" defaultValue={state.values?.lastName} /></label>
+      <label>First name <span className="booking-required" aria-hidden="true">*</span><input name="firstName" required autoComplete="given-name" defaultValue={state.values?.firstName} />{fieldError("firstName")}</label>
+      <label>Last name <small>Optional</small><input name="lastName" autoComplete="family-name" defaultValue={state.values?.lastName} /></label>
       <label>Email <span aria-hidden="true">*</span><input name="email" type="email" autoComplete="email" required defaultValue={state.values?.email} />{fieldError("email")}</label>
       <label>Phone <span aria-hidden="true">*</span><input name="phone" type="tel" autoComplete="tel" required defaultValue={state.values?.phone} />{fieldError("phone")}</label>
       <label className="wide toggle-row"><input name="smsConsent" type="checkbox" defaultChecked={state.values?.smsConsent === "on"} aria-describedby="sms-consent-help" /><span><b>Text me booking updates <small>Optional</small></b><small id="sms-consent-help">By checking this box, you agree to receive transactional appointment texts from {props.businessName}. Message frequency varies. Message and data rates may apply. Reply STOP to cancel or HELP for help. Consent is not a condition of purchase and is not shared with third parties for marketing. <Link href={`/book/${props.publicSlug}/terms`} target="_blank">Text Messaging Terms</Link> · <Link href={`/book/${props.publicSlug}/privacy`} target="_blank">Privacy Policy</Link></small>{fieldError("smsConsent")}</span></label>
-      {props.collectAddress && <label className="wide">Service address<input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); setStructuredAddress({ line1: "", line2: "", city: "", region: "", postalCode: "", countryCode: "US" }); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
-      <label className="wide">How can we help?<textarea name="details" rows={4} defaultValue={state.values?.details} /></label>
+      {props.collectAddress && <label className="wide">Service address <span className="booking-required" aria-hidden="true">*</span><input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); setStructuredAddress({ line1: "", line2: "", city: "", region: "", postalCode: "", countryCode: "US" }); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
+      <label className="wide">How can we help? <small>Optional</small><textarea name="details" rows={4} defaultValue={state.values?.details} /></label>
       <label className="wide booking-photo-field">Add a photo <span>Optional</span><input name="bookingPhoto" type="file" accept="image/jpeg,image/png,image/webp,image/heic"/>{fieldError("bookingPhoto")}<small className="field-help">You can attach one JPG, PNG, WebP, or HEIC image up to 10MB to help the business understand the job.</small></label>
       {props.intakeQuestions.map((question, index) => <label className="wide" key={question}>{question}<input name={`question_${index}`} defaultValue={state.values?.[`question_${index}`]} /></label>)}
-      <button className="booking-submit" disabled={pending || !time}>{pending ? <><span className="button-spinner" /> Booking…</> : "Request appointment"}</button>
+      <button className="booking-submit" disabled={pending || !time || !requiredFieldsComplete}>{pending ? <><span className="button-spinner" /> Booking…</> : "Request appointment"}</button>
       <small className="wide booking-privacy">Your information is sent securely to {props.businessName} through Servonas.</small>
     </form>
   );
