@@ -15,6 +15,7 @@ export default async function SuccessPage({ searchParams }: Props) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   let session: Stripe.Checkout.Session | null = null;
   let businessName = "the business";
+  let homeHref = "/";
 
   if (sessionId && stripeKey) {
     try {
@@ -22,6 +23,9 @@ export default async function SuccessPage({ searchParams }: Props) {
       const {data:booking}=db?await db.from("bookings").select("id,business_id,businesses(name)").eq("stripe_checkout_session_id",sessionId).maybeSingle():{data:null};
       const business=booking?(Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses):null;
       businessName=business?.name||businessName;
+      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status").eq("business_id",booking.business_id).maybeSingle():{data:null};
+      if(website?.status==="published")homeHref=website.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`/sites/${encodeURIComponent(website.public_slug)}`;
+      else if(db&&booking?.business_id){const {data:bookingPage}=await db.from("booking_settings").select("public_slug").eq("business_id",booking.business_id).maybeSingle();if(bookingPage?.public_slug)homeHref=`/book/${encodeURIComponent(bookingPage.public_slug)}`;}
       const {data:paymentAccount}=db&&booking?.business_id?await db.from("business_payment_accounts").select("provider_account_id").eq("business_id",booking.business_id).eq("provider","stripe").maybeSingle():{data:null};
       session = await stripe.checkout.sessions.retrieve(sessionId,{},paymentAccount?.provider_account_id?{stripeAccount:paymentAccount.provider_account_id}:undefined);
       if(booking&&session.metadata?.booking_id!==booking.id)throw new Error("Checkout Session did not match the reservation.");
@@ -61,7 +65,7 @@ export default async function SuccessPage({ searchParams }: Props) {
             <p className="muted">Please check your email for a Stripe receipt. Contact {businessName} if you completed payment but still see this message.</p>
           )}
           <div className="actions" style={{ justifyContent: "center" }}>
-            <Link className="button" href="/">Return Home</Link>
+            <Link className="button" href={homeHref}>Take me home</Link>
             <Link className="button secondary" href="/book">View Calendar</Link>
           </div>
         </div>

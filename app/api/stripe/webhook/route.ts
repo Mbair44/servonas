@@ -285,7 +285,7 @@ const couponId =
       }).eq("id", bookingId);
 
       await supabase.from("booking_items").update({ status: "confirmed" }).eq("booking_id", bookingId);
-      try{const jobId=await ensureRentalBookingJob(supabase,bookingId);const emailResult=await sendRentalBookingConfirmationEmail(bookingId,jobId);if(!emailResult.ok)console.error("Paid rental confirmation email was not delivered",{bookingId,reason:emailResult.error});const businessEmailResult=await sendRentalBookingBusinessNotification(bookingId,jobId);if(!businessEmailResult.ok)console.error("Paid rental business notification was not delivered",{bookingId,reason:businessEmailResult.error});}catch(jobError){console.error("Confirmed rental job creation failed",{bookingId,error:jobError instanceof Error?jobError.message:"unknown"});}
+      try{const jobId=await ensureRentalBookingJob(supabase,bookingId);const emailResult=await sendRentalBookingConfirmationEmail(bookingId,jobId);const businessEmailResult=await sendRentalBookingBusinessNotification(bookingId,jobId);if(!emailResult.ok||!businessEmailResult.ok){console.error("Paid rental email delivery was incomplete",{bookingId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});throw new Error("Paid rental confirmation emails were not delivered.");}}catch(jobError){console.error("Confirmed rental post-payment processing failed",{bookingId,error:jobError instanceof Error?jobError.message:"unknown"});throw jobError;}
 
       try {
         const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
