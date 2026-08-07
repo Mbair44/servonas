@@ -5,7 +5,7 @@ import {EmbeddedBookingFrame} from "./EmbeddedBookingFrame";
 export type BusinessSiteService={id:string;name:string;description:string|null;price_amount:number|null;price_label:string|null};
 export type BusinessSiteData={
  name:string;phone:string|null;email:string|null;logoUrl:string|null;industryProfile:string|null;template:"modern"|"traditional"|"bold";primaryColor:string;secondaryColor:string;
- heroHeading:string;heroSubheading:string;aboutText:string;googleReviewUrl:string|null;googleReviews:{author:string;rating:number;text:string}[];photoUrls:string[];requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
+ heroHeading:string;heroSubheading:string;aboutText:string;googleReviewUrl:string|null;googleRating:number|null;googleReviewCount:number|null;googleReviews:{author:string;rating:number;text:string}[];photoUrls:string[];requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
  services:BusinessSiteService[];hours:{weekday:number;start:string;end:string}[];serviceAreas:string[];
 };
 const weekdays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -13,8 +13,8 @@ const time=(value:string)=>{const [hour,minute]=value.slice(0,5).split(":").map(
 
 export function BusinessWebsite({site,requestAction,preview=false}:{site:BusinessSiteData;requestAction?:(state:WebsiteRequestState,data:FormData)=>Promise<WebsiteRequestState>;preview?:boolean}){
  const isPartyRental=site.industryProfile==="party_rental";
- const reviewRating=site.googleReviews.length?site.googleReviews.reduce((sum,review)=>sum+review.rating,0)/site.googleReviews.length:null;
- const reviewRibbon=reviewRating?<div className="business-site-google-ribbon">{site.googleReviewUrl?<a href={site.googleReviewUrl} target="_blank" rel="noreferrer" aria-label={`${reviewRating.toFixed(1)} out of 5 stars on Google`}><b>★★★★★</b><span>{reviewRating.toFixed(1)} Google rating</span><small>Read our reviews →</small></a>:<span><b>★★★★★</b> {reviewRating.toFixed(1)} customer rating</span>}</div>:null;
+ const manualRating=site.googleReviews.length?site.googleReviews.reduce((sum,review)=>sum+review.rating,0)/site.googleReviews.length:null,reviewRating=site.googleRating??manualRating;
+ const reviewRibbon=reviewRating?<div className="business-site-google-ribbon">{site.googleReviewUrl?<a href={site.googleReviewUrl} target="_blank" rel="noreferrer" aria-label={`${reviewRating.toFixed(1)} out of 5 stars on Google`}><b>★★★★★</b><span>{reviewRating.toFixed(1)} Google rating{site.googleReviewCount?` · ${site.googleReviewCount} review${site.googleReviewCount===1?"":"s"}`:""}</span><small>Google Maps · Read reviews →</small></a>:<span><b>★★★★★</b> {reviewRating.toFixed(1)} customer rating</span>}</div>:null;
  const ctaHref=site.bookingEnabled&&site.bookingUrl?"#book-online":isPartyRental?"#contact":"#request-service",ctaLabel=site.bookingEnabled&&site.bookingUrl||isPartyRental?"Book Online":"Request Service";
  return <main className={`business-site template-${site.template}`} style={{"--site-primary":site.primaryColor,"--site-secondary":site.secondaryColor} as React.CSSProperties}>
   {preview&&<div className="business-site-preview-bar"><span>Preview mode — this is not the public website.</span><small>Close this tab to return to Servonas.</small></div>}
