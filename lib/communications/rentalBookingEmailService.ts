@@ -1,4 +1,5 @@
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {rentalEmailDeliveryIsLive} from "@/lib/emailDeliveryMode";
 
 const esc=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[char]!));
 const money=(cents:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format((cents||0)/100);
@@ -15,7 +16,7 @@ export async function sendRentalBookingConfirmationEmail(bookingId:string,jobId:
  const items=(booking.booking_items??[]) as any[],date=items[0]?.rental_date?new Intl.DateTimeFormat("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric",timeZone:"UTC"}).format(new Date(`${items[0].rental_date}T12:00:00Z`)):"Scheduled date";
  const itemLines=items.map(row=>{const item=Array.isArray(row.inventory_items)?row.inventory_items[0]:row.inventory_items;return `${item?.name??"Rental item"} × ${row.quantity}`;});
  const lines=[`Hi ${customer.first_name||"there"},`,`Your reservation with ${business?.name||"the business"} is confirmed.`,`Confirmation: #${booking.booking_number}`,`Date: ${date}`,`Time: ${clock(booking.event_start_time)}–${clock(booking.event_end_time)}`,`Delivery: ${booking.delivery_address}, ${booking.delivery_city}, ${booking.delivery_state} ${booking.delivery_zip}`,"Rental items:",...itemLines,`Rental total: ${money(booking.total_cents)}`,Number(booking.deposit_cents)>0?`Deposit paid: ${money(booking.deposit_cents)}`:"No deposit was required.",`Balance due: ${money(booking.balance_due_cents)}`];
- const text=[...lines,"Powered by Servonas"].join("\n\n"),html=`<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033">${lines.map(line=>`<p>${esc(line)}</p>`).join("")}<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;color:#667085;font-size:12px;text-align:center">Powered by Servonas</div></div>`,live=process.env.EMAIL_DELIVERY_MODE==="live";
+ const text=[...lines,"Powered by Servonas"].join("\n\n"),html=`<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033">${lines.map(line=>`<p>${esc(line)}</p>`).join("")}<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;color:#667085;font-size:12px;text-align:center">Powered by Servonas</div></div>`,live=rentalEmailDeliveryIsLive();
  const payload={job_id:jobId,channel:"email",template_key:"booking_confirmation",status:live?"queued":"stubbed",recipient_email:customer.email,message_body:text};
  const saved=existing?await db.from("job_communication_events").update(payload).eq("id",existing.id).select("id").single():await db.from("job_communication_events").insert(payload).select("id").single();
  if(saved.error||!saved.data)return {ok:false,error:"Email event could not be saved."};
@@ -27,17 +28,18 @@ export async function sendRentalBookingConfirmationEmail(bookingId:string,jobId:
 
 export async function sendRentalBookingBusinessNotification(bookingId:string,jobId:string){
  const db=getSupabaseAdmin();if(!db)return {ok:false,error:"Supabase is unavailable."};
- const {data:booking,error}=await db.from("bookings").select("booking_number,event_start_time,event_end_time,delivery_address,delivery_city,delivery_state,delivery_zip,deposit_cents,balance_due_cents,total_cents,businesses(name,email),customers(first_name,last_name,email,phone),booking_items(rental_date,quantity,inventory_items(name))").eq("id",bookingId).maybeSingle();
+ const {data:booking,error}=await db.from("bookings").select("booking_number,event_start_time,event_end_time,delivery_address,delivery_city,delivery_state,delivery_zip,deposit_cents,balance_due_cents,total_cents,businesses(name,email,owner_user_id),customers(first_name,last_name,email,phone),booking_items(rental_date,quantity,inventory_items(name))").eq("id",bookingId).maybeSingle();
  if(error||!booking)return {ok:false,error:"Booking details are unavailable."};
  const business=Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses,customer=Array.isArray(booking.customers)?booking.customers[0]:booking.customers;
- const recipient=business?.email?.trim();if(!recipient)return {ok:true,skipped:true};
+ const {data:ownerProfile}=business?.owner_user_id?await db.from("profiles").select("email").eq("id",business.owner_user_id).maybeSingle():{data:null};
+ const recipient=business?.email?.trim()||ownerProfile?.email?.trim();if(!recipient)return {ok:true,skipped:true};
  const {data:existing}=await db.from("job_communication_events").select("id,status").eq("job_id",jobId).eq("channel","email").eq("template_key","manager_new_booking").limit(1).maybeSingle();
  if(existing&&["queued","sent"].includes(existing.status))return {ok:true,duplicate:true};
  const items=(booking.booking_items??[]) as any[],date=items[0]?.rental_date?new Intl.DateTimeFormat("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric",timeZone:"UTC"}).format(new Date(`${items[0].rental_date}T12:00:00Z`)):"Scheduled date";
  const itemLines=items.map(row=>{const item=Array.isArray(row.inventory_items)?row.inventory_items[0]:row.inventory_items;return `${item?.name??"Rental item"} × ${row.quantity}`;});
  const customerName=[customer?.first_name,customer?.last_name].filter(Boolean).join(" ")||"Customer";
  const lines=["A new party-rental reservation was confirmed.",`Confirmation: #${booking.booking_number}`,`Customer: ${customerName}`,customer?.email?`Email: ${customer.email}`:null,customer?.phone?`Phone: ${customer.phone}`:null,`Date: ${date}`,`Time: ${clock(booking.event_start_time)}–${clock(booking.event_end_time)}`,`Delivery: ${booking.delivery_address}, ${booking.delivery_city}, ${booking.delivery_state} ${booking.delivery_zip}`,"Rental items:",...itemLines,`Rental total: ${money(booking.total_cents)}`,Number(booking.deposit_cents)>0?`Deposit paid: ${money(booking.deposit_cents)}`:"No deposit was collected; invoice the customer later.",`Balance due: ${money(booking.balance_due_cents)}`].filter((line):line is string=>Boolean(line));
- const text=[...lines,"Open Servonas to view the customer and job."].join("\n\n"),html=`<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033"><h2>New party-rental booking</h2>${lines.map(line=>`<p>${esc(line)}</p>`).join("")}<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;color:#667085;font-size:12px;text-align:center">Managed with Servonas</div></div>`,live=process.env.EMAIL_DELIVERY_MODE==="live";
+ const text=[...lines,"Open Servonas to view the customer and job."].join("\n\n"),html=`<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033"><h2>New party-rental booking</h2>${lines.map(line=>`<p>${esc(line)}</p>`).join("")}<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;color:#667085;font-size:12px;text-align:center">Managed with Servonas</div></div>`,live=rentalEmailDeliveryIsLive();
  const payload={job_id:jobId,channel:"email",template_key:"manager_new_booking",status:live?"queued":"stubbed",recipient_email:recipient,message_body:text};
  const saved=existing?await db.from("job_communication_events").update(payload).eq("id",existing.id).select("id").single():await db.from("job_communication_events").insert(payload).select("id").single();
  if(saved.error||!saved.data)return {ok:false,error:"Business email event could not be saved."};
