@@ -7,7 +7,7 @@ import {requireWorkspaceCapability} from "@/lib/workspace";
 import {normalizeWebsiteDomain,validWebsiteColor,validWebsiteSlug,websiteTemplates} from "@/lib/website";
 import {addVercelProjectDomain,getVercelDomainStatus,verifyVercelProjectDomain} from "@/lib/vercelDomains";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {findGoogleBusinessPlace} from "@/lib/googleBusinessPlace";
+import {findGoogleBusinessPlace,resolveGoogleBusinessPlaceId} from "@/lib/googleBusinessPlace";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}`;
@@ -20,7 +20,7 @@ const reviews=(data:FormData)=>{
 export async function saveWebsiteSettings(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can manage the website."));
- const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),manualPhotoUrls=urls(text(data,"photoUrls")),googleReviews=reviews(data);
+ const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),requestedGooglePlaceId=text(data,"googlePlaceId"),manualPhotoUrls=urls(text(data,"photoUrls")),googleReviews=reviews(data);
  const photoFiles=data.getAll("websitePhotos").filter((entry):entry is File=>entry instanceof File&&entry.size>0);
  if(!validWebsiteSlug(publicSlug))redirect(target(slug,"error","Use lowercase letters, numbers, and hyphens for the website URL."));
  if(!websiteTemplates.includes(template as typeof websiteTemplates[number]))redirect(target(slug,"error","Choose a valid website template."));
@@ -35,7 +35,9 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(manualPhotoUrls.length+photoFiles.length>12)redirect(target(slug,"error","A website can display up to 12 photos."));
  const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
  let googlePlace:Awaited<ReturnType<typeof findGoogleBusinessPlace>>|null=null;
- if(googleReviewUrl&&businessAddress){googlePlace=await findGoogleBusinessPlace({name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")});if(!googlePlace.ok){await supabase.from("business_website_settings").update({google_place_id:null,google_place_name:null,google_place_address:null}).eq("business_id",business.id);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"error",`Google rating was disconnected because the listing could not be matched safely: ${googlePlace.error}`));}}
+ if(requestedGooglePlaceId)googlePlace=await resolveGoogleBusinessPlaceId(requestedGooglePlaceId);
+ else if(googleReviewUrl&&businessAddress)googlePlace=await findGoogleBusinessPlace({name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")});
+ if(googlePlace&&!googlePlace.ok){await supabase.from("business_website_settings").update({google_place_id:null,google_place_name:null,google_place_address:null}).eq("business_id",business.id);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"error",`Google rating was disconnected: ${googlePlace.error}`));}
  const uploadedPaths:string[]=[],uploadedUrls:string[]=[];
  if(photoFiles.length){
   const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Website photo uploads are not configured."));
