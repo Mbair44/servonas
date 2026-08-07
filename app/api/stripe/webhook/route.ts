@@ -250,7 +250,7 @@ export async function POST(request: Request) {
     if (bookingId && eventSession.payment_status === "paid") {
       const session = await stripe.checkout.sessions.retrieve(eventSession.id, {
         expand: ["discounts.promotion_code", "discounts.coupon"],
-      });
+      },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
       const originalTotalCents = Number(session.metadata?.total_cents || 0);
       const amountPaidCents = Number(session.amount_total || 0);
       const discountCents = Number(session.total_details?.amount_discount || 0);

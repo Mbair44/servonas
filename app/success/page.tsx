@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Stripe from "stripe";
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,17 @@ export default async function SuccessPage({ searchParams }: Props) {
   const { session_id: sessionId } = await searchParams;
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   let session: Stripe.Checkout.Session | null = null;
+  let businessName = "the business";
 
   if (sessionId && stripeKey) {
     try {
-      session = await new Stripe(stripeKey).checkout.sessions.retrieve(sessionId);
+      const stripe=new Stripe(stripeKey),db=getSupabaseAdmin();
+      const {data:booking}=db?await db.from("bookings").select("id,business_id,businesses(name)").eq("stripe_checkout_session_id",sessionId).maybeSingle():{data:null};
+      const business=booking?(Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses):null;
+      businessName=business?.name||businessName;
+      const {data:paymentAccount}=db&&booking?.business_id?await db.from("business_payment_accounts").select("provider_account_id").eq("business_id",booking.business_id).eq("provider","stripe").maybeSingle():{data:null};
+      session = await stripe.checkout.sessions.retrieve(sessionId,{},paymentAccount?.provider_account_id?{stripeAccount:paymentAccount.provider_account_id}:undefined);
+      if(booking&&session.metadata?.booking_id!==booking.id)throw new Error("Checkout Session did not match the reservation.");
     } catch (error) {
       console.error("Could not retrieve Stripe Checkout session:", error);
     }
@@ -50,7 +58,7 @@ export default async function SuccessPage({ searchParams }: Props) {
               <p className="muted">Remaining balance: <strong>{money(balanceCents)}</strong>. Keep your confirmation number for your records.</p>
             </>
           ) : (
-            <p className="muted">Please check your email for a Stripe receipt. Contact NRS Party Rentals if you completed payment but still see this message.</p>
+            <p className="muted">Please check your email for a Stripe receipt. Contact {businessName} if you completed payment but still see this message.</p>
           )}
           <div className="actions" style={{ justifyContent: "center" }}>
             <Link className="button" href="/">Return Home</Link>
