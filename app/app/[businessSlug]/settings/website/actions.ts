@@ -55,6 +55,10 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved."));
 }
 
+export async function disconnectGoogleBusinessProfile(slug:string){
+ const {business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can disconnect Google."));const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Google connection storage is unavailable."));const {error}=await admin.from("business_google_profile_connections").delete().eq("business_id",business.id);if(error)redirect(target(slug,"error","Google Business Profile could not be disconnected."));revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success","Google Business Profile disconnected."));
+}
+
 export async function setWebsitePublished(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can publish the website."));
