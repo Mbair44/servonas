@@ -34,9 +34,10 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(photoFiles.some(file=>file.size>8*1024*1024||!allowedPhotoTypes.has(file.type)))redirect(target(slug,"error","Use JPG, PNG, WebP, GIF, or AVIF photos under 8MB each."));
  if(manualPhotoUrls.length+photoFiles.length>12)redirect(target(slug,"error","A website can display up to 12 photos."));
  const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
+ const expectedGoogleBusiness=businessAddress?{name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")}:null;
  let googlePlace:Awaited<ReturnType<typeof findGoogleBusinessPlace>>|null=null;
- if(requestedGooglePlaceId)googlePlace=await resolveGoogleBusinessPlaceId(requestedGooglePlaceId);
- else if(googleReviewUrl&&businessAddress)googlePlace=await findGoogleBusinessPlace({name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")});
+ if(requestedGooglePlaceId){if(!expectedGoogleBusiness?.address)redirect(target(slug,"error","Add the complete business address in Servonas before connecting a Google Place ID."));googlePlace=await resolveGoogleBusinessPlaceId(requestedGooglePlaceId,expectedGoogleBusiness);}
+ else if(googleReviewUrl&&expectedGoogleBusiness)googlePlace=await findGoogleBusinessPlace(expectedGoogleBusiness);
  if(googlePlace&&!googlePlace.ok){await supabase.from("business_website_settings").update({google_place_id:null,google_place_name:null,google_place_address:null}).eq("business_id",business.id);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"error",`Google rating was disconnected: ${googlePlace.error}`));}
  const uploadedPaths:string[]=[],uploadedUrls:string[]=[];
  if(photoFiles.length){
