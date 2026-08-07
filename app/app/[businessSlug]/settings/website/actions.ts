@@ -35,7 +35,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(manualPhotoUrls.length+photoFiles.length>12)redirect(target(slug,"error","A website can display up to 12 photos."));
  const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
  let googlePlace:Awaited<ReturnType<typeof findGoogleBusinessPlace>>|null=null;
- if(googleReviewUrl&&businessAddress){googlePlace=await findGoogleBusinessPlace({name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")});if(!googlePlace.ok)redirect(target(slug,"error",`Google rating could not be connected: ${googlePlace.error}`));}
+ if(googleReviewUrl&&businessAddress){googlePlace=await findGoogleBusinessPlace({name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")});if(!googlePlace.ok){await supabase.from("business_website_settings").update({google_place_id:null,google_place_name:null,google_place_address:null}).eq("business_id",business.id);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"error",`Google rating was disconnected because the listing could not be matched safely: ${googlePlace.error}`));}}
  const uploadedPaths:string[]=[],uploadedUrls:string[]=[];
  if(photoFiles.length){
   const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Website photo uploads are not configured."));
