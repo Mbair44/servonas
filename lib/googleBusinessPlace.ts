@@ -28,6 +28,17 @@ export async function findGoogleBusinessPlace(input:{name:string;address:string}
  }catch(error){return {ok:false as const,error:error instanceof Error?error.message:"Google Places lookup failed."};}
 }
 
+export async function resolveGoogleBusinessPlaceId(placeId:string){
+ const apiKey=key();if(!apiKey)return {ok:false as const,error:"Google Places API is not configured."};
+ if(!/^[-_A-Za-z0-9]{10,255}$/.test(placeId))return {ok:false as const,error:"Enter a valid Google Place ID."};
+ try{
+  const response=await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,{headers:{"X-Goog-Api-Key":apiKey,"X-Goog-FieldMask":"id,displayName,formattedAddress"},cache:"no-store"});
+  const result=await response.json() as GooglePlaceCandidate&{error?:{message?:string}};
+  if(!response.ok||!result.id)return {ok:false as const,error:result.error?.message||`Google Places HTTP ${response.status}`};
+  return {ok:true as const,placeId:result.id,displayName:result.displayName?.text??"Google Business",formattedAddress:result.formattedAddress??""};
+ }catch(error){return {ok:false as const,error:error instanceof Error?error.message:"Google Place ID lookup failed."};}
+}
+
 export function parseGoogleBusinessRating(value:unknown):GoogleBusinessRating|null{
  if(!value||typeof value!=="object")return null;
  const result=value as {rating?:unknown;userRatingCount?:unknown;googleMapsUri?:unknown},rating=Number(result.rating),reviewCount=Number(result.userRatingCount);

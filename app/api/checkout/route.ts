@@ -129,7 +129,8 @@ export async function POST(request: Request) {
     });
     if (bookingError) {
       const message = bookingError.message || "Could not create the reservation.";
-      return NextResponse.json({ error: message }, { status: /available|reserved|blocked|inventory/i.test(message) ? 409 : 400 });
+      const conflict=bookingError.code==="23505"||/one_active_(?:reservation|booking)_per_item_date/i.test(message);
+      return NextResponse.json({ error: conflict?"That rental is already reserved for the selected date or time. Refresh availability and choose another option.":message }, { status: conflict||/available|reserved|blocked|inventory/i.test(message) ? 409 : 400 });
     }
 
     const booking = Array.isArray(data) ? data[0] : data;
