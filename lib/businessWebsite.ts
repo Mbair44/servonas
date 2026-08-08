@@ -19,7 +19,11 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  ]).filter(Boolean))].slice(0,30) as string[];
  const fallbackArea=[business.city,business.state].filter(Boolean).join(", ");
  const platformUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"");
- const bookingSlug=booking?.public_slug?String(booking.public_slug):null,bookingEnabled=Boolean(settings.booking_enabled&&booking?.enabled&&bookingSlug);
+ const bookingSlug=booking?.public_slug?String(booking.public_slug):null;
+ // Party-rental websites are booking-first. Once Online Booking itself is
+ // enabled, do not let a stale/omitted website checkbox hide the embedded
+ // inventory calendar from the public site.
+ const bookingEnabled=Boolean(booking?.enabled&&bookingSlug&&(settings.booking_enabled||business.industry_profile==="party_rental"));
  const googleProfile=await getGoogleBusinessProfileReviews(business.id),googleRating=!googleProfile&&settings.google_place_id?await getGoogleBusinessRating(String(settings.google_place_id)):null;
  const manualReviews=(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6);
  return {
