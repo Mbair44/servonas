@@ -6,7 +6,7 @@ import {getGoogleBusinessProfileReviews} from "@/lib/googleBusinessProfile";
 type WebsiteRow=Record<string,any>;
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow):Promise<BusinessSiteData|null>{
  const [{data:business},{data:services},{data:hours},{data:territories},{data:booking}]=await Promise.all([
-  db.from("businesses").select("id,name,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
+  db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
   db.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",settings.business_id).eq("active",true).order("weekday"),
   db.from("workforce_territories").select("name,postal_codes,neighborhoods,strategy_config").eq("business_id",settings.business_id).eq("is_active",true).order("name"),
@@ -19,11 +19,11 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  ]).filter(Boolean))].slice(0,30) as string[];
  const fallbackArea=[business.city,business.state].filter(Boolean).join(", ");
  const platformUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"");
- const bookingSlug=booking?.public_slug?String(booking.public_slug):null;
+ const bookingSlug=booking?.public_slug?String(booking.public_slug):settings.public_slug?String(settings.public_slug):business.slug?String(business.slug):null;
  // Party-rental websites are booking-first. Once Online Booking itself is
  // enabled, do not let a stale/omitted website checkbox hide the embedded
  // inventory calendar from the public site.
- const bookingEnabled=Boolean(booking?.enabled&&bookingSlug&&(settings.booking_enabled||business.industry_profile==="party_rental"));
+ const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||settings.booking_enabled&&booking?.enabled));
  const googleProfile=await getGoogleBusinessProfileReviews(business.id),googleRating=!googleProfile&&settings.google_place_id?await getGoogleBusinessRating(String(settings.google_place_id)):null;
  const manualReviews=(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6);
  return {
