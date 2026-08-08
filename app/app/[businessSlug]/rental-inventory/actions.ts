@@ -29,13 +29,14 @@ async function uploadImage(businessId:string,entry:FormDataEntryValue|null){
  return admin.storage.from("inventory-images").getPublicUrl(storagePath).data.publicUrl;
 }
 
-function values(data:FormData){
- const name=text(data,"name"),category=text(data,"category"),description=text(data,"description"),price=Number(text(data,"price")),stock=Number(text(data,"stockQuantity"));
+async function values(supabase:SupabaseClient,businessId:string,data:FormData){
+ const name=text(data,"name"),categoryId=text(data,"categoryId")||null,description=text(data,"description"),price=Number(text(data,"price")),stock=Number(text(data,"stockQuantity"));
  if(!name||name.length>120)throw new Error("Enter a rental name up to 120 characters.");
- if(category.length>80)throw new Error("Enter a category up to 80 characters.");
  if(!Number.isFinite(price)||price<0||price>100000)throw new Error("Enter a valid daily rental price.");
  if(!Number.isInteger(stock)||stock<1||stock>10000)throw new Error("Stock quantity must be between 1 and 10,000.");
- return {name,category:category||null,description:description||null,daily_price_cents:Math.round(price*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
+ const {data:category}=categoryId?await supabase.from("rental_inventory_categories").select("id,name").eq("id",categoryId).eq("business_id",businessId).maybeSingle():{data:null};
+ if(categoryId&&!category)throw new Error("Choose a category that belongs to this business.");
+ return {name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
 }
 async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:string,data:FormData){
  const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];
@@ -49,7 +50,7 @@ async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:s
 export async function createRentalItem(slug:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const payload=values(data),image=await uploadImage(business.id,data.get("image"));
+  const payload=await values(supabase,business.id,data),image=await uploadImage(business.id,data.get("image"));
   const {data:item,error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,image_url:image}).select("id").single();
   if(error||!item)throw new Error(error?.code==="23505"?"A rental with that identifier already exists.":"The rental item could not be added. Apply the rental inventory migration first.");
   await replaceUpsells(supabase,business.id,item.id,data);
@@ -60,7 +61,7 @@ export async function createRentalItem(slug:string,data:FormData){
 export async function updateRentalItem(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const payload=values(data),image=await uploadImage(business.id,data.get("image"));
+  const payload=await values(supabase,business.id,data),image=await uploadImage(business.id,data.get("image"));
   const {error}=await supabase.from("inventory_items").update({...payload,...(image?{image_url:image}:{})}).eq("id",itemId).eq("business_id",business.id);
   if(error)throw new Error("The rental item could not be updated.");
   await replaceUpsells(supabase,business.id,itemId,data);
@@ -83,4 +84,28 @@ export async function saveRentalItemUpsells(slug:string,itemId:string,data:FormD
  if(removeError)redirect(path(slug,"error","Related items could not be saved. Apply the latest rental upsell migration."));
  if(requested.length){const {error}=await supabase.from("rental_item_upsells").insert(requested.map((suggested_item_id,sort_order)=>({business_id:business.id,source_item_id:itemId,suggested_item_id,sort_order})));if(error)redirect(path(slug,"error","Related items could not be saved."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Related item suggestions saved."));
+}
+
+export async function createRentalCategory(slug:string,data:FormData){
+ const {supabase,business}=await context(slug);const name=text(data,"name"),sortOrder=Number(text(data,"sortOrder")||0);
+ if(!name||name.length>80)redirect(path(slug,"error","Enter a category name up to 80 characters."));
+ const {error}=await supabase.from("rental_inventory_categories").insert({business_id:business.id,name,sort_order:Number.isInteger(sortOrder)?sortOrder:0});
+ if(error)redirect(path(slug,"error",error.code==="23505"?"That category already exists.":"The category could not be created. Apply the latest rental category migration."));
+ revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Rental category created."));
+}
+
+export async function updateRentalCategory(slug:string,categoryId:string,data:FormData){
+ const {supabase,business}=await context(slug);const name=text(data,"name"),sortOrder=Number(text(data,"sortOrder")||0);
+ if(!name||name.length>80)redirect(path(slug,"error","Enter a category name up to 80 characters."));
+ const {error}=await supabase.from("rental_inventory_categories").update({name,sort_order:Number.isInteger(sortOrder)?sortOrder:0,updated_at:new Date().toISOString()}).eq("id",categoryId).eq("business_id",business.id);
+ if(error)redirect(path(slug,"error",error.code==="23505"?"That category already exists.":"The category could not be updated."));
+ await supabase.from("inventory_items").update({category:name}).eq("business_id",business.id).eq("category_id",categoryId);
+ revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Rental category updated."));
+}
+
+export async function deleteRentalCategory(slug:string,categoryId:string,data:FormData){
+ const {supabase,business}=await context(slug);const replacementId=text(data,"replacementCategoryId")||null;
+ const {data:count,error}=await supabase.rpc("delete_rental_inventory_category",{p_business_id:business.id,p_category_id:categoryId,p_replacement_category_id:replacementId});
+ if(error)redirect(path(slug,"error",error.message||"The category could not be deleted."));
+ revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success",`Category deleted${Number(count)>0?` and ${count} item${Number(count)===1?"":"s"} reassigned`:""}.`));
 }

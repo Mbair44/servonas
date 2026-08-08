@@ -10,6 +10,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  const settings=visibleNavigation(items).find(item=>item.id==="settings")!;
  assert.deepEqual(customers.children?.map(item=>[item.label,item.href]),[
   ["Customers","/app/acme/customers"],
+  ["Campaigns","/app/acme/customers/campaigns"],
  ]);
  assert.deepEqual(operations.children?.map(item=>[item.label,item.href]),[
   ["Schedule","/app/acme/schedule"],
@@ -32,8 +33,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  const poolSettings=visibleNavigation(workspaceNavigation("acme",{poolService:true})).find(item=>item.id==="settings")!;
  assert.equal(poolSettings.children?.at(-1)?.label,"Pool Service");
  const inventory=items.find(item=>item.id==="assets")?.children?.find(item=>item.id==="inventory");
- assert.equal(inventory?.disabled,true);
- assert.equal(inventory?.badge,"Soon");
+ assert.equal(inventory?.visible,false);
 });
 
 test("nested routes activate their item and parent group",()=>{

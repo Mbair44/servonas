@@ -35,14 +35,38 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
    .eq("business_id",invoice.business_id).maybeSingle(),
  ]);
  const useBusinessDefaults=!customerBilling||customerBilling.use_business_defaults;
- const billingMethod=useBusinessDefaults
+ let billingMethod=useBusinessDefaults
   ?businessBilling?.default_billing_method??invoice.billing_method_snapshot??result.billing_method
   :customerBilling.billing_method??businessBilling?.default_billing_method??invoice.billing_method_snapshot??result.billing_method;
- const autoSend=useBusinessDefaults
+ let autoSend=useBusinessDefaults
   ?!Boolean(businessBilling?.review_before_processing)
   :customerBilling.auto_send_invoice??!Boolean(businessBilling?.review_before_processing);
+ const {data:rentalBooking}=await db.from("bookings").select("id,total_cents,discount_cents,amount_paid_cents,balance_due_cents").eq("business_id",invoice.business_id).eq("job_id",jobId).maybeSingle();
+ if(rentalBooking){
+  const paid=Math.max(0,Number(rentalBooking.amount_paid_cents||0)),discount=Math.max(0,Number(rentalBooking.discount_cents||0));
+  const total=Math.max(0,Number(rentalBooking.total_cents||0)-discount),balance=Math.max(0,Math.min(total,Number(rentalBooking.balance_due_cents??total-paid)));
+  const {error:rentalInvoiceError}=await db.from("invoices").update({
+   billing_method_snapshot:"invoice_after_completion",subtotal_cents:Number(rentalBooking.total_cents||0),discount_total_cents:discount,
+   grand_total_cents:total,deposit_type:paid>0?"fixed":"none",deposit_value:paid,deposit_required_cents:paid,
+   amount_paid_cents:paid,balance_due_cents:balance,
+  }).eq("id",invoiceId).eq("status","draft");
+  if(rentalInvoiceError){
+   console.error("Rental balance invoice preparation failed",{jobId,invoiceId,bookingId:rentalBooking.id,code:rentalInvoiceError.code});
+   return{ok:false,invoiceId,error:rentalInvoiceError.code};
+  }
+  invoice.balance_due_cents=balance;
+  billingMethod="invoice_after_completion";
+  autoSend=true;
+  await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"updated",metadata:{automatic:true,source:"rental_job_completion",booking_id:rentalBooking.id,deposit_applied_cents:paid,remaining_balance_cents:balance}});
+ }
  if(invoice.billing_method_snapshot!==billingMethod){
   await db.from("invoices").update({billing_method_snapshot:billingMethod}).eq("id",invoiceId);
+ }
+ if(rentalBooking&&Number(invoice.balance_due_cents)<=0){
+  const now=new Date().toISOString();
+  await db.from("invoices").update({status:"paid",paid_at:now,balance_due_cents:0}).eq("id",invoiceId).eq("status","draft");
+  await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"paid",metadata:{automatic:true,source:"rental_job_completion",deposit_covered_balance:true}});
+  return{ok:true,invoiceId,action:"paid"};
  }
  if(billingMethod==="manual_billing")return{ok:true,invoiceId,action:"draft"};
 
