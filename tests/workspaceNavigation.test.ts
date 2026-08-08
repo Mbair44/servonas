@@ -10,6 +10,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  const settings=visibleNavigation(items).find(item=>item.id==="settings")!;
  assert.deepEqual(customers.children?.map(item=>[item.label,item.href]),[
   ["Customers","/app/acme/customers"],
+  ["Campaigns","/app/acme/customers/campaigns"],
  ]);
  assert.deepEqual(operations.children?.map(item=>[item.label,item.href]),[
   ["Schedule","/app/acme/schedule"],

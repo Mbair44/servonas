@@ -1,6 +1,6 @@
 import Link from "next/link";
 import {notFound} from "next/navigation";
-import {WorkspaceNav} from "../../../../WorkspaceNav";
+import {WorkspaceNav} from "../../../WorkspaceNav";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageCustomers} from "@/lib/access";
 import {sendCustomerCampaign} from "../actions";

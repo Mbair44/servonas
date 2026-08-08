@@ -1,5 +1,5 @@
 import Link from "next/link";
-import {WorkspaceNav} from "../../../WorkspaceNav";
+import {WorkspaceNav} from "../../WorkspaceNav";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageCustomers} from "@/lib/access";
 

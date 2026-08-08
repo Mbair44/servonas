@@ -44,7 +44,7 @@ export async function deliverCampaignRecipient(recipientId:string){
 
 export async function refreshCampaignCounts(campaignId:string){
  const db=getSupabaseAdmin();if(!db)return;
- const {data:rows}=await db.from("customer_campaign_recipients").select("status,opened_at,clicked_at").eq("campaign_id",campaignId);
+ const {data:rows}=await db.from("customer_campaign_recipients").select("status,sent_at,opened_at,clicked_at").eq("campaign_id",campaignId);
  const all=rows??[],count=(status:string)=>all.filter(row=>row.status===status).length,failed=count("failed"),skipped=count("skipped"),queued=count("queued");
- await db.from("customer_campaigns").update({recipient_count:all.length,sent_count:all.filter(row=>["sent","delivered"].includes(row.status)).length,delivered_count:count("delivered"),opened_count:all.filter(row=>row.opened_at).length,clicked_count:all.filter(row=>row.clicked_at).length,failed_count:failed,skipped_count:skipped,status:queued?"sending":failed||skipped?"partially_failed":"sent",...(queued?{}:{completed_at:new Date().toISOString()}),updated_at:new Date().toISOString()}).eq("id",campaignId);
+ await db.from("customer_campaigns").update({recipient_count:all.length,sent_count:all.filter(row=>row.sent_at).length,delivered_count:count("delivered"),opened_count:all.filter(row=>row.opened_at).length,clicked_count:all.filter(row=>row.clicked_at).length,failed_count:failed,skipped_count:skipped,status:queued?"sending":failed||skipped?"partially_failed":"sent",...(queued?{}:{completed_at:new Date().toISOString()}),updated_at:new Date().toISOString()}).eq("id",campaignId);
 }
