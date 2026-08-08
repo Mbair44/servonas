@@ -9,6 +9,7 @@ import {ScheduleServiceDrawer} from "@/components/ScheduleServiceDrawer";
 import {ServicePlanDrawer} from "@/components/ServicePlanDrawer";
 import {archiveCustomer,createServicePlan,updateCustomer} from "./actions";
 import {createJob} from "../jobs/actions";
+import {CustomerCampaignSelector,type CampaignCustomerHeader} from "@/components/CustomerCampaignSelector";
 
 const pageSize=25;
 const clean=(value:string)=>value.toLowerCase().trim();
@@ -69,10 +70,10 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const base=`/app/${businessSlug}/customers`;
  const href=(overrides:Record<string,string|undefined>)=>{const values={q:q.q,status,type,sort,direction,page:String(currentPage),...overrides};const query=new URLSearchParams(Object.entries(values).filter((entry):entry is [string,string]=>Boolean(entry[1])));return `${base}?${query}#customer-directory`;};
  const sortHref=(column:CustomerSort)=>href({sort:column,direction:sort===column&&direction==="asc"?"desc":"asc",page:"1",customer:undefined});
- const sortHeader=(column:CustomerSort,label:string)=><span role="columnheader" aria-sort={sort===column?(direction==="asc"?"ascending":"descending"):"none"}><Link className={sort===column?"active":""} href={sortHref(column)}>{label}<i aria-hidden="true">{sort===column?(direction==="asc"?"↑":"↓"):"↕"}</i></Link></span>;
+ const headers:CampaignCustomerHeader[]=[["customer","Customer"],["contact","Primary contact"],["type","Type"],["status","Status"],["locations","Locations"],["last_service","Last service"],["next_service","Next service"],["jobs","Total jobs"]].map(([column,label])=>({label,href:sortHref(column as CustomerSort),active:sort===column,direction}));
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content employee-directory-page customer-directory-page">
-  <header className="employee-page-header"><div><nav aria-label="Breadcrumb"><span>CRM</span><b aria-hidden="true">›</b><span>Customers</span></nav><h1>Customers</h1><p>Contacts, service locations, and job history in one place.</p></div><nav className="employee-primary-actions" aria-label="Customer actions"><Link className="sv-button sv-secondary" href={`${base}/messages`}>Text inbox</Link>{canEdit&&<><Link className="sv-button sv-secondary" href={`${base}/imports`}><span aria-hidden="true">↥</span>Import customers</Link><Link className="sv-button" href={`${base}/new`}><span aria-hidden="true">＋</span>Add customer</Link></>}</nav></header>
+  <header className="employee-page-header"><div><nav aria-label="Breadcrumb"><span>CRM</span><b aria-hidden="true">›</b><span>Customers</span></nav><h1>Customers</h1><p>Contacts, service locations, and job history in one place.</p></div><nav className="employee-primary-actions" aria-label="Customer actions"><Link className="sv-button sv-secondary" href={`${base}/campaigns`}>Campaigns</Link><Link className="sv-button sv-secondary" href={`${base}/messages`}>Text inbox</Link>{canEdit&&<><Link className="sv-button sv-secondary" href={`${base}/imports`}><span aria-hidden="true">↥</span>Import customers</Link><Link className="sv-button" href={`${base}/new`}><span aria-hidden="true">＋</span>Add customer</Link></>}</nav></header>
   {q.error&&<div className="workspace-notice error">{q.error}</div>}{q.success&&<div className="workspace-notice success">{q.success}</div>}
 
   <section className="employee-stat-row" aria-label="Customer summary">
@@ -92,16 +93,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
      <label><span>Customer type</span><select name="type" defaultValue={type}><option value="all">All types</option><option value="individual">Individual</option><option value="company">Company</option></select></label>
      <button className="sv-button sv-secondary" type="submit">Filters</button>
     </form>
-    <div className="customer-table" role="table" aria-label="Customers">
-     <div className="customer-table-head" role="row">{sortHeader("customer","Customer")}{sortHeader("contact","Primary contact")}{sortHeader("type","Type")}{sortHeader("status","Status")}{sortHeader("locations","Locations")}{sortHeader("last_service","Last service")}{sortHeader("next_service","Next service")}{sortHeader("jobs","Total jobs")}</div>
-     {visible.length?visible.map(customer=><Link role="row" className={selected?.id===customer.id?"selected":""} href={href({customer:customer.id})} key={customer.id}>
-      <span className="employee-table-identity" role="cell"><span className="employee-table-avatar">{initials(customer.displayName)}</span><span><strong>{customer.displayName}</strong><small>{customer.company_name?`${customer.first_name} ${customer.last_name}`.trim():"Customer"}</small></span></span>
-      <span className="customer-contact" role="cell"><strong>{customer.email||"No email"}</strong><small>{customer.phone||"No phone"}</small></span>
-      <span role="cell"><em className={`customer-type ${customer.customerType}`}>{customer.customerType}</em></span>
-      <span role="cell"><b className={`employee-state ${customer.is_active?"active":"inactive"}`}>● {customer.is_active?"Active":"Inactive"}</b></span>
-      <span role="cell">{customer.locations.length}</span><span role="cell">{customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—"}</span><span role="cell">{customer.nextService?formatBusinessDate(customer.nextService,business.timezone):"—"}</span><span role="cell">{customer.jobCount}</span>
-     </Link>):<div className="dashboard-empty"><strong>No matching customers.</strong><p>Adjust the filters or add a customer.</p></div>}
-    </div>
+    <CustomerCampaignSelector businessSlug={businessSlug} canCreate={canEdit} headers={headers} rows={visible.map(customer=>({id:customer.id,href:href({customer:customer.id}),selected:selected?.id===customer.id,initials:initials(customer.displayName),name:customer.displayName,subtitle:customer.company_name?`${customer.first_name} ${customer.last_name}`.trim():"Customer",email:customer.email||"No email",phone:customer.phone||"No phone",type:customer.customerType,active:customer.is_active,locations:customer.locations.length,lastService:customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—",nextService:customer.nextService?formatBusinessDate(customer.nextService,business.timezone):"—",jobs:customer.jobCount}))}/>
     <footer className="customer-table-footer"><span>Showing {visible.length?`${(currentPage-1)*pageSize+1} to ${(currentPage-1)*pageSize+visible.length}`:"0"} of {rows.length} customers</span>{totalPages>1&&<nav aria-label="Customer pages">{currentPage>1&&<Link href={href({page:String(currentPage-1)})}>←</Link>}<b>{currentPage}</b><span>of {totalPages}</span>{currentPage<totalPages&&<Link href={href({page:String(currentPage+1)})}>→</Link>}</nav>}</footer>
    </div>
 
