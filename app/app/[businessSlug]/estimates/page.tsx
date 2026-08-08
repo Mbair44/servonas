@@ -197,6 +197,12 @@ export default async function EstimatesPage({
           </div>
           {canManageCustomers(role) && (
             <nav className="employee-primary-actions" aria-label="Estimate actions">
+              {business.industry_profile === "lawn_care" && (
+                <Link className="sv-button sv-secondary" href={`${base}/property-measurements`}>
+                  <span aria-hidden="true">⌖</span>
+                  Measure property
+                </Link>
+              )}
               <Link className="sv-button" href={`${base}/new`}>
                 <span aria-hidden="true">＋</span>
                 New estimate
