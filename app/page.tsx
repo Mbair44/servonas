@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import {MarketingContentAttribution} from "@/components/MarketingContentAttribution";
 
 export const metadata: Metadata = {
- title: "Pest Control Business Software | Servonas",
- description: "Pest control business software for scheduling, recurring service, route planning, dispatch, technicians, invoicing, payments, and customer management.",
+ title: "Service Business Management Software | Servonas",
+ description: "Run customers, estimates, scheduling, dispatch, field teams, online booking, invoicing, payments, websites, and marketing from one service business platform.",
 };
 
 type CapabilityIconName="customers"|"recurring"|"dispatch"|"schedule"|"booking"|"payments";
@@ -45,11 +45,11 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
    <div className="home-hero-glow one"/><div className="home-hero-glow two"/>
    <div className="sv-container home-hero-grid">
     <div className="home-hero-copy">
-     <span className="sv-kicker">Pest control business software</span>
-     <h1>Run your pest control business from <span>first call to final payment.</span></h1>
-     <p>Servonas gives pest control companies one place to manage customers, recurring treatments, scheduling, route planning, dispatch, technicians, online booking, invoices, and payments.</p>
+     <span className="sv-kicker">Service business management software</span>
+     <h1>Run your entire service business from <span>first call to final payment.</span></h1>
+     <p>Servonas brings customers, estimates, jobs, scheduling, field teams, online booking, websites, communication, invoices, and payments together in one connected platform.</p>
      <div className="sv-actions"><Link className="sv-button home-primary-cta" href="/signup">Start Free <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" href="/demo">See Servonas in action</Link></div>
-     <div className="home-proof"><span>✓ Built for pest control</span><span>✓ Route-aware dispatch</span><span>✓ Recurring treatments</span></div>
+     <div className="home-proof"><span>✓ Built for service businesses</span><span>✓ Office and field tools</span><span>✓ Booking through payment</span></div>
     </div>
 
     <div className="home-product-preview" aria-label="Example Servonas dispatch workspace">
@@ -57,7 +57,7 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
      <div className="home-preview-body">
       <aside>
        <strong>Tuesday route</strong><small>5 scheduled stops</small>
-       {["General Pest","Quarterly Service","Termite Check","Routine Service"].map((job,index)=><div className="home-route-stop" key={job}><em>{index+1}</em><span><b>{job}</b><small>{["9:00 AM · Gilbert","10:20 AM · Gilbert","12:05 PM · Mesa","2:15 PM · Chandler"][index]}</small></span></div>)}
+       {["Seasonal Maintenance","Customer Installation","Property Service","Scheduled Repair"].map((job,index)=><div className="home-route-stop" key={job}><em>{index+1}</em><span><b>{job}</b><small>{["9:00 AM · Gilbert","10:20 AM · Gilbert","12:05 PM · Mesa","2:15 PM · Chandler"][index]}</small></span></div>)}
       </aside>
       <div className="home-route-map">
        <span className="map-road road-one"/><span className="map-road road-two"/>
@@ -82,7 +82,7 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
 
   <section className="home-operations"><div className="sv-container home-operations-grid">
    <div>
-    <span className="sv-kicker">Built for recurring field service</span>
+    <span className="sv-kicker">Built for modern service operations</span>
     <h2>Know who needs service, who is working, and what needs attention.</h2>
     <p>Servonas gives owners and dispatchers a live operating picture—not a collection of disconnected appointments.</p>
     <ul><li><b>Recurring plans</b><span>Generate and manage repeat visits with preserved pricing.</span></li><li><b>Territories and technicians</b><span>Match service locations to the right operating team.</span></li><li><b>Route-aware scheduling</b><span>Sequence flexible service calls around the day’s real geography.</span></li><li><b>Operational alerts</b><span>Surface unassigned work, address problems, conflicts, and failed actions.</span></li></ul>
@@ -98,7 +98,7 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
 
   <section className="sv-section home-audience"><div className="sv-container">
    <div className="sv-heading"><span className="sv-kicker">Made for businesses on the move</span><h2>Designed around real service days.</h2><p>Ideal for teams that visit customer locations, manage recurring work, and need the office and field to operate as one.</p></div>
-   <div>{["Pest control","HVAC","Plumbing","Electrical","Lawn & landscape","Pool service","Cleaning services","Mobile service teams"].map(name=><span key={name}>{name}</span>)}</div>
+   <div>{["HVAC","Plumbing","Electrical","Pest control","Lawn & landscape","Cleaning services","Pool service","Party rentals","Equipment rentals","Mobile service teams"].map(name=><span key={name}>{name}</span>)}</div>
   </div></section>
 
   <section className="home-final-cta"><div className="sv-container">
