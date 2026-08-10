@@ -1,6 +1,7 @@
 @import "./dispatch-map.css";
 @import "./landscape-measurements.css";
 @import "./job-record.css";
+@import "./invoice-record.css";
 
 :root {
   --ink: #1f2440;
@@ -1028,7 +1029,7 @@ body:has(.epic3-sidebar) .epic3-sidebar{z-index:55}
 
 /* Servonas field-service marketing homepage. */
 .marketing-home{overflow:hidden;background:#fff;color:var(--sv-ink)}
-.industry-hero-grid{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,.72fr);align-items:center;gap:70px}.industry-hero-card{display:grid;gap:10px;padding:28px;border:1px solid #d9e4f2;border-radius:22px;background:#fff;box-shadow:0 28px 70px #17335d1a}.industry-hero-card>span{color:var(--sv-blue);font-size:.75rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.industry-hero-card h2{margin:2px 0 10px;font-size:2rem}.industry-hero-card>div{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:11px;padding:13px;border-radius:12px;background:#f7faff}.industry-hero-card i{display:grid;width:30px;height:30px;place-items:center;border-radius:9px;background:#e7efff;color:#155eef;font-style:normal;font-weight:900}.industry-hero-card b{color:#087443;font-size:.7rem}@media(max-width:1000px){.industry-hero-grid{grid-template-columns:1fr}.industry-hero-card{max-width:720px}}
+.industry-hero-grid{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,.72fr);align-items:center;gap:70px}.industry-hero-card{display:grid;gap:10px;padding:28px;border:1px solid #d9e4f2;border-radius:22px;background:#fff;box-shadow:0 28px 70px #17335d1a}.industry-hero-card.has-image{overflow:hidden;padding:0 28px 28px}.industry-hero-card .industry-hero-photo{position:relative;display:block;width:calc(100% + 56px);height:230px;margin:0 -28px 16px;padding:0;border-radius:0;background:#e8eef5}.industry-hero-photo img{object-fit:cover;object-position:center}.industry-hero-card>span{color:var(--sv-blue);font-size:.75rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.industry-hero-card h2{margin:2px 0 10px;font-size:2rem}.industry-hero-card>div:not(.industry-hero-photo){display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:11px;padding:13px;border-radius:12px;background:#f7faff}.industry-hero-card i{display:grid;width:30px;height:30px;place-items:center;border-radius:9px;background:#e7efff;color:#155eef;font-style:normal;font-weight:900}.industry-hero-card b{color:#087443;font-size:.7rem}@media(max-width:1000px){.industry-hero-grid{grid-template-columns:1fr}.industry-hero-card{max-width:720px}}@media(max-width:560px){.industry-hero-card .industry-hero-photo{height:190px}}
 .home-hero{position:relative;padding:94px 0 92px;background:linear-gradient(145deg,#f7faff 0%,#fff 55%,#f2f7ff 100%)}
 .home-hero-glow{position:absolute;border-radius:50%;filter:blur(4px);opacity:.34;pointer-events:none}
 .home-hero-glow.one{top:-190px;right:-110px;width:500px;height:500px;background:#b9d3ff}

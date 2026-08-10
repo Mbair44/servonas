@@ -1,0 +1,31 @@
+.invoice-record-page{padding-top:25px;background:#fbfcfe}
+.invoice-record-page .customer-record-header h1{align-items:center;flex-wrap:wrap}
+.invoice-record-page .customer-record-header h1>.estimate-status{display:inline-flex;padding:5px 9px;border-radius:7px;font-size:.7rem;font-weight:850;text-transform:capitalize}
+.invoice-record-metrics strong{text-transform:capitalize}
+.invoice-record-metrics .invoice-metric-status i{background:#e2f7e9;color:#098248}
+.invoice-record-metrics .invoice-metric-paid i{background:#e3f7ea;color:#0b9b50}
+.invoice-record-main,.invoice-record-aside{align-content:start}
+.invoice-document-card{margin-top:0!important;overflow:hidden;border:1px solid #dfe5ee!important;border-radius:12px!important;box-shadow:none!important}
+.invoice-document-card>.panel-title{align-items:center;padding-bottom:14px;border-bottom:1px solid #edf0f4}
+.invoice-document-card>.panel-title h2{margin:0;font-size:.9rem}
+.invoice-document-card>.panel-title a,.invoice-document-card .estimate-document-head a{color:#155eef;font-size:.72rem;font-weight:800}
+.invoice-record-page #payments,.invoice-record-page #activity{scroll-margin-top:95px}
+.invoice-record-aside .workspace-panel{margin-top:0}
+.invoice-record-actions{display:grid;gap:10px}
+.invoice-record-actions>.panel-title{align-items:center}
+.invoice-record-actions .estimate-status{padding:5px 8px;border-radius:7px;font-size:.65rem;font-weight:850;text-transform:capitalize}
+.invoice-record-actions>form{display:grid}
+.invoice-record-actions .sv-button{width:100%;min-height:40px;padding:9px 12px;border-radius:8px;font-size:.72rem}
+.invoice-record-actions details{border-top:1px solid #edf0f4}
+.invoice-record-actions details>summary{padding-top:12px;color:#b42318;font-size:.72rem;font-weight:850;cursor:pointer}
+.invoice-record-actions details form{display:grid;gap:9px;padding-top:10px}
+.invoice-record-actions details input{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
+.invoice-offline-payment>p{color:#667085;font-size:.72rem;line-height:1.5}
+.invoice-offline-payment .estimate-form{grid-template-columns:1fr 1fr;gap:11px}
+.invoice-offline-payment .estimate-form label{font-size:.72rem}
+.invoice-offline-payment .estimate-form .wide,.invoice-offline-payment .estimate-form .sv-button{grid-column:1/-1}
+.invoice-offline-payment .estimate-form input,.invoice-offline-payment .estimate-form select,.invoice-offline-payment .estimate-form textarea{padding:9px;border-radius:8px;font-size:.76rem}
+.invoice-record-aside .estimate-event-list>p{margin:4px 0;color:#667085;font-size:.76rem}
+.invoice-record-aside .estimate-event-list small{color:#667085;font-size:.72rem}
+@media(max-width:1100px){.invoice-record-aside{grid-template-columns:1fr 1fr}.invoice-record-aside .invoice-record-actions{grid-row:span 2}}
+@media(max-width:700px){.invoice-record-aside{grid-template-columns:1fr}.invoice-record-aside .invoice-record-actions{grid-row:auto}.invoice-offline-payment .estimate-form{grid-template-columns:1fr}.invoice-offline-payment .estimate-form .wide,.invoice-offline-payment .estimate-form .sv-button{grid-column:auto}}
