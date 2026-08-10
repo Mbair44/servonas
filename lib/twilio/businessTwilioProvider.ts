@@ -36,9 +36,52 @@ export type StoredBusinessTwilioAccount = {
 
 type Business = { id: string; name: string };
 type TwilioAccount = { sid: string; friendly_name: string; status: string; auth_token?: string };
-export class TwilioRemediationError extends Error{
- readonly stage:"twilio_recovery"|"vault_storage";readonly providerStatus:number|null;readonly providerCode:number|null;
- constructor(stage:"twilio_recovery"|"vault_storage",providerStatus:number|null=null,providerCode:number|null=null){super("Twilio webhook credential remediation failed.");this.name="TwilioRemediationError";this.stage=stage;this.providerStatus=providerStatus;this.providerCode=providerCode;}
+export type TwilioRemediationErrorCategory =
+  | "missing_account_sid"
+  | "missing_auth_token"
+  | "invalid_request_construction"
+  | "network_fetch_exception"
+  | "twilio_http_error"
+  | "json_parsing_failure"
+  | "missing_auth_token_response"
+  | "subaccount_sid_mismatch"
+  | "unexpected_recovery_error"
+  | "vault_storage_error";
+
+type TwilioRemediationErrorOptions = {
+  category: TwilioRemediationErrorCategory;
+  providerStatus?: number | null;
+  providerCode?: number | null;
+  hasAccountSid?: boolean;
+  hasAuthToken?: boolean;
+  errorName?: string | null;
+};
+
+const safeErrorName = (error: unknown) => {
+  if (!(error instanceof Error)) return null;
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(error.name) ? error.name : "Error";
+};
+
+export class TwilioRemediationError extends Error {
+  readonly stage: "twilio_recovery" | "vault_storage";
+  readonly category: TwilioRemediationErrorCategory;
+  readonly providerStatus: number | null;
+  readonly providerCode: number | null;
+  readonly hasAccountSid: boolean;
+  readonly hasAuthToken: boolean;
+  readonly errorName: string | null;
+
+  constructor(stage: "twilio_recovery" | "vault_storage", options: TwilioRemediationErrorOptions) {
+    super("Twilio webhook credential remediation failed.");
+    this.name = "TwilioRemediationError";
+    this.stage = stage;
+    this.category = options.category;
+    this.providerStatus = options.providerStatus ?? null;
+    this.providerCode = options.providerCode ?? null;
+    this.hasAccountSid = options.hasAccountSid ?? Boolean(process.env.TWILIO_ACCOUNT_SID?.trim());
+    this.hasAuthToken = options.hasAuthToken ?? Boolean(process.env.TWILIO_AUTH_TOKEN?.trim());
+    this.errorName = options.errorName ?? null;
+  }
 }
 
 export type BusinessTwilioRepository = {
@@ -87,11 +130,22 @@ function parentCredentials() {
   return { accountSid, username, password };
 }
 
-function parentRecoveryCredentials(){const accountSid=process.env.TWILIO_ACCOUNT_SID?.trim(),authToken=process.env.TWILIO_AUTH_TOKEN?.trim();if(!accountSid||!authToken)throw new TwilioRemediationError("twilio_recovery");return{accountSid,authToken};}
+function parentRecoveryCredentials() {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const availability = { hasAccountSid: Boolean(accountSid), hasAuthToken: Boolean(authToken) };
+  if (!accountSid) {
+    throw new TwilioRemediationError("twilio_recovery", { category: "missing_account_sid", ...availability });
+  }
+  if (!authToken) {
+    throw new TwilioRemediationError("twilio_recovery", { category: "missing_auth_token", ...availability });
+  }
+  return { accountSid, authToken };
+}
 
 export function getParentTwilioClient(): ParentTwilioClient {
-  const credentials = parentCredentials();
   const request = async (url: string, init?: RequestInit) => {
+    const credentials = parentCredentials();
     const response = await fetch(url, {
       ...init,
       headers: {
@@ -114,10 +168,65 @@ export function getParentTwilioClient(): ParentTwilioClient {
       // Credential recovery is intentionally authenticated exactly as Twilio's
       // Accounts API documents: parent Account SID + parent Auth Token. Normal
       // provisioning continues to prefer the Main API key.
-      const recovery=parentRecoveryCredentials(),response=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(subaccountSid)}.json`,{headers:{Authorization:`Basic ${Buffer.from(`${recovery.accountSid}:${recovery.authToken}`).toString("base64")}`},cache:"no-store"});
-      const value=await response.json().catch(()=>({})) as TwilioAccount&{code?:number};
-      if(!response.ok)throw new TwilioRemediationError("twilio_recovery",response.status,typeof value.code==="number"?value.code:null);
-      if(!value.sid||!value.auth_token)throw new TwilioRemediationError("twilio_recovery",response.status,typeof value.code==="number"?value.code:null);
+      const recovery = parentRecoveryCredentials();
+      const availability = { hasAccountSid: true, hasAuthToken: true };
+      if (!/^AC[0-9a-f]{32}$/i.test(subaccountSid)) {
+        throw new TwilioRemediationError("twilio_recovery", { category: "invalid_request_construction", ...availability });
+      }
+      let url: URL;
+      try {
+        url = new URL(`/2010-04-01/Accounts/${encodeURIComponent(subaccountSid)}.json`, "https://api.twilio.com");
+      } catch (error) {
+        throw new TwilioRemediationError("twilio_recovery", {
+          category: "invalid_request_construction",
+          errorName: safeErrorName(error),
+          ...availability,
+        });
+      }
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Basic ${Buffer.from(`${recovery.accountSid}:${recovery.authToken}`).toString("base64")}`,
+          },
+          cache: "no-store",
+        });
+      } catch (error) {
+        throw new TwilioRemediationError("twilio_recovery", {
+          category: "network_fetch_exception",
+          errorName: safeErrorName(error),
+          ...availability,
+        });
+      }
+      let value: TwilioAccount & { code?: number };
+      try {
+        value = await response.json() as TwilioAccount & { code?: number };
+      } catch (error) {
+        throw new TwilioRemediationError("twilio_recovery", {
+          category: "json_parsing_failure",
+          providerStatus: response.status,
+          errorName: safeErrorName(error),
+          ...availability,
+        });
+      }
+      const providerCode = typeof value.code === "number" ? value.code : null;
+      if (!response.ok) {
+        throw new TwilioRemediationError("twilio_recovery", {
+          category: "twilio_http_error",
+          providerStatus: response.status,
+          providerCode,
+          ...availability,
+        });
+      }
+      if (!value.auth_token) {
+        throw new TwilioRemediationError("twilio_recovery", {
+          category: "missing_auth_token_response",
+          providerStatus: response.status,
+          providerCode,
+          ...availability,
+        });
+      }
       return value;
     },
     async createSubaccount(friendlyName) {
@@ -237,8 +346,8 @@ export async function getOrCreateBusinessTwilioSubaccount(businessId: string) {
 
 export async function reconcileExistingBusinessTwilioSecret(deps:{repository:BusinessTwilioRepository;parentClient:ParentTwilioClient;secretStore:SubaccountWebhookSecretResolver},businessId:string){
  const row=await deps.repository.getAccount(businessId);if(!row?.twilio_subaccount_sid)throw new Error("Business Twilio subaccount not found.");
- let account:TwilioAccount;try{account=await deps.parentClient.getSubaccount(row.twilio_subaccount_sid);}catch(error){if(error instanceof TwilioRemediationError)throw error;throw new TwilioRemediationError("twilio_recovery");}if(account.sid!==row.twilio_subaccount_sid||!account.auth_token)throw new TwilioRemediationError("twilio_recovery");
- let metadata;try{metadata=await deps.secretStore.storeSubaccountAuthToken({businessId,subaccountSid:account.sid,authToken:account.auth_token});}catch{throw new TwilioRemediationError("vault_storage");}
+ let account:TwilioAccount;try{account=await deps.parentClient.getSubaccount(row.twilio_subaccount_sid);}catch(error){if(error instanceof TwilioRemediationError)throw error;throw new TwilioRemediationError("twilio_recovery",{category:"unexpected_recovery_error",errorName:safeErrorName(error)});}if(account.sid!==row.twilio_subaccount_sid)throw new TwilioRemediationError("twilio_recovery",{category:"subaccount_sid_mismatch"});if(!account.auth_token)throw new TwilioRemediationError("twilio_recovery",{category:"missing_auth_token_response"});
+ let metadata;try{metadata=await deps.secretStore.storeSubaccountAuthToken({businessId,subaccountSid:account.sid,authToken:account.auth_token});}catch(error){throw new TwilioRemediationError("vault_storage",{category:"vault_storage_error",errorName:safeErrorName(error)});}
  return{subaccountSid:account.sid,webhookSecretStatus:metadata.status,webhookSecretVersion:metadata.version,webhookSecretUpdatedAt:metadata.updatedAt};
 }
 export const reconcileBusinessTwilioWebhookSecret=(businessId:string)=>reconcileExistingBusinessTwilioSecret({repository:supabaseRepository(),parentClient:getParentTwilioClient(),secretStore:getSubaccountWebhookSecretResolver()},businessId);
