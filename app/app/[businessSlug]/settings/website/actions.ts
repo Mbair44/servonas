@@ -11,7 +11,7 @@ import {findGoogleBusinessPlace,resolveGoogleBusinessPlaceId} from "@/lib/google
 import {normalizeInstagramUrl} from "@/lib/socialLinks";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
-const target=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}`;
+const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
 const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,12);
 const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
@@ -59,7 +59,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
   const {error:bookingRepairError}=await supabase.from("booking_settings").update({enabled:true,public_slug:publicSlug,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
   if(bookingRepairError)console.error("Party-rental website booking repair failed",{businessId:business.id,code:bookingRepairError.code});
  }
- revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved."));
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved.",text(data,"websiteStep")));
 }
 
 export async function disconnectGoogleBusinessProfile(slug:string){

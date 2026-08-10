@@ -1,4 +1,4 @@
-export type WebsiteIconName="eye"|"send"|"external"|"check"|"calendar"|"pin"|"globe"|"store"|"tools"|"clock"|"shield"|"save"|"upload"|"plus"|"arrow";
+export type WebsiteIconName="eye"|"send"|"external"|"check"|"alert"|"calendar"|"pin"|"globe"|"store"|"tools"|"clock"|"shield"|"save"|"upload"|"plus"|"arrow";
 
 export function WebsiteIcon({name}:{name:WebsiteIconName}){
  const paths:Record<WebsiteIconName,React.ReactNode>={
@@ -6,6 +6,7 @@ export function WebsiteIcon({name}:{name:WebsiteIconName}){
   send:<><path d="m21 3-8.2 18-2.6-7.2L3 11.2 21 3Z"/><path d="m10.2 13.8 4.5-4.5"/></>,
   external:<><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6H5V6h6"/></>,
   check:<path d="m5 12 4.2 4.2L19 6.5"/>,
+  alert:<><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17.2v.1"/></>,
   calendar:<><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></>,
   pin:<><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,
   globe:<><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></>,
