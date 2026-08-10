@@ -20,6 +20,10 @@ test("area-code suggestion prefers the existing business-facing US number",()=>{
 
 test("configured market is used only when no valid business phone exists",()=>{const mapped=suggestAreaCodes({phone:null,city:"Gilbert",state:"AZ",country:"US"},{"AZ:GILBERT":["480","602"]}),unmapped=suggestAreaCodes({phone:null,city:"Unknown",state:"AZ",country:"US"},{});assert.equal(mapped.preferredAreaCode,"480");assert.equal(mapped.source,"configured_market");assert.equal(unmapped.preferredAreaCode,null);assert.equal(unmapped.requiresSelection,true);});
 
+test("reliable geographic inference takes priority over configured fallbacks",()=>{const suggestion=suggestAreaCodes({phone:null,city:"Gilbert",state:"AZ",postalCode:"85296",country:"US"},{"AZ:GILBERT":["602","623"]},["480","520"]);assert.equal(suggestion.preferredAreaCode,"480");assert.deepEqual(suggestion.fallbackAreaCodes,["520","602","623"]);assert.equal(suggestion.source,"geographic_inference");});
+
+test("business phone stays preferred while geography and config become fallbacks",()=>{const suggestion=suggestAreaCodes({phone:"+14805550123",city:"Gilbert",state:"AZ",postalCode:"85296",country:"US"},{"AZ:GILBERT":["623"]},["602","480"]);assert.equal(suggestion.preferredAreaCode,"480");assert.deepEqual(suggestion.fallbackAreaCodes,["602","623"]);assert.equal(suggestion.source,"business_phone");});
+
 test("area-code suggestion rejects invalid and non-US phone formats",()=>{assert.equal(extractUsAreaCode("123-555-0100"),null);assert.equal(extractUsAreaCode("+44 20 7946 0958"),null);});
 
 test("primary business phone wins when multiple phone numbers exist",()=>{const suggestion=suggestAreaCodes({phone:"+14805550123",otherPhones:["+16025550123","+16235550123"],city:"Gilbert",state:"AZ",country:"US"},{AZ:["602","623"]});assert.equal(suggestion.preferredAreaCode,"480");assert.deepEqual(suggestion.fallbackAreaCodes,["602","623"]);});
