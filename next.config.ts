@@ -3,9 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
-      // Public booking supports one optional 10MB image plus multipart form
-      // overhead. File type and exact size are still enforced in the action.
-      bodySizeLimit: "11mb",
+      // Rental inventory can include an 8 MB photo and a 10 MB receipt in the
+      // same multipart form. Exact per-file limits are enforced in the UI and action.
+      bodySizeLimit: "20mb",
     },
   },
   images: {
