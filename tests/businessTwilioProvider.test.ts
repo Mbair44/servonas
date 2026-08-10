@@ -16,6 +16,7 @@ function harness() {
     twilio_subaccount_friendly_name: null, twilio_subaccount_status: null,
     provisioning_status: status, provisioning_error: null,
     created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString(), last_synced_at: null,
+    webhook_secret_status:"missing",webhook_secret_version:0,webhook_secret_updated_at:null,
   });
   const repository: BusinessTwilioRepository = {
     async getBusiness(id) { return [businessA, businessB].includes(id) ? { id, name: id === businessA ? "Business A" : "Business B" } : null; },
@@ -24,12 +25,15 @@ function harness() {
     async markProvisioning(id, friendlyName) { const value = [...records.values()].find(item => item.id === id)!; Object.assign(value, { provisioning_status: "provisioning", provisioning_error: null, twilio_subaccount_friendly_name: friendlyName, updated_at: new Date().toISOString() }); return value; },
     async markActive(id, account) { const value = [...records.values()].find(item => item.id === id)!; Object.assign(value, { provisioning_status: "active", twilio_subaccount_sid: account.sid, twilio_subaccount_friendly_name: account.friendly_name, twilio_subaccount_status: account.status, last_synced_at: new Date().toISOString() }); return value; },
     async markFailed(id, message) { const value = [...records.values()].find(item => item.id === id)!; Object.assign(value, { provisioning_status: "failed", provisioning_error: message, updated_at: new Date().toISOString() }); },
+    async markWebhookSecretError(id){const value=[...records.values()].find(item=>item.id===id)!;value.webhook_secret_status="error";},
   };
   const parentClient = {
     async findSubaccountByFriendlyName() { return null; },
-    async createSubaccount(friendlyName: string) { creates += 1; if (failWith) throw failWith; return { sid: `AC${"1".repeat(32)}`, friendly_name: friendlyName, status: "active" }; },
+    async getSubaccount() { return { sid: `AC${"1".repeat(32)}`, friendly_name:"Business A", status:"active",auth_token:"token-value" }; },
+    async createSubaccount(friendlyName: string) { creates += 1; if (failWith) throw failWith; return { sid: `AC${"1".repeat(32)}`, friendly_name: friendlyName, status: "active",auth_token:"token-value" }; },
   };
-  return { records, repository, parentClient, creates: () => creates, fail: (error: Error | null) => { failWith = error; } };
+  const secretStore={async storeSubaccountAuthToken(){return{status:"available" as const,version:1,updatedAt:new Date().toISOString()};},async getSubaccountAuthToken(){return"token-value";},async deleteSubaccountAuthToken(){},async rotateSubaccountAuthToken(){return{status:"available" as const,version:2,updatedAt:new Date().toISOString()};}};
+  return { records, repository, parentClient,secretStore, creates: () => creates, fail: (error: Error | null) => { failWith = error; } };
 }
 
 test("legacy Twilio credentials still prefer API keys and retain the legacy sender", () => {

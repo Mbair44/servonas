@@ -30,6 +30,11 @@ export function getParentTwilioHttpClient(): TwilioHttpClient {
   };
 }
 
+export function getSubaccountTwilioHttpClient(accountSid:string,authToken:string):TwilioHttpClient{
+ if(!/^AC[0-9A-Za-z]{32}$/.test(accountSid)||!authToken)throw new Error("Subaccount Twilio credentials are unavailable.");
+ return{async request<T>(url:string,init?:RequestInit):Promise<T>{const response=await fetch(url,{...init,headers:{Authorization:`Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,...(init?.headers??{})},cache:"no-store"});const value=await response.json().catch(()=>({})) as T;if(!response.ok)throw new Error(`Twilio request failed (${response.status}).`);return value;}};
+}
+
 export const formRequest = (values: Record<string, string>) => ({
   method: "POST",
   headers: { "Content-Type": "application/x-www-form-urlencoded" },

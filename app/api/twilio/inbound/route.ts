@@ -3,7 +3,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
 import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
-import {getSubaccountWebhookSecretResolver} from "@/lib/twilio/subaccountWebhookSecrets";
+import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
 
 export const runtime="nodejs";
 
@@ -13,19 +13,9 @@ export async function POST(request:Request){
  const raw=await request.text(),params=new URLSearchParams(raw),signature=request.headers.get("x-twilio-signature")??"";
  const accountSid=params.get("AccountSid")??"",to=params.get("To")??"";
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
- let token:string|null=null;
- if(!accountSid||accountSid===process.env.TWILIO_ACCOUNT_SID)token=process.env.TWILIO_AUTH_TOKEN??null;
- else{
-  // Resolve tenant ownership from provider identifiers, never from a client-supplied
-  // business id. Numbers are not configured with this webhook until the resolver is
-  // backed by secure secret storage, so legacy production traffic remains unchanged.
-  const {data:number}=await db.from("twilio_phone_numbers").select("business_twilio_account_id,business_twilio_accounts!inner(twilio_subaccount_sid)").eq("phone_number_e164",to).eq("status","active").maybeSingle();
-  const linked=number as {business_twilio_accounts?:{twilio_subaccount_sid?:string}|{twilio_subaccount_sid?:string}[]}|null;
-  const linkedAccount=Array.isArray(linked?.business_twilio_accounts)?linked?.business_twilio_accounts[0]:linked?.business_twilio_accounts;
-  if(linkedAccount?.twilio_subaccount_sid!==accountSid)return NextResponse.json({error:"Number not configured"},{status:404});
-  token=await getSubaccountWebhookSecretResolver().getAuthToken(accountSid);
-  if(!token)return NextResponse.json({error:"Tenant webhook verification is not configured"},{status:503});
- }
+ const security=await resolveConfiguredInboundWebhookSecurity(accountSid,to);
+ if(!security)return NextResponse.json({error:"Webhook account is not securely configured"},{status:403});
+ const token=security.token;
  const webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
  if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
  const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",body=params.get("Body")??"";
