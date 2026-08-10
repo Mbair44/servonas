@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "../supabaseAdmin.ts";
+import { getSubaccountWebhookSecretResolver, type SubaccountWebhookSecretResolver } from "./subaccountWebhookSecrets.ts";
 
 export const businessTwilioProvisioningStatuses = ["not_started", "provisioning", "active", "failed", "suspended"] as const;
 export type BusinessTwilioProvisioningStatus = typeof businessTwilioProvisioningStatuses[number];
@@ -12,6 +13,9 @@ export type BusinessTwilioContext = {
   provisioningStatus: BusinessTwilioProvisioningStatus;
   provisioningError: string | null;
   lastSyncedAt: string | null;
+  webhookSecretStatus: "missing"|"available"|"rotation_required"|"error";
+  webhookSecretVersion: number;
+  webhookSecretUpdatedAt: string | null;
 };
 
 export type StoredBusinessTwilioAccount = {
@@ -25,6 +29,9 @@ export type StoredBusinessTwilioAccount = {
   created_at: string;
   updated_at: string;
   last_synced_at: string | null;
+  webhook_secret_status: "missing"|"available"|"rotation_required"|"error";
+  webhook_secret_version: number;
+  webhook_secret_updated_at: string | null;
 };
 
 type Business = { id: string; name: string };
@@ -37,10 +44,12 @@ export type BusinessTwilioRepository = {
   markProvisioning(id: string, friendlyName: string): Promise<StoredBusinessTwilioAccount>;
   markActive(id: string, account: TwilioAccount): Promise<StoredBusinessTwilioAccount>;
   markFailed(id: string, message: string): Promise<void>;
+  markWebhookSecretError(id:string):Promise<void>;
 };
 
 export type ParentTwilioClient = {
   findSubaccountByFriendlyName(friendlyName: string): Promise<TwilioAccount | null>;
+  getSubaccount(subaccountSid: string): Promise<TwilioAccount>;
   createSubaccount(friendlyName: string): Promise<TwilioAccount>;
 };
 
@@ -53,6 +62,9 @@ const toContext = (row: StoredBusinessTwilioAccount): BusinessTwilioContext => (
   provisioningStatus: row.provisioning_status,
   provisioningError: row.provisioning_error,
   lastSyncedAt: row.last_synced_at,
+  webhookSecretStatus: row.webhook_secret_status,
+  webhookSecretVersion: row.webhook_secret_version,
+  webhookSecretUpdatedAt: row.webhook_secret_updated_at,
 });
 
 // Provider errors can contain request context Servonas does not control. Keep the
@@ -92,6 +104,9 @@ export function getParentTwilioClient(): ParentTwilioClient {
       const value = await request(`https://api.twilio.com/2010-04-01/Accounts.json?${query}`);
       return value.accounts?.find(account => account.friendly_name === friendlyName) ?? null;
     },
+    getSubaccount(subaccountSid) {
+      return request(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(subaccountSid)}.json`);
+    },
     async createSubaccount(friendlyName) {
       const value = await request("https://api.twilio.com/2010-04-01/Accounts.json", {
         method: "POST",
@@ -100,7 +115,7 @@ export function getParentTwilioClient(): ParentTwilioClient {
       });
       if (!value.sid) throw new Error("Twilio created no identifiable subaccount.");
       // Twilio includes auth_token in this response. It is deliberately discarded.
-      return { sid: value.sid, friendly_name: value.friendly_name, status: value.status };
+      return { sid: value.sid, friendly_name: value.friendly_name, status: value.status, auth_token:value.auth_token };
     },
   };
 }
@@ -108,7 +123,7 @@ export function getParentTwilioClient(): ParentTwilioClient {
 function supabaseRepository(): BusinessTwilioRepository {
   const db = getSupabaseAdmin();
   if (!db) throw new Error("Server-side Twilio provisioning storage is unavailable.");
-  const select = "id,business_id,twilio_subaccount_sid,twilio_subaccount_friendly_name,twilio_subaccount_status,provisioning_status,provisioning_error,created_at,updated_at,last_synced_at";
+  const select = "id,business_id,twilio_subaccount_sid,twilio_subaccount_friendly_name,twilio_subaccount_status,provisioning_status,provisioning_error,created_at,updated_at,last_synced_at,webhook_secret_status,webhook_secret_version,webhook_secret_updated_at";
   const one = async (promise: PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>) => {
     const { data, error } = await promise;
     if (error) throw Object.assign(new Error(error.message), { code: error.code });
@@ -142,11 +157,12 @@ function supabaseRepository(): BusinessTwilioRepository {
       const { error } = await db.from("business_twilio_accounts").update({ provisioning_status: "failed", provisioning_error: message, updated_at: new Date().toISOString() }).eq("id", id);
       if (error) throw new Error("Twilio provisioning failure state could not be saved.");
     },
+    async markWebhookSecretError(id){const {error}=await db.from("business_twilio_accounts").update({webhook_secret_status:"error",webhook_secret_updated_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id);if(error)throw new Error("Twilio webhook security state could not be saved.");},
   };
 }
 
-export function createBusinessTwilioProvider(dependencies: { repository: BusinessTwilioRepository; parentClient: ParentTwilioClient }) {
-  const { repository, parentClient } = dependencies;
+export function createBusinessTwilioProvider(dependencies: { repository: BusinessTwilioRepository; parentClient: ParentTwilioClient; secretStore:SubaccountWebhookSecretResolver }) {
+  const { repository, parentClient, secretStore } = dependencies;
   const getBusinessTwilioContext = async (businessId: string) => {
     const row = await repository.getAccount(businessId);
     return row ? toContext(row) : null;
@@ -171,6 +187,8 @@ export function createBusinessTwilioProvider(dependencies: { repository: Busines
     row = await repository.markProvisioning(row.id, friendlyName);
     try {
       const account = await parentClient.findSubaccountByFriendlyName(friendlyName) ?? await parentClient.createSubaccount(friendlyName);
+      if(!account.auth_token)throw new Error("Twilio returned no recoverable webhook credential.");
+      try{await secretStore.storeSubaccountAuthToken({businessId,subaccountSid:account.sid,authToken:account.auth_token});}catch{await repository.markWebhookSecretError(row.id);throw new Error("Secure Twilio credential storage failed.");}
       return toContext(await repository.markActive(row.id, account));
     } catch {
       const message = safeError();
@@ -194,11 +212,29 @@ export async function getBusinessTwilioContext(businessId: string) {
 }
 
 export function createBusinessTwilioSubaccount(businessId: string) {
-  return createBusinessTwilioProvider({ repository: supabaseRepository(), parentClient: getParentTwilioClient() }).createBusinessTwilioSubaccount(businessId);
+  return createBusinessTwilioProvider({ repository: supabaseRepository(), parentClient: getParentTwilioClient(),secretStore:getSubaccountWebhookSecretResolver() }).createBusinessTwilioSubaccount(businessId);
 }
 
 export async function getOrCreateBusinessTwilioSubaccount(businessId: string) {
   const existing = await getBusinessTwilioContext(businessId);
   if (existing?.subaccountSid) return existing;
-  return createBusinessTwilioProvider({ repository: supabaseRepository(), parentClient: getParentTwilioClient() }).getOrCreateBusinessTwilioSubaccount(businessId);
+  return createBusinessTwilioProvider({ repository: supabaseRepository(), parentClient: getParentTwilioClient(),secretStore:getSubaccountWebhookSecretResolver() }).getOrCreateBusinessTwilioSubaccount(businessId);
+}
+
+export async function reconcileExistingBusinessTwilioSecret(deps:{repository:BusinessTwilioRepository;parentClient:ParentTwilioClient;secretStore:SubaccountWebhookSecretResolver},businessId:string){
+ const row=await deps.repository.getAccount(businessId);if(!row?.twilio_subaccount_sid)throw new Error("Business Twilio subaccount not found.");
+ const account=await deps.parentClient.getSubaccount(row.twilio_subaccount_sid);if(account.sid!==row.twilio_subaccount_sid||!account.auth_token)throw new Error("Twilio returned no recoverable webhook credential.");
+ const metadata=await deps.secretStore.storeSubaccountAuthToken({businessId,subaccountSid:account.sid,authToken:account.auth_token});
+ return{subaccountSid:account.sid,webhookSecretStatus:metadata.status,webhookSecretVersion:metadata.version,webhookSecretUpdatedAt:metadata.updatedAt};
+}
+export const reconcileBusinessTwilioWebhookSecret=(businessId:string)=>reconcileExistingBusinessTwilioSecret({repository:supabaseRepository(),parentClient:getParentTwilioClient(),secretStore:getSubaccountWebhookSecretResolver()},businessId);
+
+// Server-only rotation primitive. No route intentionally exposes this in Phase 2.5.
+// Twilio creates a secondary token and promotes it; only the promoted value is put
+// into Vault. If Vault fails, the parent Accounts API can reconcile the current token.
+export async function rotateExistingBusinessTwilioSecret(deps:{repository:BusinessTwilioRepository;parentClient:ParentTwilioClient;secretStore:SubaccountWebhookSecretResolver},businessId:string){
+ const row=await deps.repository.getAccount(businessId);if(!row?.twilio_subaccount_sid)throw new Error("Business Twilio subaccount not found.");const sid=row.twilio_subaccount_sid,current=await deps.secretStore.getSubaccountAuthToken({businessId,subaccountSid:sid});if(!current)throw new Error("Current Twilio webhook credential is unavailable.");
+ const request=async(url:string,token:string,method="POST")=>{const response=await fetch(url,{method,headers:{Authorization:`Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`},cache:"no-store"});const value=await response.json().catch(()=>({})) as {secondary_auth_token?:string;auth_token?:string};if(!response.ok)throw new Error("Twilio credential rotation failed.");return value;};
+ const secondary=await request("https://accounts.twilio.com/v1/AuthTokens/Secondary",current);if(!secondary.secondary_auth_token)throw new Error("Twilio returned no secondary credential.");
+ try{const promoted=await request("https://accounts.twilio.com/v1/AuthTokens/Promote",current);if(!promoted.auth_token)throw new Error("Twilio returned no promoted credential.");return await deps.secretStore.rotateSubaccountAuthToken({businessId,subaccountSid:sid,authToken:promoted.auth_token});}catch(error){try{await request("https://accounts.twilio.com/v1/AuthTokens/Secondary",current,"DELETE");}catch{}throw error;}
 }

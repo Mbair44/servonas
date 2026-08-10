@@ -3,6 +3,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
 import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
+import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
 
 export const runtime="nodejs";
 
@@ -10,10 +11,14 @@ type IntakeResult={duplicate:boolean;message_id:string;business_id:string;custom
 
 export async function POST(request:Request){
  const raw=await request.text(),params=new URLSearchParams(raw),signature=request.headers.get("x-twilio-signature")??"";
- const token=process.env.TWILIO_AUTH_TOKEN,webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
- if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
- const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",to=params.get("To")??"",body=params.get("Body")??"";
+ const accountSid=params.get("AccountSid")??"",to=params.get("To")??"";
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
+ const security=await resolveConfiguredInboundWebhookSecurity(accountSid,to);
+ if(!security)return NextResponse.json({error:"Webhook account is not securely configured"},{status:403});
+ const token=security.token;
+ const webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
+ if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
+ const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",body=params.get("Body")??"";
  const {data,error}=await db.rpc("process_inbound_sms",{p_provider_message_id:sid,p_from_phone:from,p_to_phone:to,p_body:body});
  if(error){
   console.error("Inbound SMS processing failed",{code:error.code,message:error.message,sid});
