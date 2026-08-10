@@ -1,5 +1,6 @@
 @import "./dispatch-map.css";
 @import "./landscape-measurements.css";
+@import "./job-record.css";
 
 :root {
   --ink: #1f2440;
