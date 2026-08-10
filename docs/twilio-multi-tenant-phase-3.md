@@ -1,6 +1,6 @@
 # Twilio multi-tenant Phase 3
 
-Phase 3 registers an eligible tenant for A2P messaging and cuts outbound campaign SMS over to that tenant's Messaging Service only after Twilio approval. Existing SMS remains on the legacy sender until that final approval.
+Phase 3 registers an eligible tenant for A2P messaging and prepares a tenant-specific sender for a later controlled test. Existing production SMS call sites remain on the legacy sender; Phase 3 approval does not automatically cut them over.
 
 ## Safety boundaries
 
@@ -13,7 +13,7 @@ Phase 3 registers an eligible tenant for A2P messaging and cuts outbound campaig
 
 ## Deployment
 
-1. Apply `20260811000100_twilio_phase_3_activation.sql` to Supabase.
+1. Apply `20260810000500_twilio_phase_3_activation.sql` to Supabase.
 2. Set `TWILIO_PRIMARY_CUSTOMER_PROFILE_SID` to the approved Servonas Primary Customer Profile SID.
 3. Set `TWILIO_TENANT_MESSAGE_STATUS_WEBHOOK_URL` to the canonical production callback URL.
 4. Keep the existing parent API key, parent Auth Token, and Phase 2.5 Vault configuration.
@@ -21,6 +21,6 @@ Phase 3 registers an eligible tenant for A2P messaging and cuts outbound campaig
 6. Sign in as a Servonas platform administrator and open `/app/admin/twilio`.
 7. Select a tenant and verify every readiness check before submitting activation.
 
-## Cutover and rollback behavior
+## Sender isolation
 
-The service stores only Twilio resource SIDs and state; tenant Auth Tokens stay in Supabase Vault. Campaign SMS uses the tenant subaccount and Messaging Service only when local state is `active`. Missing credentials, pending compliance, or any incomplete activation continues using the legacy sender. Tenant status callbacks are signature-validated with the tenant's Vault credential.
+The service stores only Twilio resource SIDs and state; tenant Auth Tokens stay in Supabase Vault. `tenantOutboundSender.ts` is intentionally not connected to an existing production SMS call site. Existing booking, campaign, reminder, review, missed-call, automatic-reply, and manager-notification traffic continues through its legacy sender. The tenant status callback is available for a future controlled sender test and validates signatures with the tenant's Vault credential.
