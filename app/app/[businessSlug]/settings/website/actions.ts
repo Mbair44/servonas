@@ -59,7 +59,22 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
   const {error:bookingRepairError}=await supabase.from("booking_settings").update({enabled:true,public_slug:publicSlug,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
   if(bookingRepairError)console.error("Party-rental website booking repair failed",{businessId:business.id,code:bookingRepairError.code});
  }
- revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved.",text(data,"websiteStep")));
+ const availability=[] as {business_id:string;weekday:number;start_time:string;end_time:string;active:boolean}[];
+ for(let weekday=0;weekday<7;weekday++)if(data.get(`websiteDay_${weekday}`)==="on"){
+  const start=text(data,`websiteStart_${weekday}`),end=text(data,`websiteEnd_${weekday}`);
+  if(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start)redirect(target(slug,"error","Each open day needs a closing time later than its opening time.","hours"));
+  availability.push({business_id:business.id,weekday,start_time:start,end_time:end,active:true});
+ }
+ const {error:clearHoursError}=await supabase.from("booking_availability").delete().eq("business_id",business.id);
+ if(clearHoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));
+ if(availability.length){const {error:hoursError}=await supabase.from("booking_availability").insert(availability);if(hoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));}
+ const areaIds=data.getAll("websiteAreaId").map(String),areaNames=data.getAll("websiteAreaName").map(value=>String(value).trim()),removeIds=new Set(data.getAll("websiteRemoveAreaId").map(String)),newAreas=[...new Set(text(data,"websiteNewAreas").split(/\r?\n|,/).map(value=>value.trim()).filter(Boolean))];
+ if(areaNames.some(name=>!name||name.length>150)||newAreas.some(name=>name.length>150))redirect(target(slug,"error","Service area names must contain between 1 and 150 characters.","hours"));
+ if(areaIds.length!==areaNames.length)redirect(target(slug,"error","Service areas could not be verified. Refresh and try again.","hours"));
+ if(areaIds.length){const {data:owned}=await supabase.from("workforce_territories").select("id").eq("business_id",business.id).in("id",areaIds);if((owned??[]).length!==new Set(areaIds).size)redirect(target(slug,"error","One or more service areas could not be verified.","hours"));}
+ for(let index=0;index<areaIds.length;index++){const {error:areaError}=await supabase.from("workforce_territories").update(removeIds.has(areaIds[index])?{is_active:false,updated_by:user.id,updated_at:new Date().toISOString()}:{name:areaNames[index],updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("id",areaIds[index]);if(areaError)redirect(target(slug,"error",areaError.code==="23505"?"Each service area needs a unique name.":"Service areas could not be updated.","hours"));}
+ if(newAreas.length){const {error:newAreaError}=await supabase.from("workforce_territories").insert(newAreas.map(name=>({business_id:business.id,name,territory_type:"mixed",postal_codes:[],neighborhoods:[],is_active:true,created_by:user.id,updated_by:user.id})));if(newAreaError)redirect(target(slug,"error",newAreaError.code==="23505"?"Each service area needs a unique name.":"New service areas could not be added.","hours"));}
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/app/${slug}/booking`);revalidatePath(`/app/${slug}/territories`);revalidatePath(`/book/${publicSlug}`);revalidatePath(`/sites/${publicSlug}`);redirect(target(slug,"success","Website settings saved.",text(data,"websiteStep")));
 }
 
 export async function disconnectGoogleBusinessProfile(slug:string){
