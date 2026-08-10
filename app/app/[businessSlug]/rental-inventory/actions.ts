@@ -29,14 +29,27 @@ async function uploadImage(businessId:string,entry:FormDataEntryValue|null){
  return admin.storage.from("inventory-images").getPublicUrl(storagePath).data.publicUrl;
 }
 
+async function uploadReceipt(businessId:string,entry:FormDataEntryValue|null){
+ if(!(entry instanceof File)||!entry.size)return null;
+ const allowed=new Set(["application/pdf","image/jpeg","image/png","image/webp"]);
+ if(!allowed.has(entry.type)||entry.size>10*1024*1024)throw new Error("Choose a PDF, JPG, PNG, or WebP receipt smaller than 10 MB.");
+ const admin=getSupabaseAdmin();if(!admin)throw new Error("Receipt upload is not configured.");
+ const extension=entry.type==="application/pdf"?"pdf":entry.type==="image/png"?"png":entry.type==="image/webp"?"webp":"jpg";
+ const storagePath=`${businessId}/${crypto.randomUUID()}.${extension}`;
+ const {error}=await admin.storage.from("rental-purchase-receipts").upload(storagePath,entry,{contentType:entry.type,upsert:false});
+ if(error)throw new Error("The purchase receipt could not be uploaded. Apply the latest rental inventory migration first.");
+ return {path:storagePath,name:entry.name.slice(0,180)};
+}
+
 async function values(supabase:SupabaseClient,businessId:string,data:FormData){
- const name=text(data,"name"),categoryId=text(data,"categoryId")||null,description=text(data,"description"),price=Number(text(data,"price")),stock=Number(text(data,"stockQuantity"));
+ const name=text(data,"name"),categoryId=text(data,"categoryId")||null,description=text(data,"description"),price=Number(text(data,"price")),purchaseCostRaw=text(data,"purchaseCost"),purchaseCost=purchaseCostRaw===""?null:Number(purchaseCostRaw),stock=Number(text(data,"stockQuantity"));
  if(!name||name.length>120)throw new Error("Enter a rental name up to 120 characters.");
  if(!Number.isFinite(price)||price<0||price>100000)throw new Error("Enter a valid daily rental price.");
+ if(purchaseCost!==null&&(!Number.isFinite(purchaseCost)||purchaseCost<0||purchaseCost>10000000))throw new Error("Enter a valid purchase cost.");
  if(!Number.isInteger(stock)||stock<1||stock>10000)throw new Error("Stock quantity must be between 1 and 10,000.");
  const {data:category}=categoryId?await supabase.from("rental_inventory_categories").select("id,name").eq("id",categoryId).eq("business_id",businessId).maybeSingle():{data:null};
  if(categoryId&&!category)throw new Error("Choose a category that belongs to this business.");
- return {name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
+ return {name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),purchase_cost_cents:purchaseCost===null?null:Math.round(purchaseCost*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on"};
 }
 async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:string,data:FormData){
  const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];
@@ -50,8 +63,9 @@ async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:s
 export async function createRentalItem(slug:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const payload=await values(supabase,business.id,data),image=await uploadImage(business.id,data.get("image"));
-  const {data:item,error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,image_url:image}).select("id").single();
+  const payload=await values(supabase,business.id,data),image=await uploadImage(business.id,data.get("image")),receipt=await uploadReceipt(business.id,data.get("purchaseReceipt"));
+  const {data:item,error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,image_url:image,purchase_receipt_path:receipt?.path??null,purchase_receipt_name:receipt?.name??null}).select("id").single();
+  if(error&&receipt){await getSupabaseAdmin()?.storage.from("rental-purchase-receipts").remove([receipt.path]);}
   if(error||!item)throw new Error(error?.code==="23505"?"A rental with that identifier already exists.":"The rental item could not be added. Apply the rental inventory migration first.");
   await replaceUpsells(supabase,business.id,item.id,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be added."));}
@@ -61,9 +75,14 @@ export async function createRentalItem(slug:string,data:FormData){
 export async function updateRentalItem(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const payload=await values(supabase,business.id,data),image=await uploadImage(business.id,data.get("image"));
-  const {error}=await supabase.from("inventory_items").update({...payload,...(image?{image_url:image}:{})}).eq("id",itemId).eq("business_id",business.id);
+  const payload=await values(supabase,business.id,data),image=await uploadImage(business.id,data.get("image")),receipt=await uploadReceipt(business.id,data.get("purchaseReceipt"));
+  const {data:existing}=await supabase.from("inventory_items").select("purchase_receipt_path").eq("id",itemId).eq("business_id",business.id).maybeSingle();
+  const removeReceipt=data.get("removePurchaseReceipt")==="on";
+  const receiptFields=receipt?{purchase_receipt_path:receipt.path,purchase_receipt_name:receipt.name}:removeReceipt?{purchase_receipt_path:null,purchase_receipt_name:null}:{};
+  const {error}=await supabase.from("inventory_items").update({...payload,...(image?{image_url:image}:{}),...receiptFields}).eq("id",itemId).eq("business_id",business.id);
+  if(error&&receipt)await getSupabaseAdmin()?.storage.from("rental-purchase-receipts").remove([receipt.path]);
   if(error)throw new Error("The rental item could not be updated.");
+  if((receipt||removeReceipt)&&existing?.purchase_receipt_path&&existing.purchase_receipt_path!==receipt?.path)await getSupabaseAdmin()?.storage.from("rental-purchase-receipts").remove([existing.purchase_receipt_path]);
   await replaceUpsells(supabase,business.id,itemId,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be updated."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item updated."));
