@@ -3,6 +3,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
 import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
+import {getSubaccountWebhookSecretResolver} from "@/lib/twilio/subaccountWebhookSecrets";
 
 export const runtime="nodejs";
 
@@ -10,10 +11,24 @@ type IntakeResult={duplicate:boolean;message_id:string;business_id:string;custom
 
 export async function POST(request:Request){
  const raw=await request.text(),params=new URLSearchParams(raw),signature=request.headers.get("x-twilio-signature")??"";
- const token=process.env.TWILIO_AUTH_TOKEN,webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
- if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
- const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",to=params.get("To")??"",body=params.get("Body")??"";
+ const accountSid=params.get("AccountSid")??"",to=params.get("To")??"";
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
+ let token:string|null=null;
+ if(!accountSid||accountSid===process.env.TWILIO_ACCOUNT_SID)token=process.env.TWILIO_AUTH_TOKEN??null;
+ else{
+  // Resolve tenant ownership from provider identifiers, never from a client-supplied
+  // business id. Numbers are not configured with this webhook until the resolver is
+  // backed by secure secret storage, so legacy production traffic remains unchanged.
+  const {data:number}=await db.from("twilio_phone_numbers").select("business_twilio_account_id,business_twilio_accounts!inner(twilio_subaccount_sid)").eq("phone_number_e164",to).eq("status","active").maybeSingle();
+  const linked=number as {business_twilio_accounts?:{twilio_subaccount_sid?:string}|{twilio_subaccount_sid?:string}[]}|null;
+  const linkedAccount=Array.isArray(linked?.business_twilio_accounts)?linked?.business_twilio_accounts[0]:linked?.business_twilio_accounts;
+  if(linkedAccount?.twilio_subaccount_sid!==accountSid)return NextResponse.json({error:"Number not configured"},{status:404});
+  token=await getSubaccountWebhookSecretResolver().getAuthToken(accountSid);
+  if(!token)return NextResponse.json({error:"Tenant webhook verification is not configured"},{status:503});
+ }
+ const webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
+ if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
+ const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",body=params.get("Body")??"";
  const {data,error}=await db.rpc("process_inbound_sms",{p_provider_message_id:sid,p_from_phone:from,p_to_phone:to,p_body:body});
  if(error){
   console.error("Inbound SMS processing failed",{code:error.code,message:error.message,sid});
