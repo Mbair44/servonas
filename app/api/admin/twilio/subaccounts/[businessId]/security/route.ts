@@ -1,5 +1,5 @@
 import {NextResponse} from "next/server";
-import {getBusinessTwilioContext,reconcileBusinessTwilioWebhookSecret} from "@/lib/twilio/businessTwilioProvider";
+import {getBusinessTwilioContext,reconcileBusinessTwilioWebhookSecret,TwilioRemediationError} from "@/lib/twilio/businessTwilioProvider";
 import {requireTwilioPlatformAdmin,uuidPattern} from "@/lib/twilio/adminRoute";
 
 export async function GET(_request:Request,{params}:{params:Promise<{businessId:string}>}){
@@ -14,5 +14,5 @@ export async function GET(_request:Request,{params}:{params:Promise<{businessId:
 export async function POST(_request:Request,{params}:{params:Promise<{businessId:string}>}){
  const unauthorized=await requireTwilioPlatformAdmin();if(unauthorized)return unauthorized;const {businessId}=await params;
  if(!uuidPattern.test(businessId))return NextResponse.json({error:"Invalid businessId"},{status:400});
- try{return NextResponse.json({security:await reconcileBusinessTwilioWebhookSecret(businessId)});}catch{return NextResponse.json({error:"The existing Twilio webhook credential could not be reconciled securely."},{status:502});}
+ try{return NextResponse.json({security:await reconcileBusinessTwilioWebhookSecret(businessId)});}catch(error){const detail=error instanceof TwilioRemediationError?{stage:error.stage,providerStatus:error.providerStatus,providerCode:error.providerCode}:{stage:"account_lookup",providerStatus:null,providerCode:null};console.error("Twilio webhook credential remediation failed",{businessId,...detail});return NextResponse.json({error:"The existing Twilio webhook credential could not be reconciled securely.",failureStage:detail.stage},{status:502});}
 }

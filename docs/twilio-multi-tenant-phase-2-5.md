@@ -22,7 +22,9 @@ An explicit later remediation can call:
 
 `POST /api/admin/twilio/subaccounts/{businessId}/security`
 
-The POST fetches only the already-mapped subaccount SID through Twilio's parent Accounts API and stores the returned token in Vault. It contains no create call and returns metadata only. It has not been invoked for Copper State Bounce.
+The POST fetches only the already-mapped subaccount SID through Twilio's parent Accounts API and stores the returned token in Vault. Credential recovery specifically uses the parent Account SID and parent Auth Token, matching Twilio's documented Accounts API example; normal provisioning continues to prefer the Main API key. It contains no create call and returns metadata only. It has not been invoked for Copper State Bounce by the implementation process.
+
+The first production remediation attempt failed before the original route recorded a failure stage or upstream HTTP status. That historical status cannot be reconstructed from the generic 502 response. The corrected route records only safe telemetry (`stage`, Twilio HTTP status, Twilio numeric error code) and returns a safe `failureStage`; it never logs provider messages, authorization headers, or tokens. A `twilio_recovery` failure proves Vault was not called, while `vault_storage` proves the Twilio fetch succeeded and Vault was attempted.
 
 The server-only `rotateExistingBusinessTwilioSecret` primitive implements Twilio's secondary-token then promotion sequence and updates Vault only with the promoted token. It is deliberately not exposed by an API in this phase; rotation must be an explicit later operational action. If promotion succeeds but Vault is temporarily unavailable, the parent Accounts API reconciliation path can recover the current token.
 
