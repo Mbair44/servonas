@@ -16,6 +16,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
  const base=`/app/${slug}`;
  return [
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
+  {id:"assistant",label:"Assistant",href:`${base}/assistant`},
   {id:"customers",label:"Customers",children:[
    {id:"customer-list",label:"Customers",href:`${base}/customers`},
    {id:"customer-campaigns",label:"Campaigns",href:`${base}/customers/campaigns`},
