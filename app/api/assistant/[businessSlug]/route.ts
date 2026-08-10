@@ -1,0 +1,5 @@
+import {NextResponse} from "next/server";
+import {requireWorkspace} from "@/lib/workspace";
+import {processAssistantInput} from "@/lib/assistant/orchestrator";
+
+export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){const {businessSlug}=await params,{supabase,business,user,role}=await requireWorkspace(businessSlug);let body:{input?:string;conversationId?:string|null;channel?:string};try{body=await request.json();}catch{return NextResponse.json({error:"Enter a message."},{status:400});}if(body.channel&&body.channel!=="web")return NextResponse.json({error:"This interface supports web conversations only."},{status:400});try{return NextResponse.json(await processAssistantInput({context:{supabase,business,user,role,conversationId:"",channel:"web"},conversationId:body.conversationId,channel:"web",input:String(body.input??"")}));}catch(error){console.error("Assistant request failed",{businessId:business.id,userId:user.id,errorName:error instanceof Error?error.name:"unknown"});return NextResponse.json({error:error instanceof Error?error.message:"I couldn't complete that request."},{status:400});}}
