@@ -109,7 +109,7 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
       <label><span>Visit type</span><select name="returnVisit" defaultValue={query.returnVisit??"all"}><option value="all">All jobs</option><option value="yes">Return visits</option><option value="no">Original visits</option></select></label>
       <label><span>Sort</span><select name="sort" defaultValue={sort}><option value="scheduled">Scheduled first</option><option value="newest">Newest first</option><option value="status">Status</option><option value="job">Job number</option><option value="customer">Customer</option><option value="technician">Technician</option><option value="total">Total</option></select></label>
      </div></details>
-     <button className="sv-button sv-secondary" type="submit">Apply</button>
+     <button className="sv-button sv-secondary" type="submit">Filters</button>
      <Link className="jobs-clear-filters" href={base}>Clear</Link>
     </form>
 
@@ -131,8 +131,16 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
     <footer className="customer-table-footer"><span>Showing {visible.length?`${(currentPage-1)*pageSize+1} to ${(currentPage-1)*pageSize+visible.length}`:"0"} of {rows.length} jobs</span>{totalPages>1&&<nav aria-label="Job pages">{currentPage>1&&<Link href={href({page:String(currentPage-1),job:undefined})}>←</Link>}<b>{currentPage}</b><span>of {totalPages}</span>{currentPage<totalPages&&<Link href={href({page:String(currentPage+1),job:undefined})}>→</Link>}</nav>}</footer>
    </div>
 
-   {selected&&<aside className="employee-detail-panel jobs-detail-panel" aria-labelledby="selected-job-name">
+   {selected&&<div className="customer-detail-drawer-layer">
+    <Link className="customer-detail-drawer-backdrop" href={href({job:undefined})} aria-label="Close job details"/>
+    <aside className="employee-detail-panel customer-detail-panel jobs-detail-panel" aria-labelledby="selected-job-name">
     <header><span className="employee-detail-avatar">{initials(selected.title)}</span><div><h2 id="selected-job-name">#{selected.job_number} · {selected.title}</h2><p>{selectedService?.name||"Custom work"}</p></div><em className={`job-status ${selected.status}`}>{label(selected.status)}</em><Link href={href({job:undefined})} aria-label="Close job details">×</Link></header>
+    <section className="customer-drawer-summary" aria-label="Job summary">
+     <div><span>Scheduled</span><strong>{formatDate(selected.starts_at)}</strong></div>
+     <div><span>Technician</span><strong>{selectedTechnician?.preferred_name||"Unassigned"}</strong></div>
+     <div><span>Total</span><strong>{money(selected.total_amount)}</strong></div>
+     <Link href={`${base}/${selected.id}`}>View full job record <span aria-hidden="true">→</span></Link>
+    </section>
     <nav aria-label="Job detail sections"><span className="active">Overview</span><Link href={`${base}/${selected.id}`}>Full details</Link></nav>
     <dl>
      <div><dt>Customer</dt><dd>{selectedCustomer?.company_name||[selectedCustomer?.first_name,selectedCustomer?.last_name].filter(Boolean).join(" ")||"No customer"}</dd></div>
@@ -145,7 +153,8 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
     </dl>
     {selected.is_return_visit&&<section className="return-visit-summary"><h3>Return visit</h3><p>{selected.return_visit_reason||"No return reason recorded."}</p>{selected.return_visit_for_job_id&&<Link href={`${base}/${selected.return_visit_for_job_id}`}>View original job →</Link>}</section>}<section><h3>Service location</h3>{selectedLocation?<p><strong>{selectedLocation.location_name}</strong><br/>{selectedLocation.street_address}<br/>{selectedLocation.city}, {selectedLocation.state}</p>:<p>No saved service location.</p>}</section>
     <section className="jobs-detail-actions"><h3>Quick actions</h3><Link className="sv-button" href={`${base}/${selected.id}`}>Open job</Link>{canEdit&&<Link className="employee-quick-action" href={`${base}/${selected.id}/edit`}>Edit job</Link>}</section>
-   </aside>}
+    </aside>
+   </div>}
   </section>
  </section></main>;
 }
