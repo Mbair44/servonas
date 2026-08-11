@@ -1,8 +1,14 @@
 "use server";
-import {redirect} from "next/navigation";
 import {revalidatePath} from "next/cache";
 import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
-const value=(formData:FormData,key:string)=>String(formData.get(key)??"").trim();
-export async function setCustomerFeatureAccess(formData:FormData){const session=await createSupabaseServerClient(),{data:{user}}=await session.auth.getUser();if(!isServonasPlatformAdmin(user))redirect("/app");const period=value(formData,"period"),back=`/app/admin/customers?period=${encodeURIComponent(period)}`,businessId=value(formData,"businessId"),feature=value(formData,"feature"),enabled=value(formData,"enabled")==="true",reason=value(formData,"reason");if(value(formData,"confirmation")!=="CONFIRM")redirect(`${back}&error=${encodeURIComponent("Type CONFIRM before changing access.")}`);if(reason.length<5)redirect(`${back}&error=${encodeURIComponent("Enter an internal reason with at least five characters.")}`);if(feature!=="ai"&&feature!=="twilio")redirect(`${back}&error=${encodeURIComponent("Choose AI or Twilio access.")}`);const admin=getSupabaseAdmin();if(!admin)redirect(`${back}&error=${encodeURIComponent("Platform administration is unavailable.")}`);const rpc=feature==="ai"?"admin_set_business_ai_assistant_access":"admin_set_business_twilio_access",{error}=await admin.rpc(rpc,{p_business_id:businessId,p_enabled:enabled,p_changed_by:user!.id,p_reason:reason});if(error){console.error("Customer feature access change failed",{businessId,feature,code:error.code});redirect(`${back}&error=${encodeURIComponent("Access could not be changed. Apply the latest migrations and try again.")}`);}revalidatePath("/app/admin/customers");revalidatePath("/app/admin/usage");revalidatePath("/app");redirect(`${back}&success=${encodeURIComponent(`${feature==="ai"?"AI":"Twilio"} access ${enabled?"enabled":"disabled"}.`)}`);}
+export async function toggleCustomerFeatureAccess(input:{businessId:string;feature:"ai"|"twilio";enabled:boolean}){
+ const session=await createSupabaseServerClient(),{data:{user}}=await session.auth.getUser();
+ if(!isServonasPlatformAdmin(user))return{ok:false,error:"Platform administrator access is required."};
+ if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(input.businessId)||(input.feature!=="ai"&&input.feature!=="twilio"))return{ok:false,error:"That access setting is invalid."};
+ const admin=getSupabaseAdmin();if(!admin)return{ok:false,error:"Platform administration is unavailable."};
+ const rpc=input.feature==="ai"?"admin_set_business_ai_assistant_access":"admin_set_business_twilio_access",{error}=await admin.rpc(rpc,{p_business_id:input.businessId,p_enabled:input.enabled,p_changed_by:user!.id,p_reason:"Changed from customer access dashboard"});
+ if(error){console.error("Customer feature access toggle failed",{businessId:input.businessId,feature:input.feature,code:error.code});return{ok:false,error:"Access could not be changed. Apply the latest migrations and try again."};}
+ revalidatePath("/app/admin/customers");revalidatePath("/app/admin/usage");revalidatePath("/app");return{ok:true};
+}
