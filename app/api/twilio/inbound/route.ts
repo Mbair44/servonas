@@ -4,6 +4,7 @@ import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
 import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
 import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
+import {recordTenantMessageUsage} from "@/lib/twilio/messageUsage";
 
 export const runtime="nodejs";
 
@@ -25,6 +26,7 @@ export async function POST(request:Request){
   return NextResponse.json({error:error.code==="P0002"?"Number not configured":"Processing failed"},{status:error.code==="P0002"?404:500});
  }
  const result=data as IntakeResult;
+ if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia:Number(params.get("NumMedia")||0),messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});}}
  const recovery=await advanceMissedCallConversation(db,{businessId:result.business_id,customerId:result.customer_id,providerMessageId:sid,body});
  if(recovery)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  if(result.duplicate||!result.reply)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
