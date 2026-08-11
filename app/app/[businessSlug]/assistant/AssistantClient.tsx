@@ -7,6 +7,7 @@ type Message={id:string;role:"user"|"assistant";content:string;actionRequest?:{i
 type VoiceState="idle"|"waiting_for_speech"|"listening"|"finishing"|"transcribing"|"thinking"|"speaking"|"waiting_for_next_command"|"error";
 const MAX_RECORDING_MS=60_000;
 const NEXT_COMMAND_DELAY_MS=650;
+const MAX_RESTART_ATTEMPTS=5;
 const MIME_PREFERENCES=["audio/webm;codecs=opus","audio/mp4","audio/webm","audio/ogg;codecs=opus"];
 const voiceDebug=(event:string,details:Record<string,unknown>)=>{if(process.env.NODE_ENV!=="production"||process.env.NEXT_PUBLIC_ASSISTANT_VOICE_DEBUG==="true")console.debug("Assistant voice lifecycle",{event,...details});};
 
@@ -94,14 +95,22 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   diagnostic("resume_timer_scheduled",{delayMs:NEXT_COMMAND_DELAY_MS,generation});
   resumeTimer.current=setTimeout(()=>{resumeTimer.current=null;void attemptConversationRestart(generation,0);},NEXT_COMMAND_DELAY_MS);
  }
+ function scheduleRestartRetry(generation:number,attempt:number,reason:string){
+  if(generation!==resumeGeneration.current||!sessionActiveRef.current)return;
+  if(attempt>=MAX_RESTART_ATTEMPTS){diagnostic("microphone_restart_failed",{attempt,reason,exhausted:true});releaseConversationMedia();setVoiceState("error");setError("Conversation Mode paused because the microphone could not restart. Tap Resume listening to continue.");return;}
+  const delayMs=150+attempt*100;diagnostic("microphone_restart_retry_scheduled",{attempt:attempt+1,delayMs,reason});
+  resumeTimer.current=setTimeout(()=>{resumeTimer.current=null;void attemptConversationRestart(generation,attempt+1);},delayMs);
+ }
  async function attemptConversationRestart(generation:number,attempt:number){
   diagnostic("resume_timer_fired",{generation,attempt});
   if(generation!==resumeGeneration.current||!sessionActiveRef.current){diagnostic("microphone_restart_skipped",{reason:"session_or_generation_changed",generation,attempt});return;}
-  if(requestInFlight.current){if(attempt<3)resumeTimer.current=setTimeout(()=>{resumeTimer.current=null;void attemptConversationRestart(generation,attempt+1);},150);return;}
-  if(recorder.current&&recorder.current.state!=="inactive"){diagnostic("microphone_restart_deferred",{reason:"stale_recorder_active",recorderState:recorder.current.state,attempt});if(attempt<3)resumeTimer.current=setTimeout(()=>{resumeTimer.current=null;void attemptConversationRestart(generation,attempt+1);},150);return;}
+  if(requestInFlight.current){diagnostic("microphone_restart_deferred",{reason:"request_in_flight",attempt});scheduleRestartRetry(generation,attempt,"request_in_flight");return;}
+  if(recorder.current&&recorder.current.state!=="inactive"){diagnostic("microphone_restart_deferred",{reason:"stale_recorder_active",recorderState:recorder.current.state,attempt});scheduleRestartRetry(generation,attempt,"stale_recorder_active");return;}
   if(recorder.current?.state==="inactive")recorder.current=null;
   diagnostic("microphone_restart_attempted",{attempt,reusingLiveStream:Boolean(stream.current?.getAudioTracks().some(track=>track.readyState==="live"))});
-  const restarted=await startRecording(true);diagnostic(restarted?"microphone_restart_succeeded":"microphone_restart_failed",{attempt});
+  const restarted=await startRecording(true);
+  if(restarted&&recorder.current?.state==="recording"){diagnostic("microphone_restart_succeeded",{attempt});return;}
+  diagnostic("microphone_restart_attempt_failed",{attempt,recorderState:recorder.current?.state??null});scheduleRestartRetry(generation,attempt,"recorder_not_recording");
  }
 
  async function submitAssistant(value:string,channel:"web"|"voice",requestId:string){
