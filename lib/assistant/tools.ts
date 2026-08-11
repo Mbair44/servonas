@@ -4,8 +4,9 @@ import {validateJobSchedule} from "../jobScheduling.ts";
 import type {CustomerCandidate} from "./customerCandidateResolution.ts";
 import {generatePublicDocumentToken,publicDocumentTokenHash} from "../publicDocumentToken.ts";
 import {sendInvoiceFinancialEmail} from "../communications/invoiceEmailService.ts";
+import {classifyInvoiceSendIntent} from "./selectedCustomerContext.ts";
 
-export type AssistantContext={supabase:any;business:{id:string;name:string;slug:string;timezone:string};user:{id:string};role:string;conversationId:string;channel:string;trustedSelectedCustomerId?:string;trustedSelectedInvoiceId?:string};
+export type AssistantContext={supabase:any;business:{id:string;name:string;slug:string;timezone:string};user:{id:string};role:string;conversationId:string;channel:string;requestId?:string;currentInput?:string;trustedSelectedCustomerId?:string;trustedSelectedInvoiceId?:string};
 export type ToolResult={message:string;data?:unknown;selectedCustomerId?:string;selectedInvoiceId?:string;customerCandidates?:CustomerCandidate[];pendingAction?:{actionType:string;payload:Record<string,unknown>;summary:string;entityType?:string;entityId?:string}};
 export type ToolDefinition={name:string;risk:"low"|"medium"|"high";description:string;parameters:Record<string,unknown>;execute:(context:AssistantContext,args:Record<string,unknown>)=>Promise<ToolResult>};
 
@@ -46,6 +47,17 @@ const markPaid:ToolDefinition={name:"markInvoicePaid",risk:"high",description:"M
 
 const addJobNote:ToolDefinition={name:"addJobNote",risk:"medium",description:"Add an internal note to a job.",parameters:{type:"object",properties:{jobId:{type:"string"},note:{type:"string"}},required:["jobId","note"],additionalProperties:false},async execute(c,a){requireManager(c);const job=await owned(c,"jobs",a.jobId,"id,title,customer_id");requireSelectedCustomerMatch(c,job.customer_id);const note=string(a.note,4000);if(!note)throw new Error("Enter a note.");const {data,error}=await c.supabase.from("job_notes").insert({business_id:c.business.id,job_id:job.id,body:note,note_type:"office",author_user_id:c.user.id,author_name:"Servonas Assistant"}).select("id").single();if(error||!data)throw new Error("I couldn't add that note.");return{message:`Note added to ${job.title}.`,data};}};
 
-export const assistantTools=[searchCustomers,getCustomer,createCustomer,getSchedule,createAppointment,rescheduleAppointment,searchInvoices,markPaid,addJobNote,outstanding,paymentHistory,invoiceActivity,sendInvoiceTool] as const;
+const guardedSendInvoiceTool:ToolDefinition={...sendInvoiceTool,description:"EXTERNAL SIDE EFFECT. Send or resend exactly one selected invoice only for an explicit imperative request. NEVER use for questions about whether, when, or how often an invoice was previously sent, emailed, delivered, or received.",async execute(c,a){
+ if(classifyInvoiceSendIntent(c.currentInput??"")!=="explicit")throw new Error("Do you want to see when the invoice was sent, or resend it?");
+ const idempotencyKey=c.requestId;if(!idempotencyKey)throw new Error("The invoice send request could not be verified. Please try again.");
+ const payload={business_id:c.business.id,user_id:c.user.id,conversation_id:c.conversationId,action_type:"sendInvoice",action_payload:{invoiceId:c.trustedSelectedInvoiceId??null},risk_level:"medium",status:"executing",requires_confirmation:false,idempotency_key:idempotencyKey};
+ const claimed=await c.supabase.from("ai_action_requests").insert(payload).select("id").maybeSingle();
+ if(claimed.error){if(claimed.error.code!=="23505")throw new Error("The invoice send request could not be safely recorded.");const {data:existing}=await c.supabase.from("ai_action_requests").select("status,execution_result").eq("business_id",c.business.id).eq("user_id",c.user.id).eq("idempotency_key",idempotencyKey).maybeSingle();if(existing?.status==="completed"){const saved=existing.execution_result as ToolResult|undefined;return saved?.message?saved:{message:"That invoice send request was already completed."};}throw new Error(existing?.status==="executing"?"That invoice send request is already processing.":"That invoice send request was already attempted. Please make a new explicit request to resend it.");}
+ try{const result=await sendInvoiceTool.execute(c,a);await c.supabase.from("ai_action_requests").update({status:"completed",executed_at:new Date().toISOString(),execution_result:result,updated_at:new Date().toISOString()}).eq("id",claimed.data.id).eq("business_id",c.business.id);return result;}catch(error){await c.supabase.from("ai_action_requests").update({status:"failed",error:"Invoice delivery failed.",updated_at:new Date().toISOString()}).eq("id",claimed.data.id).eq("business_id",c.business.id);throw error;}
+}};
+
+const guardedInvoiceActivityTool:ToolDefinition={...invoiceActivity,description:"READ ONLY. Get historical and status facts for one invoice, including whether or when it was sent, emailed, delivered, created, paid, or due. It never sends an email."};
+
+export const assistantTools=[searchCustomers,getCustomer,createCustomer,getSchedule,createAppointment,rescheduleAppointment,searchInvoices,markPaid,addJobNote,outstanding,paymentHistory,guardedInvoiceActivityTool,guardedSendInvoiceTool] as const;
 export const assistantToolRegistry=new Map<string,ToolDefinition>(assistantTools.map(tool=>[tool.name,tool]));
 export async function executeAssistantTool(name:string,context:AssistantContext,args:unknown){const tool=assistantToolRegistry.get(name);if(!tool)throw new Error("That Assistant action is not available.");if(!args||typeof args!=="object"||Array.isArray(args))throw new Error("The Assistant supplied invalid action details.");return tool.execute(context,args as Record<string,unknown>);}
