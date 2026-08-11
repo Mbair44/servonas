@@ -24,8 +24,8 @@ export function bindTrustedSelectedCustomer(input:string,decision:ProviderDecisi
 
 const invoiceActivityIntent=/\b(?:when|history|activity|created|sent|emailed|delivered|received|due|status|what happened|how many times)\b/i;
 const deliveryWords=/\b(?:send|sent|resend|email|emailed|deliver|delivered|receive|received)\b/i;
-const readOnlyDeliveryQuestion=/^\s*(?:when\s+(?:did|was)|did\s+(?:i|we|you|they)|was\s+(?:it|that|the)|has\s+(?:it|that|the)|how\s+many\s+times|what\s+(?:date|happened)|who|where|why)\b/i;
-const explicitSendCommand=/^\s*(?:(?:please|kindly)\s+|(?:can|could|would|will)\s+you\s+)?(?:send|resend|email)\b/i;
+const readOnlyDeliveryQuestion=/^\s*(?:when\s+(?:did|was)|did\s+(?:i|we|you|they)|was\s+(?:it|that|the)|has\s+(?:it|that|the)|have\s+(?:i|we|you|they)|how\s+many\s+times|what\s+(?:date|happened)|who|where|why)\b/i;
+const explicitSendCommand=/^\s*(?:(?:please|kindly)\s+|(?:can|could|would|will)\s+you\s+(?:(?:please|kindly)\s+)?)?(?:send|resend|email)\b/i;
 export type InvoiceSendIntent="explicit"|"read_only"|"ambiguous";
 export function classifyInvoiceSendIntent(input:string):InvoiceSendIntent{if(readOnlyDeliveryQuestion.test(input)&&(deliveryWords.test(input)||/\bwhat happened\b/i.test(input)))return"read_only";if(explicitSendCommand.test(input))return"explicit";return"ambiguous";}
 export function bindTrustedSelectedInvoice(input:string,decision:ProviderDecision,invoiceId:string):ProviderDecision{
