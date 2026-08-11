@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
-import {bindTrustedSelectedInvoice,explicitCustomerSearchTerm,requestsGlobalSchedule} from "../lib/assistant/selectedCustomerContext.ts";
+import {bindTrustedSelectedCustomer,bindTrustedSelectedInvoice,explicitCustomerSearchTerm,requestsGlobalSchedule} from "../lib/assistant/selectedCustomerContext.ts";
 import {selectCustomerConversationContext} from "../lib/assistant/customerCandidateResolution.ts";
 
 const customerId="11111111-1111-4111-8111-111111111111",invoiceId="22222222-2222-4222-8222-222222222222";
@@ -23,3 +23,9 @@ test("conversation reload keeps context useful",async()=>assert.match(await orch
 test("conversation reload remains scoped to tenant and authenticated user",async()=>{const code=await route();assert.match(code,/eq\("business_id",business\.id\)/);assert.match(code,/eq\("user_id",user\.id\)/);});
 test("invoice activity reports unavailable send timestamps honestly",async()=>{const code=await readFile(new URL("../lib/assistant/tools.ts",import.meta.url),"utf8");assert.match(code,/"not recorded"/);});
 test("read-only delivery intent is routed before provider and outstanding tools",async()=>{const code=await orchestrator(),activity=code.indexOf('classifyInvoiceSendIntent(text)==="read_only"'),provider=code.indexOf("provider.generateResponse");assert.ok(activity>=0&&activity<provider);assert.match(code,/\{toolName:"getInvoiceActivity"/);});
+test("old invoice transcript cannot override selected-customer appointment intent",()=>{const result=bindTrustedSelectedCustomer("When is their next appointment?",{toolName:"getInvoiceActivity",arguments:{invoiceId}},customerId) as any;assert.equal(result.toolName,"getCustomerAppointments");assert.deepEqual(result.arguments,{customerId});});
+test("old invoice context cannot override new customer payment history",()=>assert.equal((bindTrustedSelectedCustomer("Have they ever paid me?",{toolName:"getInvoiceActivity",arguments:{invoiceId}},customerId) as any).toolName,"getPaymentHistory"));
+test("old invoice context cannot override new customer outstanding intent",()=>assert.equal((bindTrustedSelectedCustomer("Do they owe me anything?",{toolName:"getInvoiceActivity",arguments:{invoiceId}},customerId) as any).toolName,"getOutstandingInvoices"));
+test("new customer invalidates every known invoice child-state key",()=>{const context=selectCustomerConversationContext({selectedCustomerId:"old",selectedInvoiceId:invoiceId,pendingInvoiceSelection:{},pendingInvoiceCandidates:[invoiceId],invoiceCandidates:[invoiceId],activeInvoiceIntent:"activity",unresolvedInvoiceIntent:"send",pendingInvoiceIntent:"send",pendingSelection:{type:"invoice",candidates:[]}},customerId) as Record<string,unknown>;for(const key of ["selectedInvoiceId","pendingInvoiceSelection","pendingInvoiceCandidates","invoiceCandidates","activeInvoiceIntent","unresolvedInvoiceIntent","pendingInvoiceIntent","pendingSelection"])assert.equal(context[key],undefined,key);});
+test("historical transcript is explicitly subordinate to active structured state",async()=>{const code=await orchestrator();assert.match(code,/ACTIVE STRUCTURED STATE \(authoritative over transcript\)/);assert.match(code,/Old transcript mentions do not reactivate cleared entity context/);});
+test("customer switch rejects unconfirmed invoice actions without deleting audit history",async()=>{const code=await orchestrator();assert.match(code,/invalidatePendingInvoiceActions/);assert.match(code,/status:"rejected"/);assert.match(code,/\.eq\("status","awaiting_confirmation"\)/);assert.doesNotMatch(code,/ai_action_requests"\)\.delete/);});
