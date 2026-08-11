@@ -3,7 +3,7 @@ import type {ProviderDecision} from "./provider.ts";
 const explicitCustomerChange=/\b(?:find|search(?: for)?|look up|show me|who is|switch to|change (?:the )?customer|select|choose|use)\b/i;
 const outstandingIntent=/\b(?:owe|owes|owed|outstanding|overdue|balance|money due)\b/i;
 const paymentHistoryIntent=/\b(?:payment history|payments? (?:made|received|recorded)|how (?:did|has) .* paid|when .* paid|ever paid|paid me|last payment|previous payments?)\b/i;
-const appointmentIntent=/\b(?:appointment|appointments|scheduled|schedule|visit|visits)\b/i;
+const appointmentIntent=/\b(?:appointment|appointments|scheduled|schedule|visit|visits|job|jobs|seeing|coming up)\b/i;
 const globalScheduleIntent=/\b(?:who|what)\b.*\b(?:today|tomorrow|schedule|appointments?)\b|\b(?:schedule|appointments?)\b.*\b(?:today|tomorrow)\b/i;
 
 export function explicitlyChangesCustomer(input:string){return explicitCustomerChange.test(input);}
@@ -14,6 +14,8 @@ export function bindTrustedSelectedCustomer(input:string,decision:ProviderDecisi
  if(explicitlyChangesCustomer(input))return decision;
  if(requestsGlobalSchedule(input))return decision;
  if(paymentHistoryIntent.test(input))return{toolName:"getPaymentHistory",arguments:{customerId},usage:decision.usage};
+ if(outstandingIntent.test(input))return{toolName:"getOutstandingInvoices",arguments:{customerId},usage:decision.usage};
+ if(appointmentIntent.test(input))return{toolName:"getCustomerAppointments",arguments:{customerId},usage:decision.usage};
  if("response" in decision)return paymentHistoryIntent.test(input)?{toolName:"getPaymentHistory",arguments:{customerId},usage:decision.usage}:outstandingIntent.test(input)?{toolName:"getOutstandingInvoices",arguments:{customerId},usage:decision.usage}:appointmentIntent.test(input)?{toolName:"getCustomer",arguments:{customerId},usage:decision.usage}:decision;
  if(decision.toolName==="searchCustomers")return paymentHistoryIntent.test(input)?{toolName:"getPaymentHistory",arguments:{customerId},usage:decision.usage}:outstandingIntent.test(input)?{toolName:"getOutstandingInvoices",arguments:{customerId},usage:decision.usage}:{toolName:"getCustomer",arguments:{customerId},usage:decision.usage};
  if(["getCustomer","getOutstandingInvoices","getPaymentHistory","searchInvoices","createAppointment","getSchedule"].includes(decision.toolName))return{...decision,arguments:{...decision.arguments,customerId}};
