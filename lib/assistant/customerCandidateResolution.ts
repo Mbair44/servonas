@@ -1,5 +1,6 @@
 export type CustomerCandidate={id:string;displayName:string;phoneLast4?:string|null;email?:string|null};
 export type CandidateSelection={kind:"none"}|{kind:"invalid_number";count:number}|{kind:"ambiguous";count:number}|{kind:"selected";candidate:CustomerCandidate};
+export type PendingSelection={type:"customer";candidates:CustomerCandidate[];originatingIntent?:string|null;createdAt:string};
 
 const normalize=(value:string)=>value.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const ordinal:Record<string,number>={one:1,first:1,two:2,second:2,three:3,third:3,four:4,fourth:4,five:5,fifth:5,six:6,sixth:6,seven:7,seventh:7,eight:8,eighth:8,nine:9,ninth:9,ten:10,tenth:10};
@@ -22,6 +23,10 @@ export async function resolveCustomerCandidateAgainstTenant(input:string,candida
  const selection=resolveCustomerCandidateSelection(input,candidates);if(selection.kind!=="selected")return selection;const owned=await findOwned(selection.candidate.id);return owned?{kind:"selected" as const,candidate:{...selection.candidate,id:owned.id,displayName:owned.displayName}}:{kind:"stale" as const};
 }
 
-export function selectCustomerConversationContext<T extends Record<string,unknown>>(context:T,customerId:string):T&{selectedCustomerId:string;pendingCustomerCandidates:CustomerCandidate[]}{return{...context,selectedCustomerId:customerId,pendingCustomerCandidates:[]};}
-export function pendingCustomerConversationContext<T extends Record<string,unknown>>(context:T,candidates:CustomerCandidate[]):T&{pendingCustomerCandidates:CustomerCandidate[]}{return{...context,pendingCustomerCandidates:candidates};}
-export function clearSelectedCustomerConversationContext<T extends Record<string,unknown>>(context:T){const next={...context};delete next.selectedCustomerId;delete next.pendingCustomerCandidates;return next;}
+export function pendingSelectionFromContext(context:Record<string,unknown>):PendingSelection|null{
+ const value=context.pendingSelection;if(value&&typeof value==="object"&&!Array.isArray(value)){const pending=value as Record<string,unknown>;if(pending.type==="customer"&&Array.isArray(pending.candidates))return pending as unknown as PendingSelection;}
+ return Array.isArray(context.pendingCustomerCandidates)&&context.pendingCustomerCandidates.length?{type:"customer",candidates:context.pendingCustomerCandidates as CustomerCandidate[],createdAt:new Date(0).toISOString()}:null;
+}
+export function selectCustomerConversationContext<T extends Record<string,unknown>>(context:T,customerId:string){const next={...context,selectedCustomerId:customerId};delete (next as Record<string,unknown>).pendingSelection;delete (next as Record<string,unknown>).pendingCustomerCandidates;return next as T&{selectedCustomerId:string};}
+export function pendingCustomerConversationContext<T extends Record<string,unknown>>(context:T,candidates:CustomerCandidate[],originatingIntent?:string|null){const next={...context};delete (next as Record<string,unknown>).pendingCustomerCandidates;if(candidates.length)(next as Record<string,unknown>).pendingSelection={type:"customer",candidates,originatingIntent:originatingIntent??null,createdAt:new Date().toISOString()} satisfies PendingSelection;else delete (next as Record<string,unknown>).pendingSelection;return next;}
+export function clearSelectedCustomerConversationContext<T extends Record<string,unknown>>(context:T){const next={...context};delete next.selectedCustomerId;delete next.pendingSelection;delete next.pendingCustomerCandidates;return next;}
