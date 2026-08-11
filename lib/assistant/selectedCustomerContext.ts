@@ -31,8 +31,9 @@ export function classifyInvoiceSendIntent(input:string):InvoiceSendIntent{if(rea
 export function bindTrustedSelectedInvoice(input:string,decision:ProviderDecision,invoiceId:string):ProviderDecision{
  const deliveryIntent=classifyInvoiceSendIntent(input);
  if(deliveryIntent==="read_only")return{toolName:"getInvoiceActivity",arguments:{invoiceId},usage:decision.usage};
+ if(deliveryIntent==="explicit")return{toolName:"sendInvoice",arguments:{invoiceId},usage:decision.usage};
  if(deliveryIntent==="ambiguous"&&deliveryWords.test(input))return{response:"Do you want to see when the invoice was sent, or resend it?",usage:decision.usage};
- if("response" in decision){if(deliveryIntent==="explicit")return{toolName:"sendInvoice",arguments:{invoiceId},usage:decision.usage};if(paymentHistoryIntent.test(input))return{toolName:"getPaymentHistory",arguments:{invoiceId},usage:decision.usage};if(invoiceActivityIntent.test(input))return{toolName:"getInvoiceActivity",arguments:{invoiceId},usage:decision.usage};return decision;}
+ if("response" in decision){if(paymentHistoryIntent.test(input))return{toolName:"getPaymentHistory",arguments:{invoiceId},usage:decision.usage};if(invoiceActivityIntent.test(input))return{toolName:"getInvoiceActivity",arguments:{invoiceId},usage:decision.usage};return decision;}
  if(["getPaymentHistory","getInvoiceActivity","sendInvoice","markInvoicePaid"].includes(decision.toolName))return{...decision,arguments:{...decision.arguments,invoiceId}};
  return decision;
 }
