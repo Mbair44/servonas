@@ -14,7 +14,7 @@ for(const [index,input] of [
  "Can you send that invoice again?",
  "Could you email the invoice again?",
  "Can you please resend it?",
-].entries())test(`${index+1}. polite action sends: ${input}`,()=>{assert.equal(classifyInvoiceSendIntent(input),"explicit");assert.equal(routed(input).toolName,"sendInvoice");assert.equal(routed(input).arguments.invoiceId,invoiceId);});
+].entries())test(`${index+1}. polite action sends: ${input}`,()=>{assert.equal(classifyInvoiceSendIntent(input),"explicit");assert.equal(routed(input).toolName,"sendInvoice");assert.equal(routed(input).arguments.invoiceId,invoiceId);const wrongProvider=bindTrustedSelectedInvoice(input,{toolName:"getInvoiceActivity",arguments:{}},invoiceId) as any;assert.equal(wrongProvider.toolName,"sendInvoice");assert.equal(wrongProvider.arguments.invoiceId,invoiceId);});
 
 for(const [index,input] of [
  "Did you send the invoice?",
@@ -27,6 +27,8 @@ for(const [index,input] of [
 ].entries())test(`${index+8}. historical question stays read only: ${input}`,()=>{assert.equal(classifyInvoiceSendIntent(input),"read_only");assert.equal(routed(input).toolName,"getInvoiceActivity");assert.notEqual(routed(input).toolName,"sendInvoice");});
 
 test("15. ambiguous invoice send asks for clarification",()=>{const result=routed("Invoice send?");assert.equal(classifyInvoiceSendIntent("Invoice send?"),"ambiguous");assert.ok("response" in result);assert.match(result.response,/see when.*or resend/i);});
+
+test("15b. explicit resend without selected invoice asks which invoice",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/invoiceSendIntent==="explicit"/);assert.match(code,/Which invoice do you want me to send\?/);});
 
 test("16. retrying the same request ID is protected by one unique action claim",async()=>{const code=await readFile(new URL("../lib/assistant/tools.ts",import.meta.url),"utf8");assert.match(code,/idempotency_key:idempotencyKey/);assert.match(code,/claimed\.error\.code!=="23505"/);assert.match(code,/already processing/);});
 
