@@ -1219,6 +1219,7 @@ body:has(.epic3-sidebar) .epic3-sidebar{z-index:55}
 
 /* The desktop Assistant panel can be resized from its lower corner. */
 .assistant-popover-panel{min-width:340px;min-height:360px;max-width:calc(100vw - 36px);max-height:calc(100dvh - 78px);resize:both}
+.assistant-session-controls{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:.74rem}.assistant-session-controls strong{color:#166534;white-space:nowrap}.assistant-session-controls .text-button{border:0;background:transparent;color:#155eef;font:inherit;font-weight:800;cursor:pointer}.assistant-session-controls .text-button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:650px){.assistant-session-controls{margin-left:0;justify-content:space-between;width:100%}}
 @media(max-width:900px){.assistant-popover-panel{min-width:0;min-height:0;max-width:none;max-height:none;resize:none}}
 
 /* Embedded booking keeps the customer-site branding around the reservation. */
