@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { getOrCreateBusinessTwilioSubaccount } from "@/lib/twilio/businessTwilioProvider";
 import { canProvisionBusinessTwilioSubaccount } from "@/lib/twilio/provisioningAccess";
+import {requireBusinessTwilioEnabled} from "@/lib/twilio/access";
 
 export async function POST(request: Request) {
   const session = await createSupabaseServerClient();
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
   }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(businessId)) return NextResponse.json({ error: "A valid businessId is required." }, { status: 400 });
   try {
+    await requireBusinessTwilioEnabled(businessId);
     const context = await getOrCreateBusinessTwilioSubaccount(businessId);
     return NextResponse.json({ account: context });
   } catch (error) {
