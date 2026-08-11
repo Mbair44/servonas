@@ -24,3 +24,4 @@ export async function resolveCustomerCandidateAgainstTenant(input:string,candida
 
 export function selectCustomerConversationContext<T extends Record<string,unknown>>(context:T,customerId:string):T&{selectedCustomerId:string;pendingCustomerCandidates:CustomerCandidate[]}{return{...context,selectedCustomerId:customerId,pendingCustomerCandidates:[]};}
 export function pendingCustomerConversationContext<T extends Record<string,unknown>>(context:T,candidates:CustomerCandidate[]):T&{pendingCustomerCandidates:CustomerCandidate[]}{return{...context,pendingCustomerCandidates:candidates};}
+export function clearSelectedCustomerConversationContext<T extends Record<string,unknown>>(context:T){const next={...context};delete next.selectedCustomerId;delete next.pendingCustomerCandidates;return next;}
