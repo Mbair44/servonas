@@ -2,7 +2,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {formatCents} from "@/lib/financial/priceBook";
 export type FinancialEmailEvent="invoice_sent"|"invoice_viewed"|"payment_link_sent"|"payment_succeeded"|"payment_failed"|"partial_payment"|"invoice_paid"|"invoice_overdue"|"refund_issued"|"receipt_sent";
 const esc=(v:string)=>v.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
-export async function sendInvoiceFinancialEmail(invoiceId:string,event:FinancialEmailEvent,options:{paymentId?:string;refundId?:string;publicUrl?:string}={}){
+export async function sendInvoiceFinancialEmail(invoiceId:string,event:FinancialEmailEvent,options:{paymentId?:string;refundId?:string;publicUrl?:string;forceResend?:boolean}={}){
  const db=getSupabaseAdmin();if(!db)return {ok:false};
  const {data:i,error}=await db.from("invoices").select("id,business_id,customer_id,invoice_number,currency,balance_due_cents,businesses(name,email),customers!invoices_customer_fk(first_name,last_name,email)").eq("id",invoiceId).maybeSingle();
  if(error||!i){console.error("Financial email invoice lookup failed",{invoiceId,event,code:error?.code});return {ok:false};}
@@ -16,7 +16,7 @@ export async function sendInvoiceFinancialEmail(invoiceId:string,event:Financial
  existingQuery=options.paymentId?existingQuery.eq("payment_id",options.paymentId):existingQuery.is("payment_id",null);
  existingQuery=options.refundId?existingQuery.eq("refund_id",options.refundId):existingQuery.is("refund_id",null);
  const {data:existing}=await existingQuery.maybeSingle();
- if(existing&&["sent","queued"].includes(existing.status))return {ok:true,duplicate:true};
+ if(existing&&["sent","queued"].includes(existing.status)&&!options.forceResend)return {ok:true,duplicate:true};
  const labels:Record<FinancialEmailEvent,string>={invoice_sent:"Invoice sent",invoice_viewed:"Invoice viewed",payment_link_sent:"Payment link",payment_succeeded:"Payment received",payment_failed:"Payment failed",partial_payment:"Partial payment received",invoice_paid:"Invoice paid",invoice_overdue:"Invoice overdue",refund_issued:"Refund issued",receipt_sent:"Payment receipt"};
  const lines=[labels[event],`Business: ${business?.name||"Servonas"}`,`Customer: ${customer.first_name||""} ${customer.last_name||""}`.trim(),`Invoice: ${i.invoice_number}`,payment?`Payment date: ${payment.paid_at||payment.received_at||payment.created_at}`:null,payment?`Payment amount: ${formatCents(payment.amount_cents,i.currency)}`:null,payment?`Payment method: ${(payment.payment_method_type||"card").replaceAll("_"," ")}`:null,`Remaining balance: ${formatCents(i.balance_due_cents,i.currency)}`,refund?`Refund: ${formatCents(refund.amount_cents,i.currency)} — ${refund.reason}`:null,options.publicUrl?`Secure invoice link: ${options.publicUrl}`:null].filter(Boolean) as string[];
  const key=process.env.RESEND_API_KEY?.trim(),from=process.env.EMAIL_FROM?.trim();
