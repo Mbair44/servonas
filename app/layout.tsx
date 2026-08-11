@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PhoneInputFormatter } from "@/components/PhoneInputFormatter";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {AuthenticatedAccountMenu} from "@/components/AuthenticatedAccountMenu";
+import {AssistantPopover} from "@/components/AssistantPopover";
 import {MarketingAnalytics} from "@/components/MarketingAnalytics";
 import {ConsentAwareGoogleTag} from "@/components/ConsentAwareGoogleTag";
 
@@ -34,7 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <ConsentAwareGoogleTag/>
     <header className={`sv-header${user?" sv-header-authenticated":""}`}><div className="sv-container sv-nav">
       {user
-        ? <AuthenticatedAccountMenu name={accountName} email={accountEmail}/>
+        ? <div className="authenticated-ribbon-actions"><AssistantPopover/><AuthenticatedAccountMenu name={accountName} email={accountEmail}/></div>
         : <><Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
           <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link className="sv-mobile-login" href="/login">Log in</Link><Link className="sv-button sv-small" href="/signup">Start Free</Link></nav></>}
     </div></header>
