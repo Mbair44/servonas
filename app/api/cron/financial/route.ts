@@ -1,6 +1,7 @@
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
+import {calculateClosedMessagingPeriods,reconcileTenantMessageUsage} from "@/lib/twilio/messageUsage";
 export const runtime="nodejs";
 export async function GET(request:Request){
  const expected=process.env.CRON_SECRET,provided=request.headers.get("authorization");
@@ -15,5 +16,6 @@ export async function GET(request:Request){
   if(updateError){console.error("Overdue invoice update failed",{code:updateError.code,invoiceId:invoice.id});continue;}
   if(updated){await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"overdue"});await sendInvoiceFinancialEmail(invoice.id,"invoice_overdue");processed++;}
  }
- return NextResponse.json({ok:true,processed});
+ let twilioUsage:{reconciliation?:unknown;billingPeriods?:unknown;error?:string}={};try{twilioUsage.reconciliation=await reconcileTenantMessageUsage(100);twilioUsage.billingPeriods=await calculateClosedMessagingPeriods();}catch(error){twilioUsage={error:"Twilio usage maintenance failed"};console.error("Twilio usage maintenance failed",{errorName:error instanceof Error?error.name:"unknown"});}
+ return NextResponse.json({ok:true,processed,twilioUsage});
 }
