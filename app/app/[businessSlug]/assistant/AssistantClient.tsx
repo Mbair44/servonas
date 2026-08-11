@@ -1,6 +1,6 @@
 "use client";
 import {FormEvent,useEffect,useMemo,useRef,useState} from "react";
-import {BrowserSpeechSynthesisProvider} from "@/lib/assistant/textToSpeech";
+import {BrowserSpeechSynthesisProvider,speechPlaybackTimeoutMs} from "@/lib/assistant/textToSpeech";
 
 type Message={id:string;role:"user"|"assistant";content:string;actionRequest?:{id:string;status:string;summary:string}};
 type VoiceState="idle"|"listening"|"transcribing"|"thinking"|"speaking";
@@ -11,13 +11,14 @@ function MicIcon(){return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9
 
 export function AssistantClient({businessSlug,initialConversationId,initialMessages,onConversationId}:{businessSlug:string;initialConversationId:string|null;initialMessages:Message[];onConversationId?:(id:string)=>void}){
  const [conversationId,setConversationId]=useState(initialConversationId),[messages,setMessages]=useState(initialMessages),[input,setInput]=useState(""),[loading,setLoading]=useState(false),[error,setError]=useState(""),[voiceState,setVoiceState]=useState<VoiceState>("idle"),[speakResponses,setSpeakResponses]=useState(false),[voiceSupported,setVoiceSupported]=useState(true),[ttsSupported,setTtsSupported]=useState(false);
- const end=useRef<HTMLDivElement>(null),recorder=useRef<MediaRecorder|null>(null),stream=useRef<MediaStream|null>(null),chunks=useRef<Blob[]>([]),recordingStarted=useRef(0),recordingTimer=useRef<ReturnType<typeof setTimeout>|null>(null),canceled=useRef(false);
+ const end=useRef<HTMLDivElement>(null),recorder=useRef<MediaRecorder|null>(null),stream=useRef<MediaStream|null>(null),chunks=useRef<Blob[]>([]),recordingStarted=useRef(0),recordingTimer=useRef<ReturnType<typeof setTimeout>|null>(null),speechTimer=useRef<ReturnType<typeof setTimeout>|null>(null),speechGeneration=useRef(0),canceled=useRef(false);
  const tts=useMemo(()=>new BrowserSpeechSynthesisProvider(),[]),busy=loading||voiceState==="listening"||voiceState==="transcribing"||voiceState==="thinking";
  const scroll=()=>setTimeout(()=>end.current?.scrollIntoView({behavior:"smooth"}),20);
 
- useEffect(()=>{setVoiceSupported(typeof window!=="undefined"&&typeof MediaRecorder!=="undefined"&&Boolean(navigator.mediaDevices?.getUserMedia));setTtsSupported(tts.supported());setSpeakResponses(localStorage.getItem("servonas-assistant-speak")==="true");return()=>{if(recordingTimer.current)clearTimeout(recordingTimer.current);if(recorder.current?.state!=="inactive")recorder.current?.stop();stream.current?.getTracks().forEach(track=>track.stop());tts.stop();};},[tts]);
+ useEffect(()=>{setVoiceSupported(typeof window!=="undefined"&&typeof MediaRecorder!=="undefined"&&Boolean(navigator.mediaDevices?.getUserMedia));setTtsSupported(tts.supported());setSpeakResponses(localStorage.getItem("servonas-assistant-speak")==="true");return()=>{if(recordingTimer.current)clearTimeout(recordingTimer.current);if(speechTimer.current)clearTimeout(speechTimer.current);if(recorder.current?.state!=="inactive")recorder.current?.stop();stream.current?.getTracks().forEach(track=>track.stop());tts.stop();};},[tts]);
 
- function speak(message:string){if(!speakResponses||!ttsSupported)return;tts.speak(message,{onStart:()=>setVoiceState("speaking"),onEnd:()=>setVoiceState("idle")});}
+ function finishSpeaking(generation?:number){if(generation!==undefined&&generation!==speechGeneration.current)return;if(speechTimer.current){clearTimeout(speechTimer.current);speechTimer.current=null;}setVoiceState("idle");}
+ function speak(message:string){setVoiceState("idle");if(!speakResponses||!ttsSupported)return;const generation=++speechGeneration.current;try{tts.speak(message,{onStart:()=>{if(generation!==speechGeneration.current)return;setVoiceState("speaking");speechTimer.current=setTimeout(()=>{if(generation!==speechGeneration.current)return;tts.stop();finishSpeaking(generation);},speechPlaybackTimeoutMs(message));},onEnd:()=>finishSpeaking(generation)});}catch{finishSpeaking(generation);}}
 
  async function submitAssistant(value:string,channel:"web"|"voice",requestId:string){
   setLoading(true);if(channel==="voice")setVoiceState("thinking");scroll();
@@ -28,7 +29,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
    setMessages(current=>[...current,{id:crypto.randomUUID(),role:"assistant",content:body.message,actionRequest:body.actionRequest}]);
    if(channel==="voice")speak(body.message);else setVoiceState("idle");
   }catch(caught){setError(caught instanceof Error?caught.message:"I couldn't complete that request.");setVoiceState("idle");}
-  finally{setLoading(false);scroll();}
+  finally{setLoading(false);if(channel==="voice")setVoiceState(current=>current==="speaking"?current:"idle");scroll();}
  }
 
  async function send(event:FormEvent){event.preventDefault();const value=input.trim();if(!value||busy)return;const requestId=crypto.randomUUID(),typedRequest={channel:"web",requestId} as const;setInput("");setError("");setMessages(current=>[...current,{id:requestId,role:"user",content:value}]);await submitAssistant(value,typedRequest.channel,typedRequest.requestId);}
@@ -48,7 +49,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  }
 
  async function startRecording(){
-  if(busy)return;tts.stop();setVoiceState("idle");setError("");canceled.current=false;chunks.current=[];
+  if(busy)return;stopSpeaking();setError("");canceled.current=false;chunks.current=[];
   if(typeof MediaRecorder==="undefined"||!navigator.mediaDevices?.getUserMedia){setVoiceSupported(false);setError("Voice recording isn't supported in this browser.");return;}
   try{
    const mediaStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});stream.current=mediaStream;
@@ -63,7 +64,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
 
  function stopRecording(){if(recorder.current?.state==="recording")recorder.current.stop();}
  function cancelRecording(){canceled.current=true;if(recorder.current?.state==="recording")recorder.current.stop();else releaseRecorder();setVoiceState("idle");}
- function stopSpeaking(){tts.stop();setVoiceState("idle");}
+ function stopSpeaking(){speechGeneration.current+=1;tts.stop();finishSpeaking();}
  async function decide(messageId:string,actionId:string,decision:"confirm"|"reject"){if(busy)return;setLoading(true);setError("");try{const response=await fetch(`/api/assistant/${businessSlug}/actions/${actionId}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision})}),body=await response.json();if(!response.ok)throw new Error(body.error||"Action failed.");setMessages(current=>current.map(message=>message.id===messageId?{...message,actionRequest:message.actionRequest?{...message.actionRequest,status:body.status}:undefined}:message).concat({id:crypto.randomUUID(),role:"assistant",content:body.message}));}catch(caught){setError(caught instanceof Error?caught.message:"I couldn't complete that action.");}finally{setLoading(false);scroll();}}
 
  const stateLabel=voiceState==="listening"?"Listening…":voiceState==="transcribing"?"Transcribing…":voiceState==="thinking"?"Servonas is thinking…":voiceState==="speaking"?"Speaking…":"Tap to speak";

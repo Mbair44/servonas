@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
 import {isSupportedAudioMimeType,OpenAISpeechToTextProvider,VOICE_MAX_DURATION_MS,VOICE_MAX_UPLOAD_BYTES} from "../lib/assistant/speechToText.ts";
-import {speechFriendlyText} from "../lib/assistant/textToSpeech.ts";
+import {speechFriendlyText,speechPlaybackTimeoutMs} from "../lib/assistant/textToSpeech.ts";
 import {consumeVoiceTranscriptionLimit} from "../lib/assistant/voiceRateLimit.ts";
 
 const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
@@ -35,6 +35,20 @@ test("cancelled recording is discarded before transcription",async()=>{const cli
 test("voice preserves existing permissions, confirmations, and idempotency",async()=>{const route=await read("app/api/assistant/[businessSlug]/route.ts"),client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx"),orchestrator=await read("lib/assistant/orchestrator.ts");assert.match(route,/requireWorkspace/);assert.match(client,/Confirmation required/);assert.match(client,/crypto\.randomUUID\(\)/);assert.match(orchestrator,/requires_confirmation:true/);assert.match(orchestrator,/context\.requestId/);});
 
 test("browser speech synthesis is optional, stoppable, and strips table formatting",()=>{assert.equal(speechFriendlyText("**Total** | $20\nhttps://example.com"),"Total , $20 link");});
+
+test("successful voice requests deterministically leave thinking when TTS is disabled",async()=>{const client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx");assert.match(client,/function speak\(message:string\)\{setVoiceState\("idle"\);if\(!speakResponses\|\|!ttsSupported\)return/);assert.match(client,/finally\{setLoading\(false\);if\(channel==="voice"\)setVoiceState\(current=>current==="speaking"\?current:"idle"\)/);});
+
+test("successful TTS completion and errors both return voice state to idle",async()=>{const client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx"),provider=await read("lib/assistant/textToSpeech.ts");assert.match(client,/onEnd:\(\)=>finishSpeaking\(generation\)/);assert.match(provider,/utterance\.onend=\(\)=>handlers\.onEnd\?\.\(\)/);assert.match(provider,/utterance\.onerror=\(\)=>handlers\.onEnd\?\.\(\)/);assert.match(provider,/catch\{handlers\.onEnd\?\.\(\);\}/);});
+
+test("a missing Safari speech callback cannot permanently lock the Assistant",()=>{assert.equal(speechPlaybackTimeoutMs("Short answer"),5_000);assert.equal(speechPlaybackTimeoutMs("x".repeat(1000)),20_000);});
+
+test("transcription and Assistant failures clear their transient states",async()=>{const client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx");assert.match(client,/catch\(caught\)\{setError\(caught instanceof Error\?caught\.message:"I couldn't transcribe that recording\."\);setVoiceState\("idle"\);\}/);assert.match(client,/catch\(caught\)\{setError\(caught instanceof Error\?caught\.message:"I couldn't complete that request\."\);setVoiceState\("idle"\);\}/);});
+
+test("completed response and cancellation remove stale processing UI",async()=>{const client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx");assert.match(client,/setMessages\(current=>\[\.\.\.current,\{id:crypto\.randomUUID\(\),role:"assistant",content:body\.message/);assert.match(client,/function cancelRecording\(\).*setVoiceState\("idle"\)/);assert.match(client,/voiceState==="transcribing"\|\|voiceState==="thinking"/);});
+
+test("stale TTS callbacks cannot reset a newer recording lifecycle",async()=>{const client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx");assert.match(client,/speechGeneration=useRef\(0\)/);assert.match(client,/generation!==speechGeneration\.current/);assert.match(client,/speechGeneration\.current\+=1/);});
+
+test("typed and subsequent voice submissions remain enabled after voice settlement",async()=>{const client=await read("app/app/[businessSlug]/assistant/AssistantClient.tsx");assert.match(client,/busy=loading\|\|voiceState==="listening"\|\|voiceState==="transcribing"\|\|voiceState==="thinking"/);assert.doesNotMatch(client,/busy=.*voiceState==="speaking"/);assert.match(client,/await submitAssistant\(value,typedRequest\.channel,typedRequest\.requestId\)/);assert.match(client,/onClick=\{startRecording\}/);});
 
 test("voice rate limiter provides a bounded abuse-control window",()=>{for(let index=0;index<10;index++)assert.equal(consumeVoiceTranscriptionLimit("test-rate-key",1000),true);assert.equal(consumeVoiceTranscriptionLimit("test-rate-key",1000),false);assert.equal(consumeVoiceTranscriptionLimit("test-rate-key",61_001),true);});
 
