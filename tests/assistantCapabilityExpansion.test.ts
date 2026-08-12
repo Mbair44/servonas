@@ -61,3 +61,13 @@ test("tenant SMS is idempotent and has no legacy fallback",async()=>{
  assert.match(section,/idempotency_key:key/);
  assert.match(section,/Tenant Twilio sender is not active/);
 });
+
+test("Assistant customer creation mirrors the working customer form and reports safe provider errors",async()=>{
+ const code=await readFile(new URL("../lib/assistant/tools.ts",import.meta.url),"utf8");
+ const section=code.slice(code.indexOf('name:"createCustomer"'),code.indexOf('name:"createAppointment"'));
+ assert.match(section,/preferred_contact_method/);
+ assert.match(section,/tags:\[\]/);
+ assert.match(section,/customerWriteErrorMessage/);
+ assert.match(section,/Assistant customer creation failed/);
+ assert.doesNotMatch(section,/phone_normalized:/);
+});
