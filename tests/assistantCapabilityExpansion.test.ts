@@ -11,6 +11,8 @@ const cases:[string,ReturnType<typeof classify>][]=[
  ["Change their phone number","customer_update"],
  ["Add their email address","customer_update"],
  ["Schedule her tomorrow at 2","appointment_create"],
+ ["Will you schedule him?","appointment_create"],
+ ["Create a job for him","job_create"],
  ["Put them on the calendar Thursday at 4","appointment_create"],
  ["Move this appointment to next Monday","appointment_reschedule"],
  ["Push them back an hour","appointment_reschedule"],
@@ -82,4 +84,4 @@ for(const phrase of ["Who do I have tomorrow?","What appointments do I have tomo
 }
 test("appointment parser never guesses AM or PM",()=>{const parsed=parseAppointmentCreateRequest("Schedule him tomorrow at 2","America/Phoenix",new Date("2026-08-12T12:00:00Z"));assert.equal(parsed?.needsMeridiem,true);assert.equal(parsed?.startsAt,null);});
 test("appointment parser uses business timezone for an explicit meridiem",()=>{const parsed=parseAppointmentCreateRequest("Schedule him tomorrow at 2 PM","America/Phoenix",new Date("2026-08-12T12:00:00Z"));assert.equal(parsed?.startsAt,"2026-08-13T21:00:00.000Z");});
-test("orchestrator gives appointment creation precedence before global schedule and provider",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/capabilityIntent!=="appointment_create"&&markPaidIntent/);assert.match(code,/else if\(appointmentDecision\)decision=appointmentDecision;else if\(markPaidIntent/);assert.match(code,/selectCustomerConversationContext\(nextContext,toolResult\.selectedCustomerId\)/);});
+test("orchestrator gives appointment creation precedence before global schedule and provider",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/!isCreateCapability\(capabilityIntent\)&&markPaidIntent/);assert.match(code,/else if\(createDecision\)decision=createDecision;else if\(markPaidIntent/);assert.match(code,/selectCustomerConversationContext\(nextContext,toolResult\.selectedCustomerId\)/);});

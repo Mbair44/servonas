@@ -15,7 +15,7 @@ test("specific selected-invoice status is not classified as a global balance que
 test("global outstanding routing precedes provider and ignores selected entity binding",async()=>{
  const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8"),globalRoute=code.indexOf('else if(globalOutstanding)decision={toolName:"getOutstandingInvoices",arguments:{}}'),provider=code.indexOf("provider.generateResponse");
  assert.ok(globalRoute>=0&&globalRoute<provider);
- assert.match(code,/if\(selectedCustomerId&&!globalOutstanding\)decision=bindTrustedSelectedCustomer/);
+ assert.match(code,/if\(selectedCustomerId&&!globalOutstanding&&!createType\)decision=bindTrustedSelectedCustomer/);
  assert.match(code,/if\(selectedInvoiceId&&!globalOutstanding\)decision=bindTrustedSelectedInvoice/);
  assert.match(code,/selectedCustomerId&&!globalOutstanding&&!decision\.arguments\.customerId/);
  assert.match(code,/selectedInvoiceId&&!globalOutstanding&&!decision\.arguments\.invoiceId/);
