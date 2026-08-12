@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {readFile} from "node:fs/promises";
+import {classifyMarkInvoicePaidIntent,explicitInvoiceNumber} from "../lib/assistant/markInvoicePaidIntent.ts";
+import {bindTrustedSelectedCustomer,bindTrustedSelectedInvoice} from "../lib/assistant/selectedCustomerContext.ts";
+
+const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
+const customerId="11111111-1111-4111-8111-111111111111",invoiceId="22222222-2222-4222-8222-222222222222";
+
+for(const phrase of ["Mark the invoice as paid.","Mark this invoice paid.","Mark it paid.","Set this invoice to paid.","Set it as paid.","Record this invoice as paid.","Record it as paid.","They paid this invoice.","This invoice has been paid.","Mark INV-000001 paid.","Mark their invoice paid."])test(`mark-paid action: ${phrase}`,()=>assert.equal(classifyMarkInvoicePaidIntent(phrase),"action"));
+for(const phrase of ["Is this invoice paid?","Did they pay this invoice?","Has this invoice been paid?","Has it been paid?","When was it paid?","What is the payment status?","Is it still unpaid?"])test(`mark-paid read only: ${phrase}`,()=>assert.equal(classifyMarkInvoicePaidIntent(phrase),"read_only"));
+
+test("explicit invoice number is normalized",()=>assert.equal(explicitInvoiceNumber("Mark inv 000001 paid"),"INV-000001"));
+test("mark-paid current intent overrides appointment decisions from history",()=>{const provider={toolName:"getCustomerAppointments",arguments:{customerId}} as const,customerBound=bindTrustedSelectedCustomer("Mark the invoice as paid.",provider,customerId),invoiceBound=bindTrustedSelectedInvoice("Mark the invoice as paid.",customerBound,invoiceId) as any;assert.notEqual(invoiceBound.toolName,"getCustomerAppointments");});
+test("orchestrator routes mark-paid before schedule and provider",async()=>{const code=await read("lib/assistant/orchestrator.ts"),markPaid=code.indexOf('else if(markPaidIntent==="action")'),schedule=code.indexOf("else if(globalSchedule)"),provider=code.indexOf("provider.generateResponse");assert.ok(markPaid>=0&&markPaid<schedule&&markPaid<provider);assert.match(code,/toolName:"markInvoicePaid"/);});
+test("trusted selected invoice is used for deterministic mark-paid",async()=>{const code=await read("lib/assistant/orchestrator.ts");assert.match(code,/let markPaidInvoiceId=selectedInvoiceId/);assert.match(code,/arguments:\{invoiceId:markPaidInvoiceId\}/);});
+test("one unpaid selected-customer invoice can resolve but multiple require clarification",async()=>{const code=await read("lib/assistant/orchestrator.ts");assert.match(code,/\.eq\("customer_id",selectedCustomerId\)/);assert.match(code,/markPaidMatchCount===1/);assert.match(code,/markPaidMatchCount>1\?"I found more than one unpaid invoice/);});
+test("stale selected invoice is not silently replaced",async()=>{const code=await read("lib/assistant/orchestrator.ts");assert.match(code,/selectedInvoiceWasStale=true/);assert.match(code,/!selectedInvoiceWasStale/);assert.match(code,/selected invoice is no longer available/);});
+test("read-only payment questions route to activity and never mark paid",async()=>{const code=await read("lib/assistant/orchestrator.ts");assert.match(code,/markPaidIntent==="read_only".*toolName:"getInvoiceActivity"/);});
+test("mark-paid tool has a final current-input guard and only creates pending action",async()=>{const code=await read("lib/assistant/tools.ts");assert.match(code,/classifyMarkInvoicePaidIntent\(c\.currentInput\?\?""\)!=="action"/);assert.match(code,/pendingAction:\{actionType:"markInvoicePaid"/);assert.match(code,/risk:"high"/);});
+test("selected invoice and customer are revalidated before confirmation",async()=>{const code=await read("lib/assistant/tools.ts");assert.match(code,/requireSelectedInvoiceMatch\(c,invoice\.id\)/);assert.match(code,/requireSelectedCustomerMatch\(c,invoice\.customer_id\)/);assert.match(code,/owned\(c,"invoices",a\.invoiceId/);});
+test("confirmation remains idempotent permission checked and tenant scoped",async()=>{const code=await read("lib/assistant/orchestrator.ts");assert.match(code,/canManageCustomers\(context\.role\)/);assert.match(code,/\.eq\("status","awaiting_confirmation"\)/);assert.match(code,/p_idempotency_key:action\.id/);assert.match(code,/\.eq\("business_id",context\.business\.id\)/);});
+test("spoken yes no and tap confirmation retain one shared executor",async()=>{const orchestrator=await read("lib/assistant/orchestrator.ts"),route=await read("app/api/assistant/[businessSlug]/actions/[actionId]/route.ts");assert.match(orchestrator,/classifySpokenConfirmation/);assert.match(orchestrator,/resolveAssistantAction/);assert.match(route,/resolveAssistantAction/);});

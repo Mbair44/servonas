@@ -1,4 +1,5 @@
 import type {ProviderDecision} from "./provider.ts";
+import {classifyMarkInvoicePaidIntent} from "./markInvoicePaidIntent.ts";
 
 const explicitCustomerChange=/\b(?:find|search(?: for)?|look up|show me|who is|switch to|change (?:the )?customer|select|choose|use)\b/i;
 const outstandingIntent=/\b(?:owe|owes|owed|outstanding|overdue|balance|money due)\b/i;
@@ -13,6 +14,7 @@ export function requestsGlobalSchedule(input:string){return globalScheduleIntent
 export function bindTrustedSelectedCustomer(input:string,decision:ProviderDecision,customerId:string):ProviderDecision{
  if(explicitlyChangesCustomer(input))return decision;
  if(requestsGlobalSchedule(input))return decision;
+ if(classifyMarkInvoicePaidIntent(input)==="action")return decision;
  if(paymentHistoryIntent.test(input))return{toolName:"getPaymentHistory",arguments:{customerId},usage:decision.usage};
  if(outstandingIntent.test(input))return{toolName:"getOutstandingInvoices",arguments:{customerId},usage:decision.usage};
  if(appointmentIntent.test(input))return{toolName:"getCustomerAppointments",arguments:{customerId},usage:decision.usage};
@@ -29,6 +31,9 @@ const explicitSendCommand=/^\s*(?:(?:please|kindly)\s+|(?:can|could|would|will)\
 export type InvoiceSendIntent="explicit"|"read_only"|"ambiguous";
 export function classifyInvoiceSendIntent(input:string):InvoiceSendIntent{if(readOnlyDeliveryQuestion.test(input)&&(deliveryWords.test(input)||/\bwhat happened\b/i.test(input)))return"read_only";if(explicitSendCommand.test(input))return"explicit";return"ambiguous";}
 export function bindTrustedSelectedInvoice(input:string,decision:ProviderDecision,invoiceId:string):ProviderDecision{
+ const markPaidIntent=classifyMarkInvoicePaidIntent(input);
+ if(markPaidIntent==="action")return{toolName:"markInvoicePaid",arguments:{invoiceId},usage:decision.usage};
+ if(markPaidIntent==="read_only")return{toolName:"getInvoiceActivity",arguments:{invoiceId},usage:decision.usage};
  const deliveryIntent=classifyInvoiceSendIntent(input);
  if(deliveryIntent==="read_only")return{toolName:"getInvoiceActivity",arguments:{invoiceId},usage:decision.usage};
  if(deliveryIntent==="explicit")return{toolName:"sendInvoice",arguments:{invoiceId},usage:decision.usage};

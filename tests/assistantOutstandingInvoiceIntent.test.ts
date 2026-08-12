@@ -21,6 +21,6 @@ test("global outstanding routing precedes provider and ignores selected entity b
  assert.match(code,/selectedInvoiceId&&!globalOutstanding&&!decision\.arguments\.invoiceId/);
 });
 
-test("pending ambiguity is superseded by the current global outstanding intent",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/supersedesPending=Boolean\(customerSearchTerm\|\|globalSchedule\|\|globalOutstanding\)/);});
+test("pending ambiguity is superseded by the current global outstanding intent",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/supersedesPending=Boolean\(customerSearchTerm\|\|markPaidIntent==="action"\|\|globalSchedule\|\|globalOutstanding\)/);});
 test("outstanding intent family is read-only and cannot route mutations",async()=>{const code=await readFile(new URL("../lib/assistant/billingIntent.ts",import.meta.url),"utf8");assert.doesNotMatch(code,/sendInvoice|markInvoicePaid|create|refund/i);});
 test("voice and text share the same billing classifier in the shared orchestrator",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/channel:"web"\|"mobile"\|"voice"/);assert.equal((code.match(/billingIntent=classifyBillingIntent\(text\)/g)??[]).length,1);});
