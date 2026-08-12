@@ -25,6 +25,8 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  const [ttsSupported,setTtsSupported]=useState(false);
  const [sessionActive,setSessionActive]=useState(false);
  const end=useRef<HTMLDivElement>(null);
+ const composerInput=useRef<HTMLTextAreaElement>(null);
+ const restoreComposerFocus=useRef(false);
  const recorder=useRef<MediaRecorder|null>(null);
  const stream=useRef<MediaStream|null>(null);
  const chunks=useRef<Blob[]>([]);
@@ -129,7 +131,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   finally{requestInFlight.current=false;setLoading(false);if(channel==="voice")setVoiceState(current=>current==="speaking"||current==="waiting_for_next_command"||current==="error"?current:"idle");scroll();}
  }
 
- async function send(event:FormEvent){event.preventDefault();const value=input.trim();if(!value||busy)return;const requestId=crypto.randomUUID(),typedRequest={channel:"web",requestId} as const;setInput("");setError("");setMessages(current=>[...current,{id:requestId,role:"user",content:value}]);await submitAssistant(value,typedRequest.channel,typedRequest.requestId);}
+ async function send(event:FormEvent){event.preventDefault();const value=input.trim();if(!value||busy)return;const shouldRestoreFocus=restoreComposerFocus.current;restoreComposerFocus.current=false;const requestId=crypto.randomUUID(),typedRequest={channel:"web",requestId} as const;setInput("");setError("");setMessages(current=>[...current,{id:requestId,role:"user",content:value}]);await submitAssistant(value,typedRequest.channel,typedRequest.requestId);if(shouldRestoreFocus)requestAnimationFrame(()=>composerInput.current?.focus());}
 
  async function transcribe(blob:Blob,durationMs:number){
   setVoiceState("transcribing");setError("");
@@ -217,6 +219,6 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
    </div>
    <label className="assistant-speak-toggle"><input type="checkbox" checked={speakResponses} disabled={!ttsSupported} onChange={event=>{const enabled=event.target.checked;setSpeakResponses(enabled);localStorage.setItem("servonas-assistant-speak",String(enabled));if(!enabled)stopSpeaking(sessionActiveRef.current);}}/> Speak voice responses</label>
   </div>
-  <form className="assistant-composer" onSubmit={send}><label><span className="sr-only">Message Servonas Assistant</span><textarea value={input} disabled={busy} onChange={event=>setInput(event.target.value)} maxLength={4000} rows={2} placeholder="Ask about customers, appointments, or invoices…" onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/></label><button className="sv-button" disabled={busy||!input.trim()}>Send</button></form>
+  <form className="assistant-composer" onSubmit={send}><label><span className="sr-only">Message Servonas Assistant</span><textarea ref={composerInput} value={input} disabled={busy} onChange={event=>setInput(event.target.value)} maxLength={4000} rows={2} placeholder="Ask about customers, appointments, or invoices…" onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();restoreComposerFocus.current=true;event.currentTarget.form?.requestSubmit();}}}/></label><button className="sv-button" disabled={busy||!input.trim()}>Send</button></form>
  </section>;
 }
