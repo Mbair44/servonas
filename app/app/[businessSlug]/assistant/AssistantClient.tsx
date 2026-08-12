@@ -72,6 +72,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   };
  },[tts]);
  useEffect(()=>{voiceStateRef.current=voiceState;},[voiceState]);
+ useEffect(()=>{if(!busy&&restoreComposerFocus.current){restoreComposerFocus.current=false;requestAnimationFrame(()=>composerInput.current?.focus());}},[busy]);
  useLayoutEffect(()=>{const list=messageList.current;if(list)list.scrollTop=list.scrollHeight;},[]);
 
  function diagnostic(event:string,details:Record<string,unknown>={}){voiceDebug(event,{voiceState:voiceStateRef.current,conversationSessionActive:sessionActiveRef.current,...details});}
@@ -136,7 +137,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   finally{requestInFlight.current=false;setLoading(false);if(channel==="voice")setVoiceState(current=>current==="requesting_tts"||current==="playing_response"||current==="waiting_for_next_command"||current==="error"?current:"idle");scroll();}
  }
 
- async function send(event:FormEvent){event.preventDefault();const value=input.trim();if(!value||busy)return;const shouldRestoreFocus=restoreComposerFocus.current;restoreComposerFocus.current=false;const requestId=crypto.randomUUID(),typedRequest={channel:"web",requestId} as const;setInput("");setError("");setMessages(current=>[...current,{id:requestId,role:"user",content:value}]);await submitAssistant(value,typedRequest.channel,typedRequest.requestId);if(shouldRestoreFocus)requestAnimationFrame(()=>composerInput.current?.focus());}
+ async function send(event:FormEvent){event.preventDefault();const value=input.trim();if(!value||busy)return;const requestId=crypto.randomUUID(),typedRequest={channel:"web",requestId} as const;setInput("");setError("");setMessages(current=>[...current,{id:requestId,role:"user",content:value}]);await submitAssistant(value,typedRequest.channel,typedRequest.requestId);}
 
  async function transcribe(blob:Blob,durationMs:number){
   setVoiceState("transcribing");setError("");
