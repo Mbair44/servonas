@@ -11,7 +11,7 @@ export function classifyAssistantCapabilityIntent(input:string):AssistantCapabil
  if(/\b(mark|close|finish|complete)\b.*\b(job|it)\b|\b(this|that)\s+job\s+is\s+done\b/.test(value))return "job_complete";
  if(/\b(add|make)\s+(a\s+)?note\b|\bnote\s+that\b/.test(value))return "job_note";
  if(/\b(reschedule|move|push)\b.*\b(appointment|job|them|him|her|it|\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/.test(value))return "appointment_reschedule";
- if(/\b(schedule|book|put)\b.*\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|calendar|appointment|at\s+\d)\b/.test(value))return "appointment_create";
+ if(/\b(schedule|book|put|add)\b.*\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|calendar|appointment|at\s+\d)\b|\bcreate\s+an?\s+appointment\b/.test(value))return "appointment_create";
  if(/\b(create|add)\s+(a\s+)?customer\b|\badd\b.+\bas\s+(a\s+)?customer\b/.test(value))return "customer_create";
  if(/\b(change|update|add)\b.*\b(phone|email|address|customer note|their note)\b/.test(value))return "customer_update";
  if(/\b(create\s+an?\s+invoice|invoice\s+(this|that|the|them|him|her)|bill\s+(this|that|them|him|her))\b/.test(value))return "invoice_create";

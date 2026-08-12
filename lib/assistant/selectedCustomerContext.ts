@@ -1,5 +1,6 @@
 import type {ProviderDecision} from "./provider.ts";
 import {classifyMarkInvoicePaidIntent} from "./markInvoicePaidIntent.ts";
+import {classifyAssistantCapabilityIntent} from "./capabilityIntents.ts";
 
 const explicitCustomerChange=/\b(?:find|search(?: for)?|look up|show me|who is|switch to|change (?:the )?customer|select|choose|use)\b/i;
 const outstandingIntent=/\b(?:owe|owes|owed|outstanding|overdue|open invoices?|balance|money due)\b/i;
@@ -9,11 +10,16 @@ const globalScheduleIntent=/\b(?:who|what)\b.*\b(?:today|tomorrow|schedule|appoi
 
 export function explicitlyChangesCustomer(input:string){return explicitCustomerChange.test(input);}
 export function explicitCustomerSearchTerm(input:string){const match=input.trim().match(/^(?:find|search(?: for)?|look up|show me|who is)\s+(?:customer\s+)?(.+?)[?.!]*$/i);return match?.[1]?.trim()||null;}
-export function requestsGlobalSchedule(input:string){return globalScheduleIntent.test(input)&&!/(?:their|his|her|this customer|that customer)\b/i.test(input);}
+export function requestsGlobalSchedule(input:string){return classifyAssistantCapabilityIntent(input)!=="appointment_create"&&globalScheduleIntent.test(input)&&!/(?:their|his|her|him|them|this customer|that customer)\b/i.test(input);}
 
 export function bindTrustedSelectedCustomer(input:string,decision:ProviderDecision,customerId:string):ProviderDecision{
  if(explicitlyChangesCustomer(input))return decision;
  if(requestsGlobalSchedule(input))return decision;
+ if(classifyAssistantCapabilityIntent(input)==="appointment_create"){
+  if("response" in decision)return decision;
+  if(decision.toolName==="createAppointment")return{...decision,arguments:{...decision.arguments,customerId}};
+  return decision;
+ }
  if(classifyMarkInvoicePaidIntent(input)==="action")return decision;
  if(paymentHistoryIntent.test(input))return{toolName:"getPaymentHistory",arguments:{customerId},usage:decision.usage};
  if(outstandingIntent.test(input))return{toolName:"getOutstandingInvoices",arguments:{customerId},usage:decision.usage};

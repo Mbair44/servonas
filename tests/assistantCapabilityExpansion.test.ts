@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {classifyAssistantCapabilityIntent as classify} from "../lib/assistant/capabilityIntents.ts";
+import {parseAppointmentCreateRequest} from "../lib/assistant/appointmentCreateIntent.ts";
+import {requestsGlobalSchedule} from "../lib/assistant/selectedCustomerContext.ts";
 
 const cases:[string,ReturnType<typeof classify>][]=[
  ["Create a customer named Mike Smith","customer_create"],
@@ -71,3 +73,13 @@ test("Assistant customer creation mirrors the working customer form and reports 
  assert.match(section,/Assistant customer creation failed/);
  assert.doesNotMatch(section,/phone_normalized:/);
 });
+
+for(const phrase of ["Schedule Mike tomorrow at 2","Schedule him for tomorrow at 2","Will you schedule Mike Smith for tomorrow at 2","Book Sarah Friday at 10","Put John on my calendar tomorrow at 3","Create an appointment for Mike tomorrow","Add Mike to my schedule tomorrow at 2"]){
+ test(`appointment creation outranks schedule lookup: ${phrase}`,()=>{assert.equal(classify(phrase),"appointment_create");assert.equal(requestsGlobalSchedule(phrase),false);});
+}
+for(const phrase of ["Who do I have tomorrow?","What appointments do I have tomorrow?","What do I have at 2?","Am I free tomorrow at 2?"]){
+ test(`schedule read remains read only: ${phrase}`,()=>assert.notEqual(classify(phrase),"appointment_create"));
+}
+test("appointment parser never guesses AM or PM",()=>{const parsed=parseAppointmentCreateRequest("Schedule him tomorrow at 2","America/Phoenix",new Date("2026-08-12T12:00:00Z"));assert.equal(parsed?.needsMeridiem,true);assert.equal(parsed?.startsAt,null);});
+test("appointment parser uses business timezone for an explicit meridiem",()=>{const parsed=parseAppointmentCreateRequest("Schedule him tomorrow at 2 PM","America/Phoenix",new Date("2026-08-12T12:00:00Z"));assert.equal(parsed?.startsAt,"2026-08-13T21:00:00.000Z");});
+test("orchestrator gives appointment creation precedence before global schedule and provider",async()=>{const code=await readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");assert.match(code,/capabilityIntent!=="appointment_create"&&markPaidIntent/);assert.match(code,/else if\(appointmentDecision\)decision=appointmentDecision;else if\(markPaidIntent/);assert.match(code,/selectCustomerConversationContext\(nextContext,toolResult\.selectedCustomerId\)/);});
