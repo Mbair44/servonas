@@ -47,7 +47,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  const audioSource=useRef<MediaStreamAudioSourceNode|null>(null);
  const activityFrame=useRef<number|null>(null);
  const activityTracker=useRef<VoiceActivityTracker|null>(null);
- const tts=useMemo(()=>new BrowserSpeechSynthesisProvider(),[]);
+ const tts=useMemo(()=>new BrowserSpeechSynthesisProvider(({event,details})=>voiceDebug(event,details??{})),[]);
  const recordingActive=voiceState==="waiting_for_speech"||voiceState==="listening"||voiceState==="finishing";
  const busy=loading||recordingActive||voiceState==="transcribing"||voiceState==="thinking"||voiceState==="waiting_for_next_command";
  const scroll=()=>setTimeout(()=>end.current?.scrollIntoView({behavior:"smooth"}),20);
@@ -82,12 +82,15 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  function stopSpeaking(resumeSession=false){speechGeneration.current+=1;tts.stop();finishSpeaking();if(resumeSession&&sessionActiveRef.current)scheduleNextCommand();}
  function speak(message:string,onComplete?:()=>void){
   setVoiceState("idle");
+  diagnostic("tts_requested",{speakResponsesEnabled:speakResponses,ttsSupported,responseTextAvailable:Boolean(message),responseTextLength:message.length,conversationSessionActive:sessionActiveRef.current});
+  if(!speakResponses||!ttsSupported)diagnostic("tts_skipped",{reason:!speakResponses?"disabled":"unsupported"});
   if(!speakResponses||!ttsSupported){onComplete?.();return;}
   const generation=++speechGeneration.current;
   const finish=()=>finishSpeaking(generation,onComplete);
   setVoiceState("speaking");
-  speechTimer.current=setTimeout(()=>{if(generation!==speechGeneration.current)return;tts.stop();finish();},speechPlaybackTimeoutMs(message));
-  try{tts.speak(message,{onStart:()=>{if(generation!==speechGeneration.current)return;setVoiceState("speaking");},onEnd:finish});}catch{finish();}
+  const fallbackMs=speechPlaybackTimeoutMs(message);diagnostic("tts_fallback_scheduled",{generation,delayMs:fallbackMs,waitingForTtsCompletion:true});
+  speechTimer.current=setTimeout(()=>{if(generation!==speechGeneration.current)return;diagnostic("tts_fallback_fired",{generation});tts.stop();finish();},fallbackMs);
+  try{tts.speak(message,{onStart:()=>{if(generation!==speechGeneration.current)return;diagnostic("tts_playback_started",{generation});setVoiceState("speaking");},onEnd:finish,onError:category=>diagnostic("tts_playback_failed",{generation,category})});}catch{finish();}
  }
  function scheduleNextCommand(){
   clearResumeTimer();
@@ -122,10 +125,10 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
    const response=await fetch(`/api/assistant/${businessSlug}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({input:value,conversationId,channel,requestId})}),body=await response.json();
    if(!response.ok)throw new Error(body.error||"Assistant request failed.");
    setConversationId(body.conversationId);onConversationId?.(body.conversationId);
-   setMessages(current=>[...current,{id:crypto.randomUUID(),role:"assistant",content:body.message,actionRequest:body.actionRequest}]);
+   setMessages(current=>current.map(message=>{const action=message.actionRequest;if(!action||!body.resolvedActionId||action.id!==body.resolvedActionId)return message;return{...message,actionRequest:{id:action.id,summary:action.summary,status:body.status}};}).concat({id:crypto.randomUUID(),role:"assistant",content:body.message,actionRequest:body.actionRequest}));
    if(channel==="voice"){
     if(voiceSessionRequest&&!sessionActiveRef.current)setVoiceState("idle");
-    else{const continueSession=sessionActiveRef.current&&!body.actionRequest;if(body.actionRequest)releaseConversationMedia();speak(body.message,continueSession?scheduleNextCommand:undefined);}
+    else{const continueSession=sessionActiveRef.current;speak(body.message,continueSession?scheduleNextCommand:undefined);}
    }else setVoiceState("idle");
   }catch(caught){releaseConversationMedia();setError(caught instanceof Error?caught.message:"I couldn't complete that request.");setVoiceState("error");}
   finally{requestInFlight.current=false;setLoading(false);if(channel==="voice")setVoiceState(current=>current==="speaking"||current==="waiting_for_next_command"||current==="error"?current:"idle");scroll();}
@@ -192,7 +195,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   }catch(caught){releaseRecorder(false);setVoiceState("error");const name=caught instanceof DOMException?caught.name:"";setError(name==="NotAllowedError"||name==="SecurityError"?"Microphone permission is blocked. Allow microphone access in your browser settings and try again.":name==="NotFoundError"?"No microphone was found on this device.":"I couldn't start the microphone. Try again.");diagnostic("microphone_start_failed",{fromConversationResume,errorName:name||(caught instanceof Error?caught.name:"unknown")});return false;}
  }
 
- function startVoiceSession(){if(sessionActiveRef.current||requestInFlight.current)return;sessionActiveRef.current=true;setSessionActive(true);diagnostic("conversation_session_started");void startRecording();}
+ function startVoiceSession(){if(sessionActiveRef.current||requestInFlight.current)return;tts.initialize();sessionActiveRef.current=true;setSessionActive(true);diagnostic("conversation_session_started",{ttsInitializedFromUserGesture:true,speakResponsesEnabled:speakResponses});void startRecording();}
  function endVoiceSession(){sessionActiveRef.current=false;recordingGeneration.current+=1;setSessionActive(false);clearResumeTimer();canceled.current=true;transcriptionAbort.current?.abort();transcriptionAbort.current=null;if(recorder.current?.state==="recording")recorder.current.stop();releaseRecorder(false);stopSpeaking(false);setVoiceState("idle");diagnostic("conversation_session_ended");}
 
  async function decide(messageId:string,actionId:string,decision:"confirm"|"reject"){
@@ -207,7 +210,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  return <section className="assistant-card">
   <div className="assistant-messages" aria-live="polite">
    {messages.length===0&&<div className="assistant-empty"><strong>What can I help with?</strong><p>Type a message or tap the microphone. Try “Who do I have tomorrow?”</p></div>}
-   {messages.map(message=><article className={`assistant-message ${message.role}`} key={message.id}><span>{message.role==="user"?"You":"Servonas"}</span><p>{message.content}</p>{message.actionRequest&&<div className="assistant-confirmation"><strong>Confirmation required</strong><div><button disabled={busy||message.actionRequest.status!=="awaiting_confirmation"} className="sv-button" onClick={()=>decide(message.id,message.actionRequest!.id,"confirm")}>Confirm</button><button disabled={busy||message.actionRequest.status!=="awaiting_confirmation"} className="sv-button sv-secondary" onClick={()=>decide(message.id,message.actionRequest!.id,"reject")}>Cancel</button></div></div>}</article>)}
+   {messages.map(message=><article className={`assistant-message ${message.role}`} key={message.id}><span>{message.role==="user"?"You":"Servonas"}</span><p>{message.content}</p>{message.actionRequest&&<div className="assistant-confirmation"><strong>Confirmation required</strong>{sessionActive&&message.actionRequest.status==="awaiting_confirmation"&&<small>You can say Yes or No.</small>}<div><button disabled={busy||message.actionRequest.status!=="awaiting_confirmation"} className="sv-button" onClick={()=>decide(message.id,message.actionRequest!.id,"confirm")}>Confirm</button><button disabled={busy||message.actionRequest.status!=="awaiting_confirmation"} className="sv-button sv-secondary" onClick={()=>decide(message.id,message.actionRequest!.id,"reject")}>Cancel</button></div></div>}</article>)}
    {processing&&<article className="assistant-message assistant assistant-progress"><span>Servonas</span><p>{stateLabel}</p></article>}<div ref={end}/>
   </div>
   {error&&<div className="workspace-notice error" role="alert">{error}</div>}
