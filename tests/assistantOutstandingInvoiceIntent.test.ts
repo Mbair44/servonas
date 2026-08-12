@@ -9,7 +9,7 @@ const globalPhrases=[
 
 for(const phrase of globalPhrases)test(`global outstanding: ${phrase}`,()=>assert.equal(classifyBillingIntent(phrase),"outstanding_invoices_global"));
 
-test("selected customer references remain customer scoped",()=>{for(const phrase of ["Does this customer owe me anything?","What unpaid invoices does he have?","Does Matthew owe me money?"])assert.equal(classifyBillingIntent(phrase),"outstanding_invoices_customer",phrase);});
+test("selected customer references remain customer scoped",()=>{for(const phrase of ["Does this customer owe me anything?","What unpaid invoices does he have?","Does Matthew owe me money?","Does he have any open invoices?","Does she have an open invoice?","Do they have open invoices?"])assert.equal(classifyBillingIntent(phrase),"outstanding_invoices_customer",phrase);});
 test("specific selected-invoice status is not classified as a global balance query",()=>assert.equal(classifyBillingIntent("Is this invoice paid?"),"invoice_status"));
 
 test("global outstanding routing precedes provider and ignores selected entity binding",async()=>{
