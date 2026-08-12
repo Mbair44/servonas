@@ -1,5 +1,5 @@
 "use client";
-import {FormEvent,useEffect,useMemo,useRef,useState} from "react";
+import {FormEvent,useEffect,useLayoutEffect,useMemo,useRef,useState} from "react";
 import {OpenAITextToSpeechProvider,speechPlaybackTimeoutMs} from "@/lib/assistant/textToSpeech";
 import {rootMeanSquare,VoiceActivityTracker} from "@/lib/assistant/voiceActivity";
 
@@ -24,6 +24,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  const [voiceSupported,setVoiceSupported]=useState(true);
  const [ttsSupported,setTtsSupported]=useState(false);
  const [sessionActive,setSessionActive]=useState(false);
+ const messageList=useRef<HTMLDivElement>(null);
  const end=useRef<HTMLDivElement>(null);
  const composerInput=useRef<HTMLTextAreaElement>(null);
  const restoreComposerFocus=useRef(false);
@@ -71,6 +72,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   };
  },[tts]);
  useEffect(()=>{voiceStateRef.current=voiceState;},[voiceState]);
+ useLayoutEffect(()=>{const list=messageList.current;if(list)list.scrollTop=list.scrollHeight;},[]);
 
  function diagnostic(event:string,details:Record<string,unknown>={}){voiceDebug(event,{voiceState:voiceStateRef.current,conversationSessionActive:sessionActiveRef.current,...details});}
  function clearResumeTimer(invalidate=true){if(invalidate)resumeGeneration.current+=1;if(resumeTimer.current){clearTimeout(resumeTimer.current);resumeTimer.current=null;}}
@@ -208,7 +210,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  const stateLabel=voiceState==="waiting_for_speech"?"Listening for you…":voiceState==="listening"?"Listening…":voiceState==="finishing"?"Got it…":voiceState==="transcribing"?"Transcribing…":voiceState==="thinking"?"Servonas is thinking…":voiceState==="requesting_tts"?"Preparing voice response…":voiceState==="playing_response"?"Speaking…":voiceState==="waiting_for_next_command"?"Listening again shortly…":voiceState==="error"?"Voice paused":"Tap to speak";
  const processing=voiceState==="finishing"||voiceState==="transcribing"||voiceState==="thinking";
  return <section className="assistant-card">
-  <div className="assistant-messages" aria-live="polite">
+  <div ref={messageList} className="assistant-messages" aria-live="polite">
    {messages.length===0&&<div className="assistant-empty"><strong>What can I help with?</strong><p>Type a message or tap the microphone. Try “Who do I have tomorrow?”</p></div>}
    {messages.map(message=><article className={`assistant-message ${message.role}`} key={message.id}><span>{message.role==="user"?"You":"Servonas"}</span><p>{message.content}</p>{message.actionRequest&&<div className="assistant-confirmation"><strong>Confirmation required</strong>{sessionActive&&message.actionRequest.status==="awaiting_confirmation"&&<small>You can say Yes or No.</small>}<div><button disabled={busy||message.actionRequest.status!=="awaiting_confirmation"} className="sv-button" onClick={()=>decide(message.id,message.actionRequest!.id,"confirm")}>Confirm</button><button disabled={busy||message.actionRequest.status!=="awaiting_confirmation"} className="sv-button sv-secondary" onClick={()=>decide(message.id,message.actionRequest!.id,"reject")}>Cancel</button></div></div>}</article>)}
    {processing&&<article className="assistant-message assistant assistant-progress"><span>Servonas</span><p>{stateLabel}</p></article>}<div ref={end}/>
