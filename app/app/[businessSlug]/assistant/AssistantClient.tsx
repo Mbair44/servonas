@@ -1,10 +1,10 @@
 "use client";
 import {FormEvent,useEffect,useMemo,useRef,useState} from "react";
-import {BrowserSpeechSynthesisProvider,speechPlaybackTimeoutMs} from "@/lib/assistant/textToSpeech";
+import {OpenAITextToSpeechProvider,speechPlaybackTimeoutMs} from "@/lib/assistant/textToSpeech";
 import {rootMeanSquare,VoiceActivityTracker} from "@/lib/assistant/voiceActivity";
 
 type Message={id:string;role:"user"|"assistant";content:string;actionRequest?:{id:string;status:string;summary:string}};
-type VoiceState="idle"|"waiting_for_speech"|"listening"|"finishing"|"transcribing"|"thinking"|"speaking"|"waiting_for_next_command"|"error";
+type VoiceState="idle"|"waiting_for_speech"|"listening"|"finishing"|"transcribing"|"thinking"|"requesting_tts"|"playing_response"|"waiting_for_next_command"|"error";
 const MAX_RECORDING_MS=60_000;
 const NEXT_COMMAND_DELAY_MS=650;
 const MAX_RESTART_ATTEMPTS=5;
@@ -47,7 +47,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  const audioSource=useRef<MediaStreamAudioSourceNode|null>(null);
  const activityFrame=useRef<number|null>(null);
  const activityTracker=useRef<VoiceActivityTracker|null>(null);
- const tts=useMemo(()=>new BrowserSpeechSynthesisProvider(({event,details})=>voiceDebug(event,details??{})),[]);
+ const tts=useMemo(()=>new OpenAITextToSpeechProvider(`/api/assistant/${businessSlug}/voice/speak`,({event,details})=>voiceDebug(event,details??{})),[businessSlug]);
  const recordingActive=voiceState==="waiting_for_speech"||voiceState==="listening"||voiceState==="finishing";
  const busy=loading||recordingActive||voiceState==="transcribing"||voiceState==="thinking"||voiceState==="waiting_for_next_command";
  const scroll=()=>setTimeout(()=>end.current?.scrollIntoView({behavior:"smooth"}),20);
@@ -80,17 +80,17 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
  function releaseConversationMedia(){cleanupVoiceActivity(false);stopMicrophoneStream();}
  function finishSpeaking(generation?:number,onComplete?:()=>void){if(generation!==undefined&&generation!==speechGeneration.current)return;if(generation!==undefined)speechGeneration.current+=1;if(speechTimer.current){clearTimeout(speechTimer.current);speechTimer.current=null;}setVoiceState("idle");onComplete?.();}
  function stopSpeaking(resumeSession=false){speechGeneration.current+=1;tts.stop();finishSpeaking();if(resumeSession&&sessionActiveRef.current)scheduleNextCommand();}
- function speak(message:string,onComplete?:()=>void){
+ function speak(message:string,requestId:string,onComplete?:()=>void){
   setVoiceState("idle");
   diagnostic("tts_requested",{speakResponsesEnabled:speakResponses,ttsSupported,responseTextAvailable:Boolean(message),responseTextLength:message.length,conversationSessionActive:sessionActiveRef.current});
   if(!speakResponses||!ttsSupported)diagnostic("tts_skipped",{reason:!speakResponses?"disabled":"unsupported"});
   if(!speakResponses||!ttsSupported){onComplete?.();return;}
   const generation=++speechGeneration.current;
   const finish=()=>finishSpeaking(generation,onComplete);
-  setVoiceState("speaking");
+  setVoiceState("requesting_tts");
   const fallbackMs=speechPlaybackTimeoutMs(message);diagnostic("tts_fallback_scheduled",{generation,delayMs:fallbackMs,waitingForTtsCompletion:true});
   speechTimer.current=setTimeout(()=>{if(generation!==speechGeneration.current)return;diagnostic("tts_fallback_fired",{generation});tts.stop();finish();},fallbackMs);
-  try{tts.speak(message,{onStart:()=>{if(generation!==speechGeneration.current)return;diagnostic("tts_playback_started",{generation});setVoiceState("speaking");},onEnd:finish,onError:category=>diagnostic("tts_playback_failed",{generation,category})});}catch{finish();}
+  void tts.speak(message,requestId,{onStart:()=>{if(generation!==speechGeneration.current)return;diagnostic("tts_playback_started",{generation});setVoiceState("playing_response");},onEnd:finish,onError:category=>diagnostic("tts_playback_failed",{generation,category})}).catch(()=>finish());
  }
  function scheduleNextCommand(){
   clearResumeTimer();
@@ -128,10 +128,10 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
    setMessages(current=>current.map(message=>{const action=message.actionRequest;if(!action||!body.resolvedActionId||action.id!==body.resolvedActionId)return message;return{...message,actionRequest:{id:action.id,summary:action.summary,status:body.status}};}).concat({id:crypto.randomUUID(),role:"assistant",content:body.message,actionRequest:body.actionRequest}));
    if(channel==="voice"){
     if(voiceSessionRequest&&!sessionActiveRef.current)setVoiceState("idle");
-    else{const continueSession=sessionActiveRef.current;speak(body.message,continueSession?scheduleNextCommand:undefined);}
+    else{const continueSession=sessionActiveRef.current;speak(body.message,requestId,continueSession?scheduleNextCommand:undefined);}
    }else setVoiceState("idle");
   }catch(caught){releaseConversationMedia();setError(caught instanceof Error?caught.message:"I couldn't complete that request.");setVoiceState("error");}
-  finally{requestInFlight.current=false;setLoading(false);if(channel==="voice")setVoiceState(current=>current==="speaking"||current==="waiting_for_next_command"||current==="error"?current:"idle");scroll();}
+  finally{requestInFlight.current=false;setLoading(false);if(channel==="voice")setVoiceState(current=>current==="requesting_tts"||current==="playing_response"||current==="waiting_for_next_command"||current==="error"?current:"idle");scroll();}
  }
 
  async function send(event:FormEvent){event.preventDefault();const value=input.trim();if(!value||busy)return;const shouldRestoreFocus=restoreComposerFocus.current;restoreComposerFocus.current=false;const requestId=crypto.randomUUID(),typedRequest={channel:"web",requestId} as const;setInput("");setError("");setMessages(current=>[...current,{id:requestId,role:"user",content:value}]);await submitAssistant(value,typedRequest.channel,typedRequest.requestId);if(shouldRestoreFocus)requestAnimationFrame(()=>composerInput.current?.focus());}
@@ -200,12 +200,12 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
 
  async function decide(messageId:string,actionId:string,decision:"confirm"|"reject"){
   if(busy)return;setLoading(true);setError("");
-  try{const response=await fetch(`/api/assistant/${businessSlug}/actions/${actionId}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision})}),body=await response.json();if(!response.ok)throw new Error(body.error||"Action failed.");setMessages(current=>current.map(message=>message.id===messageId?{...message,actionRequest:message.actionRequest?{...message.actionRequest,status:body.status}:undefined}:message).concat({id:crypto.randomUUID(),role:"assistant",content:body.message}));if(sessionActiveRef.current)speak(body.message,scheduleNextCommand);}
+  try{const response=await fetch(`/api/assistant/${businessSlug}/actions/${actionId}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision})}),body=await response.json();if(!response.ok)throw new Error(body.error||"Action failed.");setMessages(current=>current.map(message=>message.id===messageId?{...message,actionRequest:message.actionRequest?{...message.actionRequest,status:body.status}:undefined}:message).concat({id:crypto.randomUUID(),role:"assistant",content:body.message}));if(sessionActiveRef.current)speak(body.message,crypto.randomUUID(),scheduleNextCommand);}
   catch(caught){setError(caught instanceof Error?caught.message:"I couldn't complete that action.");setVoiceState("error");}
   finally{setLoading(false);scroll();}
  }
 
- const stateLabel=voiceState==="waiting_for_speech"?"Listening for you…":voiceState==="listening"?"Listening…":voiceState==="finishing"?"Got it…":voiceState==="transcribing"?"Transcribing…":voiceState==="thinking"?"Servonas is thinking…":voiceState==="speaking"?"Speaking…":voiceState==="waiting_for_next_command"?"Listening again shortly…":voiceState==="error"?"Voice paused":"Tap to speak";
+ const stateLabel=voiceState==="waiting_for_speech"?"Listening for you…":voiceState==="listening"?"Listening…":voiceState==="finishing"?"Got it…":voiceState==="transcribing"?"Transcribing…":voiceState==="thinking"?"Servonas is thinking…":voiceState==="requesting_tts"?"Preparing voice response…":voiceState==="playing_response"?"Speaking…":voiceState==="waiting_for_next_command"?"Listening again shortly…":voiceState==="error"?"Voice paused":"Tap to speak";
  const processing=voiceState==="finishing"||voiceState==="transcribing"||voiceState==="thinking";
  return <section className="assistant-card">
   <div className="assistant-messages" aria-live="polite">
@@ -216,7 +216,7 @@ export function AssistantClient({businessSlug,initialConversationId,initialMessa
   {error&&<div className="workspace-notice error" role="alert">{error}</div>}
   <div className="assistant-voice-controls">
    <div className="assistant-talk-row">
-    {recordingActive?<><button type="button" className="assistant-talk-button listening" disabled={voiceState==="finishing"} onClick={stopRecording}><span className="assistant-pulse"/><MicIcon/>Stop</button><button type="button" className="sv-button sv-secondary" disabled={voiceState==="finishing"} onClick={cancelRecording}>Cancel</button></>:voiceState==="speaking"?<button type="button" className="assistant-talk-button" onClick={()=>stopSpeaking(true)}><MicIcon/>Stop speaking</button>:!sessionActive?<button type="button" className="assistant-talk-button" disabled={busy||!voiceSupported} onClick={startVoiceSession}><MicIcon/>Talk to Servonas</button>:!busy?<button type="button" className="assistant-talk-button" disabled={!voiceSupported} onClick={()=>void startRecording()}><MicIcon/>Resume listening</button>:null}
+    {recordingActive?<><button type="button" className="assistant-talk-button listening" disabled={voiceState==="finishing"} onClick={stopRecording}><span className="assistant-pulse"/><MicIcon/>Stop</button><button type="button" className="sv-button sv-secondary" disabled={voiceState==="finishing"} onClick={cancelRecording}>Cancel</button></>:voiceState==="requesting_tts"||voiceState==="playing_response"?<button type="button" className="assistant-talk-button" onClick={()=>stopSpeaking(true)}><MicIcon/>Stop speaking</button>:!sessionActive?<button type="button" className="assistant-talk-button" disabled={busy||!voiceSupported} onClick={startVoiceSession}><MicIcon/>Talk to Servonas</button>:!busy?<button type="button" className="assistant-talk-button" disabled={!voiceSupported} onClick={()=>void startRecording()}><MicIcon/>Resume listening</button>:null}
     {sessionActive&&<button type="button" className="sv-button sv-secondary" onClick={endVoiceSession}>End</button>}
     <span className="assistant-voice-state">{stateLabel}</span>
    </div>

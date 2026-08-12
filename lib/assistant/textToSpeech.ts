@@ -1,47 +1,62 @@
 export type TextToSpeechDiagnostics={event:string;details?:Record<string,unknown>};
+export type TextToSpeechHandlers={onStart?:()=>void;onEnd?:()=>void;onError?:(category:string)=>void};
 export interface TextToSpeechProvider{
  supported():boolean;
  initialize():void;
- speak(text:string,handlers?:{onStart?:()=>void;onEnd?:()=>void;onError?:(category:string)=>void}):void;
+ speak(text:string,requestId:string,handlers?:TextToSpeechHandlers):Promise<void>;
  stop():void;
 }
 
 export function speechFriendlyText(value:string){
- return value.replace(/https?:\/\/\S+/g,"link").replace(/\|/g,", ").replace(/[*_#`]/g,"").replace(/\s+/g," ").trim().slice(0,900);
+ return value.replace(/https?:\/\/\S+/g,"link").replace(/\|/g,", ").replace(/[*_#`]/g,"").replace(/\s+/g," ").trim().slice(0,2000);
 }
 
-export function speechPlaybackTimeoutMs(value:string){return Math.min(20_000,Math.max(5_000,speechFriendlyText(value).length*75));}
+export function speechPlaybackTimeoutMs(value:string){return Math.min(180_000,Math.max(15_000,speechFriendlyText(value).length*90));}
 
-export class BrowserSpeechSynthesisProvider implements TextToSpeechProvider{
- private activeUtterance:SpeechSynthesisUtterance|null=null;
- private voices:SpeechSynthesisVoice[]=[];
- private initialized=false;
+const SILENT_WAV="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAACAgICA";
+
+export class OpenAITextToSpeechProvider implements TextToSpeechProvider{
+ private audio:HTMLAudioElement|null=null;
+ private objectUrl:string|null=null;
+ private controller:AbortController|null=null;
+ private generation=0;
+ private readonly endpoint:string;
  private readonly debug?: (diagnostic:TextToSpeechDiagnostics)=>void;
- constructor(debug?:(diagnostic:TextToSpeechDiagnostics)=>void){this.debug=debug;}
- supported(){return typeof window!=="undefined"&&"speechSynthesis" in window&&"SpeechSynthesisUtterance" in window;}
+ constructor(endpoint:string,debug?:(diagnostic:TextToSpeechDiagnostics)=>void){this.endpoint=endpoint;this.debug=debug;}
+ supported(){return typeof window!=="undefined"&&typeof Audio!=="undefined"&&typeof URL?.createObjectURL==="function";}
  private emit(event:string,details:Record<string,unknown>={}){this.debug?.({event,details});}
- private loadVoices(){if(!this.supported())return;this.voices=window.speechSynthesis.getVoices();this.emit("voices_loaded",{voicesAvailable:this.voices.length>0,voiceCount:this.voices.length});}
+ private releaseUrl(){if(this.objectUrl){URL.revokeObjectURL(this.objectUrl);this.objectUrl=null;this.emit("tts_object_url_revoked");}}
  initialize(){
-  if(!this.supported())return;this.initialized=true;this.loadVoices();
-  window.speechSynthesis.onvoiceschanged=()=>this.loadVoices();
-  if(window.speechSynthesis.paused)window.speechSynthesis.resume();
-  this.emit("tts_initialized",{voicesAvailable:this.voices.length>0,speaking:window.speechSynthesis.speaking,pending:window.speechSynthesis.pending,paused:window.speechSynthesis.paused});
+  if(!this.supported())return;
+  if(!this.audio)this.audio=new Audio();
+  this.audio.preload="auto";this.audio.muted=true;this.audio.src=SILENT_WAV;
+  const unlock=this.audio.play();
+  if(unlock)void unlock.then(()=>{if(!this.audio)return;this.audio.pause();this.audio.currentTime=0;this.audio.muted=false;this.audio.removeAttribute("src");this.audio.load();this.emit("tts_audio_unlocked",{success:true});}).catch(error=>{if(this.audio)this.audio.muted=false;this.emit("tts_audio_unlocked",{success:false,errorName:error instanceof Error?error.name:"unknown"});});
  }
- private preferredVoice(){return this.voices.find(voice=>voice.lang.toLowerCase().startsWith("en-us")&&/samantha|ava|allison|siri|enhanced/i.test(voice.name))??this.voices.find(voice=>voice.lang.toLowerCase().startsWith("en-us"))??this.voices.find(voice=>voice.lang.toLowerCase().startsWith("en"))??null;}
- speak(text:string,handlers:{onStart?:()=>void;onEnd?:()=>void;onError?:(category:string)=>void}={}){
+ async speak(text:string,requestId:string,handlers:TextToSpeechHandlers={}){
+  const output=speechFriendlyText(text);
   if(!this.supported()){handlers.onError?.("unsupported");handlers.onEnd?.();return;}
-  const output=speechFriendlyText(text);if(!output){handlers.onError?.("empty_text");handlers.onEnd?.();return;}
+  if(!output){handlers.onError?.("empty_text");handlers.onEnd?.();return;}
+  const generation=++this.generation;this.stopPlayback(false);this.controller=new AbortController();
   try{
-   if(!this.initialized)this.initialize();
-   if(this.activeUtterance)window.speechSynthesis.cancel();
-   const utterance=new SpeechSynthesisUtterance(output),voice=this.preferredVoice();this.activeUtterance=utterance;if(voice)utterance.voice=voice;utterance.rate=1;
-   const release=()=>{if(this.activeUtterance===utterance)this.activeUtterance=null;};
-   utterance.onstart=()=>{this.emit("utterance_started",{selectedVoice:voice?.name??"browser-default",speaking:window.speechSynthesis.speaking,pending:window.speechSynthesis.pending,paused:window.speechSynthesis.paused});handlers.onStart?.();};
-   utterance.onend=()=>{this.emit("utterance_ended",{speaking:window.speechSynthesis.speaking,pending:window.speechSynthesis.pending,paused:window.speechSynthesis.paused});release();handlers.onEnd?.();};
-   utterance.onerror=event=>{const category=event.error||"speech_error";this.emit("utterance_error",{category,speaking:window.speechSynthesis.speaking,pending:window.speechSynthesis.pending,paused:window.speechSynthesis.paused});release();handlers.onError?.(category);handlers.onEnd?.();};
-   this.emit("utterance_created",{textAvailable:true,textLength:output.length,selectedVoice:voice?.name??"browser-default",voicesAvailable:this.voices.length>0});
-   window.speechSynthesis.speak(utterance);this.emit("speech_speak_called",{speaking:window.speechSynthesis.speaking,pending:window.speechSynthesis.pending,paused:window.speechSynthesis.paused});
-  }catch(error){this.activeUtterance=null;const category=error instanceof Error?error.name:"speech_exception";this.emit("utterance_error",{category});handlers.onError?.(category);handlers.onEnd?.();}
+   this.emit("tts_request_started",{requestIdAvailable:Boolean(requestId),inputCharacterCount:output.length});
+   const response=await fetch(this.endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:output,requestId}),signal:this.controller.signal});
+   if(!response.ok)throw new Error(response.status===429?"rate_limited":"tts_endpoint_failed");
+   const blob=await response.blob();if(!blob.size||!blob.type.startsWith("audio/"))throw new Error("invalid_audio");
+   if(generation!==this.generation)return;
+   const audio=this.audio??new Audio();this.audio=audio;this.objectUrl=URL.createObjectURL(blob);audio.src=this.objectUrl;audio.preload="auto";audio.muted=false;
+   const settle=()=>{if(generation!==this.generation)return;this.releaseUrl();this.controller=null;handlers.onEnd?.();};
+   audio.onplay=()=>{if(generation===this.generation){this.emit("tts_playback_started",{contentType:blob.type});handlers.onStart?.();}};
+   audio.onended=()=>{this.emit("tts_playback_ended");settle();};
+   audio.onerror=()=>{this.emit("tts_playback_error",{category:"audio_playback_failed"});handlers.onError?.("audio_playback_failed");settle();};
+   this.emit("tts_audio_ready",{contentType:blob.type,audioBytes:blob.size,provider:response.headers.get("x-servonas-tts-provider"),model:response.headers.get("x-servonas-tts-model"),voice:response.headers.get("x-servonas-tts-voice")});
+   await audio.play();
+  }catch(error){
+   if(generation!==this.generation)return;
+   const category=error instanceof DOMException&&error.name==="AbortError"?"aborted":error instanceof Error?error.message:"tts_failed";
+   this.emit("tts_request_failed",{category,errorName:error instanceof Error?error.name:"unknown"});this.releaseUrl();this.controller=null;handlers.onError?.(category);handlers.onEnd?.();
+  }
  }
- stop(){if(!this.supported())return;this.activeUtterance=null;window.speechSynthesis.cancel();this.emit("tts_stopped");}
+ private stopPlayback(invalidate=true){if(invalidate)this.generation+=1;this.controller?.abort();this.controller=null;if(this.audio){this.audio.pause();this.audio.onplay=null;this.audio.onended=null;this.audio.onerror=null;this.audio.removeAttribute("src");this.audio.load();}this.releaseUrl();}
+ stop(){this.stopPlayback(true);this.emit("tts_stopped");}
 }
