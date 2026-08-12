@@ -1,6 +1,6 @@
 export type BillingIntentFamily="outstanding_invoices_global"|"outstanding_invoices_customer"|"invoice_status"|null;
 
-const outstandingLanguage=/\b(?:unpaid|outstanding|overdue|owe|owes|owed|owing|money due|balance due|still due|not paid|hasn['’]?t paid|haven['’]?t been paid)\b/i;
+const outstandingLanguage=/\b(?:unpaid|outstanding|overdue|open invoices?|owe|owes|owed|owing|money due|balance due|still due|not paid|hasn['’]?t paid|haven['’]?t been paid)\b/i;
 const invoiceLanguage=/\b(?:invoice|invoices|bill|bills|money|balance|paid|pay)\b/i;
 const selectedCustomerReference=/\b(?:this|that) customer\b|\b(?:he|him|his|she|her|hers|they|them|their|theirs)\b/i;
 const selectedInvoiceReference=/\b(?:this|that|the) invoice\b|\binvoice\s+(?:#\s*)?(?:inv[- ]?)?[a-z0-9-]+\b/i;

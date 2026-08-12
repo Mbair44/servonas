@@ -2,7 +2,7 @@ import type {ProviderDecision} from "./provider.ts";
 import {classifyMarkInvoicePaidIntent} from "./markInvoicePaidIntent.ts";
 
 const explicitCustomerChange=/\b(?:find|search(?: for)?|look up|show me|who is|switch to|change (?:the )?customer|select|choose|use)\b/i;
-const outstandingIntent=/\b(?:owe|owes|owed|outstanding|overdue|balance|money due)\b/i;
+const outstandingIntent=/\b(?:owe|owes|owed|outstanding|overdue|open invoices?|balance|money due)\b/i;
 const paymentHistoryIntent=/\b(?:payment history|payments? (?:made|received|recorded)|how (?:did|has) .* paid|when .* paid|ever paid|paid me|last payment|previous payments?)\b/i;
 const appointmentIntent=/\b(?:appointment|appointments|scheduled|schedule|visit|visits|job|jobs|seeing|coming up)\b/i;
 const globalScheduleIntent=/\b(?:who|what)\b.*\b(?:today|tomorrow|schedule|appointments?)\b|\b(?:schedule|appointments?)\b.*\b(?:today|tomorrow)\b/i;
