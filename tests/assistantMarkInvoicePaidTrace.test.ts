@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {readFile} from "node:fs/promises";
+import {assistantTrace,safeAssistantErrorCategory} from "../lib/assistant/debugTrace.ts";
+
+const read=()=>readFile(new URL("../lib/assistant/orchestrator.ts",import.meta.url),"utf8");
+
+test("safe trace sink receives categories without entity values",()=>{const events:any[]=[];assistantTrace("invoice_resolved",{result:"trusted_selected_invoice"},(event,details)=>events.push({event,details}));assert.deepEqual(events,[{event:"invoice_resolved",details:{result:"trusted_selected_invoice"}}]);});
+test("safe error categories do not return raw error messages",()=>assert.equal(safeAssistantErrorCategory(new Error("I couldn't prepare that confirmation.")),"pending_action_failed"));
+test("mixed appointment and invoice history cannot enter provider routing for mark-paid",async()=>{const code=await read(),intent=code.indexOf('else if(markPaidIntent==="action")'),schedule=code.indexOf("else if(globalSchedule)"),provider=code.indexOf("provider.generateResponse");assert.ok(intent>=0&&intent<schedule&&intent<provider);assert.match(code,/markPaidInvoiceId=selectedInvoiceId/);assert.match(code,/invoiceResolution="trusted_selected_invoice"/);assert.match(code,/finalToolSelected:.*decision\.toolName/);});
+test("mark-paid reaches the high-risk pending action before any mutation",async()=>{const code=await read(),invoke=code.indexOf('executeAssistantTool(decision.toolName'),pending=code.indexOf('pending_action_creation_attempted'),insert=code.indexOf('from("ai_action_requests").insert',pending),mutation=code.indexOf('rpc("record_invoice_offline_payment"');assert.ok(invoke>=0&&pending>invoke&&insert>pending&&mutation>insert);assert.match(code,/status:"awaiting_confirmation"/);assert.match(code,/executionBlockedAwaitingConfirmation:true/);});
+test("trace covers classification resolution final tool confirmation and mutation",async()=>{const code=await read();for(const event of ["request_received","intent_classified","invoice_resolved","final_decision","tool_invoked","pending_action_creation_attempted","pending_action_created","confirmation_checked","confirmation_received","execution_blocked_awaiting_confirmation","confirmation_resolution_started","confirmation_rejected","mutation_attempted","mutation_failed","mutation_succeeded"])assert.match(code,new RegExp(`assistantTrace\\("${event}"`));});
+test("mark-paid failure path cannot fall back to appointment or invoice activity",async()=>{const code=await read();assert.match(code,/else if\(markPaidIntent==="action"\).*else if\(markPaidIntent==="read_only"\).*else if\(globalSchedule\)/s);assert.match(code,/tool_failed/);});
