@@ -1,9 +1,9 @@
 import {zonedDateTimeToUtc} from "../bookingTime.ts";
 
 const weekdays=["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
-const lead=/^(?:(?:will|can|could|would)\s+you\s+|please\s+)?(?:schedule|book|put|add|set\s+up|create\s+an?\s+appointment\s+for)\s+/i;
+const lead=/^(?:(?:will|can|could|would)\s+you\s+|please\s+)?(?:schedule|book|put|add|set\s+up|create\s+an?\s+appointment(?:\s+for)?)\s+/i;
 
-export type AppointmentCreateRequest={customerReference:string|null;customerFirstName:string|null;customerLastName:string|null;startsAt:string|null;needsMeridiem:boolean;title:string;durationMinutes:number};
+export type AppointmentCreateRequest={customerReference:string|null;customerFirstName:string|null;customerLastName:string|null;startsAt:string|null;localDate:string|null;localTime:string|null;needsMeridiem:boolean;title:string;durationMinutes:number};
 
 /** Parses only high-confidence creation fields. It never guesses AM/PM. */
 export function parseAppointmentCreateRequest(input:string,timeZone:string,now=new Date()):AppointmentCreateRequest|null{
@@ -15,9 +15,15 @@ export function parseAppointmentCreateRequest(input:string,timeZone:string,now=n
  const localParts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",weekday:"long"}).formatToParts(now),part=(type:string)=>localParts.find(p=>p.type===type)?.value??"";
  const base=new Date(`${part("year")}-${part("month")}-${part("day")}T12:00:00Z`);let offset:number|null=/\btomorrow\b/i.test(value)?1:/\btoday\b/i.test(value)?0:null;
  const weekday=weekdays.findIndex(day=>new RegExp(`\\b${day}\\b`,"i").test(value));if(weekday>=0){const current=weekdays.indexOf(part("weekday").toLowerCase());offset=(weekday-current+7)%7||7;}
- let startsAt:string|null=null;if(offset!==null&&hour!==null&&!needsMeridiem&&hour>=1&&hour<=12&&minute>=0&&minute<60){const target=new Date(base);target.setUTCDate(target.getUTCDate()+offset);const date=target.toISOString().slice(0,10),hour24=meridiem==="pm"?(hour%12)+12:hour%12;startsAt=zonedDateTimeToUtc(date,`${String(hour24).padStart(2,"0")}:${String(minute).padStart(2,"0")}`,timeZone).toISOString();}
+ let localDate:string|null=null,localTime:string|null=null,startsAt:string|null=null;if(offset!==null){const target=new Date(base);target.setUTCDate(target.getUTCDate()+offset);localDate=target.toISOString().slice(0,10);}if(hour!==null&&!needsMeridiem&&hour>=1&&hour<=12&&minute>=0&&minute<60){const hour24=meridiem==="pm"?(hour%12)+12:hour%12;localTime=`${String(hour24).padStart(2,"0")}:${String(minute).padStart(2,"0")}`;}if(localDate&&localTime)startsAt=zonedDateTimeToUtc(localDate,localTime,timeZone).toISOString();
  const reference=value.replace(/\b(?:for\s+)?(?:today|tomorrow|on\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)?\b/gi," ").replace(/\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi," ").replace(/\b(?:on|for|to|my|the|calendar|schedule|appointment)\b/gi," ").replace(/\s+/g," ").trim();
  const pronoun=/^(?:him|her|them|this customer|that customer)$/i.test(reference);
  const customerReference=pronoun||!reference?null:reference,customerParts=customerReference?.split(/\s+/)??[];
- return{customerReference,customerFirstName:customerParts[0]??null,customerLastName:customerParts.length>1?customerParts.slice(1).join(" "):null,startsAt,needsMeridiem,title:"Service appointment",durationMinutes:60};
+ return{customerReference,customerFirstName:customerParts[0]??null,customerLastName:customerParts.length>1?customerParts.slice(1).join(" "):null,startsAt,localDate,localTime,needsMeridiem,title:"Service appointment",durationMinutes:60};
+}
+
+/** Parses a date/time-only follow-up without treating it as a new schedule lookup. */
+export function parseSchedulingFollowUp(input:string,timeZone:string,now=new Date()){
+ const parsed=parseAppointmentCreateRequest(`schedule ${input}`,timeZone,now);
+ return parsed?{localDate:parsed.localDate,localTime:parsed.localTime,needsMeridiem:parsed.needsMeridiem,startsAt:parsed.startsAt}:null;
 }
