@@ -48,10 +48,11 @@ export async function signUp(formData: FormData) {
   const password = value(formData, "password");
   const confirm = value(formData, "confirmPassword");
   const utmContent=value(formData,"utmContent");
+  const source=value(formData,"source")==="pest-control-website"?"pest-control-website":"";
   const marketingVisitorId=value(formData,"marketingVisitorId"),marketingSessionId=value(formData,"marketingSessionId");
-  const next = value(formData, "next") || "/app";
+  const next = value(formData, "next") || (source?"/onboarding?source=pest-control-website":"/app");
   const safeNext = next.startsWith("/") ? next : "/app";
-  const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
+  const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${source?`&source=${source}`:""}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
 
   if (!email || password.length < 8) {
     redirectWithError(
@@ -74,6 +75,7 @@ export async function signUp(formData: FormData) {
     password,
     options: {
       emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+      data:source?{acquisition_source:source}:undefined,
     },
   });
 

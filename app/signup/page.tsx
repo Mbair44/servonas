@@ -17,6 +17,7 @@ export default async function Page({
       next={query.next}
       email={query.email}
       utmContent={query.utm_content}
+      source={query.source}
     />
   );
 }

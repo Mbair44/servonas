@@ -77,6 +77,29 @@ export async function createGuidedWorkspace(_:OnboardingState,formData:FormData)
  redirect(`/onboarding?business=${encodeURIComponent(created?.slug??values.slug)}&saved=company`);
 }
 export type BusinessProfileState={error?:string;fieldErrors?:ReturnType<typeof validateBusinessProfile>;values?:BusinessProfileInput};
+export type WebsiteFirstState={error?:string;values?:Record<string,string>};
+export async function createWebsiteFirstWorkspace(_:WebsiteFirstState,formData:FormData):Promise<WebsiteFirstState>{
+ const s=await createSupabaseServerClient(),{data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding?source=pest-control-website");
+ const name=text(formData,"name"),slug=text(formData,"slug").toLowerCase(),phone=text(formData,"phone"),email=text(formData,"email")||user.email||"",city=text(formData,"city"),state=text(formData,"state"),serviceArea=text(formData,"serviceArea"),description=text(formData,"description"),services=formData.getAll("services").map(String).map(value=>value.trim()).filter(Boolean);
+ const values={name,slug,phone,email,city,state,serviceArea,description};if(name.length<2||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||phone.replace(/\D/g,"").length<10||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!city||!state||!services.length)return{error:"Add your business name, contact details, location, and at least one service.",values};
+ const {data,error}=await s.rpc("create_website_first_workspace",{p_name:name,p_slug:slug,p_email:email,p_phone:phone,p_city:city,p_state:state,p_service_area:serviceArea,p_description:description,p_services:services});
+ if(error){console.error("Website-first workspace creation failed",{userId:user.id,code:error.code});return{error:error.code==="23505"?"That business or website URL is already in use.":"Your website setup could not be saved. Apply the website-first onboarding migration and try again.",values};}
+ const created=Array.isArray(data)?data[0]:data;redirect(`/onboarding?business=${encodeURIComponent(created.slug)}&websiteStep=style`);
+}
+export async function saveWebsiteFirstStyle(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))redirect("/app");const template=text(formData,"template"),primary=text(formData,"primaryColor"),secondary=text(formData,"secondaryColor"),tagline=text(formData,"tagline");
+ if(!["modern","traditional","bold"].includes(template)||!/^#[0-9a-f]{6}$/i.test(primary)||!/^#[0-9a-f]{6}$/i.test(secondary)||tagline.length>180)redirect(`/onboarding?business=${encodeURIComponent(slug)}&websiteStep=style&error=${encodeURIComponent("Choose valid website style settings.")}`);
+ const logo=formData.get("logo");
+ if(logo instanceof File&&logo.size){
+  if(logo.size>5*1024*1024||!["image/jpeg","image/png","image/webp"].includes(logo.type))redirect(`/onboarding?business=${encodeURIComponent(slug)}&websiteStep=style&error=${encodeURIComponent("Use a JPG, PNG, or WebP logo under 5MB.")}`);
+  const {data:booking}=await supabase.from("booking_settings").select("logo_path,public_slug").eq("business_id",business.id).maybeSingle(),extension=logo.type==="image/png"?"png":logo.type==="image/webp"?"webp":"jpg",path=`${business.id}/website-logo-${crypto.randomUUID()}.${extension}`;
+  const {error:uploadError}=await supabase.storage.from("booking-branding").upload(path,logo,{contentType:logo.type,upsert:false});if(uploadError)redirect(`/onboarding?business=${encodeURIComponent(slug)}&websiteStep=style&error=${encodeURIComponent("The logo could not be uploaded.")}`);
+  const {error:logoError}=await supabase.from("booking_settings").upsert({business_id:business.id,public_slug:booking?.public_slug??business.slug,logo_path:path,brand_color:primary,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});if(logoError){await supabase.storage.from("booking-branding").remove([path]);redirect(`/onboarding?business=${encodeURIComponent(slug)}&websiteStep=style&error=${encodeURIComponent("The logo could not be saved.")}`);}if(booking?.logo_path&&booking.logo_path!==path)await supabase.storage.from("booking-branding").remove([booking.logo_path]);
+ }
+ const {error}=await supabase.from("business_website_settings").update({template_key:template,primary_color:primary,secondary_color:secondary,...(tagline?{hero_subheading:tagline}:{}),updated_by:user.id}).eq("business_id",business.id);if(error)redirect(`/onboarding?business=${encodeURIComponent(slug)}&websiteStep=style&error=${encodeURIComponent("Website style could not be saved.")}`);
+ await supabase.from("business_website_onboarding_states").update({current_step:"preview",tagline:tagline||null,preview_reached_at:new Date().toISOString(),updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id);revalidatePath(`/app/${slug}/settings/website/preview`);redirect(`/onboarding?business=${encodeURIComponent(slug)}&websiteStep=preview`);
+}
+export async function finishWebsiteFirstOnboarding(slug:string){const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))redirect("/app");await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:new Date().toISOString(),updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id);redirect(`/onboarding?business=${encodeURIComponent(slug)}`);}
 export async function saveBusinessProfile(slug:string,_:BusinessProfileState,formData:FormData):Promise<BusinessProfileState>{
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))return {error:"Only owners and administrators can continue company onboarding."};
