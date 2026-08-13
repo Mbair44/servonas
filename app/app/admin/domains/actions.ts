@@ -6,11 +6,11 @@ import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {normalizeWebsiteDomain} from "@/lib/website";
-import {addVercelProjectDomain,buyVercelDomain,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,type VercelRegistrant} from "@/lib/vercelDomains";
+import {addVercelProjectDomain,buyVercelDomain,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelStandardDomainMaximumPrice,type VercelRegistrant} from "@/lib/vercelDomains";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const destination=(kind:"success"|"error",message:string)=>`/app/admin/domains?${kind}=${encodeURIComponent(message)}`;
-const standardLimit=()=>{const value=Number(process.env.VERCEL_STANDARD_DOMAIN_MAX_USD??25);return Number.isFinite(value)&&value>0?value:25;};
+const standardLimit=vercelStandardDomainMaximumPrice;
 
 async function platformAdmin(){
  const session=await createSupabaseServerClient(),{data:{user}}=await session.auth.getUser();

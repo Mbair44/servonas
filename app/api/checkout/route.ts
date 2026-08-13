@@ -6,6 +6,7 @@ import {verifyGooglePlace} from "@/lib/googleAddress";
 import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
+import {validateRentalPromo} from "@/lib/discounts";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
@@ -25,6 +26,7 @@ type CheckoutBody = {
   agreementAccepted?: string | boolean;
   depositAccepted?: string | boolean;
   googlePlaceId?: string;
+  promoCode?: string;
 };
 
 function hasText(value: unknown): value is string {
@@ -95,7 +97,6 @@ export async function POST(request: Request) {
     const onlinePaymentsReady=business
       ? Boolean(depositPercent>0&&stripeKey&&paymentAccount?.provider_account_id&&stripePaymentsReady(paymentAccount))
       : Boolean(stripeKey);
-    if(onlinePaymentsReady&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
 
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
@@ -112,6 +113,9 @@ export async function POST(request: Request) {
       if (!item.allow_quantity && item.quantity !== 1) return NextResponse.json({ error: `${item.name} can only be added once.` }, { status: 400 });
       if (item.quantity > item.stock_quantity) return NextResponse.json({ error: `Only ${item.stock_quantity} of ${item.name} are in inventory.` }, { status: 400 });
     }
+    const authoritativeItems=orderedItems.map(item=>({id:item.id,quantity:item.quantity,unitPriceCents:item.daily_price_cents}));
+    const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
+    if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
     const { data, error: bookingError } = await supabase.rpc("create_public_booking_quantities_timed", {
       p_items: requestedItems,
@@ -136,9 +140,14 @@ export async function POST(request: Request) {
     const booking = Array.isArray(data) ? data[0] : data;
     if (!booking?.booking_id) return NextResponse.json({ error: "The reservation was not created. Please try again." }, { status: 500 });
 
-    const totalCents = orderedItems.reduce((sum, item) => sum + item.daily_price_cents * item.quantity, 0);
+    const subtotalCents = orderedItems.reduce((sum, item) => sum + item.daily_price_cents * item.quantity, 0);
+    const discountCents=promo?.ok?promo.discountCents:0,totalCents=Math.max(0,subtotalCents-discountCents);
     const depositCents = Math.round(totalCents * depositPercent / 100);
-    if(!onlinePaymentsReady){
+    if(onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
+    const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
+    if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
+    await supabase.from("bookings").update({subtotal_cents:subtotalCents,total_cents:totalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null}).eq("id",booking.booking_id);
+    if(!onlinePaymentsReady||depositCents===0){
       const {error:confirmationError}=await supabase.from("bookings").update({
         ...(business?{business_id:business.id}:{}),status:"confirmed",deposit_cents:0,
         amount_paid_cents:0,balance_due_cents:totalCents,
@@ -146,6 +155,7 @@ export async function POST(request: Request) {
       if(confirmationError)throw confirmationError;
       const {error:itemConfirmationError}=await supabase.from("booking_items").update({status:"confirmed"}).eq("booking_id",booking.booking_id);
       if(itemConfirmationError)throw itemConfirmationError;
+      if(promo?.ok&&business)await supabase.rpc("finalize_discount_redemption",{p_business_id:business.id,p_booking_id:booking.booking_id});
       const jobId=await ensureRentalBookingJob(supabase,booking.booking_id);
       const emailResult=await sendRentalBookingConfirmationEmail(booking.booking_id,jobId);
       if(!emailResult.ok)console.error("Invoice-later rental confirmation email was not delivered",{bookingId:booking.booking_id,reason:emailResult.error});
@@ -160,18 +170,17 @@ export async function POST(request: Request) {
         mode: "payment",
         customer_email: body.email!.trim(),
         payment_method_types: ["card"],
-        allow_promotion_codes: true,
-        line_items: orderedItems.map((item) => ({
-          quantity: item.quantity,
+        line_items: [{
+          quantity: 1,
           price_data: {
             currency: "usd",
-            unit_amount: Math.round(item.daily_price_cents * depositPercent / 100),
+            unit_amount: depositCents,
             product_data: {
-              name: `${depositPercent}% Non-Refundable Deposit — ${item.name}`,
-              description: `Reserves ${body.rentalDate}. Unit rental price: ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(item.daily_price_cents / 100)}.`,
+              name: `${depositPercent}% Non-Refundable Rental Deposit`,
+              description: `Reserves ${body.rentalDate}. Order total after Servonas promo code: ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(totalCents / 100)}.`,
             },
           },
-        })),
+        }],
         success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: business?`${siteUrl}/book/${encodeURIComponent(body.businessSlug!.trim())}`:`${siteUrl}/book?cart=${orderedItems.map((item) => `${item.id}:${item.quantity}`).join(",")}&cancelled=1`,
         expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
@@ -182,13 +191,14 @@ export async function POST(request: Request) {
           rental_date: String(body.rentalDate),
           inventory_item_ids: ids.join(","),
           item_count: String(orderedItems.reduce((sum, item) => sum + item.quantity, 0)),
-          total_cents: String(totalCents),
+          subtotal_cents:String(subtotalCents),total_cents:String(totalCents),discount_cents:String(discountCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name}:{}),
           deposit_cents: String(depositCents),
         },
       },business?{stripeAccount:paymentAccount!.provider_account_id!}:undefined);
     } catch (stripeError) {
       await supabase.from("bookings").update({ status: "expired" }).eq("id", booking.booking_id);
       await supabase.from("booking_items").update({ status: "expired" }).eq("booking_id", booking.booking_id);
+      if(promo?.ok&&business)await supabase.from("discount_redemptions").update({status:"voided"}).eq("business_id",business.id).eq("booking_id",booking.booking_id).eq("status","pending");
       throw stripeError;
     }
 
