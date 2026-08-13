@@ -91,6 +91,13 @@ export async function createWebsiteFirstWorkspace(_:WebsiteFirstState,formData:F
   const {error:requestError}=await s.from("business_website_onboarding_states").update({requested_domain:domainName,domain_request_status:"availability_check_needed",domain_requested_at:new Date().toISOString()}).eq("business_id",created.id).eq("source",config.source);
   if(requestError)console.error("Website-first domain request save failed",{businessId:created.id,userId:user.id,code:requestError.code});
  }
+ await sendBusinessSetupNotification({
+  businessId:created?.id,
+  businessName:name,
+  businessSlug:created?.slug??slug,
+  businessEmail:email,
+  creatorEmail:user.email,
+ });
  redirect(`/onboarding?business=${encodeURIComponent(created.slug)}&websiteStep=style`);
 }
 export async function saveWebsiteFirstStyle(slug:string,formData:FormData){

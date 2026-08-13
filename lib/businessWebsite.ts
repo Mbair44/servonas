@@ -5,13 +5,15 @@ import {getGoogleBusinessProfileReviews} from "@/lib/googleBusinessProfile";
 
 type WebsiteRow=Record<string,any>;
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow):Promise<BusinessSiteData|null>{
- const [{data:business},{data:services},{data:hours},{data:territories},{data:booking},{data:websiteOnboarding}]=await Promise.all([
+ const [{data:business},{data:services},{data:rentalItems},{data:hours},{data:territories},{data:booking},{data:websiteOnboarding},{data:promotion}]=await Promise.all([
   db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
+  db.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url").eq("business_id",settings.business_id).eq("active",true).order("category").order("created_at"),
   db.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",settings.business_id).eq("active",true).order("weekday"),
   db.from("workforce_territories").select("name,postal_codes,neighborhoods,strategy_config").eq("business_id",settings.business_id).eq("is_active",true).order("name"),
   db.from("booking_settings").select("enabled,public_slug,logo_path,logo_url,brand_color").eq("business_id",settings.business_id).maybeSingle(),
   db.from("business_website_onboarding_states").select("source").eq("business_id",settings.business_id).maybeSingle(),
+  db.from("discounts").select("announcement_text").eq("business_id",settings.business_id).eq("is_active",true).eq("announcement_enabled",true).or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`).or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order("created_at",{ascending:false}).limit(1).maybeSingle(),
  ]);
  if(!business)return null;
  const {data:signedLogo}=booking?.logo_path?await db.storage.from("booking-branding").createSignedUrl(booking.logo_path,3600):{data:null};
@@ -35,7 +37,9 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   aboutText:settings.about_text??`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`,instagramUrl:settings.instagram_url??null,
   googleReviewUrl:googleRating?.googleMapsUri??settings.google_review_url,googleRating:googleProfile?.rating??googleRating?.rating??null,googleReviewCount:googleProfile?.reviewCount??googleRating?.reviewCount??null,googleReviews:googleProfile?.reviews.length?googleProfile.reviews.map(review=>({...review,fromGoogleProfile:true})):manualReviews,photoUrls:(settings.photo_urls??[]).filter(Boolean),requestEnabled:settings.request_service_enabled??true,
   bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
+  announcementText:promotion?.announcement_text??null,
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
+  rentalItems:(rentalItems??[]).map((item:any)=>({id:item.id,name:item.name,category:item.category??null,description:item.description??null,dailyPriceCents:Number(item.daily_price_cents??0),imageUrl:item.image_url??null})),
   hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],
  };
 }

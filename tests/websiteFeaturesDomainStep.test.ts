@@ -8,12 +8,19 @@ test("website features use concise selectable cards",async()=>{
  const [page,styles]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("app/website-builder.css")]);
  assert.match(page,/Website Features/);
  assert.match(page,/Choose how customers can interact with your website/);
- assert.match(page,/Let visitors request service and create a lead inside Servonas/);
- assert.match(page,/Let customers choose a service and request an available time online/);
- assert.match(page,/Finish booking setup to enable this/);
+ assert.match(page,/Customers submit a service request and your team follows up to schedule the job/);
+ assert.match(page,/Customers choose an available date and time and book directly from your website/);
+ assert.match(page,/Finish booking setup to enable direct online scheduling/);
+ assert.match(page,/Setup required/);
+ assert.match(page,/Your Custom Domain/);
+ assert.match(page,/Availability check pending/);
+ assert.match(page,/We’ll confirm availability and connect your domain once it’s ready/);
  assert.doesNotMatch(page,/Enable Online Booking before selecting this option/);
  assert.match(styles,/website-toggle-list>label:has\(input:checked\):after/);
  assert.match(styles,/content:"✓"/);
+ assert.match(styles,/website-features-layout\{display:grid;grid-template-columns:minmax\(0,1\.7fr\) minmax\(210px,1fr\)/);
+ assert.match(styles,/label:has\(input:disabled\)\{cursor:default;opacity:1\}/);
+ assert.match(styles,/@container\(max-width:500px\).*website-toggle-list\{grid-template-columns:1fr\}/);
 });
 
 test("owned domains follow save then check connection",async()=>{

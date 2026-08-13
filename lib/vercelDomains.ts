@@ -21,6 +21,7 @@ async function json(response:Response){try{return await response.json();}catch{r
 
 export function vercelDomainManagementConfigured(){const {token,project}=configuration();return Boolean(token&&project);}
 export function vercelRegistrarConfigured(){return Boolean(configuration().token);}
+export function vercelStandardDomainMaximumPrice(){const value=Number(process.env.VERCEL_STANDARD_DOMAIN_MAX_USD??25);return Number.isFinite(value)&&value>0?value:25;}
 
 async function registrarRequest(path:string,init?:RequestInit){
  const {token,team}=configuration();if(!token)throw new Error("Servonas domain registration is not configured.");

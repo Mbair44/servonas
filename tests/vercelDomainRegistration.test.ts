@@ -25,8 +25,9 @@ test("domain orders prevent duplicate provider purchases and store no credential
 });
 
 test("premium domains cannot consume the included standard-domain offer",async()=>{
- const actions=await read("app/app/admin/domains/actions.ts");
- assert.match(actions,/VERCEL_STANDARD_DOMAIN_MAX_USD/);
+ const [actions,registrar]=await Promise.all([read("app/app/admin/domains/actions.ts"),read("lib/vercelDomains.ts")]);
+ assert.match(registrar,/VERCEL_STANDARD_DOMAIN_MAX_USD/);
+ assert.match(actions,/vercelStandardDomainMaximumPrice/);
  assert.match(actions,/quote\.purchasePrice>standardLimit\(\)/);
  assert.match(actions,/premium domain costs/);
 });

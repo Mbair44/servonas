@@ -251,9 +251,9 @@ export async function POST(request: Request) {
       const session = await stripe.checkout.sessions.retrieve(eventSession.id, {
         expand: ["discounts.promotion_code", "discounts.coupon"],
       },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
-      const originalTotalCents = Number(session.metadata?.total_cents || 0);
+      const finalTotalCents = Number(session.metadata?.total_cents || 0);
       const amountPaidCents = Number(session.amount_total || 0);
-      const discountCents = Number(session.total_details?.amount_discount || 0);
+      const discountCents = Number(session.metadata?.discount_cents || 0);
       const discount = session.discounts?.[0];
       const promotionCode = discount && typeof discount !== "string" && discount.promotion_code;
       const coupon = discount && typeof discount !== "string" && discount.coupon;
@@ -278,13 +278,17 @@ const couponId =
         deposit_cents: amountPaidCents,
         amount_paid_cents: amountPaidCents,
         discount_cents: discountCents,
-        balance_due_cents: Math.max(0, originalTotalCents - amountPaidCents - discountCents),
+        balance_due_cents: Math.max(0, finalTotalCents - amountPaidCents),
+        discount_id:session.metadata?.discount_id||null,
+        discount_code:session.metadata?.discount_code||null,
+        discount_name:session.metadata?.discount_name||null,
         stripe_promotion_code_id: promotionCodeId,
         stripe_coupon_id: couponId,
         paid_at: new Date().toISOString(),
       }).eq("id", bookingId);
 
       await supabase.from("booking_items").update({ status: "confirmed" }).eq("booking_id", bookingId);
+      const businessId=session.metadata?.business_id;if(businessId)await supabase.rpc("finalize_discount_redemption",{p_business_id:businessId,p_booking_id:bookingId});
       try{const jobId=await ensureRentalBookingJob(supabase,bookingId);const emailResult=await sendRentalBookingConfirmationEmail(bookingId,jobId);const businessEmailResult=await sendRentalBookingBusinessNotification(bookingId,jobId);if(!emailResult.ok||!businessEmailResult.ok){console.error("Paid rental email delivery was incomplete",{bookingId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});throw new Error("Paid rental confirmation emails were not delivered.");}}catch(jobError){console.error("Confirmed rental post-payment processing failed",{bookingId,error:jobError instanceof Error?jobError.message:"unknown"});throw jobError;}
 
       try {
@@ -306,6 +310,7 @@ const couponId =
     if (bookingId) {
       await supabase.from("bookings").update({ status: "expired" }).eq("id", bookingId).eq("status", "pending_payment");
       await supabase.from("booking_items").update({ status: "expired" }).eq("booking_id", bookingId).eq("status", "pending_payment");
+      if(session.metadata?.business_id)await supabase.from("discount_redemptions").update({status:"voided"}).eq("business_id",session.metadata.business_id).eq("booking_id",bookingId).eq("status","pending");
     }
   }
 

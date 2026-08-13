@@ -6,11 +6,23 @@ const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8")
 test("website-first pilot captures a first-year domain request before registrar fulfillment",async()=>{
  const [choice,action,config]=await Promise.all([read("components/WebsiteFirstDomainChoice.tsx"),read("app/onboarding/actions.ts"),read("lib/websiteFirstConfig.ts")]);
  assert.match(choice,/I want Servonas to get my domain/);
- assert.match(choice,/confirm availability before registering/);
+ assert.match(choice,/Check availability/);
+ assert.match(choice,/First year: Free/);
+ assert.match(choice,/per year/);
+ assert.match(choice,/does not reserve or purchase/);
  assert.match(choice,/Premium domains are not included/);
  assert.match(action,/domain_request_status:"availability_check_needed"/);
  assert.match(action,/requested_domain:domainName/);
  assert.match(config,/pilotDomainIncluded:true/);
+});
+
+test("website-first availability check is authenticated, priced, and read-only",async()=>{
+ const route=await read("app/api/domains/availability/route.ts");
+ assert.match(route,/auth\.getUser/);
+ assert.match(route,/getVercelDomainQuote/);
+ assert.match(route,/renewalPrice/);
+ assert.match(route,/vercelStandardDomainMaximumPrice/);
+ assert.doesNotMatch(route,/buyVercelDomain|addVercelProjectDomain|\.insert\(|\.update\(|\.upsert\(/);
 });
 
 test("domain requests remain separate from registered custom domains",async()=>{
