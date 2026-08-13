@@ -5,10 +5,11 @@ import {getGoogleBusinessProfileReviews} from "@/lib/googleBusinessProfile";
 
 type WebsiteRow=Record<string,any>;
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow):Promise<BusinessSiteData|null>{
- const [{data:business},{data:services},{data:rentalItems},{data:hours},{data:territories},{data:booking},{data:websiteOnboarding},{data:promotion}]=await Promise.all([
+ const [{data:business},{data:services},{data:rentalItems},{data:rentalCategories},{data:hours},{data:territories},{data:booking},{data:websiteOnboarding},{data:promotion}]=await Promise.all([
   db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
-  db.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url").eq("business_id",settings.business_id).eq("active",true).order("category").order("created_at"),
+  db.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url").eq("business_id",settings.business_id).eq("active",true),
+  db.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
   db.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",settings.business_id).eq("active",true).order("weekday"),
   db.from("workforce_territories").select("name,postal_codes,neighborhoods,strategy_config").eq("business_id",settings.business_id).eq("is_active",true).order("name"),
   db.from("booking_settings").select("enabled,public_slug,logo_path,logo_url,brand_color").eq("business_id",settings.business_id).maybeSingle(),
@@ -29,6 +30,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||settings.booking_enabled&&booking?.enabled));
  const googleProfile=await getGoogleBusinessProfileReviews(business.id),googleRating=!googleProfile&&settings.google_place_id?await getGoogleBusinessRating(String(settings.google_place_id)):null;
  const manualReviews=(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6);
+ const rentalCategoryOrder=new Map((rentalCategories??[]).map((category:any,index:number)=>[category.id,{rank:index,name:category.name}]));
  return {
   name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",
@@ -39,7 +41,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
   announcementText:promotion?.announcement_text??null,
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
-  rentalItems:(rentalItems??[]).map((item:any)=>({id:item.id,name:item.name,category:item.category??null,description:item.description??null,dailyPriceCents:Number(item.daily_price_cents??0),imageUrl:item.image_url??null})),
+  rentalItems:(rentalItems??[]).sort((left:any,right:any)=>{const a=rentalCategoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=rentalCategoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||String(a.name).localeCompare(String(b.name))||String(left.name).localeCompare(String(right.name));}).map((item:any)=>({id:item.id,name:item.name,category:item.category??null,description:item.description??null,dailyPriceCents:Number(item.daily_price_cents??0),imageUrl:item.image_url??null})),
   hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],
  };
 }
