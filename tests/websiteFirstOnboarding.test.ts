@@ -9,8 +9,8 @@ test("campaign signup source survives signup and selects website-first onboardin
  assert.match(landing,/source:\s*"pest-control-website"/);
  assert.match(signup,/source=\{query\.source\}/);
  assert.match(auth,/acquisition_source:source/);
- assert.match(auth,/onboarding\?source=pest-control-website/);
- assert.match(onboarding,/user\.user_metadata\?\.acquisition_source===\"pest-control-website\"/);
+ assert.match(auth,/onboarding\?source=\$\{source\}/);
+ assert.match(onboarding,/getWebsiteFirstConfig\(user\.user_metadata\?\.acquisition_source\)/);
 });
 
 test("website-first workspace writes canonical pest business, services, website and territory records",async()=>{
@@ -21,7 +21,8 @@ test("website-first workspace writes canonical pest business, services, website 
  assert.match(migration,/business_website_settings/);
  assert.match(migration,/insert into public\.services/);
  assert.match(migration,/insert into public\.workforce_territories/);
- assert.match(migration,/'pest_control','appointment_service'/);
+ assert.match(migration,/then 'other' else 'pest_control' end/);
+ assert.match(migration,/'appointment_service'/);
  assert.match(migration,/array\['welcome','company','profile'\]/);
 });
 

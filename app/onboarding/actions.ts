@@ -12,6 +12,7 @@ import {verifyGooglePlace} from "@/lib/googleAddress";
 import {sendBusinessSetupNotification} from "@/lib/communications/businessSetupEmailService";
 import {platformBillingEnabled,servonasTrialDays} from "@/lib/platformBilling";
 import {stripeClient,stripeConnectBaseUrl} from "@/lib/stripeConnect";
+import {getWebsiteFirstConfig} from "@/lib/websiteFirstConfig";
 
 type GuidedOnboardingValues=Partial<OnboardingCompanyInput>&{userName?:string};
 export type OnboardingState={error?:string;fieldErrors?:Partial<Record<keyof OnboardingCompanyInput|string,string>>;values?:GuidedOnboardingValues};
@@ -80,9 +81,9 @@ export type BusinessProfileState={error?:string;fieldErrors?:ReturnType<typeof v
 export type WebsiteFirstState={error?:string;values?:Record<string,string>};
 export async function createWebsiteFirstWorkspace(_:WebsiteFirstState,formData:FormData):Promise<WebsiteFirstState>{
  const s=await createSupabaseServerClient(),{data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding?source=pest-control-website");
- const name=text(formData,"name"),slug=text(formData,"slug").toLowerCase(),phone=text(formData,"phone"),email=text(formData,"email")||user.email||"",city=text(formData,"city"),state=text(formData,"state"),serviceArea=text(formData,"serviceArea"),description=text(formData,"description"),services=formData.getAll("services").map(String).map(value=>value.trim()).filter(Boolean);
- const values={name,slug,phone,email,city,state,serviceArea,description};if(name.length<2||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||phone.replace(/\D/g,"").length<10||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!city||!state||!services.length)return{error:"Add your business name, contact details, location, and at least one service.",values};
- const {data,error}=await s.rpc("create_website_first_workspace",{p_name:name,p_slug:slug,p_email:email,p_phone:phone,p_city:city,p_state:state,p_service_area:serviceArea,p_description:description,p_services:services});
+ const source=text(formData,"source"),config=getWebsiteFirstConfig(source),name=text(formData,"name"),slug=text(formData,"slug").toLowerCase(),phone=text(formData,"phone"),email=text(formData,"email")||user.email||"",city=text(formData,"city"),state=text(formData,"state"),serviceArea=text(formData,"serviceArea"),description=text(formData,"description"),serviceModel=text(formData,"serviceModel"),services=formData.getAll("services").map(String).map(value=>value.trim()).filter(Boolean);
+ const values={name,slug,phone,email,city,state,serviceArea,description,source,serviceModel};if(!config||name.length<2||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||phone.replace(/\D/g,"").length<10||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!city||!state||!services.length)return{error:"Add your business name, contact details, location, and at least one service.",values};
+ const {data,error}=await s.rpc("create_website_first_workspace",{p_name:name,p_slug:slug,p_email:email,p_phone:phone,p_city:city,p_state:state,p_service_area:serviceArea,p_description:description,p_services:services,p_source:source,p_service_model:serviceModel||null});
  if(error){console.error("Website-first workspace creation failed",{userId:user.id,code:error.code});return{error:error.code==="23505"?"That business or website URL is already in use.":"Your website setup could not be saved. Apply the website-first onboarding migration and try again.",values};}
  const created=Array.isArray(data)?data[0]:data;redirect(`/onboarding?business=${encodeURIComponent(created.slug)}&websiteStep=style`);
 }

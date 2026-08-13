@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {useActionState,useEffect,useRef,useState,type FormEvent} from "react";
 import {trackGoogleAdsSignupConversion} from "@/lib/googleAds";
+import {isWebsiteFirstSource} from "@/lib/websiteFirstConfig";
 
 type AuthActionResult={signupCompleted:boolean;userId:string|null;redirectTo:string}|null|void;
 
@@ -86,7 +87,7 @@ export default function AuthForm({
   if (next) preservedQuery.set("next", next);
   if (email) preservedQuery.set("email", email);
   if (contentLead) preservedQuery.set("utm_content", contentLead);
-  if (source === "pest-control-website") preservedQuery.set("source", source);
+  if (isWebsiteFirstSource(source)) preservedQuery.set("source", source);
   const queryString = preservedQuery.toString();
 
   return (
@@ -99,7 +100,7 @@ export default function AuthForm({
         <form action={formAction} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
           {next && <input type="hidden" name="next" value={next} />}
           {isSignup&&contentLead&&<input type="hidden" name="utmContent" value={contentLead}/>}
-          {isSignup&&source==="pest-control-website"&&<input type="hidden" name="source" value={source}/>}
+          {isSignup&&isWebsiteFirstSource(source)&&<input type="hidden" name="source" value={source}/>}
           {isSignup&&marketingVisitorId&&<input type="hidden" name="marketingVisitorId" value={marketingVisitorId}/>}
           {isSignup&&marketingSessionId&&<input type="hidden" name="marketingSessionId" value={marketingSessionId}/>}
           {!isReset && (
