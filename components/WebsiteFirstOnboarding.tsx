@@ -5,6 +5,8 @@ import {getWebsiteFirstConfig,type WebsiteFirstSource} from "@/lib/websiteFirstC
 import {WebsiteFirstDomainChoice} from "./WebsiteFirstDomainChoice";
 import {WebsiteFirstServiceGrid} from "./WebsiteFirstServiceGrid";
 
+const usStates=[["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],["GA","Georgia"],["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]] as const;
+
 export function WebsiteFirstBusiness({defaultEmail="",source}:{defaultEmail?:string;source:WebsiteFirstSource}){
  const config=getWebsiteFirstConfig(source)!;
  const [state,action,pending]=useActionState(createWebsiteFirstWorkspace,{} as WebsiteFirstState);
@@ -16,12 +18,12 @@ export function WebsiteFirstBusiness({defaultEmail="",source}:{defaultEmail?:str
   <header><span>1. Business</span><i/><span>2. Style</span><i/><span>3. Preview</span></header>
   <section><span className="sv-kicker">Your {config.industryLabel} website</span><h1>{config.businessHeading}</h1><p>{config.businessDescription}</p>{state.error&&<p className="auth-error">{state.error}</p>}
    <form action={action} className="website-first-form"><input type="hidden" name="source" value={source}/><p className="wide website-required-note"><span>*</span> Required fields</p>
-    <label>Business name <span className="website-required">*</span><input required name="name" value={name} onChange={event=>{setName(event.target.value);setSlug(clean(event.target.value));}} maxLength={120}/></label>
-    <label>Website address <span className="website-required">*</span><div className="sv-input-prefix"><span>servonas.com/sites/</span><input required name="slug" value={slug} onChange={event=>setSlug(clean(event.target.value))}/></div></label>
-    <label>Business phone <span className="website-required">*</span><input required name="phone" type="tel" defaultValue={state.values?.phone}/></label>
-    <label>Business email <span className="website-required">*</span><input required name="email" type="email" defaultValue={state.values?.email??defaultEmail}/></label>
-    <label>City <span className="website-required">*</span><input required name="city" defaultValue={state.values?.city}/></label>
-    <label>State <span className="website-required">*</span><input required name="state" maxLength={40} defaultValue={state.values?.state}/></label>
+    <label><span className="website-field-title">Business name <span className="website-required" aria-hidden="true">*</span></span><input required name="name" value={name} onChange={event=>{setName(event.target.value);setSlug(clean(event.target.value));}} maxLength={120}/></label>
+    <label><span className="website-field-title">Website address <span className="website-required" aria-hidden="true">*</span></span><div className="sv-input-prefix"><span>servonas.com/sites/</span><input required name="slug" value={slug} onChange={event=>setSlug(clean(event.target.value))}/></div></label>
+    <label><span className="website-field-title">Business phone <span className="website-required" aria-hidden="true">*</span></span><input required name="phone" type="tel" autoComplete="tel" defaultValue={state.values?.phone}/></label>
+    <label><span className="website-field-title">Business email <span className="website-required" aria-hidden="true">*</span></span><input required name="email" type="email" autoComplete="email" defaultValue={state.values?.email??defaultEmail}/></label>
+    <label><span className="website-field-title">City <span className="website-required" aria-hidden="true">*</span></span><input required name="city" autoComplete="address-level2" defaultValue={state.values?.city}/></label>
+    <label><span className="website-field-title">State <span className="website-required" aria-hidden="true">*</span></span><select required name="state" autoComplete="address-level1" defaultValue={state.values?.state??""}><option value="" disabled>Select a state</option>{usStates.map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label>
     {source==="car-detailing-website"&&<label className="wide">Business setup<select name="serviceModel" defaultValue="mobile"><option value="mobile">Mobile detailing</option><option value="shop">Physical detailing shop</option><option value="both">Mobile and shop</option></select></label>}
     <WebsiteFirstDomainChoice slug={slug} initialChoice={state.values?.domainPreference} initialDomain={state.values?.domainName}/>
     <label className="wide">Primary service area <small>Optional</small><input name="serviceArea" placeholder="East Valley and surrounding areas" defaultValue={state.values?.serviceArea}/></label>
