@@ -102,6 +102,17 @@ export async function setWebsitePublished(slug:string,data:FormData){
  redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
 }
 
+export async function completeWebsiteFirstAndExplore(slug:string){
+ const {supabase,business}=await requireWorkspaceCapability(slug,"business_onboarding");
+ const {data:website}=await supabase.from("business_website_settings").select("status").eq("business_id",business.id).maybeSingle();
+ if(website?.status!=="published")redirect(target(slug,"error","Publish your website before exploring Servonas."));
+ const now=new Date().toISOString();
+ const {error}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",business.id);
+ if(error){console.error("Website-first exploration completion failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/settings/website/success?error=${encodeURIComponent("Website setup could not be completed. Try again.")}`);}
+ revalidatePath(`/app/${slug}`);
+ redirect(`/app/${slug}`);
+}
+
 export async function connectWebsiteDomain(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can connect a domain."));
