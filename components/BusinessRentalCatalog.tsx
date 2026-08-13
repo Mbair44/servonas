@@ -4,7 +4,7 @@ import type {BusinessSiteRentalItem} from "./BusinessWebsite";
 
 export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
  const [category,setCategory]=useState("All rentals"),[search,setSearch]=useState("");
- const categories=useMemo(()=>["All rentals",...Array.from(new Set(items.map(item=>item.category||"Other rentals"))).sort((a,b)=>a.localeCompare(b))],[items]);
+ const categories=useMemo(()=>["All rentals",...Array.from(new Set(items.map(item=>item.category||"Other rentals")))],[items]);
  const visible=useMemo(()=>{const query=search.trim().toLowerCase();return items.filter(item=>(category==="All rentals"||(item.category||"Other rentals")===category)&&(!query||`${item.name} ${item.description??""} ${item.category??""}`.toLowerCase().includes(query)));},[category,items,search]);
  return <>
   <div className="business-site-rental-tools">
