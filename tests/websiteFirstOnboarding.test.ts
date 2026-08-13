@@ -31,10 +31,10 @@ test("website-first onboarding uses real templates and continues into normal set
  for(const template of ["modern","bold","traditional"])assert.match(style,new RegExp(`\\[\"${template}\"`));
  assert.match(style,/name="logo"/);
  assert.match(actions,/booking-branding/);
- assert.match(preview,/settings\/website\/preview/);
- assert.match(preview,/Customize My Website/);
- assert.match(preview,/Continue Setting Up My Business/);
- assert.match(actions,/current_step:\"completed\"/);
+ assert.match(preview,/settings\/website/);
+ assert.match(preview,/Finish My Website/);
+ assert.match(preview,/Continue Website Setup/);
+ assert.doesNotMatch(preview,/finishWebsiteFirstOnboarding/);
 });
 
 test("public pest demo is fictional, safe and linked to campaign signup",async()=>{
@@ -53,4 +53,12 @@ test("website-first state is tenant scoped with explicit member/admin policies",
  assert.match(migration,/is_business_member\(business_id\)/);
  assert.match(migration,/has_business_role\(business_id,array\['owner','admin'\]\)/);
  assert.match(migration,/auth\.uid\(\)/);
+ assert.match(migration,/drop policy if exists "members read website onboarding"/);
+ assert.match(migration,/drop policy if exists "admins manage website onboarding"/);
+ assert.match(migration,/drop constraint if exists business_website_onboarding_states_source_check/);
 });
+test("website setup captures domain ownership without connecting or purchasing it",async()=>{const [component,actions,migration]=await Promise.all([read("components/WebsiteFirstOnboarding.tsx"),read("app/onboarding/actions.ts"),read("supabase/migrations/20260813000100_website_first_onboarding.sql")]);assert.match(component,/Do you already have a domain/);assert.match(component,/existing_domain/);assert.match(component,/need_domain/);assert.match(actions,/normalizeWebsiteDomain/);assert.match(migration,/domain_preference/);assert.match(migration,/domain_name/);assert.doesNotMatch(actions,/addVercelProjectDomain|purchase/);});
+
+test("website-first workspaces stay in a focused setup shell until completion",async()=>{const [layout,page,wizard]=await Promise.all([read("app/app/[businessSlug]/layout.tsx"),read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/WebsiteSetupWizard.tsx")]);assert.match(layout,/business_website_onboarding_states/);assert.match(layout,/onboarding\.current_step!=="completed"/);assert.match(layout,/WebsiteFirstWorkspaceNav/);assert.match(page,/editable&&!websiteFirstActive/);assert.match(page,/Publish My Website/);assert.match(wizard,/active==="review"/);assert.match(wizard,/publishControl/);});
+
+test("publishing a website-first site completes onboarding and shows the launch transition",async()=>{const [actions,success]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("app/app/[businessSlug]/settings/website/success/page.tsx")]);assert.match(actions,/business_website_onboarding_states/);assert.match(actions,/current_step:"completed"/);assert.match(actions,/settings\/website\/success/);assert.match(success,/Your Website Is Ready!/);assert.match(success,/View My Website/);assert.match(success,/Go to My Dashboard/);assert.match(success,/Now let&apos;s put your website to work/);});

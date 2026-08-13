@@ -85,11 +85,21 @@ export async function setWebsitePublished(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can publish the website."));
  const publish=data.get("publish")==="true";
- const {data:settings}=await supabase.from("business_website_settings").select("id,public_slug").eq("business_id",business.id).maybeSingle();
+ const [{data:settings},{data:websiteFirst}]=await Promise.all([
+  supabase.from("business_website_settings").select("id,public_slug").eq("business_id",business.id).maybeSingle(),
+  supabase.from("business_website_onboarding_states").select("business_id").eq("business_id",business.id).maybeSingle(),
+ ]);
  if(!settings)redirect(target(slug,"error","Save the website settings before publishing."));
  const {error}=await supabase.from("business_website_settings").update({status:publish?"published":"draft",published_at:publish?new Date().toISOString():null,updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
  if(error)redirect(target(slug,"error","Website publishing status could not be changed."));
- revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
+ if(publish&&websiteFirst){
+  const now=new Date().toISOString();
+  const {error:onboardingError}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",business.id);
+  if(onboardingError)console.error("Website-first completion state update failed",{businessId:business.id,code:onboardingError.code});
+ }
+ revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);
+ if(publish&&websiteFirst)redirect(`/app/${slug}/settings/website/success`);
+ redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
 }
 
 export async function connectWebsiteDomain(slug:string,data:FormData){

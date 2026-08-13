@@ -52,7 +52,7 @@ export async function signUp(formData: FormData) {
   const rawSource=value(formData,"source"),source=isWebsiteFirstSource(rawSource)?rawSource:"";
   const marketingVisitorId=value(formData,"marketingVisitorId"),marketingSessionId=value(formData,"marketingSessionId");
   const next = value(formData, "next") || (source?`/onboarding?source=${source}`:"/app");
-  const safeNext = next.startsWith("/") ? next : "/app";
+  const safeNext = next.startsWith("/")&&!next.startsWith("//") ? next : "/app";
   const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${source?`&source=${source}`:""}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
 
   if (!email || password.length < 8) {
@@ -115,18 +115,21 @@ export async function signUp(formData: FormData) {
   return {
     signupCompleted,
     userId: signupCompleted ? data.user!.id : null,
-    redirectTo: data.session ? safeNext : `/auth/confirm?email=${encodeURIComponent(email)}`,
+    redirectTo: data.session ? safeNext : `/auth/confirm?email=${encodeURIComponent(email)}&next=${encodeURIComponent(safeNext)}${source?`&source=${source}`:""}`,
   };
 }
 
 export async function resendSignupVerification(formData: FormData) {
   const email = value(formData, "email");
+  const rawSource=value(formData,"source"),source=isWebsiteFirstSource(rawSource)?rawSource:"";
+  const requestedNext=value(formData,"next")||(source?`/onboarding?source=${source}`:"/onboarding");
+  const safeNext=requestedNext.startsWith("/")&&!requestedNext.startsWith("//")?requestedNext:"/onboarding";
   if (!email) redirectWithError("/auth/confirm", "Enter the email address used to sign up.");
   const origin =
     (await headers()).get("origin") ??
     process.env.NEXT_PUBLIC_SITE_URL ??
     "http://localhost:3000";
-  const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/onboarding")}`;
+  const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.resend({
     type: "signup",
@@ -144,7 +147,7 @@ export async function resendSignupVerification(formData: FormData) {
       redirectTo: `${origin}/auth/callback`,
     });
     redirectWithError(
-      `/auth/confirm?email=${encodeURIComponent(email)}`,
+      `/auth/confirm?email=${encodeURIComponent(email)}&next=${encodeURIComponent(safeNext)}${source?`&source=${source}`:""}`,
       signupErrorMessage(error.message),
     );
   }
@@ -153,7 +156,7 @@ export async function resendSignupVerification(formData: FormData) {
     operation: "resend_signup_confirmation",
     redirectTo: `${origin}/auth/callback`,
   });
-  redirect(`/auth/confirm?email=${encodeURIComponent(email)}&sent=1`);
+  redirect(`/auth/confirm?email=${encodeURIComponent(email)}&sent=1&next=${encodeURIComponent(safeNext)}${source?`&source=${source}`:""}`);
 }
 
 export async function signIn(formData: FormData) {
