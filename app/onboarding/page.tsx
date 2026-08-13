@@ -7,12 +7,17 @@ import OnboardingBusinessHours from "@/components/OnboardingBusinessHours";
 import OnboardingFirstService from "@/components/OnboardingFirstService";
 import OnboardingReadinessReview from "@/components/OnboardingReadinessReview";
 import {getCapabilityAccess} from "@/lib/entitlements/service";
-export default async function Onboarding({searchParams}:{searchParams:Promise<{business?:string;saved?:string;error?:string;billing?:string;billingAdded?:string}>}){
+import {WebsiteFirstBusiness} from "@/components/WebsiteFirstOnboarding";
+import {WebsiteFirstStyle} from "@/components/WebsiteFirstStyle";
+import {WebsiteFirstPreview} from "@/components/WebsiteFirstPreview";
+export default async function Onboarding({searchParams}:{searchParams:Promise<{business?:string;saved?:string;error?:string;billing?:string;billingAdded?:string;source?:string;websiteStep?:string}>}){
  const query=await searchParams,s=await createSupabaseServerClient();const {data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding");
  if(query.business){
   const {data:business,error:businessError}=await s.from("businesses").select("id,name,display_name,slug,timezone").eq("slug",query.business).eq("is_deleted",false).maybeSingle();
   if(businessError){console.error("Onboarding workspace resume lookup failed",{code:businessError.code,message:businessError.message,details:businessError.details,hint:businessError.hint,businessSlug:query.business,userId:user.id});return <main className="onboarding-resume"><section><span className="sv-kicker">Setup saved</span><h1>Your workspace was created.</h1><p>Servonas could not load the workspace membership needed for onboarding. Open your workspaces and retry setup.</p><div><Link className="sv-button" href="/app">Open your workspaces</Link></div></section></main>;}
   if(!business)return <main className="onboarding-resume"><section><span className="sv-kicker">Workspace unavailable</span><h1>Onboarding could not be resumed.</h1><p>The workspace does not exist or your account cannot access it.</p><div><Link className="sv-button" href="/app">Open your workspaces</Link></div></section></main>;
+  const {data:websiteFirst}=await s.from("business_website_onboarding_states").select("current_step").eq("business_id",business.id).maybeSingle();
+  if(websiteFirst&&websiteFirst.current_step!=="completed"){const step=query.websiteStep||websiteFirst.current_step;return <main className="onboarding-shell website-first-onboarding">{step==="preview"?<WebsiteFirstPreview businessSlug={business.slug}/>:<WebsiteFirstStyle businessSlug={business.slug} error={query.error}/>}</main>;}
   if(query.saved==="company")return <main className="onboarding-shell"><OnboardingBusinessProfile businessSlug={business.slug} initialModel="appointment_service" initialIndustry=""/></main>;
   const {data:profile,error:profileError}=await s.from("businesses").select("operating_model,industry_profile,onboarding_defaults").eq("id",business.id).maybeSingle();
   if(profileError)console.error("Onboarding profile fields lookup failed",{code:profileError.code,message:profileError.message,details:profileError.details,hint:profileError.hint,businessId:business.id,userId:user.id});
@@ -34,5 +39,7 @@ export default async function Onboarding({searchParams}:{searchParams:Promise<{b
   }}
  const {data:userProfile}=await s.from("profiles").select("full_name").eq("id",user.id).maybeSingle();
  const defaultUserName=userProfile?.full_name?.trim()||String(user.user_metadata?.full_name??"").trim();
+ const websiteSource=query.source==="pest-control-website"||user.user_metadata?.acquisition_source==="pest-control-website";
+ if(websiteSource)return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstBusiness defaultEmail={user.email??""}/></main>;
  return <main className="onboarding-shell"><OnboardingWizard defaultEmail={user.email??""} defaultUserName={defaultUserName} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/></main>;
 }
