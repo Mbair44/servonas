@@ -5,6 +5,8 @@ export type VercelDomainStatus={
  configured:boolean;verified:boolean;misconfigured:boolean;error?:string;
  verification:VerificationRecord[];dnsRecords:{type:string;name:string;value:string}[];
 };
+export type VercelDomainQuote={domain:string;available:boolean;purchasePrice:number;renewalPrice:number;years:number};
+export type VercelRegistrant={firstName:string;lastName:string;email:string;phone:string;address1:string;address2?:string;city:string;state:string;zip:string;country:string;companyName?:string};
 
 const configuration=()=>({
  token:process.env.VERCEL_API_TOKEN?.trim(),
@@ -18,6 +20,33 @@ const message=(body:any,fallback:string)=>typeof body?.error?.message==="string"
 async function json(response:Response){try{return await response.json();}catch{return {};}}
 
 export function vercelDomainManagementConfigured(){const {token,project}=configuration();return Boolean(token&&project);}
+export function vercelRegistrarConfigured(){return Boolean(configuration().token);}
+
+async function registrarRequest(path:string,init?:RequestInit){
+ const {token,team}=configuration();if(!token)throw new Error("Servonas domain registration is not configured.");
+ const separator=path.includes("?")?"&":"?",url=`https://api.vercel.com${path}${team?`${separator}teamId=${encodeURIComponent(team)}`:""}`;
+ const response=await fetch(url,{...init,headers:{...headers(token),...(init?.headers??{})},cache:"no-store"}),body=await json(response);
+ if(!response.ok)throw new Error(message(body,"Vercel could not complete the domain request."));
+ return body;
+}
+
+export async function getVercelDomainQuote(domain:string):Promise<VercelDomainQuote>{
+ const encoded=encodeURIComponent(domain),[availability,price]=await Promise.all([registrarRequest(`/v1/registrar/domains/${encoded}/availability`),registrarRequest(`/v1/registrar/domains/${encoded}/price?years=1`)]);
+ const purchasePrice=Number(price.purchasePrice),renewalPrice=Number(price.renewalPrice),years=Number(price.years);
+ if(typeof availability.available!=="boolean"||!Number.isFinite(purchasePrice)||purchasePrice<0||!Number.isFinite(renewalPrice)||renewalPrice<0||!Number.isInteger(years)||years<1)throw new Error("Vercel returned incomplete domain pricing.");
+ return {domain,available:availability.available,purchasePrice,renewalPrice,years};
+}
+
+export async function buyVercelDomain(domain:string,expectedPrice:number,registrant:VercelRegistrant){
+ const body=await registrarRequest("/v1/registrar/domains/buy",{method:"POST",body:JSON.stringify({domains:[{domainName:domain,autoRenew:true,years:1,expectedPrice}],contactInformation:registrant})});
+ if(typeof body.orderId!=="string"||!body.orderId)throw new Error("Vercel did not return a domain order ID.");
+ return {orderId:body.orderId};
+}
+export async function getVercelDomainOrder(orderId:string){
+ const body=await registrarRequest(`/v1/registrar/orders/${encodeURIComponent(orderId)}`);
+ if(!["draft","purchasing","completed","failed"].includes(body.status))throw new Error("Vercel returned an unknown domain order status.");
+ return {orderId:String(body.orderId),status:body.status as "draft"|"purchasing"|"completed"|"failed"};
+}
 
 export async function addVercelProjectDomain(domain:string){
  const {token,project,team}=configuration();

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
 
-test("website-first pilot offers a manually fulfilled first-year domain",async()=>{
+test("website-first pilot captures a first-year domain request before registrar fulfillment",async()=>{
  const [choice,action,config]=await Promise.all([read("components/WebsiteFirstDomainChoice.tsx"),read("app/onboarding/actions.ts"),read("lib/websiteFirstConfig.ts")]);
  assert.match(choice,/I want Servonas to get my domain/);
  assert.match(choice,/confirm availability before registering/);
@@ -26,7 +26,8 @@ test("publish success and internal admin expose pending requests",async()=>{
  assert.match(success,/Your custom domain/);
  assert.match(success,/confirming availability/);
  assert.match(admin,/isServonasPlatformAdmin/);
- assert.match(admin,/Availability not guaranteed/);
+ assert.match(admin,/Check availability &amp; price/);
+ assert.match(admin,/Register this domain through Vercel/);
 });
 
 test("both website-first landing pages disclose offer terms",async()=>{
