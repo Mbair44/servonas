@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {isWebsiteFirstSource} from "@/lib/websiteFirstConfig";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -48,9 +49,9 @@ export async function signUp(formData: FormData) {
   const password = value(formData, "password");
   const confirm = value(formData, "confirmPassword");
   const utmContent=value(formData,"utmContent");
-  const source=value(formData,"source")==="pest-control-website"?"pest-control-website":"";
+  const rawSource=value(formData,"source"),source=isWebsiteFirstSource(rawSource)?rawSource:"";
   const marketingVisitorId=value(formData,"marketingVisitorId"),marketingSessionId=value(formData,"marketingSessionId");
-  const next = value(formData, "next") || (source?"/onboarding?source=pest-control-website":"/app");
+  const next = value(formData, "next") || (source?`/onboarding?source=${source}`:"/app");
   const safeNext = next.startsWith("/") ? next : "/app";
   const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${source?`&source=${source}`:""}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
 
