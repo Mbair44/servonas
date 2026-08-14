@@ -85,7 +85,7 @@ export default async function PublicBookingPage({
       .select("onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
-    const { data } = await supabase.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url,allow_quantity,stock_quantity").eq("business_id", settings.business_id).eq("active", true).order("category").order("created_at");
+    const { data } = await supabase.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override").eq("business_id", settings.business_id).eq("active", true).order("category").order("created_at");
     rentalInventory = data ?? [];
     const {data:upsells}=await supabase.from("rental_item_upsells").select("source_item_id,suggested_item_id,sort_order").eq("business_id",settings.business_id).order("sort_order");
     rentalUpsells=(upsells??[]).reduce((map:Record<string,string[]>,row)=>{(map[row.source_item_id]??=[]).push(row.suggested_item_id);return map;},{});
@@ -130,7 +130,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
