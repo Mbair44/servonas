@@ -1351,6 +1351,15 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
   .rental-admin-grid article>dl{grid-template-columns:1fr;gap:8px}
 }
 
+/* Shared HVAC, plumbing, landscaping, and cleaning website-first campaigns. */
+.industry-landing-hero{background:linear-gradient(145deg,#f4f8ff,#fff 55%,#f2f8f6)}
+.industry-landing-mark{display:grid;min-height:520px;place-content:center;justify-items:center;border-radius:32px;background:linear-gradient(145deg,var(--industry-dark,#10233f),var(--industry-accent,#1677ff));color:#fff;box-shadow:0 30px 70px #14213d26}
+.industry-landing-mark i{display:grid;width:96px;height:96px;place-items:center;border:1px solid #ffffff55;border-radius:28px;background:#ffffff16;font-size:3.4rem;font-style:normal}.industry-landing-mark strong{margin-top:20px;font-size:2rem}.industry-landing-mark span{margin-top:5px;color:#ffffffc4}
+.hvac-website-landing{--industry-dark:#10233f;--industry-accent:#1677ff}.plumbing-website-landing{--industry-dark:#0b2844;--industry-accent:#0878d1}.landscaping-website-landing .pcw-free-badge{background:#25824b}.cleaning-website-landing .pcw-free-badge{background:#1597a5}
+.industry-demo-callout .pcw-demo-browser>div{background:linear-gradient(135deg,var(--industry-dark,#10233f),var(--industry-accent,#1677ff));color:#fff}
+.industry-example-banner{display:flex;align-items:center;justify-content:center;gap:18px;padding:10px 18px;background:#111827;color:#fff;font-size:.75rem;font-weight:750}.industry-example-banner a{color:#fff;font-weight:900;text-decoration:underline}
+@media(max-width:700px){.industry-landing-mark{min-height:340px}.industry-example-banner{align-items:flex-start;flex-direction:column;gap:4px}}
+
 .discount-item-picker{display:grid;gap:10px;margin:0;padding:15px;border:1px solid #d7e1ee;border-radius:11px}.discount-item-picker legend{padding:0 5px;color:#344054;font-size:.76rem;font-weight:850}.discount-item-picker>small{color:#667085;font-size:.69rem}.discount-item-picker>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.discount-item-picker>div>label{display:flex;align-items:center;gap:9px;min-height:42px;padding:9px 11px;border:1px solid #dce3ed;border-radius:9px;background:#fff;color:#344054;font-size:.74rem;font-weight:750;cursor:pointer}.discount-item-picker>div>label:has(input:checked){border-color:#7ba6f5;background:#f3f7ff;color:#174ea6}.discount-item-picker input{width:17px!important;min-height:auto!important;accent-color:#2563eb}.discount-item-picker p{margin:0;color:#667085;font-size:.72rem}@media(max-width:600px){.discount-item-picker>div{grid-template-columns:1fr}}
 
 /* Consolidated Servonas platform administration. */
