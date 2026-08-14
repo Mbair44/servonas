@@ -7,12 +7,14 @@ import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
+import {calculateRentalDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type CheckoutBody = {
   businessSlug?: string;
   items?: RequestedItem[];
   rentalDate?: string;
+  rentalEndDate?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as CheckoutBody;
     const required: Array<[keyof CheckoutBody, string]> = [
-      ["rentalDate", "rental date"], ["firstName", "first name"], ["lastName", "last name"],
+      ["rentalDate", "rental date"], ["rentalEndDate", "rental end date"], ["firstName", "first name"], ["lastName", "last name"],
       ["email", "email"], ["phone", "phone"], ["address", "delivery address"], ["city", "city"],
       ["zipCode", "ZIP code"], ["startTime", "event start time"], ["endTime", "event end time"],
     ];
@@ -70,7 +72,7 @@ export async function POST(request: Request) {
     if (!supabase) return NextResponse.json({ error: "Booking is temporarily unavailable." }, { status: 503 });
 
     const {data: publicBooking}=hasText(body.businessSlug)
-      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent,timezone").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
+      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent,timezone,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
       : {data:null};
     const {data: business}=publicBooking
       ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
@@ -80,9 +82,9 @@ export async function POST(request: Request) {
       const weekday=new Date(`${body.rentalDate}T12:00:00Z`).getUTCDay();
       const {data:availableHours,error:hoursError}=await supabase.from("booking_availability").select("start_time,end_time").eq("business_id",business.id).eq("weekday",weekday).eq("active",true);
       if(hoursError)return NextResponse.json({error:"Business hours could not be verified. Please try again."},{status:500});
-      if(!(availableHours??[]).some(row=>body.startTime!>=String(row.start_time).slice(0,5)&&body.endTime!<=String(row.end_time).slice(0,5)))return NextResponse.json({error:"Choose a rental time within the business’s available hours."},{status:409});
+      if(!(availableHours??[]).some(row=>body.startTime!>=String(row.start_time).slice(0,5)&&body.startTime!<=String(row.end_time).slice(0,5)))return NextResponse.json({error:"Choose a rental start time within the business’s available hours."},{status:409});
       const timezone=publicBooking.timezone??"America/Phoenix";
-      const requestedStartsAt=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,timezone),requestedEndsAt=zonedDateTimeToUtc(body.rentalDate!,body.endTime!,timezone);
+      const requestedStartsAt=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,timezone),requestedEndsAt=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,timezone);
       if(requestedEndsAt<=requestedStartsAt)return NextResponse.json({error:"Choose a valid event start and end time."},{status:400});
       const {data:blackout,error:blackoutError}=await supabase.from("booking_blackouts").select("id").eq("business_id",business.id)
         .lt("starts_at",requestedEndsAt.toISOString()).gt("ends_at",requestedStartsAt.toISOString()).limit(1);
@@ -101,7 +103,7 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("id,name,daily_price_cents,active,allow_quantity,stock_quantity")
+      .select("id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
@@ -113,13 +115,17 @@ export async function POST(request: Request) {
       if (!item.allow_quantity && item.quantity !== 1) return NextResponse.json({ error: `${item.name} can only be added once.` }, { status: 400 });
       if (item.quantity > item.stock_quantity) return NextResponse.json({ error: `Only ${item.stock_quantity} of ${item.name} are in inventory.` }, { status: 400 });
     }
-    const authoritativeItems=orderedItems.map(item=>({id:item.id,quantity:item.quantity,unitPriceCents:item.daily_price_cents}));
+    const startInstant=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,publicBooking?.timezone??"America/Phoenix"),endInstant=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,publicBooking?.timezone??"America/Phoenix");
+    const businessRules={standardRentalHours:Number(publicBooking?.standard_rental_hours??24),allowMultiDay:Boolean(publicBooking?.allow_multi_day_rentals),additionalDayPricingType:(publicBooking?.additional_day_pricing_type??"full_price") as "full_price"|"percentage_discount"|"flat_rate",additionalDayDiscountPercent:Number(publicBooking?.additional_day_discount_percent??0),additionalDayFlatRateCents:publicBooking?.additional_day_flat_rate_cents==null?null:Number(publicBooking.additional_day_flat_rate_cents),maxRentalDays:publicBooking?.max_rental_days==null?null:Number(publicBooking.max_rental_days)};
+    let pricedItems;try{pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),days=calculateRentalDays(startInstant,endInstant,rules.standardRentalHours),price=calculateRentalUnitPrice(item.daily_price_cents,days,rules);return {...item,...price};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
+    const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,unitPriceCents:item.totalUnitPriceCents}));
     const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
     const { data, error: bookingError } = await supabase.rpc("create_public_booking_quantities_timed", {
       p_items: requestedItems,
       p_rental_date: body.rentalDate,
+      p_rental_end_date: body.rentalEndDate,
       p_first_name: body.firstName!.trim(),
       p_last_name: body.lastName!.trim(),
       p_email: body.email!.trim(),
@@ -140,7 +146,7 @@ export async function POST(request: Request) {
     const booking = Array.isArray(data) ? data[0] : data;
     if (!booking?.booking_id) return NextResponse.json({ error: "The reservation was not created. Please try again." }, { status: 500 });
 
-    const subtotalCents = orderedItems.reduce((sum, item) => sum + item.daily_price_cents * item.quantity, 0);
+    const subtotalCents = pricedItems.reduce((sum, item) => sum + item.totalUnitPriceCents * item.quantity, 0);
     const discountCents=promo?.ok?promo.discountCents:0,totalCents=Math.max(0,subtotalCents-discountCents);
     const depositCents = Math.round(totalCents * depositPercent / 100);
     if(onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});

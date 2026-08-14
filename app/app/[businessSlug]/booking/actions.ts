@@ -10,6 +10,14 @@ const number=(f:FormData,k:string,fallback=0)=>{const n=Number(text(f,k));return
 const refresh=(slug:string)=>{revalidatePath(`/app/${slug}/booking`);revalidatePath(`/book/${slug}`);};
 export async function saveBookingSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking"); if(!canManageBusiness(role)) redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+booking+settings`);
+ if(formData.has("additionalDayPricingType")){
+  if(business.industry_profile!=="party_rental")redirect(`/app/${slug}/booking?error=Permission+denied`);
+  const standardHours=number(formData,"standardRentalHours",24),discountPercent=number(formData,"additionalDayDiscountPercent",0),flatRateRaw=text(formData,"additionalDayFlatRate"),maxDaysRaw=text(formData,"maxRentalDays"),pricingType=text(formData,"additionalDayPricingType")||"full_price";
+  if(!Number.isInteger(standardHours)||standardHours<1||standardHours>168||!["full_price","percentage_discount","flat_rate"].includes(pricingType)||discountPercent<0||discountPercent>100||(flatRateRaw&&Number(flatRateRaw)<0)||(maxDaysRaw&&(!Number.isInteger(Number(maxDaysRaw))||Number(maxDaysRaw)<1||Number(maxDaysRaw)>365)))redirect(`/app/${slug}/booking?error=Review+the+multi-day+rental+settings`);
+  const {error}=await supabase.from("booking_settings").update({standard_rental_hours:standardHours,allow_multi_day_rentals:checked(formData,"allowMultiDayRentals"),additional_day_pricing_type:pricingType,additional_day_discount_percent:discountPercent,additional_day_flat_rate_cents:flatRateRaw?Math.round(Number(flatRateRaw)*100):null,max_rental_days:maxDaysRaw?Number(maxDaysRaw):null,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
+  if(error){console.error("Rental pricing settings save failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/booking?error=Rental+pricing+could+not+be+saved.+Apply+the+latest+database+migration`);}
+  refresh(slug);redirect(`/app/${slug}/booking?success=Rental+pricing+updated`);
+ }
  const publicSlug=text(formData,"publicSlug").toLowerCase(); if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(publicSlug)) redirect(`/app/${slug}/booking?error=Use+letters,+numbers,+and+hyphens+for+the+public+slug`);
  const brand=text(formData,"brandColor"); if(!/^#[0-9a-fA-F]{6}$/.test(brand)) redirect(`/app/${slug}/booking?error=Brand+color+must+be+a+6-digit+hex+color`);
  const questions=text(formData,"intakeQuestions").split("\n").map(q=>q.trim()).filter(Boolean).slice(0,10);const limitRaw=text(formData,"dailyAppointmentLimit");
