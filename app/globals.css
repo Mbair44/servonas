@@ -1287,6 +1287,70 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 
 .rental-admin-sort{display:grid;grid-template-columns:1fr minmax(170px,230px) minmax(150px,190px) auto;align-items:end;gap:12px;padding:16px 18px;border:1px solid #dce4ef;border-radius:14px;background:#fff}.rental-admin-sort>strong{align-self:center}.rental-admin-sort label{display:grid;gap:5px;color:#475467;font-size:.7rem;font-weight:800}.rental-admin-sort select{width:100%;min-height:40px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit}.rental-admin-sort .sv-button{min-height:40px}@media(max-width:760px){.rental-admin-sort{grid-template-columns:1fr 1fr}.rental-admin-sort>strong{grid-column:1/-1}.rental-admin-sort .sv-button{grid-column:1/-1}}@media(max-width:480px){.rental-admin-sort{grid-template-columns:1fr}.rental-admin-sort>strong,.rental-admin-sort .sv-button{grid-column:auto}}
 
+/* Rental inventory: keep the setup workflow compact and touch friendly on phones. */
+@media(max-width:760px){
+  .rental-inventory-page{min-width:0;gap:16px;padding-inline:14px}
+  .rental-inventory-page .employee-page-header{gap:16px;margin-bottom:0}
+  .rental-inventory-page .employee-page-header h1{font-size:2rem}
+  .rental-create{width:100%}
+  .rental-create>summary{display:flex;width:100%;min-height:46px;align-items:center;justify-content:center}
+  .rental-create>form{position:static;width:100%;max-height:none;margin-top:12px;padding:16px;overflow:visible;border-radius:14px;box-shadow:0 12px 30px #15264b14}
+  .rental-create>form>div:last-child{display:grid;margin-top:16px}
+  .rental-create>form>div:last-child .sv-button{width:100%;min-height:46px}
+
+  .rental-inventory-page .equipment-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .rental-inventory-page .equipment-metrics article{min-width:0;padding:13px}
+  .rental-inventory-page .equipment-metrics strong{font-size:1.35rem}
+
+  .rental-admin-sort{grid-template-columns:1fr 1fr;padding:14px}
+  .rental-admin-sort>strong{grid-column:1/-1}
+  .rental-admin-sort select,.rental-admin-sort .sv-button{min-height:44px}
+  .rental-admin-sort .sv-button{grid-column:1/-1;width:100%}
+
+  .rental-category-manager.workspace-panel{margin-top:0;padding:16px;border-radius:14px}
+  .rental-category-manager>summary{align-items:flex-start;flex-direction:column;gap:4px}
+  .rental-category-create,.rental-category-list>article,.rental-category-list form,.rental-category-list>article>form:nth-of-type(2){grid-template-columns:minmax(0,1fr)}
+  .rental-category-create{padding:13px}
+  .rental-category-list>article{align-items:stretch;gap:12px}
+  .rental-category-list form{align-items:stretch}
+  .rental-category-manager input,.rental-category-manager select,.rental-category-manager button{min-height:44px}
+  .rental-category-manager button{width:100%}
+
+  .rental-inventory-form-grid{grid-template-columns:minmax(0,1fr);gap:13px}
+  .rental-inventory-form-grid .wide,.rental-pricing-overrides{grid-column:auto;min-width:0}
+  .rental-inventory-form-grid input,.rental-inventory-form-grid select,.rental-inventory-form-grid textarea{min-width:0;max-width:100%;font-size:16px}
+  .rental-inventory-form-grid input:not([type=checkbox]),.rental-inventory-form-grid select{min-height:44px}
+  .rental-inventory-form-grid select[multiple]{min-height:112px}
+  .rental-inventory-form-grid input[type=file]{min-height:0;padding:8px;font-size:.82rem}
+  .rental-inventory-form-grid input[type=file]::file-selector-button{min-height:38px;margin-right:8px;padding:8px 10px;border:0;border-radius:8px;background:#eaf1ff;color:#155eef;font:inherit;font-weight:800}
+  .rental-pricing-overrides{padding:13px}
+  .rental-pricing-overrides legend{padding-inline:5px}
+  .rental-check{min-width:0;padding:11px}
+  .rental-check input{width:18px;min-height:18px}
+  .rental-receipt-field{min-width:0;padding:12px}
+  .rental-receipt-field>span{align-items:stretch;flex-direction:column;overflow-wrap:anywhere}
+  .rental-remove-receipt{min-height:40px}
+
+  .rental-admin-grid{grid-template-columns:minmax(0,1fr);gap:14px}
+  .rental-admin-grid>article{min-width:0;border-radius:14px}
+  .rental-admin-image{aspect-ratio:16/9}
+  .rental-admin-grid article>header,.rental-admin-grid article>p,.rental-admin-grid article>dl,.rental-admin-grid article>details{margin-inline:14px}
+  .rental-admin-grid article>header{align-items:flex-start;gap:10px}
+  .rental-admin-grid article>header>strong{white-space:nowrap}
+  .rental-admin-grid article>p{min-height:0}
+  .rental-admin-grid details>summary{display:flex;min-height:44px;align-items:center}
+  .rental-form-actions{align-items:stretch;flex-direction:column;gap:8px}
+  .rental-form-actions button{width:100%;min-height:44px}
+}
+
+@media(max-width:430px){
+  .rental-inventory-page .equipment-metrics{grid-template-columns:1fr}
+  .rental-admin-sort{grid-template-columns:1fr}
+  .rental-admin-sort>strong,.rental-admin-sort .sv-button{grid-column:auto}
+  .rental-admin-grid article>header{flex-direction:column}
+  .rental-admin-grid article>dl{grid-template-columns:1fr;gap:8px}
+}
+
 .discount-item-picker{display:grid;gap:10px;margin:0;padding:15px;border:1px solid #d7e1ee;border-radius:11px}.discount-item-picker legend{padding:0 5px;color:#344054;font-size:.76rem;font-weight:850}.discount-item-picker>small{color:#667085;font-size:.69rem}.discount-item-picker>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.discount-item-picker>div>label{display:flex;align-items:center;gap:9px;min-height:42px;padding:9px 11px;border:1px solid #dce3ed;border-radius:9px;background:#fff;color:#344054;font-size:.74rem;font-weight:750;cursor:pointer}.discount-item-picker>div>label:has(input:checked){border-color:#7ba6f5;background:#f3f7ff;color:#174ea6}.discount-item-picker input{width:17px!important;min-height:auto!important;accent-color:#2563eb}.discount-item-picker p{margin:0;color:#667085;font-size:.72rem}@media(max-width:600px){.discount-item-picker>div{grid-template-columns:1fr}}
 
 /* Consolidated Servonas platform administration. */
