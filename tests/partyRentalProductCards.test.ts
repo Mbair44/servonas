@@ -10,6 +10,7 @@ test("generated party-rental sites use cohesive storefront product cards",async(
  assert.match(component,/aria-label=\{`Check availability for \$\{item\.name\}`\}/);
  assert.match(styles,/\.business-site-rental-card\{display:flex/);
  assert.match(styles,/\.business-site-rental-media\{height:250px/);
+ assert.match(styles,/\.business-site-rental-price strong\{display:inline-flex;[^}]*background:var\(--site-secondary\);color:#fff/);
  assert.match(styles,/-webkit-line-clamp:3/);
  assert.match(styles,/\.business-site-rental-grid footer\{display:grid;gap:8px;margin-top:auto/);
  assert.match(styles,/\.business-site-rental-grid footer a\{display:flex;min-height:46px/);
