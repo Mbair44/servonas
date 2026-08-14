@@ -43,3 +43,10 @@ test("generated sites recognize each new website source",async()=>{
  for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website"])assert.match(site,new RegExp(source));
  assert.match(site,/industryPresentation/);
 });
+
+test("HVAC and plumbing demos include industry-specific photography",async()=>{
+ const hvac=await read("app/demo/hvac/page.tsx");
+ const plumbing=await read("app/demo/plumbing/page.tsx");
+ assert.match(hvac,/\/images\/hvac-technician-servicing-ac\.png/);
+ assert.match(plumbing,/\/images\/plumbing-professional-at-work\.png/);
+});
