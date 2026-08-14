@@ -50,3 +50,19 @@ test("HVAC and plumbing demos include industry-specific photography",async()=>{
  assert.match(hvac,/\/images\/hvac-technician-servicing-ac\.png/);
  assert.match(plumbing,/\/images\/plumbing-professional-at-work\.png/);
 });
+
+test("floral and event design has a complete website-first landing and demo flow",async()=>{
+ const config=await read("lib/websiteFirstConfig.ts");
+ const landing=await read("app/floral-event-website/page.tsx");
+ const demo=await read("app/demo/floral-event/page.tsx");
+ const site=await read("components/BusinessWebsite.tsx");
+ const sql=await read("supabase/migrations/20260814000100_add_floral_event_website_first_industry.sql");
+ for(const source of [config,landing,demo,site,sql])assert.match(source,/floral-event-website/);
+ assert.match(landing,/WebsiteIndustryLanding/);
+ assert.match(landing,/\/demo\/floral-event/);
+ assert.match(demo,/WebsiteIndustryDemo/);
+ assert.match(demo,/\/images\/floral-event-designer-at-work\.png/);
+ assert.match(site,/Request a Consultation/);
+ assert.match(sql,/'other','floral_event'/);
+ assert.match(sql,/create or replace function public\.create_website_first_workspace/);
+});
