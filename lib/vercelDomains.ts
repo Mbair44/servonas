@@ -22,6 +22,12 @@ async function json(response:Response){try{return await response.json();}catch{r
 export function vercelDomainManagementConfigured(){const {token,project}=configuration();return Boolean(token&&project);}
 export function vercelRegistrarConfigured(){return Boolean(configuration().token);}
 export function vercelStandardDomainMaximumPrice(){const value=Number(process.env.VERCEL_STANDARD_DOMAIN_MAX_USD??25);return Number.isFinite(value)&&value>0?value:25;}
+export const DOMAIN_RETAIL_MARKUP_BPS=1500;
+export function domainRetailPrice(providerPrice:number){
+ if(!Number.isFinite(providerPrice)||providerPrice<0)throw new Error("Invalid provider domain price.");
+ const providerCents=Math.round(providerPrice*100);
+ return Math.round(providerCents*(10_000+DOMAIN_RETAIL_MARKUP_BPS)/10_000)/100;
+}
 
 async function registrarRequest(path:string,init?:RequestInit){
  const {token,team}=configuration();if(!token)throw new Error("Servonas domain registration is not configured.");
