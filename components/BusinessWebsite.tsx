@@ -5,7 +5,7 @@ import {WebsitePhotoSlideshow} from "./WebsitePhotoSlideshow";
 import {BusinessRentalCatalog} from "./BusinessRentalCatalog";
 
 export type BusinessSiteService={id:string;name:string;description:string|null;price_amount:number|null;price_label:string|null};
-export type BusinessSiteRentalItem={id:string;name:string;category:string|null;description:string|null;dailyPriceCents:number;imageUrl:string|null;standardRentalHours:number;multiDayMessage:string};
+export type BusinessSiteRentalItem={id:string;name:string;category:string|null;description:string|null;dailyPriceCents:number;imageUrl:string|null;standardRentalHours:number;multiDayMessage:string|null};
 export type BusinessSiteData={
  name:string;phone:string|null;email:string|null;logoUrl:string|null;industryProfile:string|null;websiteSource:string|null;template:"modern"|"traditional"|"bold";primaryColor:string;secondaryColor:string;
  heroHeading:string;heroSubheading:string;aboutText:string;instagramUrl:string|null;googleReviewUrl:string|null;googleRating:number|null;googleReviewCount:number|null;googleReviews:{author:string;rating:number;text:string;publishedAt?:string|null;fromGoogleProfile?:boolean}[];photoUrls:string[];requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
