@@ -6,7 +6,7 @@ import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {normalizeWebsiteDomain} from "@/lib/website";
-import {addVercelProjectDomain,buyVercelDomain,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelStandardDomainMaximumPrice,type VercelRegistrant} from "@/lib/vercelDomains";
+import {addVercelProjectDomain,buyVercelDomain,domainRetailPrice,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelStandardDomainMaximumPrice,type VercelRegistrant} from "@/lib/vercelDomains";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const destination=(kind:"success"|"error",message:string)=>`/app/admin/domains?${kind}=${encodeURIComponent(message)}`;
@@ -27,7 +27,7 @@ export async function checkRequestedDomainAvailability(data:FormData){
  let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;
  try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Vercel domain quote failed",{businessId,category:error instanceof TypeError?"network":"provider"});redirect(destination("error","Domain availability could not be checked. Confirm the Vercel registrar configuration and try again."));}
  const status=!quote.available?"unavailable":quote.purchasePrice<=standardLimit()?"available":"premium_review",now=new Date().toISOString();
- const {error:quoteSaveError}=await admin.from("website_domain_orders").upsert({business_id:businessId,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
+ const {error:quoteSaveError}=await admin.from("website_domain_orders").upsert({business_id:businessId,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:1500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
  if(quoteSaveError)redirect(destination("error","The domain quote could not be saved. Apply the Vercel domain registration migration."));
  await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",businessId).eq("requested_domain",domain);
  revalidatePath("/app/admin/domains");
