@@ -214,6 +214,10 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .selected-summary { border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin-bottom: 18px; background: #fcfbff; }
 .summary-line, .summary-total { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; }
 .summary-total { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 13px; }
+.rental-summary-item + .rental-summary-item { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+.rental-day-breakdown { margin: 0 0 7px 14px; padding-left: 12px; border-left: 2px solid #dfe6f2; color: #60708a; font-size: .86rem; }
+.rental-day-breakdown .summary-line { padding: 4px 0; }
+.rental-day-breakdown strong { color: #344258; white-space: nowrap; }
 .inline-checkbox { width: auto; margin-right: 8px; }
 .checkout-note { font-size: .9rem; }
 .booking-submit-error{padding:12px 14px;border:1px solid #fecdd3;border-radius:10px;background:#fff1f2;color:#be123c;font-weight:700}

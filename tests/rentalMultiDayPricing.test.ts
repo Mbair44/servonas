@@ -39,3 +39,19 @@ test("checkout prices before promotions and deposits",async()=>{
  assert.ok(source.indexOf("discountCents=promo")<source.indexOf("depositCents = Math.round"));
  assert.match(source,/p_rental_end_date/);
 });
+
+test("reservation summary itemizes the first period and every additional day",async()=>{
+ const source=await readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8");
+ assert.match(source,/Day 1 · standard rental period/);
+ assert.match(source,/Day \{index\+2\} · \{additionalLabel\}/);
+ assert.match(source,/additionalDayDiscountPercent/);
+ assert.match(source,/additionalDayUnitPriceCents\*quantity/);
+});
+
+test("booking catalog follows managed rental category order then item name",async()=>{
+ const source=await readFile(new URL("../app/book/[businessSlug]/page.tsx",import.meta.url),"utf8");
+ assert.match(source,/rental_inventory_categories/);
+ assert.match(source,/categoryOrder/);
+ assert.match(source,/a\.rank-b\.rank/);
+ assert.match(source,/left\.name\.localeCompare\(right\.name\)/);
+});
