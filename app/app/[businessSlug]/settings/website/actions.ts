@@ -18,6 +18,18 @@ const reviews=(data:FormData)=>{
  return authors.map((author,index)=>({author:author.trim(),rating:ratings[index],text:texts[index]??""})).filter(review=>review.author||review.text).slice(0,6);
 };
 
+export async function prepareWebsitePhotoUpload(slug:string,name:string,type:string,size:number){
+ const {business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))throw new Error("Only owners and administrators can upload website photos.");
+ const allowed=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
+ if(!allowed.has(type)||!Number.isFinite(size)||size<=0||size>8*1024*1024)throw new Error("Choose a JPG, PNG, WebP, GIF, or AVIF photo no larger than 8 MB.");
+ const admin=getSupabaseAdmin();if(!admin)throw new Error("Website photo uploads are not configured.");
+ const extension=type==="image/jpeg"?"jpg":type.split("/")[1],storagePath=`${business.id}/${crypto.randomUUID()}.${extension}`;
+ const {data,error}=await admin.storage.from("website-assets").createSignedUploadUrl(storagePath);
+ if(error||!data)throw new Error("The photo upload could not be prepared. Please try again.");
+ return {bucket:"website-assets",path:storagePath,token:data.token,url:admin.storage.from("website-assets").getPublicUrl(storagePath).data.publicUrl,name:name.slice(0,180)};
+}
+
 export async function saveWebsiteSettings(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can manage the website."));
