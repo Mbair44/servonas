@@ -10,6 +10,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {findGoogleBusinessPlace,resolveGoogleBusinessPlaceId} from "@/lib/googleBusinessPlace";
 import {normalizeInstagramUrl} from "@/lib/socialLinks";
 import {resolveGoogleAddress} from "@/lib/googleAddress";
+import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
@@ -18,6 +19,16 @@ const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
  return authors.map((author,index)=>({author:author.trim(),rating:ratings[index],text:texts[index]??""})).filter(review=>review.author||review.text).slice(0,6);
 };
+
+async function notifyAcceptedDomainPurchase(admin:NonNullable<ReturnType<typeof getSupabaseAdmin>>,orderId:string,business:{id:string;name:string;slug:string;email?:string|null}){
+ const {data:order}=await admin.from("website_domain_orders").select("id,domain_name,provider_order_id,purchase_price,customer_renewal_price,currency,purchase_notification_status,purchase_notification_attempts,purchase_notification_last_attempt_at").eq("id",orderId).maybeSingle();
+ if(!order?.provider_order_id||order.purchase_notification_status==="sent"||order.purchase_notification_status==="sending")return;
+ if(order.purchase_notification_status==="failed"&&order.purchase_notification_last_attempt_at&&Date.now()-new Date(order.purchase_notification_last_attempt_at).getTime()<300000)return;
+ const attemptAt=new Date().toISOString(),{data:claimed}=await admin.from("website_domain_orders").update({purchase_notification_status:"sending",purchase_notification_attempts:Number(order.purchase_notification_attempts??0)+1,purchase_notification_last_attempt_at:attemptAt,purchase_notification_error:null,updated_at:attemptAt}).eq("id",order.id).in("purchase_notification_status",["pending","failed"]).select("id").maybeSingle();
+ if(!claimed)return;
+ const delivery=await sendDomainPurchaseNotification({businessId:business.id,businessName:business.name,businessSlug:business.slug,businessEmail:business.email,domain:order.domain_name,providerOrderId:order.provider_order_id,providerCost:Number(order.purchase_price??0),customerRenewalPrice:order.customer_renewal_price==null?null:Number(order.customer_renewal_price),currency:order.currency??"USD"});
+ await admin.from("website_domain_orders").update(delivery.ok?{purchase_notification_status:"sent",purchase_notification_sent_at:new Date().toISOString(),purchase_notification_provider_id:delivery.messageId,purchase_notification_error:null,updated_at:new Date().toISOString()}:{purchase_notification_status:"failed",purchase_notification_error:delivery.error,updated_at:new Date().toISOString()}).eq("id",order.id).eq("purchase_notification_status","sending");
+}
 const standardDomainLimit=vercelStandardDomainMaximumPrice;
 
 async function managedDomainContext(slug:string){
@@ -68,7 +79,7 @@ export async function purchaseManagedDomain(slug:string,data:FormData){
  if(Number(order.purchase_price)!==quote.purchasePrice)redirect(target(slug,"error","The domain price changed. Check availability again before registering.","domain"));
  const now=new Date().toISOString(),{data:claimed}=await admin.from("website_domain_orders").update({status:"registration_pending",purchase_confirmed_at:now,updated_at:now,updated_by:user.id}).eq("id",order.id).eq("status","available").is("provider_order_id",null).select("id").maybeSingle();
  if(!claimed)redirect(target(slug,"error","Another registration attempt already started. Servonas will check its status automatically.","domain"));
- try{const result=await buyVercelDomain(domain,quote.purchasePrice,registrant),renewalNotice=new Date();renewalNotice.setUTCDate(renewalNotice.getUTCDate()+335);await admin.from("website_domain_orders").update({provider_order_id:result.orderId,renewal_notice_at:renewalNotice.toISOString(),updated_at:new Date().toISOString(),updated_by:user.id,last_error_category:null}).eq("id",order.id).is("provider_order_id",null);await admin.from("business_website_onboarding_states").update({domain_request_status:"registration_pending",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);await admin.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);try{await addVercelProjectDomain(domain);}catch{console.error("Customer domain project attachment pending",{businessId:business.id,category:"project_attachment"});}}
+ try{const result=await buyVercelDomain(domain,quote.purchasePrice,registrant),renewalNotice=new Date();renewalNotice.setUTCDate(renewalNotice.getUTCDate()+335);await admin.from("website_domain_orders").update({provider_order_id:result.orderId,renewal_notice_at:renewalNotice.toISOString(),purchase_notification_status:"pending",purchase_notification_error:null,updated_at:new Date().toISOString(),updated_by:user.id,last_error_category:null}).eq("id",order.id).is("provider_order_id",null);await admin.from("business_website_onboarding_states").update({domain_request_status:"registration_pending",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);await admin.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);await notifyAcceptedDomainPurchase(admin,order.id,business);try{await addVercelProjectDomain(domain);}catch{console.error("Customer domain project attachment pending",{businessId:business.id,category:"project_attachment"});}}
  catch(error){const details=vercelDomainErrorDetails(error);console.error("Customer domain registration failed",{businessId:business.id,category:details.category,uncertain:details.uncertain});await admin.from("website_domain_orders").update({status:details.uncertain?"registration_pending":"failed",last_error_category:details.category,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(target(slug,"error",`${details.message} Nothing was retried automatically.`,"domain"));}
  revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success",`${domain} registration started. You can leave this page; Servonas will update the status automatically.`,"domain"));
 }
@@ -76,6 +87,7 @@ export async function purchaseManagedDomain(slug:string,data:FormData){
 export async function syncManagedDomainRegistration(slug:string){
  const {admin,user,business,domain}=await managedDomainContext(slug),{data:order}=await admin.from("website_domain_orders").select("id,status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
  if(!order?.provider_order_id||!["registration_pending","registered"].includes(order.status))return {status:order?.status??"not_started"};
+ await notifyAcceptedDomainPurchase(admin,order.id,business);
  let provider:Awaited<ReturnType<typeof getVercelDomainOrder>>;try{provider=await getVercelDomainOrder(order.provider_order_id);}catch{return {status:order.status};}
  const now=new Date().toISOString();if(provider.status==="failed"){await admin.from("website_domain_orders").update({status:"failed",last_error_category:"provider_order_failed",updated_at:now,updated_by:user.id}).eq("id",order.id);await admin.from("business_website_onboarding_states").update({domain_request_status:"failed",updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);revalidatePath(`/app/${slug}/settings/website`);return {status:"failed"};}
  if(provider.status!=="completed")return {status:"registration_pending"};
