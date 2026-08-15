@@ -33,9 +33,10 @@ test("owned domains follow save then check connection",async()=>{
 });
 
 test("managed pilot domains do not expose DNS setup",async()=>{
- const page=await read("app/app/[businessSlug]/settings/website/page.tsx");
+ const [page,managed]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/ManagedDomainCustomerSetup.tsx")]);
  assert.match(page,/requested_domain,domain_request_status/);
  assert.match(page,/managedDomainRequest=websiteFirst\?\.domain_preference==="need_domain"/);
- assert.match(page,/Domain requested — we’re confirming availability/);
- assert.match(page,/managedDomainRequest\?<><input type="hidden" name="customDomain"/);
+ assert.match(page,/ManagedDomainCustomerSetup/);
+ assert.match(managed,/Check availability &amp; renewal price/);
+ assert.doesNotMatch(managed,/Connect your DNS/);
 });

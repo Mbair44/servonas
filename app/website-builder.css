@@ -58,3 +58,24 @@
 .website-features-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(210px,1fr);align-items:start;gap:20px}.website-features-primary{display:grid;gap:14px;min-width:0}.website-step-features .website-features-primary .website-toggle-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.website-step-features .website-features-primary .website-toggle-list>label{grid-template-columns:42px minmax(0,1fr);align-content:start;min-width:0;min-height:158px;padding:18px 46px 18px 16px;background:#fff}.website-step-features .website-features-primary .website-toggle-list>label:has(input:checked){border-color:#7ba6f5;background:#f5f9ff;box-shadow:inset 0 0 0 1px #7ba6f5}.website-step-features .website-features-primary .website-toggle-list>label:after{top:15px;right:15px;width:20px;height:20px}.website-step-features .website-features-primary .website-toggle-list>label>i{width:40px;height:40px}.website-step-features .website-features-primary .website-toggle-list>label>i .website-icon{width:20px;height:20px}.website-step-features .website-features-primary .website-toggle-list strong{gap:6px;font-size:.76rem;line-height:1.35}.website-step-features .website-features-primary .website-toggle-list small{color:#667085;font-size:.68rem;line-height:1.55}.website-step-features .website-features-primary .website-toggle-list strong b{padding:3px 7px;font-size:.53rem}.website-step-features .website-features-primary .website-toggle-list strong b.neutral{background:#eef2f6;color:#526071}.website-step-features .website-features-primary .website-toggle-list>label:has(input:disabled){cursor:default;opacity:1}.website-step-features .website-features-primary .website-toggle-list>label:has(input:disabled) small{color:#667085}.website-feature-domain-summary{display:grid;gap:10px;min-width:0;padding:17px;border:1px solid #dfe5ee;border-radius:13px;background:#fafcff}.website-feature-domain-summary>span{color:#667085;font-size:.63rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.website-feature-domain-summary>strong{overflow-wrap:anywhere;color:#17203a;font-size:.88rem}.website-feature-domain-summary>div{display:grid;justify-items:start;gap:7px;padding-top:10px;border-top:1px solid #e5eaf1}.website-feature-domain-summary>div>small{color:#475467;font-size:.67rem;font-weight:800}.website-feature-domain-summary .domain-status{white-space:normal;line-height:1.35}.website-feature-domain-summary>p{margin:0;color:#667085;font-size:.68rem;line-height:1.55}
 @container(max-width:760px){.website-features-layout{grid-template-columns:1fr}.website-feature-domain-summary{padding:15px}.website-step-features .website-features-primary .website-toggle-list>label{min-height:135px}}
 @container(max-width:500px){.website-step-features .website-features-primary .website-toggle-list{grid-template-columns:1fr}.website-step-features .website-features-primary .website-toggle-list>label{min-height:112px}}
+
+/* Keep the Design step contained when a business uploads a large photo set.
+   The editor can be much narrower than the browser because the setup rail and
+   preview share the page, so these controls must respond to the editor itself. */
+.website-step-design .website-guided-form>.website-setting-section,
+.website-step-design .website-form-grid,
+.website-step-design .website-advanced-content,
+.website-step-design .website-photo-manager{min-width:0;max-width:100%}
+.website-step-design .website-photo-previews{grid-template-columns:repeat(auto-fill,minmax(112px,1fr));max-height:390px;overflow-y:auto;overscroll-behavior:contain;padding:2px 6px 2px 2px;scrollbar-gutter:stable}
+.website-step-design .website-photo-previews figure{min-width:0}
+.website-step-design .website-photo-previews figcaption{overflow-wrap:anywhere}
+@container(max-width:700px){
+ .website-step-design .website-template-grid{grid-template-columns:1fr}
+ .website-step-design .website-brand-settings{grid-template-columns:1fr}
+ .website-step-design .website-brand-settings>*{grid-column:1!important}
+ .website-step-design .website-logo-card{grid-row:auto}
+ .website-step-design .floral-choice-grid,.website-step-design .floral-choice-grid.photo-choices,.website-step-design .floral-color-grid{grid-template-columns:1fr}
+}
+@container(max-width:430px){
+ .website-step-design .website-photo-previews{grid-template-columns:repeat(2,minmax(0,1fr));max-height:340px}
+}

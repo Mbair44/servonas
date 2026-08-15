@@ -5,10 +5,11 @@ import {redirect} from "next/navigation";
 import {canManageBusiness} from "@/lib/access";
 import {requireWorkspaceCapability} from "@/lib/workspace";
 import {normalizeWebsiteDomain,validWebsiteColor,validWebsiteSlug,websiteTemplates} from "@/lib/website";
-import {addVercelProjectDomain,getVercelDomainStatus,verifyVercelProjectDomain} from "@/lib/vercelDomains";
+import {addVercelProjectDomain,buyVercelDomain,domainRetailPrice,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelDomainErrorDetails,vercelStandardDomainMaximumPrice,verifyVercelProjectDomain,type VercelRegistrant} from "@/lib/vercelDomains";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {findGoogleBusinessPlace,resolveGoogleBusinessPlaceId} from "@/lib/googleBusinessPlace";
 import {normalizeInstagramUrl} from "@/lib/socialLinks";
+import {resolveGoogleAddress} from "@/lib/googleAddress";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
@@ -17,6 +18,69 @@ const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
  return authors.map((author,index)=>({author:author.trim(),rating:ratings[index],text:texts[index]??""})).filter(review=>review.author||review.text).slice(0,6);
 };
+const standardDomainLimit=vercelStandardDomainMaximumPrice;
+
+async function managedDomainContext(slug:string){
+ const context=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(context.role))redirect(target(slug,"error","Only owners and administrators can register the business domain.","domain"));
+ const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Domain registration is temporarily unavailable.","domain"));
+ const {data:state}=await admin.from("business_website_onboarding_states").select("domain_preference,requested_domain").eq("business_id",context.business.id).maybeSingle();
+ const domain=normalizeWebsiteDomain(state?.requested_domain??"");
+ if(state?.domain_preference!=="need_domain"||!domain)redirect(target(slug,"error","Choose a Servonas-managed domain before continuing.","domain"));
+ return {...context,admin,domain};
+}
+
+export async function checkManagedDomainAvailability(slug:string){
+ const {admin,user,business,domain}=await managedDomainContext(slug);
+ const {data:existing}=await admin.from("website_domain_orders").select("status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
+ if(existing?.provider_order_id||["registration_pending","registered","connected"].includes(existing?.status??""))redirect(target(slug,"error","Registration already started. Servonas is checking its status automatically.","domain"));
+ let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Customer domain quote failed",{businessId:business.id,category:error instanceof TypeError?"network":"provider"});redirect(target(slug,"error","We could not check this domain right now. Try again shortly.","domain"));}
+ const status=!quote.available?"unavailable":quote.purchasePrice<=standardDomainLimit()?"available":"premium_review",now=new Date().toISOString();
+ const {error}=await admin.from("website_domain_orders").upsert({business_id:business.id,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:1500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
+ if(error)redirect(target(slug,"error","The availability result could not be saved. Apply the Vercel domain registration migration.","domain"));
+ await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.","domain"));
+}
+
+export async function changeManagedDomainRequest(slug:string,data:FormData){
+ const {admin,user,business,domain}=await managedDomainContext(slug),nextDomain=normalizeWebsiteDomain(text(data,"newManagedDomain"));
+ if(!nextDomain)redirect(target(slug,"error","Enter a valid domain, such as yourbusiness.com.","domain"));
+ const {data:active}=await admin.from("website_domain_orders").select("status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
+ if(active?.provider_order_id||["registration_pending","registered","connected"].includes(active?.status??""))redirect(target(slug,"error","The current domain registration already started and cannot be replaced.","domain"));
+ const now=new Date().toISOString(),{error}=await admin.from("business_website_onboarding_states").update({requested_domain:nextDomain,domain_name:nextDomain,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
+ if(error)redirect(target(slug,"error","The requested domain could not be changed.","domain"));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success",`Now checking ${nextDomain}. Confirm availability below.`,"domain"));
+}
+
+export async function purchaseManagedDomain(slug:string,data:FormData){
+ const {admin,user,business,domain}=await managedDomainContext(slug);
+ if(data.get("registrationTerms")!=="on"||data.get("renewalTerms")!=="on"||text(data,"confirmation")!==`REGISTER ${domain}`)redirect(target(slug,"error",`Accept both terms and type REGISTER ${domain} to confirm.`,"domain"));
+ const {data:order}=await admin.from("website_domain_orders").select("id,status,provider_order_id,purchase_price,purchase_confirmed_at").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
+ if(!order)redirect(target(slug,"error","Check availability before registering this domain.","domain"));
+ if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status))redirect(target(slug,"error","This domain already has a protected registration attempt. It was not purchased again.","domain"));
+ const country=text(data,"country").toUpperCase(),rawPhone=text(data,"phone"),digits=rawPhone.replace(/\D/g,""),phone=country==="US"?(digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:rawPhone.startsWith("+")?`+${digits}`:rawPhone):rawPhone.startsWith("+")?`+${digits}`:rawPhone;
+ const registrant:VercelRegistrant={firstName:text(data,"firstName"),lastName:text(data,"lastName"),companyName:text(data,"companyName")||undefined,email:text(data,"email"),phone,address1:text(data,"address1"),address2:text(data,"address2")||undefined,city:text(data,"city"),state:text(data,"state"),zip:text(data,"zip"),country};
+ if(!registrant.firstName||!registrant.lastName||!/^\S+@\S+\.\S+$/.test(registrant.email)||!/^\+[1-9]\d{7,14}$/.test(phone)||!registrant.address1||!registrant.city||!registrant.state||!registrant.zip||!/^[A-Z]{2}$/.test(country))redirect(target(slug,"error","Complete the registrant contact information. Phone formatting is handled automatically.","domain"));
+ if(process.env.GOOGLE_MAPS_API_KEY){const verified=await resolveGoogleAddress({line1:registrant.address1,line2:registrant.address2,city:registrant.city,region:registrant.state,postalCode:registrant.zip,countryCode:registrant.country});if(verified.status!=="verified"||!verified.normalizedAddress)redirect(target(slug,"error","Google could not verify the registrant address. Choose a suggestion or confirm every address field.","domain"));registrant.address1=verified.normalizedAddress.line1??registrant.address1;registrant.address2=registrant.address2??verified.normalizedAddress.line2??undefined;registrant.city=verified.normalizedAddress.city??registrant.city;registrant.state=verified.normalizedAddress.region??registrant.state;registrant.zip=verified.normalizedAddress.postalCode??registrant.zip;registrant.country=verified.normalizedAddress.countryCode??registrant.country;}
+ let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch{redirect(target(slug,"error","The current price could not be confirmed, so nothing was registered.","domain"));}
+ if(!quote.available)redirect(target(slug,"error","The domain is no longer available and was not registered.","domain"));
+ if(quote.purchasePrice>standardDomainLimit())redirect(target(slug,"error","This is now a premium domain and is not included. Nothing was registered.","domain"));
+ if(Number(order.purchase_price)!==quote.purchasePrice)redirect(target(slug,"error","The domain price changed. Check availability again before registering.","domain"));
+ const now=new Date().toISOString(),{data:claimed}=await admin.from("website_domain_orders").update({status:"registration_pending",purchase_confirmed_at:now,updated_at:now,updated_by:user.id}).eq("id",order.id).eq("status","available").is("provider_order_id",null).select("id").maybeSingle();
+ if(!claimed)redirect(target(slug,"error","Another registration attempt already started. Servonas will check its status automatically.","domain"));
+ try{const result=await buyVercelDomain(domain,quote.purchasePrice,registrant),renewalNotice=new Date();renewalNotice.setUTCDate(renewalNotice.getUTCDate()+335);await admin.from("website_domain_orders").update({provider_order_id:result.orderId,renewal_notice_at:renewalNotice.toISOString(),updated_at:new Date().toISOString(),updated_by:user.id,last_error_category:null}).eq("id",order.id).is("provider_order_id",null);await admin.from("business_website_onboarding_states").update({domain_request_status:"registration_pending",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);await admin.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);try{await addVercelProjectDomain(domain);}catch{console.error("Customer domain project attachment pending",{businessId:business.id,category:"project_attachment"});}}
+ catch(error){const details=vercelDomainErrorDetails(error);console.error("Customer domain registration failed",{businessId:business.id,category:details.category,uncertain:details.uncertain});await admin.from("website_domain_orders").update({status:details.uncertain?"registration_pending":"failed",last_error_category:details.category,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(target(slug,"error",`${details.message} Nothing was retried automatically.`,"domain"));}
+ revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success",`${domain} registration started. You can leave this page; Servonas will update the status automatically.`,"domain"));
+}
+
+export async function syncManagedDomainRegistration(slug:string){
+ const {admin,user,business,domain}=await managedDomainContext(slug),{data:order}=await admin.from("website_domain_orders").select("id,status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
+ if(!order?.provider_order_id||!["registration_pending","registered"].includes(order.status))return {status:order?.status??"not_started"};
+ let provider:Awaited<ReturnType<typeof getVercelDomainOrder>>;try{provider=await getVercelDomainOrder(order.provider_order_id);}catch{return {status:order.status};}
+ const now=new Date().toISOString();if(provider.status==="failed"){await admin.from("website_domain_orders").update({status:"failed",last_error_category:"provider_order_failed",updated_at:now,updated_by:user.id}).eq("id",order.id);await admin.from("business_website_onboarding_states").update({domain_request_status:"failed",updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);revalidatePath(`/app/${slug}/settings/website`);return {status:"failed"};}
+ if(provider.status!=="completed")return {status:"registration_pending"};
+ try{await addVercelProjectDomain(domain);const hosting=await getVercelDomainStatus(domain),status=hosting.verified&&!hosting.misconfigured?"connected":"registered";await admin.from("website_domain_orders").update({status,registered_at:now,updated_at:now,updated_by:user.id,last_error_category:null}).eq("id",order.id);await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);await admin.from("business_website_settings").update({custom_domain:domain,domain_status:status==="connected"?"connected":"pending_verification",updated_at:now,updated_by:user.id}).eq("business_id",business.id);revalidatePath(`/app/${slug}/settings/website`);return {status};}catch{return {status:"registered"};}
+}
 
 export async function prepareWebsitePhotoUpload(slug:string,name:string,type:string,size:number){
  const {business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
