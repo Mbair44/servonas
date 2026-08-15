@@ -33,11 +33,12 @@ export async function prepareWebsitePhotoUpload(slug:string,name:string,type:str
 export async function saveWebsiteSettings(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can manage the website."));
- const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),instagramRaw=text(data,"instagramUrl"),instagramUrl=normalizeInstagramUrl(instagramRaw),requestedGooglePlaceId=text(data,"googlePlaceId"),manualPhotoUrls=urls(text(data,"photoUrls")),googleReviews=reviews(data);
+ const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),floralFontStyle=text(data,"floralFontStyle")||"elegant",floralAccentColor=text(data,"floralAccentColor")||"#b85c7c",floralBackgroundColor=text(data,"floralBackgroundColor")||"#fffafc",floralPhotoLayout=text(data,"floralPhotoLayout")||"hero_right",customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),instagramRaw=text(data,"instagramUrl"),instagramUrl=normalizeInstagramUrl(instagramRaw),requestedGooglePlaceId=text(data,"googlePlaceId"),manualPhotoUrls=urls(text(data,"photoUrls")),googleReviews=reviews(data);
  const photoFiles=data.getAll("websitePhotos").filter((entry):entry is File=>entry instanceof File&&entry.size>0);
  if(!validWebsiteSlug(publicSlug))redirect(target(slug,"error","Use lowercase letters, numbers, and hyphens for the website URL."));
  if(!websiteTemplates.includes(template as typeof websiteTemplates[number]))redirect(target(slug,"error","Choose a valid website template."));
  if(!validWebsiteColor(primary)||!validWebsiteColor(secondary))redirect(target(slug,"error","Choose valid six-digit brand colors."));
+ if(!["elegant","romantic","modern"].includes(floralFontStyle)||!["hero_right","hero_left","hero_full","gallery_first"].includes(floralPhotoLayout)||!validWebsiteColor(floralAccentColor)||!validWebsiteColor(floralBackgroundColor))redirect(target(slug,"error","Choose valid floral website design options."));
  if(customDomainRaw&&!customDomain)redirect(target(slug,"error","Enter a valid domain name."));
  if(googleReviewUrl){try{const url=new URL(googleReviewUrl);if(url.protocol!=="https:")throw new Error();}catch{redirect(target(slug,"error","The Google review link must be a secure HTTPS URL."));}}
  if(instagramRaw&&!instagramUrl)redirect(target(slug,"error","Enter an Instagram username or profile link, such as @yourbusiness."));
@@ -65,21 +66,22 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  }
  const photoUrls=[...new Set([...manualPhotoUrls,...uploadedUrls])].slice(0,12);
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"not_connected";
- const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
+ const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,floral_font_style:floralFontStyle,floral_accent_color:floralAccentColor,floral_background_color:floralBackgroundColor,floral_photo_layout:floralPhotoLayout,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
  if(error){const admin=getSupabaseAdmin();if(admin&&uploadedPaths.length)await admin.storage.from("website-assets").remove(uploadedPaths);console.error("Website settings save failed",{businessId:business.id,code:error.code});redirect(target(slug,"error",error.code==="23505"?"That website URL or domain is already in use.":"Website settings could not be saved. Apply the website migration first."));}
  if(business.industry_profile==="party_rental"){
   const {error:bookingRepairError}=await supabase.from("booking_settings").update({enabled:true,public_slug:publicSlug,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
   if(bookingRepairError)console.error("Party-rental website booking repair failed",{businessId:business.id,code:bookingRepairError.code});
  }
  const availability=[] as {business_id:string;weekday:number;start_time:string;end_time:string;active:boolean}[];
- for(let weekday=0;weekday<7;weekday++)if(data.get(`websiteDay_${weekday}`)==="on"){
-  const start=text(data,`websiteStart_${weekday}`),end=text(data,`websiteEnd_${weekday}`);
-  if(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start)redirect(target(slug,"error","Each open day needs a closing time later than its opening time.","hours"));
-  availability.push({business_id:business.id,weekday,start_time:start,end_time:end,active:true});
+ for(let weekday=0;weekday<7;weekday++){
+  const active=data.get(`websiteDay_${weekday}`)==="on",start=text(data,`websiteStart_${weekday}`)||"09:00",end=text(data,`websiteEnd_${weekday}`)||"17:00";
+  if(active&&(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start))redirect(target(slug,"error","Each open day needs a closing time later than its opening time.","hours"));
+  availability.push({business_id:business.id,weekday,start_time:start,end_time:end,active});
  }
  const {error:clearHoursError}=await supabase.from("booking_availability").delete().eq("business_id",business.id);
  if(clearHoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));
- if(availability.length){const {error:hoursError}=await supabase.from("booking_availability").insert(availability);if(hoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));}
+ const {error:hoursError}=await supabase.from("booking_availability").insert(availability);
+ if(hoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));
  const areaIds=data.getAll("websiteAreaId").map(String),areaNames=data.getAll("websiteAreaName").map(value=>String(value).trim()),removeIds=new Set(data.getAll("websiteRemoveAreaId").map(String)),newAreas=[...new Set(text(data,"websiteNewAreas").split(/\r?\n|,/).map(value=>value.trim()).filter(Boolean))];
  if(areaNames.some(name=>!name||name.length>150)||newAreas.some(name=>name.length>150))redirect(target(slug,"error","Service area names must contain between 1 and 150 characters.","hours"));
  if(areaIds.length!==areaNames.length)redirect(target(slug,"error","Service areas could not be verified. Refresh and try again.","hours"));

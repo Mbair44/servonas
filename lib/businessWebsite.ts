@@ -34,7 +34,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const rentalCategoryOrder=new Map((rentalCategories??[]).map((category:any,index:number)=>[category.id,{rank:index,name:category.name}]));
  return {
   name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
-  template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",
+  template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",floralFontStyle:settings.floral_font_style??"elegant",floralAccentColor:settings.floral_accent_color??"#b85c7c",floralBackgroundColor:settings.floral_background_color??"#fffafc",floralPhotoLayout:settings.floral_photo_layout??"hero_right",
   heroHeading:settings.hero_heading??`${business.name} keeps your home or business running smoothly.`,
   heroSubheading:settings.hero_subheading??"Reliable local service, clear communication, and a team that is ready when you need help.",
   aboutText:settings.about_text??`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`,instagramUrl:settings.instagram_url??null,
