@@ -6,7 +6,7 @@ import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {normalizeWebsiteDomain} from "@/lib/website";
-import {addVercelProjectDomain,buyVercelDomain,domainRetailPrice,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelStandardDomainMaximumPrice,type VercelRegistrant} from "@/lib/vercelDomains";
+import {addVercelProjectDomain,buyVercelDomain,domainRetailPrice,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelDomainErrorDetails,vercelStandardDomainMaximumPrice,type VercelRegistrant} from "@/lib/vercelDomains";
 import {resolveGoogleAddress} from "@/lib/googleAddress";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
@@ -23,8 +23,9 @@ async function platformAdmin(){
 export async function checkRequestedDomainAvailability(data:FormData){
  const {admin,user}=await platformAdmin(),businessId=text(data,"businessId"),domain=normalizeWebsiteDomain(text(data,"domain"));
  if(!businessId||!domain)redirect(destination("error","Choose a valid domain request."));
- const {data:request}=await admin.from("business_website_onboarding_states").select("requested_domain").eq("business_id",businessId).maybeSingle();
+ const [{data:request},{data:existingOrder}]=await Promise.all([admin.from("business_website_onboarding_states").select("requested_domain").eq("business_id",businessId).maybeSingle(),admin.from("website_domain_orders").select("status,provider_order_id,purchase_confirmed_at").eq("business_id",businessId).eq("domain_name",domain).maybeSingle()]);
  if(request?.requested_domain!==domain)redirect(destination("error","That domain no longer matches the business request."));
+ if(existingOrder?.provider_order_id||["registration_pending","registered","connected"].includes(existingOrder?.status??"")){const started=existingOrder?.purchase_confirmed_at?` The attempt started ${new Date(existingOrder.purchase_confirmed_at).toLocaleString()}.`:"";redirect(destination("error",`This domain has a protected registration attempt.${started} Check its registration status instead of requesting a new quote.`));}
  let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;
  try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Vercel domain quote failed",{businessId,category:error instanceof TypeError?"network":"provider"});redirect(destination("error","Domain availability could not be checked. Confirm the Vercel registrar configuration and try again."));}
  const status=!quote.available?"unavailable":quote.purchasePrice<=standardLimit()?"available":"premium_review",now=new Date().toISOString();
@@ -38,7 +39,7 @@ export async function checkRequestedDomainAvailability(data:FormData){
 export async function purchaseRequestedDomain(data:FormData){
  const {admin,user}=await platformAdmin(),businessId=text(data,"businessId"),domain=normalizeWebsiteDomain(text(data,"domain")),confirmation=text(data,"confirmation");
  if(!businessId||!domain||confirmation!==`REGISTER ${domain}`)redirect(destination("error",`Type REGISTER ${domain??"domain"} to confirm this non-refundable purchase.`));
- const [{data:request},{data:order}]=await Promise.all([admin.from("business_website_onboarding_states").select("requested_domain,domain_request_status").eq("business_id",businessId).maybeSingle(),admin.from("website_domain_orders").select("id,status,provider_order_id,purchase_price").eq("business_id",businessId).eq("domain_name",domain).maybeSingle()]);
+ const [{data:request},{data:order}]=await Promise.all([admin.from("business_website_onboarding_states").select("requested_domain,domain_request_status").eq("business_id",businessId).maybeSingle(),admin.from("website_domain_orders").select("id,status,provider_order_id,purchase_price,purchase_confirmed_at").eq("business_id",businessId).eq("domain_name",domain).maybeSingle()]);
  if(request?.requested_domain!==domain||!order)redirect(destination("error","Check domain availability before purchasing."));
  if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status))redirect(destination("error","This domain already has a Vercel registration order. It was not purchased again."));
  const country=text(data,"country").toUpperCase(),rawPhone=text(data,"phone"),digits=rawPhone.replace(/\D/g,""),phone=country==="US"?(digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:rawPhone.startsWith("+")?`+${digits}`:rawPhone):rawPhone.startsWith("+")?`+${digits}`:rawPhone;
@@ -51,14 +52,14 @@ export async function purchaseRequestedDomain(data:FormData){
  if(quote.purchasePrice>standardLimit())redirect(destination("error",`This premium domain costs $${quote.purchasePrice.toFixed(2)} and is not included in the standard-domain offer.`));
  if(Number(order.purchase_price)!==quote.purchasePrice)redirect(destination("error","The domain price changed. Review the updated quote before purchasing."));
  const {data:claimed}=await admin.from("website_domain_orders").update({status:"registration_pending",purchase_confirmed_at:new Date().toISOString(),updated_by:user.id,updated_at:new Date().toISOString()}).eq("id",order.id).eq("status","available").is("provider_order_id",null).select("id").maybeSingle();
- if(!claimed)redirect(destination("error","Another registration attempt already started. The domain was not purchased again."));
+ if(!claimed){const started=order.purchase_confirmed_at?` at ${new Date(order.purchase_confirmed_at).toLocaleString()}`:"";redirect(destination("error",`A protected registration attempt already started${started}. Refresh this page to see its current status. If no Vercel order appears after 10 minutes, check the Vercel Domains dashboard before trying again.`));}
  try{
   const result=await buyVercelDomain(domain,quote.purchasePrice,registrant),now=new Date(),renewalNotice=new Date(now);renewalNotice.setUTCDate(renewalNotice.getUTCDate()+335);
   await admin.from("website_domain_orders").update({provider_order_id:result.orderId,renewal_notice_at:renewalNotice.toISOString(),updated_at:now.toISOString(),updated_by:user.id,last_error_category:null}).eq("id",order.id).is("provider_order_id",null);
   await admin.from("business_website_onboarding_states").update({domain_request_status:"registration_pending",updated_at:now.toISOString(),updated_by:user.id}).eq("business_id",businessId).eq("requested_domain",domain);
   await admin.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_at:now.toISOString(),updated_by:user.id}).eq("business_id",businessId);
   try{await addVercelProjectDomain(domain);}catch{console.error("Purchased domain project attachment pending",{businessId,category:"project_attachment"});}
- }catch(error){console.error("Vercel domain purchase failed",{businessId,category:error instanceof TypeError?"network":"provider"});await admin.from("website_domain_orders").update({status:"failed",last_error_category:error instanceof TypeError?"network":"provider",updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(destination("error","Vercel did not accept the domain purchase. No retry was attempted automatically."));}
+ }catch(error){const details=vercelDomainErrorDetails(error);console.error("Vercel domain purchase failed",{businessId,category:details.category,uncertain:details.uncertain});await admin.from("website_domain_orders").update({status:details.uncertain?"registration_pending":"failed",last_error_category:details.category,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(destination("error",`${details.message} No automatic retry was made.`));}
  revalidatePath("/app/admin/domains");revalidatePath(`/sites/domain/${domain}`);
  redirect(destination("success",`${domain} was submitted to Vercel for registration. Do not retry while the order is pending.`));
 }
