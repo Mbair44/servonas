@@ -1,12 +1,11 @@
 import {BusinessHoursEditor} from "./BusinessHoursEditor";
-import {closedBusinessHoursValues} from "@/lib/businessHoursEditor";
 
-type HoursRow={weekday:number;start_time:string;end_time:string};
+type HoursRow={weekday:number;start_time:string;end_time:string;active:boolean};
 type AreaRow={id:string;name:string};
 
 export function WebsiteHoursAreasFields({hours,areas,disabled}:{hours:HoursRow[];areas:AreaRow[];disabled:boolean}){
  const byDay=new Map(hours.map(row=>[row.weekday,row]));
- const initialHours=hours.length?Array.from({length:7},(_,weekday)=>{const row=byDay.get(weekday);return {weekday,open:Boolean(row),start:row?.start_time?.slice(0,5)??"09:00",end:row?.end_time?.slice(0,5)??"17:00"};}):closedBusinessHoursValues();
+ const initialHours=hours.length?Array.from({length:7},(_,weekday)=>{const row=byDay.get(weekday);return {weekday,open:Boolean(row?.active),start:row?.start_time?.slice(0,5)??"09:00",end:row?.end_time?.slice(0,5)??"17:00"};}):undefined;
  return <section className="workspace-panel website-setting-section website-hours-areas-section">
   <header><div><span>04</span><h2>Hours &amp; service areas</h2><p>Set when customers can book and the communities shown on your website.</p></div></header>
   <div className="website-inline-hours"><BusinessHoursEditor initialHours={initialHours} disabled={disabled}/></div>

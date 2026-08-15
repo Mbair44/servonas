@@ -72,14 +72,15 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
   if(bookingRepairError)console.error("Party-rental website booking repair failed",{businessId:business.id,code:bookingRepairError.code});
  }
  const availability=[] as {business_id:string;weekday:number;start_time:string;end_time:string;active:boolean}[];
- for(let weekday=0;weekday<7;weekday++)if(data.get(`websiteDay_${weekday}`)==="on"){
-  const start=text(data,`websiteStart_${weekday}`),end=text(data,`websiteEnd_${weekday}`);
-  if(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start)redirect(target(slug,"error","Each open day needs a closing time later than its opening time.","hours"));
-  availability.push({business_id:business.id,weekday,start_time:start,end_time:end,active:true});
+ for(let weekday=0;weekday<7;weekday++){
+  const active=data.get(`websiteDay_${weekday}`)==="on",start=text(data,`websiteStart_${weekday}`)||"09:00",end=text(data,`websiteEnd_${weekday}`)||"17:00";
+  if(active&&(!/^\d{2}:\d{2}$/.test(start)||!/^\d{2}:\d{2}$/.test(end)||end<=start))redirect(target(slug,"error","Each open day needs a closing time later than its opening time.","hours"));
+  availability.push({business_id:business.id,weekday,start_time:start,end_time:end,active});
  }
  const {error:clearHoursError}=await supabase.from("booking_availability").delete().eq("business_id",business.id);
  if(clearHoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));
- if(availability.length){const {error:hoursError}=await supabase.from("booking_availability").insert(availability);if(hoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));}
+ const {error:hoursError}=await supabase.from("booking_availability").insert(availability);
+ if(hoursError)redirect(target(slug,"error","Business hours could not be updated.","hours"));
  const areaIds=data.getAll("websiteAreaId").map(String),areaNames=data.getAll("websiteAreaName").map(value=>String(value).trim()),removeIds=new Set(data.getAll("websiteRemoveAreaId").map(String)),newAreas=[...new Set(text(data,"websiteNewAreas").split(/\r?\n|,/).map(value=>value.trim()).filter(Boolean))];
  if(areaNames.some(name=>!name||name.length>150)||newAreas.some(name=>name.length>150))redirect(target(slug,"error","Service area names must contain between 1 and 150 characters.","hours"));
  if(areaIds.length!==areaNames.length)redirect(target(slug,"error","Service areas could not be verified. Refresh and try again.","hours"));
