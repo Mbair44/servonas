@@ -21,3 +21,10 @@ test("mobile website photos are optimized and failures are shown inline",async()
  assert.match(manager,/role="alert"/);
  assert.match(manager,/items\.length\+selected\.length>12/);
 });
+
+test("large website photo sets stay contained in the design editor",async()=>{
+ const styles=await read("app/website-builder.css");
+ assert.match(styles,/\.website-step-design \.website-photo-previews\{grid-template-columns:repeat\(auto-fill,minmax\(112px,1fr\)\);max-height:390px;overflow-y:auto/);
+ assert.match(styles,/@container\(max-width:700px\)[\s\S]*\.website-step-design \.website-template-grid\{grid-template-columns:1fr\}/);
+ assert.match(styles,/@container\(max-width:430px\)[\s\S]*\.website-step-design \.website-photo-previews\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+});
