@@ -7,6 +7,24 @@ export type VercelDomainStatus={
 };
 export type VercelDomainQuote={domain:string;available:boolean;purchasePrice:number;renewalPrice:number;years:number};
 export type VercelRegistrant={firstName:string;lastName:string;email:string;phone:string;address1:string;address2?:string;city:string;state:string;zip:string;country:string;companyName?:string};
+export class VercelDomainApiError extends Error{
+ constructor(public readonly status:number,public readonly code:string,providerMessage:string){super(providerMessage);this.name="VercelDomainApiError";}
+}
+
+export function vercelDomainErrorDetails(error:unknown){
+ if(error instanceof TypeError)return {category:"network",message:"Servonas could not reach Vercel. The purchase result is uncertain; check Vercel Domains before trying again.",uncertain:true};
+ if(!(error instanceof VercelDomainApiError))return {category:"invalid_response",message:"Vercel returned an unexpected response. Check Vercel Domains before trying again.",uncertain:true};
+ const known:Record<string,string>={
+  price_mismatch:"Vercel reports that the domain price changed. Check availability and price again before purchasing.",
+  not_available:"Vercel reports that the domain is no longer available.",
+  invalid_domain:"Vercel does not support this domain name or extension.",
+  forbidden:"The Vercel token is not authorized to purchase this domain for the configured account or team.",
+  rate_limited:"Vercel temporarily rate-limited domain registration. Wait and check again before retrying.",
+  failed_to_add_domain:"Vercel may have purchased the domain but could not attach it to the account. Check Vercel Domains before retrying.",
+  bad_request:"Vercel rejected the registration details. Verify the registrant name, email, phone, and postal address.",
+ };
+ return {category:`vercel_${error.code||error.status}`,message:known[error.code]??(error.status===401?"The Vercel access token is invalid or expired.":error.status===403?"The Vercel token does not have permission to purchase domains for this account or team.":error.status>=500?"Vercel had a temporary server problem. Check Vercel Domains before retrying.":"Vercel rejected the registration request. Verify the contact details and registrar permissions."),uncertain:error.status>=500||error.code==="failed_to_add_domain"};
+}
 
 const configuration=()=>({
  token:process.env.VERCEL_API_TOKEN?.trim(),
@@ -33,7 +51,7 @@ async function registrarRequest(path:string,init?:RequestInit){
  const {token,team}=configuration();if(!token)throw new Error("Servonas domain registration is not configured.");
  const separator=path.includes("?")?"&":"?",url=`https://api.vercel.com${path}${team?`${separator}teamId=${encodeURIComponent(team)}`:""}`;
  const response=await fetch(url,{...init,headers:{...headers(token),...(init?.headers??{})},cache:"no-store"}),body=await json(response);
- if(!response.ok)throw new Error(message(body,"Vercel could not complete the domain request."));
+ if(!response.ok)throw new VercelDomainApiError(response.status,typeof body?.error?.code==="string"?body.error.code:"unknown",message(body,"Vercel could not complete the domain request."));
  return body;
 }
 
