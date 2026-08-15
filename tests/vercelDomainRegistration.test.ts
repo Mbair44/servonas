@@ -72,6 +72,7 @@ test("registrar failures become actionable without exposing provider response bo
 test("uncertain registrar outcomes keep the purchase lock instead of enabling a duplicate purchase",async()=>{
  const actions=await read("app/app/admin/domains/actions.ts");
  assert.match(actions,/details\.uncertain\?"registration_pending":"failed"/);
+ assert.match(actions,/has a protected registration attempt/);
  assert.match(actions,/check the Vercel Domains dashboard before trying again/i);
  assert.match(actions,/No automatic retry was made/);
 });

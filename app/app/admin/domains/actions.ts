@@ -23,8 +23,9 @@ async function platformAdmin(){
 export async function checkRequestedDomainAvailability(data:FormData){
  const {admin,user}=await platformAdmin(),businessId=text(data,"businessId"),domain=normalizeWebsiteDomain(text(data,"domain"));
  if(!businessId||!domain)redirect(destination("error","Choose a valid domain request."));
- const {data:request}=await admin.from("business_website_onboarding_states").select("requested_domain").eq("business_id",businessId).maybeSingle();
+ const [{data:request},{data:existingOrder}]=await Promise.all([admin.from("business_website_onboarding_states").select("requested_domain").eq("business_id",businessId).maybeSingle(),admin.from("website_domain_orders").select("status,provider_order_id,purchase_confirmed_at").eq("business_id",businessId).eq("domain_name",domain).maybeSingle()]);
  if(request?.requested_domain!==domain)redirect(destination("error","That domain no longer matches the business request."));
+ if(existingOrder?.provider_order_id||["registration_pending","registered","connected"].includes(existingOrder?.status??"")){const started=existingOrder?.purchase_confirmed_at?` The attempt started ${new Date(existingOrder.purchase_confirmed_at).toLocaleString()}.`:"";redirect(destination("error",`This domain has a protected registration attempt.${started} Check its registration status instead of requesting a new quote.`));}
  let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;
  try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Vercel domain quote failed",{businessId,category:error instanceof TypeError?"network":"provider"});redirect(destination("error","Domain availability could not be checked. Confirm the Vercel registrar configuration and try again."));}
  const status=!quote.available?"unavailable":quote.purchasePrice<=standardLimit()?"available":"premium_review",now=new Date().toISOString();
