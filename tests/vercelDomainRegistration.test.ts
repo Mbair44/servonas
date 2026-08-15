@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {DOMAIN_RETAIL_MARKUP_BPS,domainRetailPrice} from "../lib/vercelDomains.ts";
+import {DOMAIN_RETAIL_MARKUP_BPS,VercelDomainApiError,domainRetailPrice,vercelDomainErrorDetails} from "../lib/vercelDomains.ts";
 
 const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
 
@@ -61,4 +61,17 @@ test("provider cost and customer retail domain prices are stored separately",asy
  assert.match(actions,/purchase_price:quote\.purchasePrice/);
  assert.match(actions,/customer_purchase_price:domainRetailPrice\(quote\.purchasePrice\)/);
  assert.match(actions,/buyVercelDomain\(domain,quote\.purchasePrice,registrant\)/);
+});
+
+test("registrar failures become actionable without exposing provider response bodies",()=>{
+ assert.deepEqual(vercelDomainErrorDetails(new VercelDomainApiError(400,"price_mismatch","provider detail")),{category:"vercel_price_mismatch",message:"Vercel reports that the domain price changed. Check availability and price again before purchasing.",uncertain:false});
+ assert.equal(vercelDomainErrorDetails(new VercelDomainApiError(403,"forbidden","provider detail")).message,"The Vercel token is not authorized to purchase this domain for the configured account or team.");
+ assert.equal(vercelDomainErrorDetails(new TypeError("network detail")).uncertain,true);
+});
+
+test("uncertain registrar outcomes keep the purchase lock instead of enabling a duplicate purchase",async()=>{
+ const actions=await read("app/app/admin/domains/actions.ts");
+ assert.match(actions,/details\.uncertain\?"registration_pending":"failed"/);
+ assert.match(actions,/check the Vercel Domains dashboard before trying again/i);
+ assert.match(actions,/No automatic retry was made/);
 });

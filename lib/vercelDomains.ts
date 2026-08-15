@@ -8,7 +8,8 @@ export type VercelDomainStatus={
 export type VercelDomainQuote={domain:string;available:boolean;purchasePrice:number;renewalPrice:number;years:number};
 export type VercelRegistrant={firstName:string;lastName:string;email:string;phone:string;address1:string;address2?:string;city:string;state:string;zip:string;country:string;companyName?:string};
 export class VercelDomainApiError extends Error{
- constructor(public readonly status:number,public readonly code:string,providerMessage:string){super(providerMessage);this.name="VercelDomainApiError";}
+ readonly status:number;readonly code:string;
+ constructor(status:number,code:string,providerMessage:string){super(providerMessage);this.name="VercelDomainApiError";this.status=status;this.code=code;}
 }
 
 export function vercelDomainErrorDetails(error:unknown){
