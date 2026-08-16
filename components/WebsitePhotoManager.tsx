@@ -107,7 +107,7 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
      <div className="website-photo-library-header-actions">
       <label className="website-photo-upload compact">Upload photos<small>Pick multiple photos from your phone or desktop.</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
       <button type="button" className="text-button" onClick={()=>setSelected(current=>current.length===photoItems.length?[]:photoItems.map(item=>item.url))} disabled={!photoItems.length}>Select all</button>
-      <button type="button" className="text-button danger" onClick={()=>{if(selectedItems.length)setPendingRemove({url:selectedItems[0].url,index:selectedItems[0].index});}} disabled={!selectedItems.length}>Delete</button>
+      <button type="button" className="text-button danger" onClick={()=>{if(selectedItems.length)setPendingRemove(selectedItems[0]);}} disabled={!selectedItems.length}>Delete</button>
       <button type="button" className="website-photo-close" onClick={()=>setLibraryOpen(false)} aria-label="Close media library">×</button>
      </div>
     </header>
