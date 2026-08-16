@@ -1,6 +1,7 @@
 "use client";
 import {useMemo,useState} from "react";
 import type {BusinessSiteRentalItem} from "./BusinessWebsite";
+import {RentalPricingFooter} from "./RentalPricingFooter";
 
 export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
  const [category,setCategory]=useState("All rentals"),[search,setSearch]=useState("");
@@ -15,12 +16,7 @@ export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
    <div className="business-site-rental-media">{item.imageUrl?<img src={item.imageUrl} alt={item.name}/>:<div className="business-site-rental-placeholder" aria-hidden="true">{item.name.slice(0,1)}</div>}</div>
    <div className="business-site-rental-content">
     <div className="business-site-rental-copy">{item.category&&<span>{item.category}</span>}<h3>{item.name}</h3>{item.description&&<p>{item.description}</p>}</div>
-    <footer>
-     <div className="business-site-rental-price"><strong>{item.dailyPriceCents>0?`$${(item.dailyPriceCents/100).toFixed(2)}`:"Contact for price"}</strong>{item.dailyPriceCents>0&&<small>Up to {item.standardRentalHours}-hour rental</small>}</div>
-     {item.dailyPriceCents>0&&item.multiDayMessage&&<div className="business-site-rental-multiday"><span aria-hidden="true">✓</span><small>{item.multiDayMessage}</small></div>}
-     <div className="business-site-rental-divider" aria-hidden="true"/>
-     <a href="#book-online" data-rental-item-id={item.id} aria-label={`Check availability for ${item.name}`}>Check availability</a>
-    </footer>
+    <RentalPricingFooter priceCents={item.dailyPriceCents} rentalHours={item.standardRentalHours} multiDayMessage={item.multiDayMessage} action={<a href="#book-online" data-rental-item-id={item.id} aria-label={`Check availability for ${item.name}`}>Check availability</a>}/>
    </div>
   </article>)}</div>:<div className="business-site-rental-empty"><strong>No rentals match those filters.</strong><p>Choose another category or clear your search.</p></div>}
  </>;
