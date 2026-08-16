@@ -23,6 +23,12 @@ test("item overrides inherit unspecified business rules",()=>{
  assert.equal(rules.allowMultiDay,false);assert.equal(rules.standardRentalHours,12);assert.equal(rules.additionalDayPricingType,"full_price");
 });
 
+test("item pricing overrides are enabled when any override field is edited",async()=>{
+ const source=await readFile(new URL("../app/app/[businessSlug]/rental-inventory/actions.ts",import.meta.url),"utf8");
+ assert.match(source,/overrideTouched=data\.get\("usePricingOverride"\)==="on"\|\|Boolean\(overrideHours\)\|\|Boolean\(overrideDiscount\)\|\|Boolean\(overrideFlat\)\|\|Boolean\(overrideMax\)\|\|overrideType!=="full_price"\|\|data\.get\("allowMultiDayOverride"\)==="on"/);
+ assert.match(source,/const useOverride=overrideTouched/);
+});
+
 test("multi-day and maximum-day rules reject invalid periods",()=>{
  assert.throws(()=>calculateRentalUnitPrice(1000,2,{...base,allowMultiDay:false}),/limited to one/);
  assert.throws(()=>calculateRentalUnitPrice(1000,4,{...base,maxRentalDays:3}),/limited to 3/);
