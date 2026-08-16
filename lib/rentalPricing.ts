@@ -18,14 +18,22 @@ export type RentalPricingOverrides={
  max_rental_days_override?:number|null;
 };
 
+const positiveNumber=(value:unknown,fallback:number)=>{const numeric=Number(value);return Number.isFinite(numeric)&&numeric>0?numeric:fallback;};
+const nonNegativeNumber=(value:unknown,fallback:number)=>{const numeric=Number(value);return Number.isFinite(numeric)&&numeric>=0?numeric:fallback;};
+const pricingType=(value:unknown):AdditionalDayPricingType=>value==="percentage_discount"||value==="flat_rate"?value:"full_price";
+
 export function resolveRentalPricingRules(business:RentalPricingRules,item:RentalPricingOverrides):RentalPricingRules{
+ const rawHours=item.standard_rental_hours_override??business.standardRentalHours;
+ const rawDiscount=item.additional_day_discount_percent_override??business.additionalDayDiscountPercent;
+ const rawFlatRate=item.additional_day_flat_rate_cents_override??business.additionalDayFlatRateCents;
+ const rawMaxDays=item.max_rental_days_override??business.maxRentalDays;
  return {
-  standardRentalHours:item.standard_rental_hours_override??business.standardRentalHours,
+  standardRentalHours:positiveNumber(rawHours,24),
   allowMultiDay:item.allow_multi_day_override??business.allowMultiDay,
-  additionalDayPricingType:item.additional_day_pricing_type_override??business.additionalDayPricingType,
-  additionalDayDiscountPercent:item.additional_day_discount_percent_override??business.additionalDayDiscountPercent,
-  additionalDayFlatRateCents:item.additional_day_flat_rate_cents_override??business.additionalDayFlatRateCents,
-  maxRentalDays:item.max_rental_days_override??business.maxRentalDays,
+  additionalDayPricingType:pricingType(item.additional_day_pricing_type_override??business.additionalDayPricingType),
+  additionalDayDiscountPercent:Math.min(100,nonNegativeNumber(rawDiscount,0)),
+  additionalDayFlatRateCents:rawFlatRate==null?null:nonNegativeNumber(rawFlatRate,0),
+  maxRentalDays:rawMaxDays==null?null:Math.max(1,Math.floor(positiveNumber(rawMaxDays,1))),
  };
 }
 

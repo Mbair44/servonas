@@ -23,6 +23,13 @@ test("item overrides inherit unspecified business rules",()=>{
  assert.equal(rules.allowMultiDay,false);assert.equal(rules.standardRentalHours,12);assert.equal(rules.additionalDayPricingType,"full_price");
 });
 
+test("malformed stored pricing overrides are normalized before public booking renders",()=>{
+ const rules=resolveRentalPricingRules({...base,standardRentalHours:Number.NaN,additionalDayDiscountPercent:Number.NaN},{standard_rental_hours_override:Number.NaN,additional_day_discount_percent_override:Number.NaN,max_rental_days_override:Number.NaN});
+ assert.equal(rules.standardRentalHours,24);
+ assert.equal(rules.additionalDayDiscountPercent,0);
+ assert.equal(rules.maxRentalDays,1);
+});
+
 test("item pricing overrides are enabled when any override field is edited",async()=>{
  const source=await readFile(new URL("../app/app/[businessSlug]/rental-inventory/actions.ts",import.meta.url),"utf8");
  assert.match(source,/overrideTouched=data\.get\("usePricingOverride"\)==="on"\|\|Boolean\(overrideHours\)\|\|Boolean\(overrideDiscount\)\|\|Boolean\(overrideFlat\)\|\|Boolean\(overrideMax\)\|\|overrideType!=="full_price"\|\|data\.get\("allowMultiDayOverride"\)==="on"/);
