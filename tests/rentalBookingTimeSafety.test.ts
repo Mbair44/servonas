@@ -6,8 +6,9 @@ test("party-rental time selection normalizes an invalid configured duration and 
  const source=await readFile("components/PartyRentalBookingClient.tsx","utf8");
  assert.match(source,/const safePositiveNumber=/);
  assert.match(source,/const rentalDurationMinutes=Math\.max\(30,Math\.round\(safePositiveNumber\(standardDurationMinutes,240\)\)\)/);
- assert.match(source,/const initialItemDurationMinutes=initialItem\?Math\.max\(30,Math\.round\(safePositiveNumber\(resolveRentalPricingRules\(businessPricing,initialItem\)\.standardRentalHours,1\)\*60\)\):rentalDurationMinutes/);
- assert.match(source,/hour\*60\+minute\+initialItemDurationMinutes/);
+ assert.match(source,/const durationForItem=/);
+ assert.match(source,/const selectedRentalDurationMinutes=selected\.length\?Math\.max\(\.\.\.selected\.map\(durationForItem\)\):rentalDurationMinutes/);
+ assert.match(source,/hour\*60\+minute\+selectedRentalDurationMinutes/);
  assert.match(source,/The rental duration needs attention/);
  assert.match(source,/!Number\.isNaN\(prettyDate\.getTime\(\)\)/);
  assert.match(source,/try\{const days=calculateRentalDays/);
