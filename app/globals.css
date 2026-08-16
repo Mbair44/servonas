@@ -1256,6 +1256,19 @@ body:has(>.pest-demo)>.sv-header,body:has(>.pest-demo)>.sv-footer{display:none}
 
 /* Embedded booking keeps the customer-site branding around the reservation. */
 body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{display:none}.embedded-booking{overflow:hidden}.embedded-booking .calendar:focus{outline:3px solid color-mix(in srgb,var(--booking-brand) 28%,transparent);outline-offset:5px}.rental-time-row select{padding:13px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;font:inherit}
+.party-rental-booking .calendar{box-sizing:border-box;width:min(100%,760px);max-width:760px;margin:22px auto 0;padding:clamp(14px,2.5vw,20px)}
+.party-rental-booking .calendar-head{grid-template-columns:40px minmax(0,1fr) 40px;gap:8px}
+.party-rental-booking .calendar-head h3{min-width:0;margin:0;font-size:clamp(1.05rem,3.5vw,1.35rem);line-height:1.2}
+.party-rental-booking .calendar-head button{width:40px;height:40px;border-radius:10px;font-size:1.25rem}
+.party-rental-booking .weekdays,.party-rental-booking .days{grid-template-columns:repeat(7,minmax(0,1fr));gap:clamp(3px,1.2vw,8px);width:100%;min-width:0}
+.party-rental-booking .weekdays{margin:16px 0 7px;font-size:.72rem}
+.party-rental-booking .weekdays span{min-width:0}
+.party-rental-booking .day{display:grid;min-width:0;min-height:68px;place-items:center;padding:6px 2px;border:1px solid transparent;border-radius:10px;font-size:.9rem;line-height:1.1;overflow:hidden}
+.party-rental-booking .day.unavailable{background:#f1f3f6;color:#778194;border-color:#e4e8ee;text-decoration:none}
+.party-rental-booking .day.unavailable small{display:none}
+.party-rental-booking .day.blocked{background:#fff3f4;color:#b5475b;border-color:#f5c8d0;text-decoration:none}
+.party-rental-booking .day.past{background:#f3f4f6;color:#a0a7b2}
+@media(max-width:560px){.party-rental-booking .calendar{width:100%;padding:12px}.party-rental-booking .calendar-head{grid-template-columns:36px minmax(0,1fr) 36px;gap:4px}.party-rental-booking .calendar-head button{width:36px;height:36px;font-size:1.1rem}.party-rental-booking .weekdays,.party-rental-booking .days{gap:3px}.party-rental-booking .weekdays{margin:13px 0 5px;font-size:.61rem}.party-rental-booking .day{min-height:48px;padding:4px 1px;border-radius:8px;font-size:.78rem}.party-rental-booking .rental-calendar-item{margin:12px 0 -4px;font-size:.74rem}.party-rental-booking .rental-calendar-notice{margin-top:11px;padding:10px 11px;font-size:.78rem}}
 .rental-category-filter{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.rental-category-filter button{padding:9px 13px;border:1px solid #d7dfeb;border-radius:999px;background:#fff;color:#45536b;font:inherit;font-size:.76rem;font-weight:800;cursor:pointer}.rental-category-filter button.active{border-color:var(--booking-brand);background:var(--booking-brand);color:#fff}.rental-card-category{display:block;margin-bottom:7px;color:var(--booking-brand);font-size:.68rem;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.inventory-gallery>.empty-catalog{grid-column:1/-1}
 .embedded-booking{min-height:0;padding:0;background:#fff}.embedded-booking .public-booking-card{max-width:none;border:0;border-radius:0;padding:28px;box-shadow:none}.embedded-booking>footer{margin:0;padding:12px;color:#8490a3;font-size:.7rem;border-top:1px solid #eef1f5;background:#fff}.embedded-booking .party-rental-booking{gap:28px}
 .rental-upsell-backdrop{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;background:#10182899}.rental-upsell-dialog{width:min(480px,100%);padding:24px;border-radius:18px;background:#fff;box-shadow:0 30px 80px #10182855}.rental-upsell-dialog>img{width:100%;max-height:210px;margin-bottom:18px;border-radius:12px;object-fit:cover}.rental-upsell-dialog h2{margin:7px 0}.rental-upsell-dialog p{color:#667085}.rental-upsell-dialog>div{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
