@@ -3,6 +3,7 @@
 import {createHash} from "node:crypto";
 import {headers} from "next/headers";
 import type {WebsiteRequestState} from "@/components/WebsiteRequestForm";
+import {sendWebsiteRequestBusinessNotification} from "@/lib/communications/websiteRequestEmailService";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {normalizeWebsitePhone,websiteRequestErrors} from "@/lib/website";
 
@@ -13,7 +14,7 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
  const fail=(error:string,fieldErrors:Record<string,string>={}):WebsiteRequestState=>({error,fieldErrors,values});
  if(text(data,"companyWebsite"))return {success:"Thank you. The business will follow up shortly."};
  const db=getSupabaseAdmin();if(!db)return fail("Online requests are temporarily unavailable. Please call the business directly.");
- const {data:website}=await db.from("business_website_settings").select("id,business_id,request_service_enabled").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
+ const {data:website}=await db.from("business_website_settings").select("id,business_id,request_service_enabled,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!website||!website.request_service_enabled)return fail("This website is not currently accepting online requests.");
  const name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),description=text(data,"description"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey");
  const fieldErrors=websiteRequestErrors({name,phone,email,address,description,requestKey});
@@ -51,7 +52,16 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
   const {error}=await db.from("customers").update({first_name:firstName,last_name:lastName||undefined,email:email||customer.email,phone:phone||customer.phone,updated_at:new Date().toISOString()}).eq("business_id",website.business_id).eq("id",customer.id);
   if(error)console.warn("Website customer refresh failed",{businessId:website.business_id,customerId:customer.id,code:error.code});
  }
- const {error}=await db.from("website_service_requests").insert({business_id:website.business_id,website_id:website.id,customer_id:customer.id,service_id:serviceId,request_key:requestKey,customer_name:name,phone,email:email||null,service_address:address,description,preferred_at:preferredAt||null,submitted_ip_hash:ipHash});
- if(error){if(error.code==="23505")return {success:"Your request was already received. The business will follow up shortly."};console.error("Website request creation failed",{businessId:website.business_id,code:error.code});return fail("Your request could not be saved. Please call the business directly.");}
+ const {data:request,error}=await db.from("website_service_requests").insert({business_id:website.business_id,website_id:website.id,customer_id:customer.id,service_id:serviceId,request_key:requestKey,customer_name:name,phone,email:email||null,service_address:address,description,preferred_at:preferredAt||null,submitted_ip_hash:ipHash}).select("id").single();
+ if(error||!request){if(error?.code==="23505")return {success:"Your request was already received. The business will follow up shortly."};console.error("Website request creation failed",{businessId:website.business_id,code:error?.code});return fail("Your request could not be saved. Please call the business directly.");}
+ const business=Array.isArray(website.businesses)?website.businesses[0]:website.businesses;
+ const {data:ownerProfile}=business?.owner_user_id?await db.from("profiles").select("email").eq("id",business.owner_user_id).maybeSingle():{data:null};
+ const recipient=business?.email?.trim()||ownerProfile?.email?.trim();
+ if(!recipient){
+  console.error("Website consultation notification email failed",{businessId:website.business_id,requestId:request.id,provider:"resend",reason:"recipient_not_configured"});
+ }else{
+  const serviceName=serviceId?(await db.from("services").select("name").eq("business_id",website.business_id).eq("id",serviceId).maybeSingle()).data?.name:null;
+  await sendWebsiteRequestBusinessNotification({businessId:website.business_id,requestId:request.id,businessName:business?.name||"Service business",recipient,customerName:name,customerPhone:phone,customerEmail:email||null,serviceName,serviceAddress:address,description,preferredAt:preferredAt||null});
+ }
  return {success:"The business received your request and will follow up using the contact information you provided."};
 }
