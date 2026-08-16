@@ -18,7 +18,8 @@ export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
     <footer>
      <div className="business-site-rental-price"><strong>{item.dailyPriceCents>0?`$${(item.dailyPriceCents/100).toFixed(2)}`:"Contact for price"}</strong>{item.dailyPriceCents>0&&<small>Up to {item.standardRentalHours}-hour rental</small>}</div>
      {item.dailyPriceCents>0&&item.multiDayMessage&&<div className="business-site-rental-multiday"><span aria-hidden="true">✓</span><small>{item.multiDayMessage}</small></div>}
-     <a href="#book-online" aria-label={`Check availability for ${item.name}`}>Check availability</a>
+     <div className="business-site-rental-divider" aria-hidden="true"/>
+     <a href="#book-online" data-rental-item-id={item.id} aria-label={`Check availability for ${item.name}`}>Check availability</a>
     </footer>
    </div>
   </article>)}</div>:<div className="business-site-rental-empty"><strong>No rentals match those filters.</strong><p>Choose another category or clear your search.</p></div>}

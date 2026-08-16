@@ -112,6 +112,11 @@ h3 { font-size: 1.4rem; }
 .day.booked { background: var(--red); color: var(--red-ink); cursor: not-allowed; text-decoration: line-through; }
 .day.past { background: #f1f2f5; color: #9aa0ad; cursor: not-allowed; }
 .day.blocked { background: #fff1f2; color: #be123c; border-color: #fecdd3; cursor: not-allowed; text-decoration: line-through; }
+.day.unavailable { display: grid; place-items: center; gap: 1px; background: #f1f2f5; color: #697386; cursor: not-allowed; text-decoration: none; }
+.day.unavailable small { font-size: .53rem; font-weight: 850; letter-spacing: .02em; text-transform: uppercase; }
+.rental-calendar-item { margin: 14px 0 -8px; color: #526079; font-size: .8rem; text-align: center; }
+.rental-calendar-notice { display: grid; gap: 3px; margin: 14px 0 0; padding: 11px 13px; border: 1px solid #dbe3ef; border-radius: 10px; background: #f8fafc; color: #526079; font-size: .82rem; }
+.rental-calendar-notice strong { color: #18233f; }
 .day.selected { background: var(--purple); color: white; }
 .day.blank { background: transparent; cursor: default; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; font-weight: 700; font-size: .9rem; }

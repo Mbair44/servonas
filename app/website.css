@@ -60,3 +60,9 @@ body:has(.business-site)>.sv-header,body:has(.business-site)>.sv-footer{display:
 .website-hvac .business-site-process{background:#eef6ff}.website-plumbing .business-site-process{background:#eff9ff}.website-landscaping .business-site-process{background:#eef7f0}.website-cleaning .business-site-process{background:#effbfc}
 .website-landscaping .business-site-about{background:#edf6ef}.website-cleaning .business-site-about{background:#edf9fa}.website-landscaping .business-site-industry-image,.website-cleaning .business-site-industry-image{object-fit:cover}
 .website-hvac .business-site-footer,.website-plumbing .business-site-footer,.website-landscaping .business-site-footer,.website-cleaning .business-site-footer{background:var(--site-secondary)}
+
+/* Rental inventory card footer: keep the price and availability action light, aligned, and touch friendly. */
+.business-site-rental-grid footer{gap:10px;padding-top:18px}
+.business-site-rental-divider{height:1px;margin-top:2px;background:#edf0f4}
+.business-site-rental-grid footer a{margin-top:0;border-top:0}
+@media(max-width:720px){.business-site-rental-grid footer{gap:12px;padding-top:18px}.business-site-rental-divider{margin-top:0}}
