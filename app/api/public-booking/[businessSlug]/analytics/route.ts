@@ -7,6 +7,10 @@ const allowedEvents = new Set([
   "time_selected",
   "booking_submitted",
   "booking_completed",
+  "mechanical_bull_landing_view",
+  "mechanical_bull_check_availability",
+  "mechanical_bull_view_pricing",
+  "mechanical_bull_booking_started",
 ]);
 
 export async function POST(

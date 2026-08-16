@@ -13,7 +13,7 @@ export async function middleware(request:NextRequest){
  const hostname=request.nextUrl.hostname.toLowerCase(),productionHost=(process.env.NEXT_PUBLIC_APP_URL?new URL(process.env.NEXT_PUBLIC_APP_URL).hostname:"servonas.com").toLowerCase();
  const platformHosts=new Set([productionHost,`www.${productionHost}`,"localhost","127.0.0.1",process.env.VERCEL_URL?.toLowerCase()].filter(Boolean));
  if(!platformHosts.has(hostname)&&!hostname.endsWith(".vercel.app")){
-  const destination=request.nextUrl.clone();destination.pathname=`/sites/domain/${encodeURIComponent(hostname)}`;
+  const destination=request.nextUrl.clone();destination.pathname=path==="/mechanical-bull-rental"?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`:`/sites/domain/${encodeURIComponent(hostname)}`;
   return NextResponse.rewrite(destination);
  }
  let response=NextResponse.next({request});
