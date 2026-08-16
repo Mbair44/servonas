@@ -37,7 +37,16 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
  const parts=name.split(/\s+/),firstName=parts.shift()||name,lastName=parts.join(" ");
  if(!customer){
   const {data:created,error}=await db.from("customers").insert({business_id:website.business_id,first_name:firstName,last_name:lastName,email:email||null,phone,preferred_contact_method:email?"email":"phone",lead_source:"website"}).select("id,email,phone").single();
-  if(error||!created){console.error("Website customer creation failed",{businessId:website.business_id,code:error?.code});return fail("Your request could not be saved. Please call the business directly.");}customer=created;
+  if(error||!created){
+   if(error?.code==="23505"){
+    const {data:match}=await db.from("customers").select("id,email,phone").eq("business_id",website.business_id).eq("is_deleted",false).or(email?`email.ilike.${email},phone.eq.${phone}`:`phone.eq.${phone}`).limit(1).maybeSingle();
+    if(match){customer=match;}
+    else{console.error("Website customer conflict could not be resolved",{businessId:website.business_id,code:error.code,emailProvided:Boolean(email),phoneProvided:Boolean(phone)});return fail("Your request could not be saved. Please call the business directly.");}
+   }else{
+    console.error("Website customer creation failed",{businessId:website.business_id,code:error?.code});
+    return fail("Your request could not be saved. Please call the business directly.");
+   }
+  }else customer=created;
  }else{
   const {error}=await db.from("customers").update({first_name:firstName,last_name:lastName||undefined,email:email||customer.email,phone:phone||customer.phone,updated_at:new Date().toISOString()}).eq("business_id",website.business_id).eq("id",customer.id);
   if(error)console.warn("Website customer refresh failed",{businessId:website.business_id,customerId:customer.id,code:error.code});

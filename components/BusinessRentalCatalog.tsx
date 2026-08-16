@@ -11,13 +11,13 @@ export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
    <label><span>Search rentals</span><input type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Bounce houses, tables, chairs…"/></label>
    <label><span>Category</span><select value={category} onChange={event=>setCategory(event.target.value)}>{categories.map(value=><option value={value} key={value}>{value}</option>)}</select></label>
   </div>
-  {visible.length?<div className="business-site-rental-grid">{visible.map(item=><article className="business-site-rental-card" key={item.id}>
+ {visible.length?<div className="business-site-rental-grid">{visible.map(item=><article className="business-site-rental-card" key={item.id}>
    <div className="business-site-rental-media">{item.imageUrl?<img src={item.imageUrl} alt={item.name}/>:<div className="business-site-rental-placeholder" aria-hidden="true">{item.name.slice(0,1)}</div>}</div>
    <div className="business-site-rental-content">
     <div className="business-site-rental-copy">{item.category&&<span>{item.category}</span>}<h3>{item.name}</h3>{item.description&&<p>{item.description}</p>}</div>
     <footer>
      <div className="business-site-rental-price"><strong>{item.dailyPriceCents>0?`$${(item.dailyPriceCents/100).toFixed(2)}`:"Contact for price"}</strong>{item.dailyPriceCents>0&&<small>Up to {item.standardRentalHours}-hour rental</small>}</div>
-     {item.dailyPriceCents>0&&item.multiDayMessage&&<small className="business-site-rental-multiday">{item.multiDayMessage}</small>}
+     {item.dailyPriceCents>0&&item.multiDayMessage&&<div className="business-site-rental-multiday"><span aria-hidden="true">✓</span><small>{item.multiDayMessage}</small></div>}
      <a href="#book-online" aria-label={`Check availability for ${item.name}`}>Check availability</a>
     </footer>
    </div>
