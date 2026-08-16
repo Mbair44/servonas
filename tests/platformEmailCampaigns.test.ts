@@ -11,6 +11,9 @@ test("platform email campaigns are admin-only, auditable, idempotent, and unsubs
  assert.match(action,/platform_email_opt_outs/);
  assert.match(action,/List-Unsubscribe/);
  assert.match(composer,/I understand this sends immediately/);
+ assert.match(composer,/const formElement=event\.currentTarget,form=new FormData\(formElement\)/);
+ assert.match(composer,/try\{const result=await sendPlatformEmailCampaign\(form\)/);
+ assert.match(composer,/setSendToken\(crypto\.randomUUID\(\)\)/);
  assert.match(migration,/create table if not exists public\.platform_email_campaigns/);
  assert.match(migration,/create table if not exists public\.platform_email_recipients/);
  assert.match(unsubscribe,/platform_email_opt_outs/);
