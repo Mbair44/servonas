@@ -8,8 +8,6 @@ const MB=1024*1024,MAX_BYTES=8*MB,MAX_UPLOAD_COUNT=12;
 const supportedTypes=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
 const phoneTypes=new Set(["image/heic","image/heif"]);
 const phoneName=(name:string)=>/\.(heic|heif)$/i.test(name);
-const usageLabels=["HERO","ABOUT","GALLERY","SERVICE","PRODUCT"];
-
 type PhotoItem={url:string;usage:string;index:number};
 type UploadState={name:string;status:"queued"|"uploading"|"done"|"error";error?:string};
 
@@ -81,14 +79,13 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
   }finally{setUploading(false);}
  }
  const selectedCount=selected.length;
- const maxSelectable=Math.max(0,MAX_UPLOAD_COUNT-items.length);
  return <div className="website-photo-manager">
   <textarea className="website-photo-values" name="photoUrls" value={items.join("\n")} readOnly aria-hidden="true" tabIndex={-1}/>
   <section className="website-photo-summary">
    <header>
     <button type="button" className="website-photo-summary-heading" onClick={()=>setLibraryOpen(true)}>
      <strong>Website photos · {items.length}</strong>
-     <span>Manage photos you've uploaded to Servonas.</span>
+     <span>Manage photos you&apos;ve uploaded to Servonas.</span>
     </button>
     <button type="button" className="website-photo-manage-link" onClick={()=>setLibraryOpen(true)} disabled={disabled}>Manage photos</button>
    </header>
@@ -105,7 +102,7 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
     <header className="website-photo-library-header">
      <div>
       <strong id="media-library-title">Media Library</strong>
-      <span>Manage photos you've uploaded to Servonas.</span>
+      <span>Manage photos you&apos;ve uploaded to Servonas.</span>
      </div>
      <div className="website-photo-library-header-actions">
       <label className="website-photo-upload compact">Upload photos<small>Pick multiple photos from your phone or desktop.</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
