@@ -86,7 +86,7 @@ export default async function PublicBookingPage({
       .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
     const [{data},{data:rentalCategories}]=await Promise.all([
-      supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override").eq("business_id", settings.business_id).eq("active", true),
+      supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected").eq("business_id", settings.business_id).eq("active", true),
       supabase.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
     ]);
     const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}]));

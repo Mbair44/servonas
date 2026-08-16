@@ -8,8 +8,10 @@ import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
 import {calculateRentalDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
+import {operatorCharge} from "@/lib/rentalOperators";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
+type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type CheckoutBody = {
   businessSlug?: string;
   items?: RequestedItem[];
@@ -29,6 +31,7 @@ type CheckoutBody = {
   depositAccepted?: string | boolean;
   googlePlaceId?: string;
   promoCode?: string;
+  operators?: RequestedOperator[];
 };
 
 function hasText(value: unknown): value is string {
@@ -103,7 +106,7 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override")
+      .select("id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
@@ -117,8 +120,9 @@ export async function POST(request: Request) {
     }
     const startInstant=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,publicBooking?.timezone??"America/Phoenix"),endInstant=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,publicBooking?.timezone??"America/Phoenix");
     const businessRules={standardRentalHours:Number(publicBooking?.standard_rental_hours??24),allowMultiDay:Boolean(publicBooking?.allow_multi_day_rentals),additionalDayPricingType:(publicBooking?.additional_day_pricing_type??"full_price") as "full_price"|"percentage_discount"|"flat_rate",additionalDayDiscountPercent:Number(publicBooking?.additional_day_discount_percent??0),additionalDayFlatRateCents:publicBooking?.additional_day_flat_rate_cents==null?null:Number(publicBooking.additional_day_flat_rate_cents),maxRentalDays:publicBooking?.max_rental_days==null?null:Number(publicBooking.max_rental_days)};
-    let pricedItems;try{pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),days=calculateRentalDays(startInstant,endInstant,rules.standardRentalHours),price=calculateRentalUnitPrice(item.daily_price_cents,days,rules);return {...item,...price};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
-    const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,unitPriceCents:item.totalUnitPriceCents}));
+    const requestedOperators=new Map((Array.isArray(body.operators)?body.operators:[]).filter(row=>hasText(row.inventoryItemId)).map(row=>[row.inventoryItemId!.trim(),row.selected===true]));
+    let pricedItems;try{pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),days=calculateRentalDays(startInstant,endInstant,rules.standardRentalHours),price=calculateRentalUnitPrice(item.daily_price_cents,days,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));return {...item,...price,operator};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
+    const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,unitPriceCents:item.totalUnitPriceCents+(item.operator.chargeCents/item.quantity)}));
     const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
@@ -146,13 +150,18 @@ export async function POST(request: Request) {
     const booking = Array.isArray(data) ? data[0] : data;
     if (!booking?.booking_id) return NextResponse.json({ error: "The reservation was not created. Please try again." }, { status: 500 });
 
-    const subtotalCents = pricedItems.reduce((sum, item) => sum + item.totalUnitPriceCents * item.quantity, 0);
+    const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id").eq("booking_id",booking.booking_id);
+    if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
+    const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
+    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
+    if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
+    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + item.totalUnitPriceCents * item.quantity, 0)+operatorTotalCents;
     const discountCents=promo?.ok?promo.discountCents:0,totalCents=Math.max(0,subtotalCents-discountCents);
     const depositCents = Math.round(totalCents * depositPercent / 100);
     if(onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
-    await supabase.from("bookings").update({subtotal_cents:subtotalCents,total_cents:totalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null}).eq("id",booking.booking_id);
+    await supabase.from("bookings").update({subtotal_cents:subtotalCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null}).eq("id",booking.booking_id);
     if(!onlinePaymentsReady||depositCents===0){
       const {error:confirmationError}=await supabase.from("bookings").update({
         ...(business?{business_id:business.id}:{}),status:"confirmed",deposit_cents:0,
