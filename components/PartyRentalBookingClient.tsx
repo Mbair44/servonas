@@ -44,10 +44,11 @@ export default function PartyRentalBookingClient({businessSlug,businessName,inve
  const rentalDurationMinutes=Math.max(30,Math.round(safePositiveNumber(standardDurationMinutes,240)));
  const businessPricing={standardRentalHours,allowMultiDay,additionalDayPricingType,additionalDayDiscountPercent,additionalDayFlatRateCents,maxRentalDays};
  const durationForItem=(item:Item)=>Math.max(30,Math.round(safePositiveNumber(resolveRentalPricingRules(businessPricing,item).standardRentalHours,1)*60));
- // A cart can contain item-specific rental lengths. Default the end time to the
- // longest selected period so every selected item is priced and checked against
- // its own configured rules instead of the business-wide fallback.
- const selectedRentalDurationMinutes=selected.length?Math.max(...selected.map(durationForItem)):rentalDurationMinutes;
+ // “Check availability” focuses one inventory item without adding it to the
+ // cart. Use that item’s period until the customer chooses their cart, then
+ // use the longest selected period so every selected item is covered.
+ const durationItems=selected.length?selected:availabilityItem?[availabilityItem]:[];
+ const selectedRentalDurationMinutes=durationItems.length?Math.max(...durationItems.map(durationForItem)):rentalDurationMinutes;
  const priced=(item:Item)=>{const rules=resolveRentalPricingRules(businessPricing,item),priceCents=Number(item.daily_price_cents);const fallback={...calculateRentalUnitPrice(Number.isFinite(priceCents)&&priceCents>=0?priceCents:0,1,rules),rules};if(!date||!endDate||!startTime||!endTime)return fallback;try{const days=calculateRentalDays(new Date(`${date}T${startTime}:00`),new Date(`${endDate}T${endTime}:00`),rules.standardRentalHours);return {...calculateRentalUnitPrice(Number.isFinite(priceCents)&&priceCents>=0?priceCents:0,days,rules),rules};}catch(error){return {...fallback,error:error instanceof Error?error.message:"Choose a valid rental start and end time."};}};
  const operatorFor=(item:Item)=>operatorSelection(item,operatorSelections[item.id]);
  const operatorPricing=(item:Item)=>date&&endDate&&startTime&&endTime?operatorCharge(item,new Date(`${date}T${startTime}:00`),new Date(`${endDate}T${endTime}:00`),quantities[item.id]??0,operatorFor(item)):operatorCharge(item,new Date(),new Date(),quantities[item.id]??0,operatorFor(item));

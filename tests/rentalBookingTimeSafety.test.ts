@@ -7,7 +7,8 @@ test("party-rental time selection normalizes an invalid configured duration and 
  assert.match(source,/const safePositiveNumber=/);
  assert.match(source,/const rentalDurationMinutes=Math\.max\(30,Math\.round\(safePositiveNumber\(standardDurationMinutes,240\)\)\)/);
  assert.match(source,/const durationForItem=/);
- assert.match(source,/const selectedRentalDurationMinutes=selected\.length\?Math\.max\(\.\.\.selected\.map\(durationForItem\)\):rentalDurationMinutes/);
+ assert.match(source,/const durationItems=selected\.length\?selected:availabilityItem\?\[availabilityItem\]:\[\]/);
+ assert.match(source,/const selectedRentalDurationMinutes=durationItems\.length\?Math\.max\(\.\.\.durationItems\.map\(durationForItem\)\):rentalDurationMinutes/);
  assert.match(source,/hour\*60\+minute\+selectedRentalDurationMinutes/);
  assert.match(source,/The rental duration needs attention/);
  assert.match(source,/!Number\.isNaN\(prettyDate\.getTime\(\)\)/);
