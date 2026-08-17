@@ -9,6 +9,7 @@ import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
 import {calculateRentalDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
 import {operatorCharge} from "@/lib/rentalOperators";
+import {recordBookingFunnelEvent,snapshotBookingAttribution,validSessionId} from "@/lib/bookingFunnel";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
@@ -32,6 +33,7 @@ type CheckoutBody = {
   googlePlaceId?: string;
   promoCode?: string;
   operators?: RequestedOperator[];
+  attributionSessionId?: string;
 };
 
 function hasText(value: unknown): value is string {
@@ -162,6 +164,13 @@ export async function POST(request: Request) {
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
     await supabase.from("bookings").update({subtotal_cents:subtotalCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null}).eq("id",booking.booking_id);
+    if(business){
+      const sessionId=validSessionId(body.attributionSessionId)?body.attributionSessionId:null;
+      await Promise.allSettled([
+        snapshotBookingAttribution(supabase,{businessId:business.id,bookingId:booking.booking_id,sessionId}),
+        recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"booking_started",bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length},bookingTotalCents:totalCents,currency:"USD"}),
+      ]);
+    }
     if(!onlinePaymentsReady||depositCents===0){
       const {error:confirmationError}=await supabase.from("bookings").update({
         ...(business?{business_id:business.id}:{}),status:"confirmed",deposit_cents:0,
@@ -176,6 +185,7 @@ export async function POST(request: Request) {
       if(!emailResult.ok)console.error("Invoice-later rental confirmation email was not delivered",{bookingId:booking.booking_id,reason:emailResult.error});
       const businessEmailResult=await sendRentalBookingBusinessNotification(booking.booking_id,jobId);
       if(!businessEmailResult.ok)console.error("Invoice-later rental business notification was not delivered",{bookingId:booking.booking_id,reason:businessEmailResult.error});
+      if(business)await recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId, event:"booking_completed",eventKey:`${booking.booking_id}:booking_completed`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{payment_mode:"invoice_later",item_count:orderedItems.length},bookingTotalCents:totalCents,amountPaidCents:0,currency:"USD"});
       return NextResponse.json({paymentMode:"invoice_later",bookingId:booking.booking_id,bookingNumber:booking.booking_number});
     }
     const stripe = new Stripe(stripeKey!);
@@ -208,6 +218,7 @@ export async function POST(request: Request) {
           item_count: String(orderedItems.reduce((sum, item) => sum + item.quantity, 0)),
           subtotal_cents:String(subtotalCents),total_cents:String(totalCents),discount_cents:String(discountCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name}:{}),
           deposit_cents: String(depositCents),
+          ...(validSessionId(body.attributionSessionId)?{attribution_session_id:body.attributionSessionId}:{}),
         },
       },business?{stripeAccount:paymentAccount!.provider_account_id!}:undefined);
     } catch (stripeError) {
@@ -223,6 +234,7 @@ export async function POST(request: Request) {
       deposit_cents: depositCents,
       balance_due_cents: totalCents - depositCents,
     }).eq("id", booking.booking_id);
+    if(business)await recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId,event:"checkout_started",eventKey:`${booking.booking_id}:checkout_started`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length},bookingTotalCents:totalCents,amountPaidCents:depositCents,currency:"USD"});
 
     return NextResponse.json({ url: session.url });
   } catch (error) {

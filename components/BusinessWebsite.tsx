@@ -3,10 +3,12 @@ import {WebsiteRequestForm,type WebsiteRequestState} from "./WebsiteRequestForm"
 import {EmbeddedBookingFrame} from "./EmbeddedBookingFrame";
 import {WebsitePhotoSlideshow} from "./WebsitePhotoSlideshow";
 import {BusinessRentalCatalog} from "./BusinessRentalCatalog";
+import {TenantBookingFunnelTracker} from "./TenantBookingFunnelTracker";
 
 export type BusinessSiteService={id:string;name:string;description:string|null;price_amount:number|null;price_label:string|null};
 export type BusinessSiteRentalItem={id:string;name:string;category:string|null;description:string|null;dailyPriceCents:number;imageUrl:string|null;standardRentalHours:number;multiDayMessage:string|null};
 export type BusinessSiteData={
+ bookingSlug?:string|null;
  name:string;phone:string|null;email:string|null;logoUrl:string|null;industryProfile:string|null;websiteSource:string|null;template:"modern"|"traditional"|"bold";primaryColor:string;secondaryColor:string;floralFontStyle:"elegant"|"romantic"|"modern";floralAccentColor:string;floralBackgroundColor:string;floralPhotoLayout:"hero_right"|"hero_left"|"hero_full"|"gallery_first";
  heroHeading:string;heroSubheading:string;aboutText:string;instagramUrl:string|null;googleReviewUrl:string|null;googleRating:number|null;googleReviewCount:number|null;googleReviews:{author:string;rating:number;text:string;publishedAt?:string|null;fromGoogleProfile?:boolean}[];photoUrls:string[];requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
  services:BusinessSiteService[];rentalItems:BusinessSiteRentalItem[];hours:{weekday:number;start:string;end:string}[];serviceAreas:string[];
@@ -28,6 +30,7 @@ export function BusinessWebsite({site,requestAction,preview=false}:{site:Busines
  const gallerySection=site.photoUrls.length>2?<section className="business-site-section business-site-gallery"><header><span>Our work</span><h2>Recent service highlights</h2></header><div>{site.photoUrls.slice(2).map((url,index)=><img src={url} alt={`${site.name} project ${index+1}`} key={url}/>)}</div></section>:null;
  const floralClass=site.websiteSource==="floral-event-website"?` floral-font-${site.floralFontStyle} floral-photos-${site.floralPhotoLayout}`:"";
  return <main className={`business-site template-${site.template}${isPest?" website-pest-control":""}${isDetailing?" website-car-detailing":""}${isPartyRental?" website-party-rental":""}${industryPresentation?` ${industryPresentation.className}`:""}${floralClass}`} style={{"--site-primary":site.primaryColor,"--site-secondary":site.secondaryColor,"--site-accent":site.floralAccentColor,"--site-background":site.floralBackgroundColor} as React.CSSProperties}>
+  {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>} 
   {preview&&<div className="business-site-preview-bar"><span>Preview mode — this is not the public website.</span><small>Close this tab to return to Servonas.</small></div>}
   {site.announcementText&&<div className="business-site-promotion">{site.announcementText}</div>}
   {reviewRibbon}

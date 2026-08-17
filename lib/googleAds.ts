@@ -6,6 +6,8 @@ type GoogleTag = (...args: unknown[]) => void;
 type GoogleAdsConversionOptions={
  onceKey?:string;
  eventCallback?:()=>void;
+ value?:number;
+ currency?:string;
 };
 
 export function trackGoogleAdsConversion(sendTo:string,options:GoogleAdsConversionOptions={}) {
@@ -18,6 +20,8 @@ export function trackGoogleAdsConversion(sendTo:string,options:GoogleAdsConversi
     gtag("event","conversion",{
       send_to:sendTo,
       ...(options.eventCallback?{event_callback:options.eventCallback}:{}),
+      ...(typeof options.value==="number"?{value:options.value}:{}),
+      ...(options.currency?{currency:options.currency}:{}),
     });
     // Mark sent only after gtag accepted the event without throwing.
     if (storageKey) window.sessionStorage.setItem(storageKey, "sent");
@@ -26,6 +30,11 @@ export function trackGoogleAdsConversion(sendTo:string,options:GoogleAdsConversi
     if (process.env.NODE_ENV === "development") console.debug("Google Ads conversion tracking skipped", error);
     return false;
   }
+}
+
+export function trackGoogleAdsBookingConversion(bookingId:string,value:number,currency="USD"){
+ const sendTo=process.env.NEXT_PUBLIC_GOOGLE_ADS_BOOKING_CONVERSION?.trim();
+ return sendTo?trackGoogleAdsConversion(sendTo,{onceKey:`booking.${bookingId}`,value,currency}):false;
 }
 
 export function trackGoogleAdsSignupConversion(userId:string,eventCallback?:()=>void) {
