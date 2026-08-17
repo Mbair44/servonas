@@ -91,6 +91,24 @@ export async function archiveRentalItem(slug:string,itemId:string){
  if(error)redirect(path(slug,"error","The rental item could not be deactivated."));
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item deactivated."));
 }
+
+export async function addRentalItemBlockedDate(slug:string,itemId:string,data:FormData){
+ const {supabase,business}=await context(slug),blockedDate=text(data,"blockedDate"),reason=text(data,"reason");
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(blockedDate))redirect(path(slug,"error","Choose a valid date to block."));
+ const {data:item}=await supabase.from("inventory_items").select("id,name").eq("id",itemId).eq("business_id",business.id).maybeSingle();
+ if(!item)redirect(path(slug,"error","Rental item not found."));
+ const admin=getSupabaseAdmin();if(!admin)redirect(path(slug,"error","Rental availability is not configured."));
+ const {error}=await admin.from("blocked_dates").insert({business_id:business.id,inventory_item_id:item.id,blocked_date:blockedDate,reason:reason||null});
+ if(error)redirect(path(slug,"error",error.code==="23505"?`${item.name} is already blocked on that date.`:"That item date could not be blocked. Apply the rental booking migrations if needed."));
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success",`${item.name} is blocked on ${blockedDate}.`));
+}
+
+export async function removeRentalItemBlockedDate(slug:string,itemId:string,blockedDateId:string){
+ const {business}=await context(slug),admin=getSupabaseAdmin();if(!admin)redirect(path(slug,"error","Rental availability is not configured."));
+ const {error}=await admin.from("blocked_dates").delete().eq("id",blockedDateId).eq("business_id",business.id).eq("inventory_item_id",itemId);
+ if(error)redirect(path(slug,"error","That item date could not be removed."));
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Item blocked date removed."));
+}
 export async function saveRentalItemUpsells(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug);
  const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];
