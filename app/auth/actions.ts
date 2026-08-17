@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isWebsiteFirstSource} from "@/lib/websiteFirstConfig";
+import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -51,6 +52,7 @@ export async function signUp(formData: FormData) {
   const utmContent=value(formData,"utmContent");
   const rawSource=value(formData,"source"),source=isWebsiteFirstSource(rawSource)?rawSource:"";
   const marketingVisitorId=value(formData,"marketingVisitorId"),marketingSessionId=value(formData,"marketingSessionId");
+  const acquisitionSessionId=value(formData,"acquisitionSessionId");
   const next = value(formData, "next") || (source?`/onboarding?source=${source}`:"/app");
   const safeNext = next.startsWith("/")&&!next.startsWith("//") ? next : "/app";
   const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${source?`&source=${source}`:""}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
@@ -105,6 +107,7 @@ export async function signUp(formData: FormData) {
   // Supabase can intentionally return an obfuscated user with no identities for
   // an existing email. Only a newly created identity is a completed signup.
   const signupCompleted = Boolean(data.user && (data.user.identities?.length ?? 0) > 0);
+  if(signupCompleted&&source){const admin=getSupabaseAdmin();if(admin)try{await linkAcquisitionSession(admin,{sessionId:acquisitionSessionId,industry:source,userId:data.user!.id,event:"servonas_signup_completed"});}catch{console.warn("Website acquisition signup analytics could not be recorded");}}
   if(signupCompleted&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)){
     const admin=getSupabaseAdmin();
     if(admin){const {error:attributionError}=await admin.rpc("record_marketing_content_signup",{p_content_code:utmContent,p_user_id:data.user!.id});if(attributionError)console.error("Marketing signup attribution could not be saved",{utmContent,userId:data.user!.id,code:attributionError.code});}

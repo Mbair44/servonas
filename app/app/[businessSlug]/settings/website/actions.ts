@@ -11,6 +11,7 @@ import {findGoogleBusinessPlace,resolveGoogleBusinessPlaceId} from "@/lib/google
 import {normalizeInstagramUrl} from "@/lib/socialLinks";
 import {resolveGoogleAddress} from "@/lib/googleAddress";
 import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
+import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
@@ -47,7 +48,7 @@ export async function checkManagedDomainAvailability(slug:string){
  if(existing?.provider_order_id||["registration_pending","registered","connected"].includes(existing?.status??""))redirect(target(slug,"error","Registration already started. Servonas is checking its status automatically.","domain"));
  let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Customer domain quote failed",{businessId:business.id,category:error instanceof TypeError?"network":"provider"});redirect(target(slug,"error","We could not check this domain right now. Try again shortly.","domain"));}
  const status=!quote.available?"unavailable":quote.purchasePrice<=standardDomainLimit()?"available":"premium_review",now=new Date().toISOString();
- const {error}=await admin.from("website_domain_orders").upsert({business_id:business.id,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:1500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
+ const {error}=await admin.from("website_domain_orders").upsert({business_id:business.id,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:7500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
  if(error)redirect(target(slug,"error","The availability result could not be saved. Apply the Vercel domain registration migration.","domain"));
  await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
  revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.","domain"));
@@ -186,6 +187,7 @@ export async function setWebsitePublished(slug:string,data:FormData){
   const now=new Date().toISOString();
   const {error:onboardingError}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",business.id);
   if(onboardingError)console.error("Website-first completion state update failed",{businessId:business.id,code:onboardingError.code});
+  const admin=getSupabaseAdmin();if(admin){const {data:session}=await admin.from("website_acquisition_sessions").select("id,industry,user_id").eq("business_id",business.id).order("last_seen_at",{ascending:false}).limit(1).maybeSingle();if(session)await linkAcquisitionSession(admin,{sessionId:session.id,industry:session.industry,userId:session.user_id,businessId:business.id,event:"website_published"});}
  }
  revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);
  if(publish&&websiteFirst)redirect(`/app/${slug}/settings/website/success`);

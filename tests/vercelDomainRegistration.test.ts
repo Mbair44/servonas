@@ -42,10 +42,10 @@ test("admin registrar UI separates quote from the final purchase",async()=>{
  assert.match(page,/Sync registration status/);
 });
 
-test("customer-facing domain prices include the configured fifteen-percent margin",async()=>{
- assert.equal(DOMAIN_RETAIL_MARKUP_BPS,1500);
- assert.equal(domainRetailPrice(10),11.5);
- assert.equal(domainRetailPrice(12.34),14.19);
+test("customer-facing domain prices include the configured seventy-five-percent margin",async()=>{
+ assert.equal(DOMAIN_RETAIL_MARKUP_BPS,7500);
+ assert.equal(domainRetailPrice(10),17.5);
+ assert.equal(domainRetailPrice(12.34),21.6);
  assert.equal(domainRetailPrice(0),0);
  assert.throws(()=>domainRetailPrice(-1));
  const route=await read("app/api/domains/availability/route.ts");
@@ -54,10 +54,12 @@ test("customer-facing domain prices include the configured fifteen-percent margi
 });
 
 test("provider cost and customer retail domain prices are stored separately",async()=>{
- const [migration,actions]=await Promise.all([read("supabase/migrations/20260814000200_domain_retail_pricing.sql"),read("app/app/admin/domains/actions.ts")]);
+ const [migration,markupMigration,actions]=await Promise.all([read("supabase/migrations/20260814000200_domain_retail_pricing.sql"),read("supabase/migrations/20260817000200_domain_retail_markup_75_percent.sql"),read("app/app/admin/domains/actions.ts")]);
  assert.match(migration,/customer_purchase_price numeric\(12,2\)/);
  assert.match(migration,/customer_renewal_price numeric\(12,2\)/);
  assert.match(migration,/retail_markup_bps integer not null default 1500/);
+ assert.match(markupMigration,/default 7500/);
+ assert.match(actions,/retail_markup_bps:7500/);
  assert.match(actions,/purchase_price:quote\.purchasePrice/);
  assert.match(actions,/customer_purchase_price:domainRetailPrice\(quote\.purchasePrice\)/);
  assert.match(actions,/buyVercelDomain\(domain,quote\.purchasePrice,registrant\)/);
