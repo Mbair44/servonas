@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingSms } from "@/lib/sms";
 import { stripeConnectState } from "@/lib/stripeConnect";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
+import {recordBookingFunnelEvent} from "@/lib/bookingFunnel";
 
 export const runtime = "nodejs";
 
@@ -289,6 +290,7 @@ const couponId =
 
       await supabase.from("booking_items").update({ status: "confirmed" }).eq("booking_id", bookingId);
       const businessId=session.metadata?.business_id;if(businessId)await supabase.rpc("finalize_discount_redemption",{p_business_id:businessId,p_booking_id:bookingId});
+      if(businessId)await recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"booking_completed",eventKey:`${bookingId}:booking_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()});
       try{const jobId=await ensureRentalBookingJob(supabase,bookingId);const emailResult=await sendRentalBookingConfirmationEmail(bookingId,jobId);const businessEmailResult=await sendRentalBookingBusinessNotification(bookingId,jobId);if(!emailResult.ok||!businessEmailResult.ok){console.error("Paid rental email delivery was incomplete",{bookingId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});throw new Error("Paid rental confirmation emails were not delivered.");}}catch(jobError){console.error("Confirmed rental post-payment processing failed",{bookingId,error:jobError instanceof Error?jobError.message:"unknown"});throw jobError;}
 
       try {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Stripe from "stripe";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {GoogleAdsBookingConversion} from "@/components/GoogleAdsBookingConversion";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,13 @@ export default async function SuccessPage({ searchParams }: Props) {
   let session: Stripe.Checkout.Session | null = null;
   let businessName = "the business";
   let homeHref = "/";
+  let bookingId:string|null=null;
 
   if (sessionId && stripeKey) {
     try {
       const stripe=new Stripe(stripeKey),db=getSupabaseAdmin();
       const {data:booking}=db?await db.from("bookings").select("id,business_id,businesses(name)").eq("stripe_checkout_session_id",sessionId).maybeSingle():{data:null};
+      bookingId=booking?.id??null;
       const business=booking?(Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses):null;
       businessName=business?.name||businessName;
       const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status").eq("business_id",booking.business_id).maybeSingle():{data:null};
@@ -57,6 +60,7 @@ export default async function SuccessPage({ searchParams }: Props) {
           {prettyDate && <p className="lead">Rental date: <strong>{prettyDate}</strong></p>}
           {paid ? (
             <>
+              {bookingId&&<GoogleAdsBookingConversion bookingId={bookingId} valueCents={totalCents} currency={session?.currency?.toUpperCase()??"USD"}/>} 
               <p className="lead">Non-refundable deposit paid: <strong>{money(depositCents)}</strong></p>
               {discountCents > 0 ? <p className="lead">Promotion discount: <strong>{money(discountCents)}</strong></p> : null}
               <p className="muted">Remaining balance: <strong>{money(balanceCents)}</strong>. Keep your confirmation number for your records.</p>
