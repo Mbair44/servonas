@@ -41,7 +41,8 @@ async function json(response:Response){try{return await response.json();}catch{r
 export function vercelDomainManagementConfigured(){const {token,project}=configuration();return Boolean(token&&project);}
 export function vercelRegistrarConfigured(){return Boolean(configuration().token);}
 export function vercelStandardDomainMaximumPrice(){const value=Number(process.env.VERCEL_STANDARD_DOMAIN_MAX_USD??25);return Number.isFinite(value)&&value>0?value:25;}
-export const DOMAIN_RETAIL_MARKUP_BPS=1500;
+// Customer-facing domain quotes include the Servonas domain-management margin.
+export const DOMAIN_RETAIL_MARKUP_BPS=7500;
 export function domainRetailPrice(providerPrice:number){
  if(!Number.isFinite(providerPrice)||providerPrice<0)throw new Error("Invalid provider domain price.");
  const providerCents=Math.round(providerPrice*100);

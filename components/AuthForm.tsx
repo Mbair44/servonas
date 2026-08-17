@@ -4,6 +4,7 @@ import Link from "next/link";
 import {useActionState,useEffect,useRef,useState,type FormEvent} from "react";
 import {trackGoogleAdsSignupConversion} from "@/lib/googleAds";
 import {isWebsiteFirstSource} from "@/lib/websiteFirstConfig";
+import {acquisitionSessionId} from "@/components/AcquisitionFunnelTracker";
 
 type AuthActionResult={signupCompleted:boolean;userId:string|null;redirectTo:string}|null|void;
 
@@ -44,6 +45,7 @@ export default function AuthForm({
   const [attempted,setAttempted]=useState(false);
   const [contentLead,setContentLead]=useState(utmContent??"");
   const [marketingVisitorId,setMarketingVisitorId]=useState(""),[marketingSessionId,setMarketingSessionId]=useState("");
+  const [websiteAcquisitionSessionId,setWebsiteAcquisitionSessionId]=useState("");
   const trackedSignup=useRef<string|null>(null);
   const [actionResult,formAction,pending]=useActionState(async(_previous:AuthActionResult,formData:FormData)=>await action(formData),null);
   useEffect(()=>{
@@ -69,7 +71,7 @@ export default function AuthForm({
     }
     window.location.assign(actionResult.redirectTo);
   },[actionResult]);
-  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");}catch{}},[contentLead]);
+  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");if(isWebsiteFirstSource(source))setWebsiteAcquisitionSessionId(acquisitionSessionId());}catch{}},[contentLead,source]);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
   const passwordMissing=attempted&&requiresConfirmation&&!password;
   const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
@@ -101,6 +103,7 @@ export default function AuthForm({
           {next && <input type="hidden" name="next" value={next} />}
           {isSignup&&contentLead&&<input type="hidden" name="utmContent" value={contentLead}/>}
           {isSignup&&isWebsiteFirstSource(source)&&<input type="hidden" name="source" value={source}/>}
+          {isSignup&&websiteAcquisitionSessionId&&<input type="hidden" name="acquisitionSessionId" value={websiteAcquisitionSessionId}/>}
           {isSignup&&marketingVisitorId&&<input type="hidden" name="marketingVisitorId" value={marketingVisitorId}/>}
           {isSignup&&marketingSessionId&&<input type="hidden" name="marketingSessionId" value={marketingSessionId}/>}
           {!isReset && (
