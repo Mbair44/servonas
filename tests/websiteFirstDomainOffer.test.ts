@@ -5,12 +5,12 @@ const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8")
 
 test("website-first pilot captures a first-year domain request before registrar fulfillment",async()=>{
  const [choice,action,config]=await Promise.all([read("components/WebsiteFirstDomainChoice.tsx"),read("app/onboarding/actions.ts"),read("lib/websiteFirstConfig.ts")]);
- assert.match(choice,/I want Servonas to get my domain/);
- assert.match(choice,/Check availability/);
+ assert.match(choice,/Get me a new domain/);
+ assert.match(choice,/Check now/);
  assert.match(choice,/First year: Free/);
  assert.match(choice,/per year/);
  assert.match(choice,/does not reserve or purchase/);
- assert.match(choice,/Premium domains are not included/);
+ assert.match(choice,/premium domain|Premium domains are not included/);
  assert.match(action,/domain_request_status:"availability_check_needed"/);
  assert.match(action,/requested_domain:domainName/);
  assert.match(config,/pilotDomainIncluded:true/);
@@ -35,8 +35,8 @@ test("domain requests remain separate from registered custom domains",async()=>{
 
 test("publish success and internal admin expose pending requests",async()=>{
  const [success,admin]=await Promise.all([read("app/app/[businessSlug]/settings/website/success/page.tsx"),read("app/app/admin/domains/page.tsx")]);
- assert.match(success,/Your custom domain/);
- assert.match(success,/confirming availability/);
+ assert.match(success,/Give your website a professional \.com/);
+ assert.match(success,/Finish setting up your domain|Finish registering your domain|Your domain registration is in progress|Your domain needs attention/);
  assert.match(admin,/isServonasPlatformAdmin/);
  assert.match(admin,/Check availability &amp; price/);
  assert.match(admin,/Register this domain through Vercel/);
