@@ -5,7 +5,7 @@ export type EntitlementCode=(typeof entitlementCodes)[number];
 export type EntitlementDefinition={code:EntitlementCode;name:string;description:string;capabilities:readonly CapabilityCode[];limits:Readonly<Record<string,number|boolean|null>>;isPubliclySelectable:boolean;isBillingEnabled:boolean};
 const pilotCapabilities=[...capabilityCodes] as const;
 export const entitlementCatalog:Readonly<Record<EntitlementCode,EntitlementDefinition>>={
- pilot:{code:"pilot",name:"Pilot Access",description:"Full pilot access with no payment method required.",capabilities:pilotCapabilities,limits:{},isPubliclySelectable:false,isBillingEnabled:false},
+ pilot:{code:"pilot",name:"Pilot Access",description:"Full pilot access with no payment method required.",capabilities:pilotCapabilities,limits:{website_image_generation:20},isPubliclySelectable:false,isBillingEnabled:false},
  starter:{code:"starter",name:"Starter",description:"Future plan definition. Billing and selection are not enabled.",capabilities:[],limits:{},isPubliclySelectable:false,isBillingEnabled:false},
  growth:{code:"growth",name:"Growth",description:"Future plan definition. Billing and selection are not enabled.",capabilities:[],limits:{},isPubliclySelectable:false,isBillingEnabled:false},
  business:{code:"business",name:"Business",description:"Future plan definition. Billing and selection are not enabled.",capabilities:[],limits:{},isPubliclySelectable:false,isBillingEnabled:false},
