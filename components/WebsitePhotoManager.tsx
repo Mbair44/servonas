@@ -2,7 +2,7 @@
 
 import {useEffect, useMemo, useState,type ChangeEvent} from "react";
 import {createSupabaseBrowserClient} from "@/lib/supabaseBrowser";
-import {discardWebsiteAiPhoto,generateWebsiteAiPhoto,openWebsiteAiImageGenerator,prepareWebsitePhotoUpload,saveWebsiteAiPhoto} from "@/app/app/[businessSlug]/settings/website/actions";
+import {discardWebsiteAiPhotoSafe,generateWebsiteAiPhotoSafe,openWebsiteAiImageGeneratorSafe,prepareWebsitePhotoUpload,saveWebsiteAiPhotoSafe} from "@/app/app/[businessSlug]/settings/website/actions";
 import {websiteAiImageTypes,type WebsiteAiImageType} from "@/lib/websiteAiImages";
 import {optimizeImageForUpload,validateOptimizableImage} from "@/lib/browserImageOptimizer";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
@@ -57,40 +57,42 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
  const closePreview=()=>setPreviewIndex(null);
  const businessSlug=typeof window==="undefined"?"":decodeURIComponent(window.location.pathname.split("/")[2]??"");
  const removePhoto=(url:string)=>{setItems(current=>current.filter(item=>item!==url));setSelected(current=>current.filter(item=>item!==url));if(previewIndex!=null&&photoItems[previewIndex]?.url===url)setPreviewIndex(null);};
- async function openAiGenerator(){
-  if(disabled||!businessSlug)return;
-  setAiOpen(true);setAiError("");
-  try{await openWebsiteAiImageGenerator(businessSlug,"website_photos");}catch{}
- }
+  async function openAiGenerator(){
+   if(disabled||!businessSlug)return;
+   setAiOpen(true);setAiError("");
+  const result=await openWebsiteAiImageGeneratorSafe(businessSlug,"website_photos");
+  if(result.ok===false)setAiError(result.error);
+  }
  async function generateAiPhoto(regenerate=false){
   if(disabled||aiStatus==="generating"||aiStatus==="saving"||!businessSlug)return;
   setAiError("");setAiStatus("generating");
-  try{
-   const result=await generateWebsiteAiPhoto(businessSlug,{idempotencyKey:crypto.randomUUID(),section:"website_photos",imageType:aiType,customDescription:aiType==="custom_description"?aiDescription:null,generationKind:regenerate?"regeneration":"initial",replacesGenerationId:regenerate?aiDraft?.generationId??null:null});
-   setAiDraft({generationId:result.generationId,imageUrl:result.imageUrl,imageType:aiType});
-   setAiStatus("ready");
-  }catch(error){
+  const result=await generateWebsiteAiPhotoSafe(businessSlug,{idempotencyKey:crypto.randomUUID(),section:"website_photos",imageType:aiType,customDescription:aiType==="custom_description"?aiDescription:null,generationKind:regenerate?"regeneration":"initial",replacesGenerationId:regenerate?aiDraft?.generationId??null:null});
+  if(!result.ok){
    setAiStatus("idle");
-   setAiError(error instanceof Error?error.message:"We couldn't create that photo. Please try again.");
+   setAiError(result.error??"We couldn't create that photo. Please try again.");
+   return;
   }
+  setAiDraft({generationId:result.generationId,imageUrl:result.imageUrl,imageType:aiType});
+  setAiStatus("ready");
  }
  async function saveAiPhoto(){
   if(!aiDraft||!businessSlug||items.length>=MAX_UPLOAD_COUNT)return;
   setAiStatus("saving");setAiError("");
-  try{
-   const saved=await saveWebsiteAiPhoto(businessSlug,aiDraft.generationId);
-   setItems(current=>[...new Set([...current,saved.url])].slice(0,MAX_UPLOAD_COUNT));
-   setAiDraft(null);setAiStatus("idle");setAiOpen(false);setAiDescription("");setAiType("hero_banner");
-  }catch(error){
+  const saved=await saveWebsiteAiPhotoSafe(businessSlug,aiDraft.generationId);
+  if(!saved.ok){
    setAiStatus("ready");
-   setAiError(error instanceof Error?error.message:"That photo could not be saved.");
+   setAiError(saved.error??"That photo could not be saved.");
+   return;
   }
+  setItems(current=>[...new Set([...current,saved.url])].slice(0,MAX_UPLOAD_COUNT));
+  setAiDraft(null);setAiStatus("idle");setAiOpen(false);setAiDescription("");setAiType("hero_banner");
  }
- async function discardAiPhoto(){
-  if(!aiDraft||!businessSlug)return setAiOpen(false);
-  try{await discardWebsiteAiPhoto(businessSlug,aiDraft.generationId);}catch{}
+  async function discardAiPhoto(){
+   if(!aiDraft||!businessSlug)return setAiOpen(false);
+  const result=await discardWebsiteAiPhotoSafe(businessSlug,aiDraft.generationId);
+  if(result.ok===false){setAiStatus("ready");setAiError(result.error??"That photo could not be discarded.");return;}
   setAiDraft(null);setAiStatus("idle");setAiError("");setAiDescription("");setAiOpen(false);
- }
+  }
  async function upload(event:ChangeEvent<HTMLInputElement>){
   const selectedFiles=Array.from(event.target.files??[]);event.target.value="";setUploadError("");
   if(!selectedFiles.length)return;

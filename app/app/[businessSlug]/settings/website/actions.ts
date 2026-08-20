@@ -77,7 +77,11 @@ async function websiteAiImagePricing(model:string,size:string,quality:string,occ
  return data??null;
 }
 
-function safeWebsiteAiMessage(){
+function safeWebsiteAiMessage(reason?:"missing_openai"|"missing_supabase"|"generation_failed"|"save_failed"|"discard_failed"){
+ if(reason==="missing_openai")return "AI photo generation is not configured yet. Add the OpenAI API key and try again.";
+ if(reason==="missing_supabase")return "AI photo generation is not configured yet. Add the Supabase service role key and try again.";
+ if(reason==="save_failed")return "That AI photo could not be saved right now. Please try again.";
+ if(reason==="discard_failed")return "That AI photo could not be discarded right now. Please try again.";
  return "We couldn't create that photo. Please try again.";
 }
 
@@ -211,12 +215,16 @@ export async function openWebsiteAiImageGenerator(slug:string,section="website_p
  return {ok:true};
 }
 
+export async function openWebsiteAiImageGeneratorSafe(slug:string,section="website_photos"):Promise<{ok:true}|{ok:false;error:string}>{
+ try{await openWebsiteAiImageGenerator(slug,section);return {ok:true};}catch(error){console.error("Website AI image generator open failed",{slug,message:error instanceof Error?error.message:"unknown"});return {ok:false,error:error instanceof Error?error.message:safeWebsiteAiMessage()};}
+}
+
 export async function generateWebsiteAiPhoto(slug:string,input:{idempotencyKey:string;section:string;imageType:WebsiteAiImageType;customDescription?:string|null;size?:string|null;quality?:string|null;generationKind?:WebsiteAiImageGenerationKind;replacesGenerationId?:string|null;}){
  const {business,user,role,entitlementSummary}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))throw new Error("Only owners and administrators can generate website photos.");
- if(!process.env.OPENAI_API_KEY?.trim())throw new Error(safeWebsiteAiMessage());
+ if(!process.env.OPENAI_API_KEY?.trim())throw new Error(safeWebsiteAiMessage("missing_openai"));
  if(!input?.idempotencyKey?.trim())throw new Error(safeWebsiteAiMessage());
- const admin=getSupabaseAdmin();if(!admin)throw new Error(safeWebsiteAiMessage());
+ const admin=getSupabaseAdmin();if(!admin)throw new Error(safeWebsiteAiMessage("missing_supabase"));
  const usage=await websiteAiGenerationUsageCount(business.id),limit=websiteAiImageLimit(entitlementSummary);
  if(limit>=0&&usage>=limit){
   await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,eventName:"website_ai_image_limit_reached",metadata:{industry:business.industry_profile,section:input.section,image_type:input.imageType,limit,current_usage:usage,business_slug:business.slug,timestamp:new Date().toISOString()}});
@@ -269,6 +277,11 @@ export async function generateWebsiteAiPhoto(slug:string,input:{idempotencyKey:s
  }
 }
 
+export async function generateWebsiteAiPhotoSafe(slug:string,input:{idempotencyKey:string;section:string;imageType:WebsiteAiImageType;customDescription?:string|null;size?:string|null;quality?:string|null;generationKind?:WebsiteAiImageGenerationKind;replacesGenerationId?:string|null;}):Promise<{ok:true;generationId:string;imageUrl:string}|{ok:false;error:string}>{
+ try{const result=await generateWebsiteAiPhoto(slug,input);return {ok:true,generationId:result.generationId,imageUrl:result.imageUrl};}
+ catch(error){console.error("Website AI image request failed",{slug,message:error instanceof Error?error.message:"unknown"});return {ok:false,error:error instanceof Error?error.message:safeWebsiteAiMessage()};}
+}
+
 export async function saveWebsiteAiPhoto(slug:string,generationId:string){
  const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))throw new Error("Only owners and administrators can save website photos.");
@@ -278,6 +291,11 @@ export async function saveWebsiteAiPhoto(slug:string,generationId:string){
  await admin.from("website_ai_image_generations").update({status:"saved",outcome:"saved",saved_photo_url:generation.temporary_public_url,updated_at:new Date().toISOString()}).eq("id",generationId).eq("business_id",business.id);
  await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:"website_ai_image_saved",metadata:{industry:business.industry_profile,business_slug:business.slug,timestamp:new Date().toISOString()}});
  return {url:generation.temporary_public_url};
+}
+
+export async function saveWebsiteAiPhotoSafe(slug:string,generationId:string):Promise<{ok:true;url:string}|{ok:false;error:string}>{
+ try{const result=await saveWebsiteAiPhoto(slug,generationId);return {ok:true,url:result.url};}
+ catch(error){console.error("Website AI image save failed",{slug,generationId,message:error instanceof Error?error.message:"unknown"});return {ok:false,error:error instanceof Error?error.message:safeWebsiteAiMessage("save_failed")};}
 }
 
 export async function discardWebsiteAiPhoto(slug:string,generationId:string){
@@ -290,6 +308,10 @@ export async function discardWebsiteAiPhoto(slug:string,generationId:string){
  await admin.from("website_ai_image_generations").update({status:"discarded",outcome:"discarded",temporary_storage_path:null,temporary_public_url:null,updated_at:new Date().toISOString()}).eq("id",generationId).eq("business_id",business.id);
  await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:"website_ai_image_discarded",metadata:{industry:business.industry_profile,business_slug:business.slug,timestamp:new Date().toISOString()}});
  return {ok:true};
+}
+
+export async function discardWebsiteAiPhotoSafe(slug:string,generationId:string):Promise<{ok:true}|{ok:false;error:string}>{
+ try{await discardWebsiteAiPhoto(slug,generationId);return {ok:true};}catch(error){console.error("Website AI image discard failed",{slug,generationId,message:error instanceof Error?error.message:"unknown"});return {ok:false,error:error instanceof Error?error.message:safeWebsiteAiMessage("discard_failed")};}
 }
 
 export async function saveWebsiteSettings(slug:string,data:FormData){
