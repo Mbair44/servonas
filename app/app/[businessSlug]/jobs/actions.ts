@@ -61,7 +61,15 @@ async function prepareJob(
   if (!title) errors.title = "Enter a job title.";
   if (!customerId) errors.customerId = "Choose a customer.";
   const timeError = validateJobTimes(startsAt, endsAt, arrivalStart, arrivalEnd);
-  if (timeError) errors.startsAt = timeError;
+  if (timeError) {
+    if (startsAt && !endsAt) errors.endsAt = timeError;
+    else if (!startsAt && endsAt) errors.startsAt = timeError;
+    else if (arrivalStart && !arrivalEnd) errors.arrivalWindowEnd = timeError;
+    else if (!arrivalStart && arrivalEnd) errors.arrivalWindowStart = timeError;
+    else if (startsAt && endsAt && endsAt <= startsAt) errors.endsAt = timeError;
+    else if (arrivalStart && arrivalEnd && arrivalEnd < arrivalStart) errors.arrivalWindowEnd = timeError;
+    else errors.startsAt = timeError;
+  }
   const subtotal = nonNegativeMoney(text(formData, "subtotal"));
   const tax = nonNegativeMoney(text(formData, "taxAmount"));
   const discount = nonNegativeMoney(text(formData, "discountAmount"));
