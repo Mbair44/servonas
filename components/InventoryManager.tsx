@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import { storageImageThumbUrl } from "@/lib/storageImageVariants";
 
 type InventoryItem = {
   id: string;
@@ -198,7 +199,7 @@ export default function InventoryManager({ initialInventory }: { initialInventor
       <div className="inventory-admin-grid">
         {items.length === 0 ? <p className="muted">No inventory items yet.</p> : items.map((item) => (
           <article className="inventory-admin-card" key={item.id}>
-            {item.image_url ? <img src={item.image_url} alt={item.name} /> : <div className="inventory-image-placeholder">No image</div>}
+            {item.image_url ? <img src={storageImageThumbUrl(item.image_url) ?? item.image_url} alt={item.name} loading="lazy" /> : <div className="inventory-image-placeholder">No image</div>}
             <div className="inventory-admin-card-body">
               <div className="inventory-card-title-row"><h3>{item.name}</h3><span className={`status ${item.active ? "paid" : "cancelled"}`}>{item.active ? "Active" : "Inactive"}</span></div>
               <strong className="inventory-price">{money(item.daily_price_cents)}{item.allow_quantity ? " each" : ""}</strong>

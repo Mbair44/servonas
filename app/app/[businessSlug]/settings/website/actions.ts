@@ -13,6 +13,7 @@ import {resolveGoogleAddress} from "@/lib/googleAddress";
 import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
 import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
 import {buildWebsiteAiImagePrompt,estimateWebsiteAiImageCost,normalizeWebsiteAiImageQuality,normalizeWebsiteAiImageSize,websiteAiImageFeature,websiteAiImageLimit,type WebsiteAiImageGenerationKind,type WebsiteAiImageType} from "@/lib/websiteAiImages";
+import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
@@ -143,10 +144,19 @@ export async function prepareWebsitePhotoUpload(slug:string,name:string,type:str
  const allowed=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
  if(!allowed.has(type)||!Number.isFinite(size)||size<=0||size>8*1024*1024)throw new Error("Choose a JPG, PNG, WebP, GIF, or AVIF photo no larger than 8 MB.");
  const admin=getSupabaseAdmin();if(!admin)throw new Error("Website photo uploads are not configured.");
- const extension=type==="image/jpeg"?"jpg":type.split("/")[1],storagePath=`${business.id}/${crypto.randomUUID()}.${extension}`;
- const {data,error}=await admin.storage.from("website-assets").createSignedUploadUrl(storagePath);
- if(error||!data)throw new Error("The photo upload could not be prepared. Please try again.");
- return {bucket:"website-assets",path:storagePath,token:data.token,url:admin.storage.from("website-assets").getPublicUrl(storagePath).data.publicUrl,name:name.slice(0,180)};
+ const paths=buildImageVariantPaths(business.id,"webp");
+ const [displayUpload,thumbUpload]=await Promise.all([
+  admin.storage.from("website-assets").createSignedUploadUrl(paths.displayPath),
+  admin.storage.from("website-assets").createSignedUploadUrl(paths.thumbPath),
+ ]);
+ if(displayUpload.error||!displayUpload.data||thumbUpload.error||!thumbUpload.data)throw new Error("The photo upload could not be prepared. Please try again.");
+ return {
+  bucket:"website-assets",
+  display:{path:paths.displayPath,token:displayUpload.data.token,url:admin.storage.from("website-assets").getPublicUrl(paths.displayPath).data.publicUrl},
+  thumb:{path:paths.thumbPath,token:thumbUpload.data.token,url:admin.storage.from("website-assets").getPublicUrl(paths.thumbPath).data.publicUrl},
+  cacheControl:imageVariantCacheControl(),
+  name:name.slice(0,180),
+ };
 }
 
 export async function openWebsiteAiImageGenerator(slug:string,section="website_photos"){
@@ -255,7 +265,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(photoFiles.length>6)redirect(target(slug,"error","Upload up to 6 website photos at a time."));
  if(photoFiles.some(file=>file.size>8*1024*1024||!allowedPhotoTypes.has(file.type)))redirect(target(slug,"error","Use JPG, PNG, WebP, GIF, or AVIF photos under 8MB each."));
  if(manualPhotoUrls.length+photoFiles.length>12)redirect(target(slug,"error","A website can display up to 12 photos."));
- const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
+ const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id,photo_urls").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
  const expectedGoogleBusiness=businessAddress?{name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")}:null;
  let googlePlace:Awaited<ReturnType<typeof findGoogleBusinessPlace>>|null=null;
  if(requestedGooglePlaceId){if(!expectedGoogleBusiness?.address)redirect(target(slug,"error","Add the complete business address in Servonas before connecting a Google Place ID."));googlePlace=await resolveGoogleBusinessPlaceId(requestedGooglePlaceId,expectedGoogleBusiness);}
@@ -265,16 +275,21 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(photoFiles.length){
   const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Website photo uploads are not configured."));
   for(const file of photoFiles){
-   const extension=file.type==="image/jpeg"?"jpg":file.type.split("/")[1],path=`${business.id}/${crypto.randomUUID()}.${extension}`;
-   const {error:uploadError}=await admin.storage.from("website-assets").upload(path,file,{contentType:file.type,upsert:false});
+   const paths=buildImageVariantPaths(business.id,file.type==="image/webp"?"webp":"jpg");
+   const {error:uploadError}=await admin.storage.from("website-assets").upload(paths.displayPath,file,{contentType:file.type,upsert:false,cacheControl:imageVariantCacheControl()});
    if(uploadError){if(uploadedPaths.length)await admin.storage.from("website-assets").remove(uploadedPaths);console.error("Website photo upload failed",{businessId:business.id,message:uploadError.message});redirect(target(slug,"error","One or more website photos could not be uploaded. Apply the website-assets migration first."));}
-   uploadedPaths.push(path);uploadedUrls.push(admin.storage.from("website-assets").getPublicUrl(path).data.publicUrl);
+   uploadedPaths.push(paths.displayPath);uploadedUrls.push(admin.storage.from("website-assets").getPublicUrl(paths.displayPath).data.publicUrl);
   }
  }
  const photoUrls=[...new Set([...manualPhotoUrls,...uploadedUrls])].slice(0,12);
+ const removedManagedPhotos=(existing?.photo_urls??[]).filter((url:string)=>!photoUrls.includes(url)).flatMap((url:string)=>managedImageVariantPathsFromPublicUrl(url,"website-assets"));
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"not_connected";
  const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,floral_font_style:floralFontStyle,floral_accent_color:floralAccentColor,floral_background_color:floralBackgroundColor,floral_photo_layout:floralPhotoLayout,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
  if(error){const admin=getSupabaseAdmin();if(admin&&uploadedPaths.length)await admin.storage.from("website-assets").remove(uploadedPaths);console.error("Website settings save failed",{businessId:business.id,code:error.code});redirect(target(slug,"error",error.code==="23505"?"That website URL or domain is already in use.":"Website settings could not be saved. Apply the website migration first."));}
+ if(removedManagedPhotos.length){
+  const admin=getSupabaseAdmin();
+  await admin?.storage.from("website-assets").remove(removedManagedPhotos);
+ }
  if(business.industry_profile==="party_rental"){
   const {error:bookingRepairError}=await supabase.from("booking_settings").update({enabled:true,public_slug:publicSlug,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
   if(bookingRepairError)console.error("Party-rental website booking repair failed",{businessId:business.id,code:bookingRepairError.code});

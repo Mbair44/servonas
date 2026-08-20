@@ -1,6 +1,7 @@
 import type {Metadata} from "next";
 import Image from "next/image";
 import Link from "next/link";
+import {MarketingLandingAttribution} from "@/components/MarketingLandingAttribution";
 
 export const metadata:Metadata={
  title:"Free Pest Control Website | Servonas",
@@ -27,9 +28,9 @@ function demoHref(params:Record<string,string|string[]|undefined>){const query=n
 
 export default async function PestControlWebsitePage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const params=await searchParams,signup=signupHref(params),demo=demoHref(params);
- return <main className="pcw-page">
+ return <main className="pcw-page"><MarketingLandingAttribution source="pest-control-website"/>
   <section className="pcw-hero"><div className="pcw-orb pcw-orb-one"/><div className="pcw-orb pcw-orb-two"/><div className="sv-container pcw-hero-grid">
-   <div className="pcw-hero-copy"><span className="sv-kicker">Websites for pest control companies</span><h1>We&apos;ll Build Your Pest Control Website. <span>Free.</span></h1><p>Get a professional website, your first-year standard domain, online booking, scheduling, customers, invoices, payments, and more.</p><div className="sv-actions"><Link className="sv-button pcw-primary" href={signup}>Build My Free Website <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" href={demo}>View Example Website</Link></div><div className="pcw-hero-proof"><span>✓ First-year domain included</span><span>✓ Built for small pest businesses</span><span>✓ Mobile friendly</span><span>✓ No existing website needed</span></div></div>
+   <div className="pcw-hero-copy"><span className="sv-kicker">Websites for pest control companies</span><h1>We&apos;ll Build Your Pest Control Website. <span>Free.</span></h1><p>Get a professional website, your first-year standard domain, online booking, scheduling, customers, invoices, payments, and more.</p><div className="sv-actions"><Link className="sv-button pcw-primary" data-acquisition-builder href={signup}>Build My Free Website <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" href={demo}>View Example Website</Link></div><div className="pcw-hero-proof"><span>✓ First-year domain included</span><span>✓ Built for small pest businesses</span><span>✓ Mobile friendly</span><span>✓ No existing website needed</span></div></div>
    <div className="pcw-hero-visual"><div className="pcw-photo"><Image src="/images/pest-control-technician-spraying.png" alt="Pest control professional treating the exterior of a customer's home" fill priority sizes="(max-width: 900px) 100vw, 46vw"/></div><div className="pcw-site-preview"><span>YOUR NEW WEBSITE</span><strong>Professional. Local. Ready to book.</strong><small>Website + business tools, connected from day one.</small></div><div className="pcw-free-badge"><b>FREE</b><span>pilot website build</span></div></div>
   </div></section>
 
@@ -46,7 +47,7 @@ export default async function PestControlWebsitePage({searchParams}:{searchParam
 
   <section className="pcw-faq"><div className="sv-container"><div className="sv-heading"><span className="sv-kicker">Frequently asked questions</span><h2>What to know before you start.</h2></div><div className="pcw-faq-list"><details><summary>Is the website really free?</summary><p>Servonas is currently offering website creation at no cost to selected pest control companies participating in the pilot. The offer is limited and pilot participation is subject to availability.</p></details><details><summary>Do I need an existing website?</summary><p>No. You can start without an existing website and build your business presence through Servonas.</p></details><details><summary>Can customers book online?</summary><p>Yes. Your website can use Servonas online booking so customers can request or book service based on the options you enable.</p></details><details><summary>Can I use my own domain?</summary><p>Yes. Servonas supports connecting a domain you already own. You&apos;ll update the required DNS records with your domain provider, and the connection includes automatic HTTPS after verification.</p></details><details><summary>What happens after someone books?</summary><p>The customer and booking information becomes available in Servonas, where you can manage the customer, schedule and track the job, and continue through invoicing and payment.</p></details></div></div></section>
 
-  <section className="home-final-cta pcw-final"><div className="sv-container"><div><span className="sv-kicker">Limited pilot availability</span><h2>Ready to Get Your Pest Control Business Online?</h2><p>We&apos;ll build your website for free and give you the tools to run your business.</p></div><Link className="sv-button sv-light" href={signup}>Build My Free Website</Link></div></section>
+  <section className="home-final-cta pcw-final"><div className="sv-container"><div><span className="sv-kicker">Limited pilot availability</span><h2>Ready to Get Your Pest Control Business Online?</h2><p>We&apos;ll build your website for free and give you the tools to run your business.</p></div><Link className="sv-button sv-light" data-acquisition-builder href={signup}>Build My Free Website</Link></div></section>
   <section className="pcw-domain-terms"><div className="sv-container"><details><summary>Is the domain included?</summary><p>Yes. For qualifying pilot businesses, Servonas will cover one standard domain registration for the first year. Premium domains are not included, and renewal after the first year is the business owner&apos;s responsibility.</p></details></div></section>
  </main>;
 }

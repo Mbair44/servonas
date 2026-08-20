@@ -6,6 +6,7 @@ import {canManageBusiness} from "@/lib/access";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {requireWorkspace} from "@/lib/workspace";
 import type {SupabaseClient} from "@supabase/supabase-js";
+import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/rental-inventory?${kind}=${encodeURIComponent(message)}`;
@@ -23,10 +24,25 @@ export async function prepareRentalUpload(slug:string,kind:"image"|"receipt",nam
  const {business}=await context(slug),rules=uploadRules[kind];
  if(!rules.types.has(type)||!Number.isFinite(size)||size<=0||size>rules.max)throw new Error(kind==="image"?"Choose a JPG, PNG, or WebP image no larger than 8 MB.":"Choose a PDF, JPG, PNG, or WebP receipt no larger than 10 MB.");
  const admin=getSupabaseAdmin();if(!admin)throw new Error("File upload is not configured.");
- const extension=type==="application/pdf"?"pdf":type==="image/png"?"png":type==="image/webp"?"webp":"jpg",storagePath=`${business.id}/${crypto.randomUUID()}.${extension}`;
- const {data,error}=await admin.storage.from(rules.bucket).createSignedUploadUrl(storagePath);
- if(error||!data)throw new Error("The upload could not be prepared. Please try again.");
- return {bucket:rules.bucket,path:storagePath,token:data.token,name:name.slice(0,180)};
+ if(kind==="receipt"){
+  const extension=type==="application/pdf"?"pdf":type==="image/png"?"png":type==="image/webp"?"webp":"jpg",storagePath=`${business.id}/${crypto.randomUUID()}.${extension}`;
+  const {data,error}=await admin.storage.from(rules.bucket).createSignedUploadUrl(storagePath);
+  if(error||!data)throw new Error("The upload could not be prepared. Please try again.");
+  return {bucket:rules.bucket,path:storagePath,token:data.token,name:name.slice(0,180)};
+ }
+ const paths=buildImageVariantPaths(business.id,"webp");
+ const [displayUpload,thumbUpload]=await Promise.all([
+  admin.storage.from(rules.bucket).createSignedUploadUrl(paths.displayPath),
+  admin.storage.from(rules.bucket).createSignedUploadUrl(paths.thumbPath),
+ ]);
+ if(displayUpload.error||!displayUpload.data||thumbUpload.error||!thumbUpload.data)throw new Error("The upload could not be prepared. Please try again.");
+ return {
+  bucket:rules.bucket,
+  display:{path:paths.displayPath,token:displayUpload.data.token,url:admin.storage.from(rules.bucket).getPublicUrl(paths.displayPath).data.publicUrl},
+  thumb:{path:paths.thumbPath,token:thumbUpload.data.token,url:admin.storage.from(rules.bucket).getPublicUrl(paths.thumbPath).data.publicUrl},
+  cacheControl:imageVariantCacheControl(),
+  name:name.slice(0,180),
+ };
 }
 
 function directPath(data:FormData,key:string,businessId:string){const value=text(data,key);return value.startsWith(`${businessId}/`)?value:null;}
@@ -57,6 +73,12 @@ async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:s
  if(requested.length){const {error}=await supabase.from("rental_item_upsells").insert(requested.map((suggested_item_id,sort_order)=>({business_id:businessId,source_item_id:itemId,suggested_item_id,sort_order})));if(error)throw new Error("Upsell items could not be saved.");}
 }
 
+async function removeInventoryImageVariants(url:string|null|undefined){
+ const paths=managedImageVariantPathsFromPublicUrl(url,"inventory-images");
+ if(!paths.length)return;
+ await getSupabaseAdmin()?.storage.from("inventory-images").remove(paths);
+}
+
 export async function createRentalItem(slug:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
@@ -73,13 +95,14 @@ export async function updateRentalItem(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
   const payload=await values(supabase,business.id,data),imagePath=directPath(data,"uploadedImagePath",business.id),receiptPath=directPath(data,"uploadedReceiptPath",business.id),admin=getSupabaseAdmin(),image=imagePath&&admin?admin.storage.from("inventory-images").getPublicUrl(imagePath).data.publicUrl:null;
-  const {data:existing}=await supabase.from("inventory_items").select("purchase_receipt_path").eq("id",itemId).eq("business_id",business.id).maybeSingle();
+  const {data:existing}=await supabase.from("inventory_items").select("purchase_receipt_path,image_url").eq("id",itemId).eq("business_id",business.id).maybeSingle();
   const removeReceipt=data.get("removePurchaseReceipt")==="on";
   const receiptFields=receiptPath?{purchase_receipt_path:receiptPath,purchase_receipt_name:text(data,"uploadedReceiptName")||null}:removeReceipt?{purchase_receipt_path:null,purchase_receipt_name:null}:{};
   const {error}=await supabase.from("inventory_items").update({...payload,...(image?{image_url:image}:{}),...receiptFields}).eq("id",itemId).eq("business_id",business.id);
   if(error&&receiptPath)await admin?.storage.from("rental-purchase-receipts").remove([receiptPath]);
   if(error)throw new Error("The rental item could not be updated.");
   if((receiptPath||removeReceipt)&&existing?.purchase_receipt_path&&existing.purchase_receipt_path!==receiptPath)await admin?.storage.from("rental-purchase-receipts").remove([existing.purchase_receipt_path]);
+  if(image&&existing?.image_url&&existing.image_url!==image)await removeInventoryImageVariants(existing.image_url);
   await replaceUpsells(supabase,business.id,itemId,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be updated."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item updated."));

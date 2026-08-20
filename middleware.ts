@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isBlockedCustomDomainProbePath } from "@/lib/customDomainProbePaths";
 
 const publicMetadataPaths=new Set(["/favicon.ico","/apple-touch-icon.png","/icon.svg","/manifest.json","/manifest.webmanifest","/robots.txt","/sitemap.xml"]);
 const publicAssetExtension=/\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|png|svg|ttf|webmanifest|webp|woff2?)$/i;
@@ -13,6 +14,10 @@ export async function middleware(request:NextRequest){
  const hostname=request.nextUrl.hostname.toLowerCase(),productionHost=(process.env.NEXT_PUBLIC_APP_URL?new URL(process.env.NEXT_PUBLIC_APP_URL).hostname:"servonas.com").toLowerCase();
  const platformHosts=new Set([productionHost,`www.${productionHost}`,"localhost","127.0.0.1",process.env.VERCEL_URL?.toLowerCase()].filter(Boolean));
  if(!platformHosts.has(hostname)&&!hostname.endsWith(".vercel.app")){
+  if(isBlockedCustomDomainProbePath(path)){
+   console.info("Blocked custom-domain probe path",{hostname,path});
+   return new NextResponse(null,{status:404});
+  }
   const destination=request.nextUrl.clone();destination.pathname=path==="/mechanical-bull-rental"?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`:`/sites/domain/${encodeURIComponent(hostname)}`;
   return NextResponse.rewrite(destination);
  }
