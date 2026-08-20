@@ -32,12 +32,12 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
  const domainCandidate=`${businessSlug}.com`;
  const temporaryUrl=`servonas.com/sites/${website?.public_slug??businessSlug}`;
  const liveUrl=website?.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`https://${temporaryUrl}`;
- const previewHeader=mode==="live"?"Your website is live. 🎉":mode==="domain"?"Choose your website address":"Your website is ready! 🎉";
+ const previewHeader=mode==="live"?"Your website is live. 🎉":"Your website is ready! 🎉";
  const previewBody=mode==="live"
   ?"Your website is live. Click around, try a different look, and enjoy the result before you decide whether to go deeper into advanced setup."
   :mode==="domain"
-   ?"Keep your launch momentum going. Choose the website address path that fits you best without leaving this 3-step flow."
-   :"We&apos;ve built your website using the information you provided. Take a look around. You can publish it now, choose your domain, or customize it later.";
+   ?"We&apos;ve built your website using the information you provided. Take a look around, choose your website address, and launch when you&apos;re ready."
+   :"We&apos;ve built your website using the information you provided. Take a look around, choose your website address, and launch when you&apos;re ready.";
 
  return <div className="website-first-preview">
   <header><span className="complete">✓ Business</span><i/><span className="complete">✓ Style</span><i/><span>3. Preview / Launch</span></header>
@@ -58,7 +58,7 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
    </>}
 
    {mode==="preview"&&<>
-    <article className="website-first-domain-offer"><div><span>Included in Step 3</span><strong>Get your own .com free for your first year.</strong><p><b>{websiteFirst?.requested_domain??domainCandidate}</b> <em>Suggested domain</em></p><small>Choose a new .com, connect one you already own, or keep your Servonas address for now.</small></div><Link className="sv-button sv-secondary" href={`/onboarding?business=${encodeURIComponent(businessSlug)}&websiteStep=preview&websiteMode=domain&domainChoice=need_domain`}>Get My Free .com →</Link></article>
+    <article className="website-first-domain-offer"><div><span>Included in Step 3</span><strong>Choose your website address.</strong><p><b>{websiteFirst?.requested_domain??domainCandidate}</b> <em>Suggested domain</em></p><small>Get a new .com free for your first year, connect a domain you already own, or launch with your Servonas address.</small></div><Link className="sv-button sv-secondary" href={`/onboarding?business=${encodeURIComponent(businessSlug)}&websiteStep=preview&websiteMode=domain&domainChoice=need_domain`}>Choose Website Address →</Link></article>
     <div className="website-first-preview-actions">
      <form action={setWebsitePublished.bind(null,businessSlug)}><input type="hidden" name="publish" value="true"/><input type="hidden" name="returnFlow" value="website_first"/><button className="sv-button" type="submit">Publish My Website - Free</button><small>No credit card required • Edit anytime</small></form>
      <Link className="sv-button sv-secondary" href={`/onboarding?business=${encodeURIComponent(businessSlug)}&websiteStep=preview&websiteMode=domain&domainChoice=need_domain`}>Get a custom domain</Link>
