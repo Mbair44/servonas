@@ -11,7 +11,7 @@ const money=(value:number|null,currency="USD")=>value==null?"Unavailable":new In
 export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,business,user,managedDomainRequest,requestedDomain,domainStatus,domainOrder,customDomain,customDomainStatus,domainInfo,websitePublished,googleMapsApiKey,domainChoice,domainStage}:{businessSlug:string;businessSlugDisplay:string;business:{name:string;email?:string|null;phone?:string|null;address_line1?:string|null;address_line2?:string|null;city?:string|null;state?:string|null;postal_code?:string|null};user:{email?:string|null;user_metadata?:Record<string,unknown>};managedDomainRequest:boolean;requestedDomain:string;domainStatus:string;domainOrder:Order;customDomain:string;customDomainStatus:string;domainInfo:DomainInfo;websitePublished:boolean;googleMapsApiKey?:string;domainChoice:"need_domain"|"existing_domain"|"servonas";domainStage:DomainStage}) {
  const activeManagedDomain=managedDomainRequest&&requestedDomain?requestedDomain:"";
  const domainAvailable=domainStatus==="available"&&Boolean(domainOrder);
- const showRegistrationDetails=domainStage==="details"&&domainAvailable&&Boolean(domainOrder?.customer_renewal_price!=null);
+ const showRegistrationDetails=domainAvailable&&Boolean(domainOrder?.customer_renewal_price!=null)&&(domainStage==="details"||domainStage==="search");
  const connectionStatus=["registration_pending","registered","connected"].includes(domainStatus);
  const renewalVisible=domainAvailable&&domainOrder?.customer_renewal_price!=null;
  const pathQuery=`business=${encodeURIComponent(businessSlug)}&websiteStep=preview&websiteMode=preview&domainChoice=need_domain`;
@@ -50,20 +50,6 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
     <input type="hidden" name="returnFlow" value="website_first"/>
     <button className="sv-button" type="submit">Check Availability →</button>
    </form>}
-
-   {domainAvailable&&renewalVisible&&!showRegistrationDetails&&<div className="website-first-domain-status available">
-    <div>
-     <span>Available</span>
-     <strong>{activeManagedDomain} is available!</strong>
-     <p>Your first year is included with Servonas. Review your registration information and renewal terms before registering.</p>
-    </div>
-    <dl>
-     <div><dt>Today</dt><dd>$0</dd></div>
-     <div><dt>First year</dt><dd>Included with Servonas</dd></div>
-     <div><dt>Renews at</dt><dd>{money(domainOrder?.customer_renewal_price??null,domainOrder?.currency??"USD")}/year</dd></div>
-    </dl>
-    <div className="website-first-domain-next-actions"><a className="sv-button" href={`/onboarding?${pathQuery}&domainStage=details`}>Get {activeManagedDomain} FREE →</a><a className="text-button" href={`/onboarding?${pathQuery}&domainStage=search`}>Try another domain</a></div>
-   </div>}
 
    {domainAvailable&&!renewalVisible&&<div className="website-first-domain-status error">
     <div>

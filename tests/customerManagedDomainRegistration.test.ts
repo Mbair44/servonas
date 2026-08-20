@@ -13,8 +13,10 @@ test("workspace owners can complete a managed-domain registration with explicit 
  assert.match(actions,/renewalTerms/);
  assert.doesNotMatch(actions,/text\(data,"confirmation"\)!==`REGISTER \$\{domain\}`/);
  assert.match(actions,/\.eq\("status","available"\)\.is\("provider_order_id",null\)/);
- assert.match(component,/Register My Domain/);
+ assert.match(component,/Register \{domain\}/);
  assert.match(component,/first year is included/i);
+ assert.match(component,/Due today/);
+ assert.match(component,/Renews at/);
  assert.match(component,/DomainRegistrantAddressFields/);
  assert.match(page,/ManagedDomainCustomerSetup/);
 });
