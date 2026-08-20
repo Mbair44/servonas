@@ -2,6 +2,7 @@ export type WorkspaceNavigationItem={
  id:string;
  label:string;
  href?:string;
+ icon?:string;
  children?:WorkspaceNavigationItem[];
  disabled?:boolean;
  badge?:string;
@@ -31,7 +32,8 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
    {id:"estimates",label:"Estimates",href:`${base}/estimates`},
    {id:"online-booking",label:"Online Booking",href:`${base}/booking`},
   ]},
-  {id:"marketing",label:"Marketing",children:[
+  {id:"marketing",label:"Marketing",icon:"chart",children:[
+   {id:"funnel",label:"Funnel",href:`${base}/marketing/funnel`},
    {id:"discounts",label:"Discounts",href:`${base}/marketing/discounts`},
   ]},
   {id:"workforce",label:"Workforce",children:[
