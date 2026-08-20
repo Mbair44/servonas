@@ -95,6 +95,7 @@ async function completeWebsiteFirstLaunchState(slug:string,businessId:string,sup
  const now=new Date().toISOString();
  const {error}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",businessId);
  if(error)console.error("Website-first launch completion failed",{businessId,code:error.code});
+ revalidatePath("/onboarding");
  revalidatePath(`/onboarding?business=${slug}`);
 }
 
@@ -111,7 +112,10 @@ async function checkManagedDomainAvailabilityForWebsiteFirst(slug:string,input:{
  const {error}=await admin.from("website_domain_orders").upsert({business_id:business.id,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:7500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
  if(error)redirect(websiteFirstTarget(slug,"preview","error","The availability result could not be saved. Apply the Vercel domain registration migration.",{domainChoice:"need_domain",domainStage:"search"}));
  await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
- revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"preview",quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.",{domainChoice:"need_domain",domainStage:status==="available"?"details":"search"}));
+ revalidatePath("/onboarding");
+ revalidatePath(`/onboarding?business=${slug}`);
+ revalidatePath(`/app/${slug}/settings/website`);
+ redirect(websiteFirstTarget(slug,"preview",quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.",{domainChoice:"need_domain",domainStage:status==="available"?"details":"search"}));
 }
 
 export async function checkManagedDomainAvailability(slug:string){
@@ -126,7 +130,10 @@ export async function changeManagedDomainRequest(slug:string,data:FormData){
  if(active?.provider_order_id||["registration_pending","registered","connected"].includes(active?.status??""))redirect(websiteFirstTarget(slug,"preview","error","The current domain registration already started and cannot be replaced.",{domainChoice:"need_domain",domainStage:"registered"}));
  const now=new Date().toISOString(),{error}=await admin.from("business_website_onboarding_states").update({requested_domain:nextDomain,domain_name:nextDomain,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
  if(error)redirect(websiteFirstTarget(slug,"preview","error","The requested domain could not be changed.",{domainChoice:"need_domain",domainStage:"search"}));
- revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"preview","success",`Now checking ${nextDomain}. Confirm availability below.`,{domainChoice:"need_domain",domainStage:"search"}));
+ revalidatePath("/onboarding");
+ revalidatePath(`/onboarding?business=${slug}`);
+ revalidatePath(`/app/${slug}/settings/website`);
+ redirect(websiteFirstTarget(slug,"preview","success",`Now checking ${nextDomain}. Confirm availability below.`,{domainChoice:"need_domain",domainStage:"search"}));
 }
 
 export async function saveWebsiteFirstManagedDomainChoice(slug:string,data:FormData){
@@ -160,7 +167,10 @@ export async function purchaseManagedDomain(slug:string,data:FormData){
  if(!claimed)redirect(websiteFirstTarget(slug,"preview","error","Another registration attempt already started. Servonas will check its status automatically.",{domainChoice:"need_domain",domainStage:"registered"}));
  try{const result=await buyVercelDomain(domain,quote.purchasePrice,registrant),renewalNotice=new Date();renewalNotice.setUTCDate(renewalNotice.getUTCDate()+335);await admin.from("website_domain_orders").update({provider_order_id:result.orderId,renewal_notice_at:renewalNotice.toISOString(),purchase_notification_status:"pending",purchase_notification_error:null,updated_at:new Date().toISOString(),updated_by:user.id,last_error_category:null}).eq("id",order.id).is("provider_order_id",null);await admin.from("business_website_onboarding_states").update({domain_request_status:"registration_pending",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);await admin.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);await notifyAcceptedDomainPurchase(admin,order.id,business);try{await addVercelProjectDomain(domain);}catch{console.error("Customer domain project attachment pending",{businessId:business.id,category:"project_attachment"});}}
  catch(error){const details=vercelDomainErrorDetails(error);console.error("Customer domain registration failed",{businessId:business.id,category:details.category,uncertain:details.uncertain});await admin.from("website_domain_orders").update({status:details.uncertain?"registration_pending":"failed",last_error_category:details.category,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(websiteFirstTarget(slug,"preview","error",`${details.message} Nothing was retried automatically.`,{domainChoice:"need_domain",domainStage:"details"}));}
- revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"preview","success",`${domain} is registered. We&apos;re connecting it to your website now.`,{domainChoice:"need_domain",domainStage:"registered"}));
+ revalidatePath("/onboarding");
+ revalidatePath(`/onboarding?business=${slug}`);
+ revalidatePath(`/app/${slug}/settings/website`);
+ redirect(websiteFirstTarget(slug,"preview","success",`${domain} is registered. We&apos;re connecting it to your website now.`,{domainChoice:"need_domain",domainStage:"registered"}));
 }
 
 export async function syncManagedDomainRegistration(slug:string){
