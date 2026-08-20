@@ -27,15 +27,15 @@ test("website-first workspace writes canonical pest business, services, website 
 });
 
 test("website-first onboarding uses real templates and keeps launch inside the 3-step flow",async()=>{
- const [style,preview,actions]=await Promise.all([read("components/WebsiteFirstStyle.tsx"),read("components/WebsiteFirstPreview.tsx"),read("app/onboarding/actions.ts")]);
+ const [style,preview,panel,actions]=await Promise.all([read("components/WebsiteFirstStyle.tsx"),read("components/WebsiteFirstPreview.tsx"),read("components/WebsiteFirstLaunchDomainPanel.tsx"),read("app/onboarding/actions.ts")]);
  for(const template of ["modern","bold","traditional"])assert.match(style,new RegExp(`\\[\"${template}\"`));
  assert.match(style,/name="logo"/);
  assert.match(actions,/booking-branding/);
  assert.match(preview,/settings\/website/);
  assert.match(preview,/Preview \/ Launch/);
- assert.match(preview,/Publish My Website - Free/);
+ assert.match(panel,/Publish My Website/);
  assert.match(preview,/Get a custom domain/);
- assert.match(preview,/Improve Your Website/);
+ assert.match(preview,/Customize website/i);
  assert.doesNotMatch(preview,/finishWebsiteFirstOnboarding/);
 });
 

@@ -4,17 +4,17 @@ import test from "node:test";
 
 const read=(path:string)=>fs.readFile(path,"utf8");
 
-test("workspace owners can complete a guarded managed-domain registration",async()=>{
+test("workspace owners can complete a managed-domain registration with explicit consent",async()=>{
  const [actions,component,page]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("components/ManagedDomainCustomerSetup.tsx"),read("app/app/[businessSlug]/settings/website/page.tsx")]);
  assert.match(actions,/requireWorkspaceCapability\(slug,"business_onboarding"\)/);
  assert.match(actions,/canManageBusiness\(context\.role\)/);
  assert.match(actions,/state\?\.domain_preference!=="need_domain"/);
  assert.match(actions,/registrationTerms/);
  assert.match(actions,/renewalTerms/);
- assert.match(actions,/text\(data,"confirmation"\)!==`REGISTER \$\{domain\}`/);
+ assert.doesNotMatch(actions,/text\(data,"confirmation"\)!==`REGISTER \$\{domain\}`/);
  assert.match(actions,/\.eq\("status","available"\)\.is\("provider_order_id",null\)/);
- assert.match(component,/Register my domain/);
- assert.match(component,/first year is free/i);
+ assert.match(component,/Register My Domain/);
+ assert.match(component,/first year is included/i);
  assert.match(component,/DomainRegistrantAddressFields/);
  assert.match(page,/ManagedDomainCustomerSetup/);
 });
