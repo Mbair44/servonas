@@ -12,6 +12,7 @@ import {WebsiteFirstStyle} from "@/components/WebsiteFirstStyle";
 import {WebsiteFirstPreview} from "@/components/WebsiteFirstPreview";
 import {getWebsiteFirstConfig} from "@/lib/websiteFirstConfig";
 import {getVercelDomainStatus} from "@/lib/vercelDomains";
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 export default async function Onboarding({searchParams}:{searchParams:Promise<{business?:string;saved?:string;error?:string;success?:string;billing?:string;billingAdded?:string;source?:string;websiteStep?:string;websiteMode?:string;domainChoice?:string;domainStage?:string;celebrate?:string;celebrationAt?:string}>}){
  const query=await searchParams,s=await createSupabaseServerClient();const {data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding");
  if(query.business){
@@ -22,9 +23,10 @@ export default async function Onboarding({searchParams}:{searchParams:Promise<{b
   if(websiteFirst&&websiteConfig&&(websiteFirst.current_step!=="completed"||query.websiteMode==="live")){
    const step=query.websiteStep||websiteFirst.current_step;
    if(step==="preview"){
+    const admin=getSupabaseAdmin();
     const [{data:website},{data:domainOrder}]=await Promise.all([
      s.from("business_website_settings").select("template_key,primary_color,secondary_color,hero_heading,hero_subheading,public_slug,status,custom_domain,domain_status").eq("business_id",business.id).maybeSingle(),
-     websiteFirst.requested_domain?s.from("website_domain_orders").select("status,customer_purchase_price,customer_renewal_price,currency,provider_order_id,availability_checked_at,last_error_category").eq("business_id",business.id).eq("domain_name",websiteFirst.requested_domain).maybeSingle():Promise.resolve({data:null}),
+     websiteFirst.requested_domain&&admin?admin.from("website_domain_orders").select("status,customer_purchase_price,customer_renewal_price,currency,provider_order_id,availability_checked_at,last_error_category").eq("business_id",business.id).eq("domain_name",websiteFirst.requested_domain).maybeSingle():Promise.resolve({data:null}),
     ]);
     const domainInfo=website?.custom_domain?await getVercelDomainStatus(website.custom_domain).catch(()=>null):null;
     return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstPreview businessId={business.id} businessSlug={business.slug} source={websiteConfig.source} celebrate={query.celebrate==="1"} celebrationAt={query.celebrationAt??websiteFirst.preview_reached_at??undefined} mode={query.websiteMode==="domain"||query.websiteMode==="live"?query.websiteMode:"preview"} domainChoice={query.domainChoice==="existing_domain"||query.domainChoice==="servonas"?query.domainChoice:"need_domain"} domainStage={query.domainStage==="details"||query.domainStage==="registered"?query.domainStage:"search"} error={query.error} success={query.success} website={website??null} websiteFirst={websiteFirst} domainOrder={domainOrder??null} domainInfo={domainInfo} user={{email:user.email??undefined,user_metadata:user.user_metadata as Record<string,unknown>|undefined}} business={business}/></main>;

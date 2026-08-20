@@ -1,4 +1,5 @@
 import {checkManagedDomainAvailability,checkWebsiteDomain,completeWebsiteFirstLaunch,connectWebsiteDomain,purchaseManagedDomain,saveWebsiteFirstManagedDomainChoice} from "@/app/app/[businessSlug]/settings/website/actions";
+import {AutoSubmitManagedDomainAvailability} from "./AutoSubmitManagedDomainAvailability";
 import {ManagedDomainCustomerSetup} from "./ManagedDomainCustomerSetup";
 import {WebsiteIcon} from "./WebsiteIcon";
 
@@ -45,9 +46,10 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
     <button className="sv-button" type="submit">Check Availability →</button>
    </form>}
 
-   {activeManagedDomain&&!domainAvailable&&!connectionStatus&&<form className="website-first-domain-entry" action={checkManagedDomainAvailability.bind(null,businessSlug)}>
+   {activeManagedDomain&&!domainAvailable&&!connectionStatus&&<form className="website-first-domain-entry" action={checkManagedDomainAvailability.bind(null,businessSlug)} data-auto-check-domain="true">
     <div className="website-first-domain-search-head"><span>Find your .com</span><strong>{activeManagedDomain}</strong></div>
     <input type="hidden" name="returnFlow" value="website_first"/>
+    <AutoSubmitManagedDomainAvailability/>
     <button className="sv-button" type="submit">Check Availability →</button>
    </form>}
 
