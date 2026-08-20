@@ -12,6 +12,7 @@ import {normalizeInstagramUrl} from "@/lib/socialLinks";
 import {resolveGoogleAddress} from "@/lib/googleAddress";
 import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
 import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
+import {buildWebsiteAiImagePrompt,estimateWebsiteAiImageCost,normalizeWebsiteAiImageQuality,normalizeWebsiteAiImageSize,websiteAiImageFeature,websiteAiImageLimit,type WebsiteAiImageGenerationKind,type WebsiteAiImageType} from "@/lib/websiteAiImages";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
@@ -31,6 +32,47 @@ async function notifyAcceptedDomainPurchase(admin:NonNullable<ReturnType<typeof 
  await admin.from("website_domain_orders").update(delivery.ok?{purchase_notification_status:"sent",purchase_notification_sent_at:new Date().toISOString(),purchase_notification_provider_id:delivery.messageId,purchase_notification_error:null,updated_at:new Date().toISOString()}:{purchase_notification_status:"failed",purchase_notification_error:delivery.error,updated_at:new Date().toISOString()}).eq("id",order.id).eq("purchase_notification_status","sending");
 }
 const standardDomainLimit=vercelStandardDomainMaximumPrice;
+const websiteAiImageModel=process.env.OPENAI_WEBSITE_IMAGE_MODEL?.trim()||"gpt-image-1";
+
+type WebsiteAiEventName="website_ai_image_opened"|"website_ai_image_generation_started"|"website_ai_image_generation_completed"|"website_ai_image_generation_failed"|"website_ai_image_saved"|"website_ai_image_regenerated"|"website_ai_image_discarded"|"website_ai_image_limit_reached";
+
+async function recordWebsiteAiImageEvent(input:{businessId:string;userId:string;generationId?:string|null;eventName:WebsiteAiEventName;metadata:Record<string,unknown>}){
+ const admin=getSupabaseAdmin();
+ if(!admin)return;
+ const {error}=await admin.from("website_ai_image_events").insert({business_id:input.businessId,user_id:input.userId,generation_id:input.generationId??null,event_name:input.eventName,metadata:input.metadata});
+ if(error)console.error("Website AI image analytics could not be recorded",{businessId:input.businessId,eventName:input.eventName,code:error.code});
+}
+
+async function websiteAiGenerationUsageCount(businessId:string){
+ const admin=getSupabaseAdmin();
+ if(!admin)return 0;
+ const {count,error}=await admin.from("website_ai_image_generations").select("id",{count:"exact",head:true}).eq("business_id",businessId).in("status",["generated","saved","discarded","replaced"]);
+ if(error){console.error("Website AI image usage count failed",{businessId,code:error.code});return 0;}
+ return count??0;
+}
+
+async function currentWebsiteId(businessId:string){
+ const admin=getSupabaseAdmin();
+ if(!admin)return null;
+ const {data}=await admin.from("business_website_settings").select("id").eq("business_id",businessId).maybeSingle();
+ return data?.id??null;
+}
+
+async function websiteAiImagePricing(model:string,size:string,quality:string,occurredAt:string){
+ const admin=getSupabaseAdmin();
+ if(!admin)return null;
+ const pricingModels=[model,model.replace(/-\d+(?:\.\d+)?$/u,"")].filter((value,index,values)=>values.indexOf(value)===index);
+ const {data}=await admin.from("ai_image_model_pricing")
+  .select("id,usd_per_image,effective_from,effective_to,source_url")
+  .eq("provider","openai").in("model",pricingModels).eq("image_size",size).eq("image_quality",quality)
+  .lte("effective_from",occurredAt).or(`effective_to.is.null,effective_to.gt.${occurredAt}`)
+  .order("effective_from",{ascending:false}).limit(1).maybeSingle();
+ return data??null;
+}
+
+function safeWebsiteAiMessage(){
+ return "We couldn't create that photo. Please try again.";
+}
 
 async function managedDomainContext(slug:string){
  const context=await requireWorkspaceCapability(slug,"business_onboarding");
@@ -105,6 +147,94 @@ export async function prepareWebsitePhotoUpload(slug:string,name:string,type:str
  const {data,error}=await admin.storage.from("website-assets").createSignedUploadUrl(storagePath);
  if(error||!data)throw new Error("The photo upload could not be prepared. Please try again.");
  return {bucket:"website-assets",path:storagePath,token:data.token,url:admin.storage.from("website-assets").getPublicUrl(storagePath).data.publicUrl,name:name.slice(0,180)};
+}
+
+export async function openWebsiteAiImageGenerator(slug:string,section="website_photos"){
+ const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))throw new Error("Only owners and administrators can generate website photos.");
+ await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,eventName:"website_ai_image_opened",metadata:{industry:business.industry_profile,section,business_slug:business.slug,timestamp:new Date().toISOString()}});
+ return {ok:true};
+}
+
+export async function generateWebsiteAiPhoto(slug:string,input:{idempotencyKey:string;section:string;imageType:WebsiteAiImageType;customDescription?:string|null;size?:string|null;quality?:string|null;generationKind?:WebsiteAiImageGenerationKind;replacesGenerationId?:string|null;}){
+ const {business,user,role,entitlementSummary}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))throw new Error("Only owners and administrators can generate website photos.");
+ if(!process.env.OPENAI_API_KEY?.trim())throw new Error(safeWebsiteAiMessage());
+ if(!input?.idempotencyKey?.trim())throw new Error(safeWebsiteAiMessage());
+ const admin=getSupabaseAdmin();if(!admin)throw new Error(safeWebsiteAiMessage());
+ const usage=await websiteAiGenerationUsageCount(business.id),limit=websiteAiImageLimit(entitlementSummary);
+ if(limit>=0&&usage>=limit){
+  await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,eventName:"website_ai_image_limit_reached",metadata:{industry:business.industry_profile,section:input.section,image_type:input.imageType,limit,current_usage:usage,business_slug:business.slug,timestamp:new Date().toISOString()}});
+  throw new Error("You've reached the current AI photo generation limit for this workspace.");
+ }
+ const imageSize=normalizeWebsiteAiImageSize(input.size),imageQuality=normalizeWebsiteAiImageQuality(input.quality),generationKind=input.generationKind==="regeneration"?"regeneration":"initial";
+ const [{data:services},{data:territories},{data:websiteState},{data:websiteSettings},websiteId]=await Promise.all([
+  admin.from("services").select("name").eq("business_id",business.id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
+  admin.from("workforce_territories").select("name").eq("business_id",business.id).eq("is_active",true).order("name"),
+  admin.from("business_website_onboarding_states").select("source").eq("business_id",business.id).maybeSingle(),
+  admin.from("business_website_settings").select("id").eq("business_id",business.id).maybeSingle(),
+  currentWebsiteId(business.id),
+ ]);
+ const prompt=buildWebsiteAiImagePrompt({businessId:business.id,businessName:business.name,industryProfile:business.industry_profile,websiteSource:websiteState?.source??null,city:business.city??null,state:business.state??null,serviceAreas:(territories??[]).map((item:any)=>String(item.name)).filter(Boolean),services:(services??[]).map((item:any)=>String(item.name)).filter(Boolean),section:input.section,imageType:input.imageType,customDescription:input.customDescription??null});
+ const claimed=await admin.from("website_ai_image_generations").insert({
+  business_id:business.id,user_id:user.id,website_id:websiteSettings?.id??websiteId,feature:websiteAiImageFeature,provider:"openai",model:websiteAiImageModel,generation_kind:generationKind,status:"generating",image_type:input.imageType,image_size:imageSize,image_quality:imageQuality,image_count:1,prompt,idempotency_key:input.idempotencyKey,prompt_metadata:{industry:business.industry_profile,website_source:websiteState?.source??null,section:input.section,custom_description:input.customDescription??null,service_count:(services??[]).length,service_area_count:(territories??[]).length,replaces_generation_id:input.replacesGenerationId??null},outcome:"generated"
+ }).select("id").maybeSingle();
+ if(claimed.error){
+  if(claimed.error.code==="23505"){
+   const {data:existing}=await admin.from("website_ai_image_generations").select("id,status,temporary_public_url,error_message").eq("business_id",business.id).eq("idempotency_key",input.idempotencyKey).maybeSingle();
+   if(existing?.status==="generated"&&existing.temporary_public_url)return {generationId:existing.id,imageUrl:existing.temporary_public_url};
+   throw new Error(existing?.status==="generating"?"That photo is already being created.":"Please try again with a new request.");
+  }
+  throw new Error(safeWebsiteAiMessage());
+ }
+ const generationId=claimed.data!.id;
+ await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:generationKind==="regeneration"?"website_ai_image_regenerated":"website_ai_image_generation_started",metadata:{industry:business.industry_profile,section:input.section,image_type:input.imageType,business_slug:business.slug,timestamp:new Date().toISOString()}});
+ try{
+  const response=await fetch("https://api.openai.com/v1/images/generations",{method:"POST",headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY.trim()}`,"Content-Type":"application/json","X-Client-Request-Id":input.idempotencyKey},body:JSON.stringify({model:websiteAiImageModel,prompt,size:imageSize,quality:imageQuality,n:1,background:"auto",moderation:"auto",output_format:"png"})});
+  if(!response.ok)throw new Error("provider_unavailable");
+  const body=await response.json() as {created?:number;data?:Array<{b64_json?:string}>;id?:string};
+  const imageBase64=body.data?.[0]?.b64_json;
+  if(!imageBase64)throw new Error("provider_invalid_output");
+  const binary=Buffer.from(imageBase64,"base64"),storagePath=`${business.id}/generated/${generationId}.png`,upload=await admin.storage.from("website-assets").upload(storagePath,binary,{contentType:"image/png",upsert:false});
+  if(upload.error)throw new Error("storage_failed");
+  const occurredAt=new Date().toISOString(),pricing=await websiteAiImagePricing(websiteAiImageModel,imageSize,imageQuality,occurredAt),providerCost=estimateWebsiteAiImageCost(pricing?Number(pricing.usd_per_image):null,1),publicUrl=admin.storage.from("website-assets").getPublicUrl(storagePath).data.publicUrl;
+  await admin.from("website_ai_image_generations").update({provider_request_id:typeof body.id==="string"?body.id:null,status:"generated",temporary_storage_path:storagePath,temporary_public_url:publicUrl,provider_cost_usd:providerCost,pricing_status:pricing?"priced":"unpriced",pricing_snapshot:pricing?{pricingId:pricing.id,usdPerImage:Number(pricing.usd_per_image),sourceUrl:pricing.source_url}:null,completed_at:occurredAt,updated_at:occurredAt}).eq("id",generationId).eq("business_id",business.id);
+  if(input.replacesGenerationId){
+   const {data:prior}=await admin.from("website_ai_image_generations").select("temporary_storage_path").eq("id",input.replacesGenerationId).eq("business_id",business.id).maybeSingle();
+   await admin.from("website_ai_image_generations").update({status:"replaced",outcome:"replaced",updated_at:occurredAt}).eq("id",input.replacesGenerationId).eq("business_id",business.id).in("status",["generated","discarded"]);
+   if(prior?.temporary_storage_path)await admin.storage.from("website-assets").remove([prior.temporary_storage_path]).catch(()=>undefined);
+  }
+  await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:"website_ai_image_generation_completed",metadata:{industry:business.industry_profile,section:input.section,image_type:input.imageType,business_slug:business.slug,timestamp:occurredAt}});
+  return {generationId,imageUrl:publicUrl};
+ }catch(error){
+  await admin.from("website_ai_image_generations").update({status:"failed",outcome:"failed",error_message:safeWebsiteAiMessage(),updated_at:new Date().toISOString(),completed_at:new Date().toISOString()}).eq("id",generationId).eq("business_id",business.id);
+  await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:"website_ai_image_generation_failed",metadata:{industry:business.industry_profile,section:input.section,image_type:input.imageType,business_slug:business.slug,timestamp:new Date().toISOString()}});
+  console.error("Website AI image generation failed",{businessId:business.id,generationId,message:error instanceof Error?error.message:"unknown"});
+  throw new Error(safeWebsiteAiMessage());
+ }
+}
+
+export async function saveWebsiteAiPhoto(slug:string,generationId:string){
+ const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))throw new Error("Only owners and administrators can save website photos.");
+ const admin=getSupabaseAdmin();if(!admin)throw new Error("Website photo storage is unavailable.");
+ const {data:generation}=await admin.from("website_ai_image_generations").select("id,status,temporary_public_url").eq("id",generationId).eq("business_id",business.id).maybeSingle();
+ if(!generation?.temporary_public_url||!["generated","saved"].includes(generation.status))throw new Error("This AI photo is no longer available.");
+ await admin.from("website_ai_image_generations").update({status:"saved",outcome:"saved",saved_photo_url:generation.temporary_public_url,updated_at:new Date().toISOString()}).eq("id",generationId).eq("business_id",business.id);
+ await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:"website_ai_image_saved",metadata:{industry:business.industry_profile,business_slug:business.slug,timestamp:new Date().toISOString()}});
+ return {url:generation.temporary_public_url};
+}
+
+export async function discardWebsiteAiPhoto(slug:string,generationId:string){
+ const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))throw new Error("Only owners and administrators can discard website photos.");
+ const admin=getSupabaseAdmin();if(!admin)throw new Error("Website photo storage is unavailable.");
+ const {data:generation}=await admin.from("website_ai_image_generations").select("id,status,temporary_storage_path").eq("id",generationId).eq("business_id",business.id).maybeSingle();
+ if(!generation||!["generated","failed"].includes(generation.status))return {ok:true};
+ if(generation.temporary_storage_path)await admin.storage.from("website-assets").remove([generation.temporary_storage_path]).catch(()=>undefined);
+ await admin.from("website_ai_image_generations").update({status:"discarded",outcome:"discarded",temporary_storage_path:null,temporary_public_url:null,updated_at:new Date().toISOString()}).eq("id",generationId).eq("business_id",business.id);
+ await recordWebsiteAiImageEvent({businessId:business.id,userId:user.id,generationId,eventName:"website_ai_image_discarded",metadata:{industry:business.industry_profile,business_slug:business.slug,timestamp:new Date().toISOString()}});
+ return {ok:true};
 }
 
 export async function saveWebsiteSettings(slug:string,data:FormData){

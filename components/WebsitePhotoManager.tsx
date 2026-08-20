@@ -2,7 +2,8 @@
 
 import {useEffect, useMemo, useState,type ChangeEvent} from "react";
 import {createSupabaseBrowserClient} from "@/lib/supabaseBrowser";
-import {prepareWebsitePhotoUpload} from "@/app/app/[businessSlug]/settings/website/actions";
+import {discardWebsiteAiPhoto,generateWebsiteAiPhoto,openWebsiteAiImageGenerator,prepareWebsitePhotoUpload,saveWebsiteAiPhoto} from "@/app/app/[businessSlug]/settings/website/actions";
+import {websiteAiImageTypes,type WebsiteAiImageType} from "@/lib/websiteAiImages";
 
 const MB=1024*1024,MAX_BYTES=8*MB,MAX_UPLOAD_COUNT=12;
 const supportedTypes=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
@@ -10,6 +11,16 @@ const phoneTypes=new Set(["image/heic","image/heif"]);
 const phoneName=(name:string)=>/\.(heic|heif)$/i.test(name);
 type PhotoItem={url:string;usage:string;index:number};
 type UploadState={name:string;status:"queued"|"uploading"|"done"|"error";error?:string};
+type AiDraft={generationId:string;imageUrl:string;imageType:WebsiteAiImageType};
+type AiStatus="idle"|"generating"|"ready"|"saving";
+const imageTypeLabels:Record<WebsiteAiImageType,string>={
+ hero_banner:"Hero / banner image",
+ professional_at_work:"Professional at work",
+ service_being_performed:"Service being performed",
+ equipment_tools:"Equipment / tools",
+ before_after:"Before & after",
+ custom_description:"Custom description",
+};
 
 async function jpegFromPhonePhoto(file:File){
  const source=URL.createObjectURL(file);
@@ -32,7 +43,7 @@ function getUsage(index:number,photoCount:number){
 }
 
 export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[];disabled?:boolean}){
- const [items,setItems]=useState(photos),[pendingRemove,setPendingRemove]=useState<PhotoItem|null>(null),[selected,setSelected]=useState<string[]>([]),[previewIndex,setPreviewIndex]=useState<number|null>(null),[libraryOpen,setLibraryOpen]=useState(false),[uploading,setUploading]=useState(false),[uploadError,setUploadError]=useState(""),[uploadStates,setUploadStates]=useState<UploadState[]>([]);
+ const [items,setItems]=useState(photos),[pendingRemove,setPendingRemove]=useState<PhotoItem|null>(null),[selected,setSelected]=useState<string[]>([]),[previewIndex,setPreviewIndex]=useState<number|null>(null),[libraryOpen,setLibraryOpen]=useState(false),[uploading,setUploading]=useState(false),[uploadError,setUploadError]=useState(""),[uploadStates,setUploadStates]=useState<UploadState[]>([]),[aiOpen,setAiOpen]=useState(false),[aiType,setAiType]=useState<WebsiteAiImageType>("hero_banner"),[aiDescription,setAiDescription]=useState(""),[aiStatus,setAiStatus]=useState<AiStatus>("idle"),[aiError,setAiError]=useState(""),[aiDraft,setAiDraft]=useState<AiDraft|null>(null);
  useEffect(()=>setItems(photos),[photos]);
  useEffect(()=>{if(libraryOpen||previewIndex!=null)document.body.classList.add("website-photo-library-open");else document.body.classList.remove("website-photo-library-open");return()=>document.body.classList.remove("website-photo-library-open");},[libraryOpen,previewIndex]);
  const photoItems=useMemo(()=>items.map((url,index)=>({url,usage:getUsage(index,items.length),index})),[items]);
@@ -42,13 +53,47 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
  const selectedItems=photoItems.filter(item=>selected.includes(item.url));
  const uploadSummary=uploadStates.length?`${uploadStates.filter(item=>item.status==="done").length} of ${uploadStates.length} uploaded`:"";
  const closePreview=()=>setPreviewIndex(null);
+ const businessSlug=typeof window==="undefined"?"":decodeURIComponent(window.location.pathname.split("/")[2]??"");
  const removePhoto=(url:string)=>{setItems(current=>current.filter(item=>item!==url));setSelected(current=>current.filter(item=>item!==url));if(previewIndex!=null&&photoItems[previewIndex]?.url===url)setPreviewIndex(null);};
+ async function openAiGenerator(){
+  if(disabled||!businessSlug)return;
+  setAiOpen(true);setAiError("");
+  try{await openWebsiteAiImageGenerator(businessSlug,"website_photos");}catch{}
+ }
+ async function generateAiPhoto(regenerate=false){
+  if(disabled||aiStatus==="generating"||aiStatus==="saving"||!businessSlug)return;
+  setAiError("");setAiStatus("generating");
+  try{
+   const result=await generateWebsiteAiPhoto(businessSlug,{idempotencyKey:crypto.randomUUID(),section:"website_photos",imageType:aiType,customDescription:aiType==="custom_description"?aiDescription:null,generationKind:regenerate?"regeneration":"initial",replacesGenerationId:regenerate?aiDraft?.generationId??null:null});
+   setAiDraft({generationId:result.generationId,imageUrl:result.imageUrl,imageType:aiType});
+   setAiStatus("ready");
+  }catch(error){
+   setAiStatus("idle");
+   setAiError(error instanceof Error?error.message:"We couldn't create that photo. Please try again.");
+  }
+ }
+ async function saveAiPhoto(){
+  if(!aiDraft||!businessSlug||items.length>=MAX_UPLOAD_COUNT)return;
+  setAiStatus("saving");setAiError("");
+  try{
+   const saved=await saveWebsiteAiPhoto(businessSlug,aiDraft.generationId);
+   setItems(current=>[...new Set([...current,saved.url])].slice(0,MAX_UPLOAD_COUNT));
+   setAiDraft(null);setAiStatus("idle");setAiOpen(false);setAiDescription("");setAiType("hero_banner");
+  }catch(error){
+   setAiStatus("ready");
+   setAiError(error instanceof Error?error.message:"That photo could not be saved.");
+  }
+ }
+ async function discardAiPhoto(){
+  if(!aiDraft||!businessSlug)return setAiOpen(false);
+  try{await discardWebsiteAiPhoto(businessSlug,aiDraft.generationId);}catch{}
+  setAiDraft(null);setAiStatus("idle");setAiError("");setAiDescription("");setAiOpen(false);
+ }
  async function upload(event:ChangeEvent<HTMLInputElement>){
   const selectedFiles=Array.from(event.target.files??[]);event.target.value="";setUploadError("");
   if(!selectedFiles.length)return;
   if(selectedFiles.length>MAX_UPLOAD_COUNT){setUploadError("Choose up to 12 photos at a time.");return;}
   if(items.length+selectedFiles.length>MAX_UPLOAD_COUNT){setUploadError(`This website can display 12 photos. You can add ${Math.max(0,MAX_UPLOAD_COUNT-items.length)} more.`);return;}
-  const businessSlug=decodeURIComponent(window.location.pathname.split("/")[2]??"");
   if(!businessSlug){setUploadError("The workspace could not be identified. Refresh and try again.");return;}
   setUploading(true);
   setUploadStates(selectedFiles.map(file=>({name:file.name,status:"queued"})));
@@ -92,6 +137,7 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
    {items.length?<div className="website-photo-hero-grid">{visiblePreviewItems.map((photo,index)=><button type="button" className="website-photo-thumb" onClick={()=>{setPreviewIndex(index);setLibraryOpen(true);}} key={photo.url}><img src={photo.url} alt={`Website photo ${index+1}`}/><span>{photo.usage}</span></button>)}{extraCount>0&&<button type="button" className="website-photo-thumb website-photo-thumb-more" onClick={()=>setLibraryOpen(true)}><strong>+{extraCount}</strong><span>More photos</span></button>}</div>:<div className="website-photo-empty"><strong>No website photos yet</strong><span>Upload photos to personalize your website.</span></div>}
    <div className="website-photo-actions">
     <label className="website-photo-upload">Upload photos<small>{uploading?`Uploading ${uploadStates.filter(item=>item.status==="done").length} of ${uploadStates.length} photos...`:"Drag photos here or choose files. Phone photos supported, including HEIC."}</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
+    <button type="button" className="website-photo-ai-button" onClick={()=>void openAiGenerator()} disabled={disabled||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
     <button type="button" className="text-button" onClick={()=>setLibraryOpen(true)}>Manage photos</button>
    </div>
    {uploadError&&<span className="website-photo-error" role="alert">{uploadError}</span>}
@@ -106,6 +152,7 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
      </div>
      <div className="website-photo-library-header-actions">
       <label className="website-photo-upload compact">Upload photos<small>Pick multiple photos from your phone or desktop.</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
+      <button type="button" className="website-photo-ai-button compact" onClick={()=>void openAiGenerator()} disabled={disabled||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
       <button type="button" className="text-button" onClick={()=>setSelected(current=>current.length===photoItems.length?[]:photoItems.map(item=>item.url))} disabled={!photoItems.length}>Select all</button>
       <button type="button" className="text-button danger" onClick={()=>{if(selectedItems.length)setPendingRemove(selectedItems[0]);}} disabled={!selectedItems.length}>Delete</button>
       <button type="button" className="website-photo-close" onClick={()=>setLibraryOpen(false)} aria-label="Close media library">×</button>
@@ -150,6 +197,35 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
      <button type="button" className="sv-button sv-secondary" onClick={()=>setPendingRemove(null)}>Keep photo</button>
      <button type="button" className="sv-button sv-danger" onClick={()=>removePhoto(pendingRemove.url)}>Delete photo</button>
     </div>
+   </section>
+  </div>}
+
+  {aiOpen&&<div className="website-photo-library-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&aiStatus!=="generating"&&aiStatus!=="saving")setAiOpen(false);}}>
+   <section className="website-ai-modal" role="dialog" aria-modal="true" aria-labelledby="website-ai-title">
+    <header>
+     <div>
+      <strong id="website-ai-title">Create a photo for your website</strong>
+      <span>Generate a professional service-business image without leaving Servonas.</span>
+     </div>
+     <button type="button" className="website-photo-close" onClick={()=>setAiOpen(false)} aria-label="Close AI photo generator">×</button>
+    </header>
+    {!aiDraft&&<div className="website-ai-panel">
+     <div className="website-ai-type-grid">{websiteAiImageTypes.map(type=><button type="button" key={type} className={`website-ai-type${aiType===type?" selected":""}`} onClick={()=>setAiType(type)}>{imageTypeLabels[type]}</button>)}</div>
+     {aiType==="custom_description"&&<label className="website-ai-description">Describe the photo<textarea rows={4} maxLength={400} value={aiDescription} onChange={event=>setAiDescription(event.target.value)} placeholder="Example: A clean service van parked outside a modern home at golden hour with a technician greeting the homeowner."/></label>}
+     <div className="website-ai-actions">
+      <button type="button" className="sv-button" disabled={aiStatus==="generating"||aiType==="custom_description"&&!aiDescription.trim()} onClick={()=>void generateAiPhoto(false)}>{aiStatus==="generating"?"Generating...":"Generate Photo"}</button>
+      <button type="button" className="sv-button sv-secondary" onClick={()=>setAiOpen(false)} disabled={aiStatus==="generating"}>Cancel</button>
+     </div>
+    </div>}
+    {aiDraft&&<div className="website-ai-preview">
+     <div className="website-ai-preview-image"><img src={aiDraft.imageUrl} alt={imageTypeLabels[aiDraft.imageType]}/></div>
+     <div className="website-ai-actions">
+      <button type="button" className="sv-button" onClick={()=>void saveAiPhoto()} disabled={aiStatus==="saving"||items.length>=MAX_UPLOAD_COUNT}>{aiStatus==="saving"?"Saving...":"Use this photo"}</button>
+      <button type="button" className="sv-button sv-secondary" onClick={()=>void generateAiPhoto(true)} disabled={aiStatus==="saving"||aiStatus==="generating"}>Regenerate</button>
+      <button type="button" className="text-button danger" onClick={()=>void discardAiPhoto()} disabled={aiStatus==="saving"||aiStatus==="generating"}>Discard</button>
+     </div>
+    </div>}
+    {aiError&&<p className="website-photo-error" role="alert">{aiError}</p>}
    </section>
   </div>}
  </div>;
