@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { buildImageVariantPaths, imageVariantCacheControl } from "@/lib/storageImageVariants";
 
 const BUCKET = "inventory-images";
 function authorized(request: NextRequest) {
@@ -24,10 +25,10 @@ export async function POST(request: NextRequest) {
   for (const file of files) {
     if (!file.type.startsWith("image/")) return NextResponse.json({ error: `${file.name} is not an image.` }, { status: 400 });
     if (file.size > 8 * 1024 * 1024) return NextResponse.json({ error: `${file.name} is larger than 8 MB.` }, { status: 400 });
-    const path = `${new Date().getUTCFullYear()}/${crypto.randomUUID()}-${safeName(file.name || "photo.jpg")}`;
-    const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: false });
+    const variants = buildImageVariantPaths(String(new Date().getUTCFullYear()), "jpg", `${crypto.randomUUID()}-${safeName(file.name || "photo")}`);
+    const { error } = await supabase.storage.from(BUCKET).upload(variants.displayPath, file, { contentType: file.type, upsert: false, cacheControl: imageVariantCacheControl() });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    urls.push(supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl);
+    urls.push(supabase.storage.from(BUCKET).getPublicUrl(variants.displayPath).data.publicUrl);
   }
   return NextResponse.json({ urls });
 }

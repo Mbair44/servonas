@@ -13,9 +13,16 @@ import {resolveGoogleAddress} from "@/lib/googleAddress";
 import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
 import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
 import {buildWebsiteAiImagePrompt,estimateWebsiteAiImageCost,normalizeWebsiteAiImageQuality,normalizeWebsiteAiImageSize,websiteAiImageFeature,websiteAiImageLimit,type WebsiteAiImageGenerationKind,type WebsiteAiImageType} from "@/lib/websiteAiImages";
+import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const target=(slug:string,kind:"success"|"error",message:string,step?:string)=>`/app/${slug}/settings/website?${kind}=${encodeURIComponent(message)}${step?`&step=${encodeURIComponent(step)}`:""}`;
+const websiteFirstTarget=(slug:string,mode:"preview"|"domain"|"live",kind?:"success"|"error",message?:string,extra?:Record<string,string>)=>{
+ const query=new URLSearchParams({business:slug,websiteStep:"preview",websiteMode:mode});
+ if(kind&&message)query.set(kind,message);
+ if(extra)for(const [key,value] of Object.entries(extra))if(value)query.set(key,value);
+ return `/onboarding?${query.toString()}`;
+};
 const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,12);
 const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
@@ -84,47 +91,71 @@ async function managedDomainContext(slug:string){
  return {...context,admin,domain};
 }
 
+async function completeWebsiteFirstLaunchState(slug:string,businessId:string,supabase:any){
+ const now=new Date().toISOString();
+ const {error}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",businessId);
+ if(error)console.error("Website-first launch completion failed",{businessId,code:error.code});
+ revalidatePath(`/onboarding?business=${slug}`);
+}
+
+function returnToWebsiteFirst(slug:string,data?:FormData){
+ return data?.get("returnFlow")==="website_first";
+}
+
 export async function checkManagedDomainAvailability(slug:string){
  const {admin,user,business,domain}=await managedDomainContext(slug);
  const {data:existing}=await admin.from("website_domain_orders").select("status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
- if(existing?.provider_order_id||["registration_pending","registered","connected"].includes(existing?.status??""))redirect(target(slug,"error","Registration already started. Servonas is checking its status automatically.","domain"));
- let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Customer domain quote failed",{businessId:business.id,category:error instanceof TypeError?"network":"provider"});redirect(target(slug,"error","We could not check this domain right now. Try again shortly.","domain"));}
+ if(existing?.provider_order_id||["registration_pending","registered","connected"].includes(existing?.status??""))redirect(websiteFirstTarget(slug,"domain","error","Registration already started. Servonas is checking its status automatically.",{domainChoice:"need_domain"}));
+ let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Customer domain quote failed",{businessId:business.id,category:error instanceof TypeError?"network":"provider"});redirect(websiteFirstTarget(slug,"domain","error","We could not check this domain right now. Try again shortly.",{domainChoice:"need_domain"}));}
  const status=!quote.available?"unavailable":quote.purchasePrice<=standardDomainLimit()?"available":"premium_review",now=new Date().toISOString();
  const {error}=await admin.from("website_domain_orders").upsert({business_id:business.id,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:7500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
- if(error)redirect(target(slug,"error","The availability result could not be saved. Apply the Vercel domain registration migration.","domain"));
+ if(error)redirect(websiteFirstTarget(slug,"domain","error","The availability result could not be saved. Apply the Vercel domain registration migration.",{domainChoice:"need_domain"}));
  await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
- revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.","domain"));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"domain",quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.",{domainChoice:"need_domain"}));
 }
 
 export async function changeManagedDomainRequest(slug:string,data:FormData){
  const {admin,user,business,domain}=await managedDomainContext(slug),nextDomain=normalizeWebsiteDomain(text(data,"newManagedDomain"));
- if(!nextDomain)redirect(target(slug,"error","Enter a valid domain, such as yourbusiness.com.","domain"));
+ if(!nextDomain)redirect(websiteFirstTarget(slug,"domain","error","Enter a valid domain, such as yourbusiness.com.",{domainChoice:"need_domain"}));
  const {data:active}=await admin.from("website_domain_orders").select("status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
- if(active?.provider_order_id||["registration_pending","registered","connected"].includes(active?.status??""))redirect(target(slug,"error","The current domain registration already started and cannot be replaced.","domain"));
+ if(active?.provider_order_id||["registration_pending","registered","connected"].includes(active?.status??""))redirect(websiteFirstTarget(slug,"domain","error","The current domain registration already started and cannot be replaced.",{domainChoice:"need_domain"}));
  const now=new Date().toISOString(),{error}=await admin.from("business_website_onboarding_states").update({requested_domain:nextDomain,domain_name:nextDomain,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
- if(error)redirect(target(slug,"error","The requested domain could not be changed.","domain"));
- revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success",`Now checking ${nextDomain}. Confirm availability below.`,"domain"));
+ if(error)redirect(websiteFirstTarget(slug,"domain","error","The requested domain could not be changed.",{domainChoice:"need_domain"}));
+ revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"domain","success",`Now checking ${nextDomain}. Confirm availability below.`,{domainChoice:"need_domain"}));
+}
+
+export async function saveWebsiteFirstManagedDomainChoice(slug:string,data:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))redirect("/app");
+ const domainName=normalizeWebsiteDomain(text(data,"domainName"));
+ if(!domainName)redirect(websiteFirstTarget(slug,"domain","error","Enter a valid domain, such as yourbusiness.com.",{domainChoice:"need_domain"}));
+ const now=new Date().toISOString();
+ const {error}=await supabase.from("business_website_onboarding_states").update({domain_preference:"need_domain",domain_name:domainName,requested_domain:domainName,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id);
+ if(error)redirect(websiteFirstTarget(slug,"domain","error","The domain choice could not be saved.",{domainChoice:"need_domain"}));
+ revalidatePath(`/onboarding?business=${slug}`);
+ redirect(websiteFirstTarget(slug,"domain","success",`${domainName} is saved. Check availability below.`,{domainChoice:"need_domain"}));
 }
 
 export async function purchaseManagedDomain(slug:string,data:FormData){
  const {admin,user,business,domain}=await managedDomainContext(slug);
- if(data.get("registrationTerms")!=="on"||data.get("renewalTerms")!=="on"||text(data,"confirmation")!==`REGISTER ${domain}`)redirect(target(slug,"error",`Accept both terms and type REGISTER ${domain} to confirm.`,"domain"));
+ if(data.get("registrationTerms")!=="on"||data.get("renewalTerms")!=="on"||text(data,"confirmation")!==`REGISTER ${domain}`)redirect(websiteFirstTarget(slug,"domain","error",`Accept both terms and type REGISTER ${domain} to confirm.`,{domainChoice:"need_domain"}));
  const {data:order}=await admin.from("website_domain_orders").select("id,status,provider_order_id,purchase_price,purchase_confirmed_at").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
- if(!order)redirect(target(slug,"error","Check availability before registering this domain.","domain"));
- if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status))redirect(target(slug,"error","This domain already has a protected registration attempt. It was not purchased again.","domain"));
+ if(!order)redirect(websiteFirstTarget(slug,"domain","error","Check availability before registering this domain.",{domainChoice:"need_domain"}));
+ if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status))redirect(websiteFirstTarget(slug,"domain","error","This domain already has a protected registration attempt. It was not purchased again.",{domainChoice:"need_domain"}));
  const country=text(data,"country").toUpperCase(),rawPhone=text(data,"phone"),digits=rawPhone.replace(/\D/g,""),phone=country==="US"?(digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:rawPhone.startsWith("+")?`+${digits}`:rawPhone):rawPhone.startsWith("+")?`+${digits}`:rawPhone;
  const registrant:VercelRegistrant={firstName:text(data,"firstName"),lastName:text(data,"lastName"),companyName:text(data,"companyName")||undefined,email:text(data,"email"),phone,address1:text(data,"address1"),address2:text(data,"address2")||undefined,city:text(data,"city"),state:text(data,"state"),zip:text(data,"zip"),country};
- if(!registrant.firstName||!registrant.lastName||!/^\S+@\S+\.\S+$/.test(registrant.email)||!/^\+[1-9]\d{7,14}$/.test(phone)||!registrant.address1||!registrant.city||!registrant.state||!registrant.zip||!/^[A-Z]{2}$/.test(country))redirect(target(slug,"error","Complete the registrant contact information. Phone formatting is handled automatically.","domain"));
- if(process.env.GOOGLE_MAPS_API_KEY){const verified=await resolveGoogleAddress({line1:registrant.address1,line2:registrant.address2,city:registrant.city,region:registrant.state,postalCode:registrant.zip,countryCode:registrant.country});if(verified.status!=="verified"||!verified.normalizedAddress)redirect(target(slug,"error","Google could not verify the registrant address. Choose a suggestion or confirm every address field.","domain"));registrant.address1=verified.normalizedAddress.line1??registrant.address1;registrant.address2=registrant.address2??verified.normalizedAddress.line2??undefined;registrant.city=verified.normalizedAddress.city??registrant.city;registrant.state=verified.normalizedAddress.region??registrant.state;registrant.zip=verified.normalizedAddress.postalCode??registrant.zip;registrant.country=verified.normalizedAddress.countryCode??registrant.country;}
- let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch{redirect(target(slug,"error","The current price could not be confirmed, so nothing was registered.","domain"));}
- if(!quote.available)redirect(target(slug,"error","The domain is no longer available and was not registered.","domain"));
- if(quote.purchasePrice>standardDomainLimit())redirect(target(slug,"error","This is now a premium domain and is not included. Nothing was registered.","domain"));
- if(Number(order.purchase_price)!==quote.purchasePrice)redirect(target(slug,"error","The domain price changed. Check availability again before registering.","domain"));
+ if(!registrant.firstName||!registrant.lastName||!/^\S+@\S+\.\S+$/.test(registrant.email)||!/^\+[1-9]\d{7,14}$/.test(phone)||!registrant.address1||!registrant.city||!registrant.state||!registrant.zip||!/^[A-Z]{2}$/.test(country))redirect(websiteFirstTarget(slug,"domain","error","Complete the registrant contact information. Phone formatting is handled automatically.",{domainChoice:"need_domain"}));
+ if(process.env.GOOGLE_MAPS_API_KEY){const verified=await resolveGoogleAddress({line1:registrant.address1,line2:registrant.address2,city:registrant.city,region:registrant.state,postalCode:registrant.zip,countryCode:registrant.country});if(verified.status!=="verified"||!verified.normalizedAddress)redirect(websiteFirstTarget(slug,"domain","error","Google could not verify the registrant address. Choose a suggestion or confirm every address field.",{domainChoice:"need_domain"}));registrant.address1=verified.normalizedAddress.line1??registrant.address1;registrant.address2=registrant.address2??verified.normalizedAddress.line2??undefined;registrant.city=verified.normalizedAddress.city??registrant.city;registrant.state=verified.normalizedAddress.region??registrant.state;registrant.zip=verified.normalizedAddress.postalCode??registrant.zip;registrant.country=verified.normalizedAddress.countryCode??registrant.country;}
+ let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch{redirect(websiteFirstTarget(slug,"domain","error","The current price could not be confirmed, so nothing was registered.",{domainChoice:"need_domain"}));}
+ if(!quote.available)redirect(websiteFirstTarget(slug,"domain","error","The domain is no longer available and was not registered.",{domainChoice:"need_domain"}));
+ if(quote.purchasePrice>standardDomainLimit())redirect(websiteFirstTarget(slug,"domain","error","This is now a premium domain and is not included. Nothing was registered.",{domainChoice:"need_domain"}));
+ if(Number(order.purchase_price)!==quote.purchasePrice)redirect(websiteFirstTarget(slug,"domain","error","The domain price changed. Check availability again before registering.",{domainChoice:"need_domain"}));
  const now=new Date().toISOString(),{data:claimed}=await admin.from("website_domain_orders").update({status:"registration_pending",purchase_confirmed_at:now,updated_at:now,updated_by:user.id}).eq("id",order.id).eq("status","available").is("provider_order_id",null).select("id").maybeSingle();
- if(!claimed)redirect(target(slug,"error","Another registration attempt already started. Servonas will check its status automatically.","domain"));
+ if(!claimed)redirect(websiteFirstTarget(slug,"domain","error","Another registration attempt already started. Servonas will check its status automatically.",{domainChoice:"need_domain"}));
  try{const result=await buyVercelDomain(domain,quote.purchasePrice,registrant),renewalNotice=new Date();renewalNotice.setUTCDate(renewalNotice.getUTCDate()+335);await admin.from("website_domain_orders").update({provider_order_id:result.orderId,renewal_notice_at:renewalNotice.toISOString(),purchase_notification_status:"pending",purchase_notification_error:null,updated_at:new Date().toISOString(),updated_by:user.id,last_error_category:null}).eq("id",order.id).is("provider_order_id",null);await admin.from("business_website_onboarding_states").update({domain_request_status:"registration_pending",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);await admin.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);await notifyAcceptedDomainPurchase(admin,order.id,business);try{await addVercelProjectDomain(domain);}catch{console.error("Customer domain project attachment pending",{businessId:business.id,category:"project_attachment"});}}
- catch(error){const details=vercelDomainErrorDetails(error);console.error("Customer domain registration failed",{businessId:business.id,category:details.category,uncertain:details.uncertain});await admin.from("website_domain_orders").update({status:details.uncertain?"registration_pending":"failed",last_error_category:details.category,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(target(slug,"error",`${details.message} Nothing was retried automatically.`,"domain"));}
- revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success",`${domain} registration started. You can leave this page; Servonas will update the status automatically.`,"domain"));
+ catch(error){const details=vercelDomainErrorDetails(error);console.error("Customer domain registration failed",{businessId:business.id,category:details.category,uncertain:details.uncertain});await admin.from("website_domain_orders").update({status:details.uncertain?"registration_pending":"failed",last_error_category:details.category,updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null);redirect(websiteFirstTarget(slug,"domain","error",`${details.message} Nothing was retried automatically.`,{domainChoice:"need_domain"}));}
+ await completeWebsiteFirstLaunchState(slug,business.id,admin);
+ revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"live","success",`${domain} registration started. Your website is live while Servonas finishes the domain connection.`));
 }
 
 export async function syncManagedDomainRegistration(slug:string){
@@ -143,10 +174,19 @@ export async function prepareWebsitePhotoUpload(slug:string,name:string,type:str
  const allowed=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
  if(!allowed.has(type)||!Number.isFinite(size)||size<=0||size>8*1024*1024)throw new Error("Choose a JPG, PNG, WebP, GIF, or AVIF photo no larger than 8 MB.");
  const admin=getSupabaseAdmin();if(!admin)throw new Error("Website photo uploads are not configured.");
- const extension=type==="image/jpeg"?"jpg":type.split("/")[1],storagePath=`${business.id}/${crypto.randomUUID()}.${extension}`;
- const {data,error}=await admin.storage.from("website-assets").createSignedUploadUrl(storagePath);
- if(error||!data)throw new Error("The photo upload could not be prepared. Please try again.");
- return {bucket:"website-assets",path:storagePath,token:data.token,url:admin.storage.from("website-assets").getPublicUrl(storagePath).data.publicUrl,name:name.slice(0,180)};
+ const paths=buildImageVariantPaths(business.id,"webp");
+ const [displayUpload,thumbUpload]=await Promise.all([
+  admin.storage.from("website-assets").createSignedUploadUrl(paths.displayPath),
+  admin.storage.from("website-assets").createSignedUploadUrl(paths.thumbPath),
+ ]);
+ if(displayUpload.error||!displayUpload.data||thumbUpload.error||!thumbUpload.data)throw new Error("The photo upload could not be prepared. Please try again.");
+ return {
+  bucket:"website-assets",
+  display:{path:paths.displayPath,token:displayUpload.data.token,url:admin.storage.from("website-assets").getPublicUrl(paths.displayPath).data.publicUrl},
+  thumb:{path:paths.thumbPath,token:thumbUpload.data.token,url:admin.storage.from("website-assets").getPublicUrl(paths.thumbPath).data.publicUrl},
+  cacheControl:imageVariantCacheControl(),
+  name:name.slice(0,180),
+ };
 }
 
 export async function openWebsiteAiImageGenerator(slug:string,section="website_photos"){
@@ -255,7 +295,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(photoFiles.length>6)redirect(target(slug,"error","Upload up to 6 website photos at a time."));
  if(photoFiles.some(file=>file.size>8*1024*1024||!allowedPhotoTypes.has(file.type)))redirect(target(slug,"error","Use JPG, PNG, WebP, GIF, or AVIF photos under 8MB each."));
  if(manualPhotoUrls.length+photoFiles.length>12)redirect(target(slug,"error","A website can display up to 12 photos."));
- const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
+ const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id,photo_urls").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
  const expectedGoogleBusiness=businessAddress?{name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")}:null;
  let googlePlace:Awaited<ReturnType<typeof findGoogleBusinessPlace>>|null=null;
  if(requestedGooglePlaceId){if(!expectedGoogleBusiness?.address)redirect(target(slug,"error","Add the complete business address in Servonas before connecting a Google Place ID."));googlePlace=await resolveGoogleBusinessPlaceId(requestedGooglePlaceId,expectedGoogleBusiness);}
@@ -265,16 +305,21 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(photoFiles.length){
   const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Website photo uploads are not configured."));
   for(const file of photoFiles){
-   const extension=file.type==="image/jpeg"?"jpg":file.type.split("/")[1],path=`${business.id}/${crypto.randomUUID()}.${extension}`;
-   const {error:uploadError}=await admin.storage.from("website-assets").upload(path,file,{contentType:file.type,upsert:false});
+   const paths=buildImageVariantPaths(business.id,file.type==="image/webp"?"webp":"jpg");
+   const {error:uploadError}=await admin.storage.from("website-assets").upload(paths.displayPath,file,{contentType:file.type,upsert:false,cacheControl:imageVariantCacheControl()});
    if(uploadError){if(uploadedPaths.length)await admin.storage.from("website-assets").remove(uploadedPaths);console.error("Website photo upload failed",{businessId:business.id,message:uploadError.message});redirect(target(slug,"error","One or more website photos could not be uploaded. Apply the website-assets migration first."));}
-   uploadedPaths.push(path);uploadedUrls.push(admin.storage.from("website-assets").getPublicUrl(path).data.publicUrl);
+   uploadedPaths.push(paths.displayPath);uploadedUrls.push(admin.storage.from("website-assets").getPublicUrl(paths.displayPath).data.publicUrl);
   }
  }
  const photoUrls=[...new Set([...manualPhotoUrls,...uploadedUrls])].slice(0,12);
+ const removedManagedPhotos=(existing?.photo_urls??[]).filter((url:string)=>!photoUrls.includes(url)).flatMap((url:string)=>managedImageVariantPathsFromPublicUrl(url,"website-assets"));
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"not_connected";
  const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,floral_font_style:floralFontStyle,floral_accent_color:floralAccentColor,floral_background_color:floralBackgroundColor,floral_photo_layout:floralPhotoLayout,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
  if(error){const admin=getSupabaseAdmin();if(admin&&uploadedPaths.length)await admin.storage.from("website-assets").remove(uploadedPaths);console.error("Website settings save failed",{businessId:business.id,code:error.code});redirect(target(slug,"error",error.code==="23505"?"That website URL or domain is already in use.":"Website settings could not be saved. Apply the website migration first."));}
+ if(removedManagedPhotos.length){
+  const admin=getSupabaseAdmin();
+  await admin?.storage.from("website-assets").remove(removedManagedPhotos);
+ }
  if(business.industry_profile==="party_rental"){
   const {error:bookingRepairError}=await supabase.from("booking_settings").update({enabled:true,public_slug:publicSlug,updated_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id);
   if(bookingRepairError)console.error("Party-rental website booking repair failed",{businessId:business.id,code:bookingRepairError.code});
@@ -314,14 +359,22 @@ export async function setWebsitePublished(slug:string,data:FormData){
  const {error}=await supabase.from("business_website_settings").update({status:publish?"published":"draft",published_at:publish?new Date().toISOString():null,updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
  if(error)redirect(target(slug,"error","Website publishing status could not be changed."));
  if(publish&&websiteFirst){
-  const now=new Date().toISOString();
-  const {error:onboardingError}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",business.id);
-  if(onboardingError)console.error("Website-first completion state update failed",{businessId:business.id,code:onboardingError.code});
   const admin=getSupabaseAdmin();if(admin){const {data:session}=await admin.from("website_acquisition_sessions").select("id,industry,user_id").eq("business_id",business.id).order("last_seen_at",{ascending:false}).limit(1).maybeSingle();if(session)await linkAcquisitionSession(admin,{sessionId:session.id,industry:session.industry,userId:session.user_id,businessId:business.id,event:"website_published"});}
  }
  revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);
- if(publish&&websiteFirst)redirect(`/app/${slug}/settings/website/success`);
+ if(publish&&websiteFirst){
+  if(returnToWebsiteFirst(slug,data))redirect(websiteFirstTarget(slug,"live","success","Your website is live."));
+  redirect(`/app/${slug}/settings/website/success`);
+ }
  redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
+}
+
+export async function completeWebsiteFirstLaunch(slug:string,data:FormData){
+ const {supabase,business}=await requireWorkspaceCapability(slug,"business_onboarding");
+ const {data:website}=await supabase.from("business_website_settings").select("status").eq("business_id",business.id).maybeSingle();
+ if(website?.status!=="published")redirect(websiteFirstTarget(slug,"preview","error","Publish your website before finishing launch."));
+ await completeWebsiteFirstLaunchState(slug,business.id,supabase);
+ redirect(websiteFirstTarget(slug,"live","success",data.get("choice")==="servonas_url"?"Your website is live with its Servonas address.":"Your website is live."));
 }
 
 export async function completeWebsiteFirstAndExplore(slug:string){
@@ -339,13 +392,17 @@ export async function connectWebsiteDomain(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can connect a domain."));
  const domain=normalizeWebsiteDomain(text(data,"customDomain"));
- if(!domain)redirect(target(slug,"error","Enter and save a valid domain name first."));
+ if(!domain)redirect(returnToWebsiteFirst(slug,data)?websiteFirstTarget(slug,"domain","error","Enter and save a valid domain name first.",{domainChoice:"existing_domain"}):target(slug,"error","Enter and save a valid domain name first."));
  const {data:settings}=await supabase.from("business_website_settings").select("id").eq("business_id",business.id).maybeSingle();
- if(!settings)redirect(target(slug,"error","Save the website settings before connecting a domain."));
+ if(!settings)redirect(returnToWebsiteFirst(slug,data)?websiteFirstTarget(slug,"domain","error","Save the website settings before connecting a domain.",{domainChoice:"existing_domain"}):target(slug,"error","Save the website settings before connecting a domain."));
  const {error:saveError}=await supabase.from("business_website_settings").update({custom_domain:domain,domain_status:"pending_verification",updated_by:user.id}).eq("business_id",business.id).eq("id",settings.id);
- if(saveError)redirect(target(slug,"error",saveError.code==="23505"?"That domain is already connected to another Servonas website.":"The domain could not be saved."));
- try{await addVercelProjectDomain(domain);}catch(error){console.error("Website domain registration failed",{businessId:business.id,domain,error:error instanceof Error?error.message:"unknown"});redirect(target(slug,"error","Servonas could not register this domain with hosting. Check the domain configuration and try again."));}
+ if(saveError)redirect(returnToWebsiteFirst(slug,data)?websiteFirstTarget(slug,"domain","error",saveError.code==="23505"?"That domain is already connected to another Servonas website.":"The domain could not be saved.",{domainChoice:"existing_domain"}):target(slug,"error",saveError.code==="23505"?"That domain is already connected to another Servonas website.":"The domain could not be saved."));
+ try{await addVercelProjectDomain(domain);}catch(error){console.error("Website domain registration failed",{businessId:business.id,domain,error:error instanceof Error?error.message:"unknown"});redirect(returnToWebsiteFirst(slug,data)?websiteFirstTarget(slug,"domain","error","Servonas could not register this domain with hosting. Check the domain configuration and try again.",{domainChoice:"existing_domain"}):target(slug,"error","Servonas could not register this domain with hosting. Check the domain configuration and try again."));}
  revalidatePath(`/app/${slug}/settings/website`);
+ if(returnToWebsiteFirst(slug,data)){
+  await completeWebsiteFirstLaunchState(slug,business.id,supabase);
+  redirect(websiteFirstTarget(slug,"live","success","Your domain was saved. You can finish the DNS connection while your website stays live."));
+ }
  redirect(target(slug,"success","Domain added. Update the displayed DNS records, then select Check connection."));
 }
 

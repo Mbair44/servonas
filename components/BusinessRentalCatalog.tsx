@@ -2,6 +2,7 @@
 import {useMemo,useState} from "react";
 import type {BusinessSiteRentalItem} from "./BusinessWebsite";
 import {RentalPricingFooter} from "./RentalPricingFooter";
+import {storageImageThumbUrl} from "@/lib/storageImageVariants";
 
 export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
  const [category,setCategory]=useState("All rentals"),[search,setSearch]=useState("");
@@ -13,7 +14,7 @@ export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
    <label><span>Category</span><select value={category} onChange={event=>setCategory(event.target.value)}>{categories.map(value=><option value={value} key={value}>{value}</option>)}</select></label>
   </div>
  {visible.length?<div className="business-site-rental-grid">{visible.map(item=><article className="business-site-rental-card" key={item.id}>
-   <div className="business-site-rental-media">{item.imageUrl?<img src={item.imageUrl} alt={item.name}/>:<div className="business-site-rental-placeholder" aria-hidden="true">{item.name.slice(0,1)}</div>}</div>
+   <div className="business-site-rental-media">{item.imageUrl?<img src={storageImageThumbUrl(item.imageUrl)??item.imageUrl} alt={item.name} loading="lazy"/>:<div className="business-site-rental-placeholder" aria-hidden="true">{item.name.slice(0,1)}</div>}</div>
    <div className="business-site-rental-content">
     <div className="business-site-rental-copy">{item.category&&<span>{item.category}</span>}<h3>{item.name}</h3>{item.description&&<p>{item.description}</p>}</div>
     <RentalPricingFooter priceCents={item.dailyPriceCents} rentalHours={item.standardRentalHours} multiDayMessage={item.multiDayMessage} action={<a href="#book-online" data-rental-item-id={item.id} aria-label={`Check availability for ${item.name}`}>Check availability</a>}/>
