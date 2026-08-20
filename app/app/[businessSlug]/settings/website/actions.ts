@@ -102,8 +102,8 @@ function returnToWebsiteFirst(slug:string,data?:FormData){
  return data?.get("returnFlow")==="website_first";
 }
 
-export async function checkManagedDomainAvailability(slug:string){
- const {admin,user,business,domain}=await managedDomainContext(slug);
+async function checkManagedDomainAvailabilityForWebsiteFirst(slug:string,input:{admin:NonNullable<ReturnType<typeof getSupabaseAdmin>>;user:{id:string};business:{id:string};domain:string;}){
+ const {admin,user,business,domain}=input;
  const {data:existing}=await admin.from("website_domain_orders").select("status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
  if(existing?.provider_order_id||["registration_pending","registered","connected"].includes(existing?.status??""))redirect(websiteFirstTarget(slug,"preview","error","Registration already started. Servonas is checking its status automatically.",{domainChoice:"need_domain",domainStage:"registered"}));
  let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;try{quote=await getVercelDomainQuote(domain);}catch(error){console.error("Customer domain quote failed",{businessId:business.id,category:error instanceof TypeError?"network":"provider"});redirect(websiteFirstTarget(slug,"preview","error","We could not check this domain right now. Try again shortly.",{domainChoice:"need_domain",domainStage:"search"}));}
@@ -112,6 +112,11 @@ export async function checkManagedDomainAvailability(slug:string){
  if(error)redirect(websiteFirstTarget(slug,"preview","error","The availability result could not be saved. Apply the Vercel domain registration migration.",{domainChoice:"need_domain",domainStage:"search"}));
  await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
  revalidatePath(`/app/${slug}/settings/website`);redirect(websiteFirstTarget(slug,"preview",quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.",{domainChoice:"need_domain",domainStage:status==="available"?"details":"search"}));
+}
+
+export async function checkManagedDomainAvailability(slug:string){
+ const {admin,user,business,domain}=await managedDomainContext(slug);
+ await checkManagedDomainAvailabilityForWebsiteFirst(slug,{admin,user,business,domain});
 }
 
 export async function changeManagedDomainRequest(slug:string,data:FormData){
@@ -132,8 +137,9 @@ export async function saveWebsiteFirstManagedDomainChoice(slug:string,data:FormD
  const now=new Date().toISOString();
  const {error}=await supabase.from("business_website_onboarding_states").update({domain_preference:"need_domain",domain_name:domainName,requested_domain:domainName,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id}).eq("business_id",business.id);
  if(error)redirect(websiteFirstTarget(slug,"preview","error","The domain choice could not be saved.",{domainChoice:"need_domain",domainStage:"search"}));
- revalidatePath(`/onboarding?business=${slug}`);
- redirect(websiteFirstTarget(slug,"preview","success",`${domainName} is saved. Check availability below.`,{domainChoice:"need_domain",domainStage:"search"}));
+ const admin=getSupabaseAdmin();
+ if(!admin)redirect(websiteFirstTarget(slug,"preview","error","Domain registration is temporarily unavailable.",{domainChoice:"need_domain",domainStage:"search"}));
+ await checkManagedDomainAvailabilityForWebsiteFirst(slug,{admin,user,business,domain:domainName});
 }
 
 export async function purchaseManagedDomain(slug:string,data:FormData){
