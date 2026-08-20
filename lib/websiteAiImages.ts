@@ -1,5 +1,5 @@
-import {getWebsiteFirstConfig} from "./websiteFirstConfig";
-import type {EntitlementSummary} from "./entitlements/service";
+import {getWebsiteFirstConfig} from "./websiteFirstConfig.ts";
+import type {EntitlementSummary} from "./entitlements/service.ts";
 
 export const websiteAiImageFeature="website_image_generation" as const;
 export const websiteAiImageSizes=["1024x1024","1024x1536","1536x1024"] as const;
