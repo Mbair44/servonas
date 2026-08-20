@@ -12,7 +12,7 @@ test("shared marketing landing attribution wrapper initializes landing and build
 });
 
 test("all paid-traffic industry landing pages use shared landing attribution",async()=>{
- const [shared,car,pest,hvac,plumbing,landscaping,cleaning,floral]=await Promise.all([
+ const [shared,car,pest,hvac,plumbing,landscaping,cleaning,powerwashing,floral]=await Promise.all([
   read("components/WebsiteIndustryLanding.tsx"),
   read("app/car-detailing-website/page.tsx"),
   read("app/pest-control-website/page.tsx"),
@@ -20,6 +20,7 @@ test("all paid-traffic industry landing pages use shared landing attribution",as
   read("app/plumbing-website/page.tsx"),
   read("app/landscaping-website/page.tsx"),
   read("app/cleaning-website/page.tsx"),
+  read("app/powerwashing-website/page.tsx"),
   read("app/floral-event-website/page.tsx"),
  ]);
  assert.match(shared,/MarketingLandingAttribution/);
@@ -29,6 +30,7 @@ test("all paid-traffic industry landing pages use shared landing attribution",as
  assert.match(plumbing,/WebsiteIndustryLanding/);
  assert.match(landscaping,/WebsiteIndustryLanding/);
  assert.match(cleaning,/WebsiteIndustryLanding/);
+ assert.match(powerwashing,/WebsiteIndustryLanding/);
  assert.match(floral,/WebsiteIndustryLanding/);
 });
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
-const industries=["hvac","plumbing","landscaping","cleaning"] as const;
+const industries=["hvac","plumbing","landscaping","cleaning","powerwashing"] as const;
 
 test("four new industry landing pages preserve attribution and enter shared website-first signup",async()=>{
  const config=await read("lib/websiteFirstConfig.ts");
@@ -29,10 +29,11 @@ test("new industry demos are fictional and cannot submit customer data",async()=
 });
 
 test("migration safely expands sources and maps canonical business profiles",async()=>{
- const sql=await read("supabase/migrations/20260813000800_expand_website_first_industries.sql");
- for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website"])assert.match(sql,new RegExp(source));
+ const sql=await read("supabase/migrations/20260820000100_add_powerwashing_website_first_industry.sql");
+ for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website"])assert.match(sql,new RegExp(source));
  for(const profile of ["'hvac'","'plumbing'","'lawn_care'"])assert.match(sql,new RegExp(profile));
  assert.match(sql,/'other','cleaning'/);
+ assert.match(sql,/'other','power_washing'/);
  assert.match(sql,/create or replace function public\.create_website_first_workspace/);
  assert.match(sql,/business_website_settings/);
  assert.match(sql,/public\.services/);
@@ -40,7 +41,7 @@ test("migration safely expands sources and maps canonical business profiles",asy
 
 test("generated sites recognize each new website source",async()=>{
  const site=await read("components/BusinessWebsite.tsx");
- for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website"])assert.match(site,new RegExp(source));
+ for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website"])assert.match(site,new RegExp(source));
  assert.match(site,/industryPresentation/);
 });
 

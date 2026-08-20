@@ -57,9 +57,9 @@ body:has(.business-site)>.sv-header,body:has(.business-site)>.sv-footer{display:
 /* Website-first industry presentation variants share the generated-site system. */
 .website-hvac .business-site-hero,.website-plumbing .business-site-hero{background:linear-gradient(135deg,color-mix(in srgb,var(--site-primary) 14%,#fff),#fff)}
 .website-hvac .business-site-hero>aside,.website-plumbing .business-site-hero>aside{background:linear-gradient(145deg,var(--site-secondary),var(--site-primary));color:#fff}
-.website-hvac .business-site-process{background:#eef6ff}.website-plumbing .business-site-process{background:#eff9ff}.website-landscaping .business-site-process{background:#eef7f0}.website-cleaning .business-site-process{background:#effbfc}
-.website-landscaping .business-site-about{background:#edf6ef}.website-cleaning .business-site-about{background:#edf9fa}.website-landscaping .business-site-industry-image,.website-cleaning .business-site-industry-image{object-fit:cover}
-.website-hvac .business-site-footer,.website-plumbing .business-site-footer,.website-landscaping .business-site-footer,.website-cleaning .business-site-footer{background:var(--site-secondary)}
+.website-hvac .business-site-process{background:#eef6ff}.website-plumbing .business-site-process{background:#eff9ff}.website-landscaping .business-site-process{background:#eef7f0}.website-cleaning .business-site-process{background:#effbfc}.website-powerwashing .business-site-process{background:#eef8fc}
+.website-landscaping .business-site-about{background:#edf6ef}.website-cleaning .business-site-about{background:#edf9fa}.website-powerwashing .business-site-about{background:#edf8fc}.website-landscaping .business-site-industry-image,.website-cleaning .business-site-industry-image{object-fit:cover}
+.website-hvac .business-site-footer,.website-plumbing .business-site-footer,.website-landscaping .business-site-footer,.website-cleaning .business-site-footer,.website-powerwashing .business-site-footer{background:var(--site-secondary)}
 
 /* Rental inventory card footer: keep the price and availability action light, aligned, and touch friendly. */
 .business-site-rental-grid .rental-pricing-footer{margin-top:auto}.business-site-rental-grid .rental-pricing-footer>a{margin:0;border:0;background:var(--site-primary)}
