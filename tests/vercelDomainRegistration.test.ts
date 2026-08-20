@@ -25,6 +25,14 @@ test("domain orders prevent duplicate provider purchases and store no credential
  assert.match(actions,/isServonasPlatformAdmin/);
 });
 
+test("customer-facing registration no longer requires typing the domain name to continue",async()=>{
+ const [actions,component]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("components/ManagedDomainCustomerSetup.tsx")]);
+ assert.doesNotMatch(actions,/text\(data,"confirmation"\)!==`REGISTER \$\{domain\}`/);
+ assert.doesNotMatch(component,/Type <strong>REGISTER/);
+ assert.match(actions,/registrationTerms/);
+ assert.match(actions,/renewalTerms/);
+});
+
 test("premium domains cannot consume the included standard-domain offer",async()=>{
  const [actions,registrar]=await Promise.all([read("app/app/admin/domains/actions.ts"),read("lib/vercelDomains.ts")]);
  assert.match(registrar,/VERCEL_STANDARD_DOMAIN_MAX_USD/);
