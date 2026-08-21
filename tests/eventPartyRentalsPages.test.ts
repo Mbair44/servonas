@@ -13,6 +13,7 @@ test("event-party-rentals industry page highlights rental-specific workflows",as
  assert.match(page,/Inventory-aware availability/);
  assert.match(page,/Delivery and pickup planning/);
  assert.match(page,/Deposits and payment tracking/);
+ assert.match(page,/event-party-rentals-team-setting-up-tent\.png/);
  assert.match(index,/\/industries\/event-party-rentals/);
 });
 
@@ -23,6 +24,7 @@ test("event-party-rentals website landing uses the shared website-first flow",as
  ]);
  assert.match(page,/WebsiteIndustryLanding/);
  assert.match(page,/source:"event-party-rentals-website"/);
+ assert.match(page,/event-party-rentals-upscale-tent-setup\.png/);
  assert.match(page,/Build My Free Website|demoPath/);
  assert.match(config,/event-party-rentals-website/);
  assert.match(config,/Bounce Houses/);
@@ -34,7 +36,10 @@ test("event-party-rentals demo showcases rental inventory with a fictional busin
  assert.match(demo,/BrightSky Event Rentals/);
  assert.match(demo,/fictional example website built with Servonas/i);
  assert.match(demo,/industryProfile:"party_rental"/);
- assert.match(demo,/rentalItems:\[/);
+  assert.match(demo,/rentalItems:\[/);
+ assert.match(demo,/event-party-rentals-bounce-house-setup\.png/);
+ assert.match(demo,/event-party-rentals-team-setting-up-tent\.png/);
+ assert.match(demo,/event-party-rentals-upscale-tent-setup\.png/);
  assert.match(demo,/Build My Rental Website — Free/);
 });
 
