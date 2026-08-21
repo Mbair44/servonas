@@ -42,3 +42,16 @@ test("car-detailing and pest-control builder CTAs emit builder-start tracking",a
  assert.match(car,/data-acquisition-builder/);
  assert.match(pest,/data-acquisition-builder/);
 });
+
+test("header start-free CTA preserves website-builder source on industry landing pages",async()=>{
+ const [layout,header,config]=await Promise.all([
+  read("app/layout.tsx"),
+  read("components/HeaderSignupLink.tsx"),
+  read("lib/websiteFirstConfig.ts"),
+ ]);
+ assert.match(layout,/HeaderSignupLink/);
+ assert.match(header,/websiteFirstPaths/);
+ assert.match(header,/websiteFirstSources/);
+ assert.match(header,/source=|URLSearchParams\(\{source\}\)/);
+ for(const source of ["pest-control-website","car-detailing-website","hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","floral-event-website"])assert.match(config,new RegExp(source));
+});

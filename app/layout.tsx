@@ -8,6 +8,7 @@ import {AuthenticatedAccountMenu} from "@/components/AuthenticatedAccountMenu";
 import {AssistantPopover} from "@/components/AssistantPopover";
 import {MarketingAnalytics} from "@/components/MarketingAnalytics";
 import {ConsentAwareGoogleTag} from "@/components/ConsentAwareGoogleTag";
+import {HeaderSignupLink} from "@/components/HeaderSignupLink";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
@@ -37,7 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       {user
         ? <div className="authenticated-ribbon-actions"><AssistantPopover/><AuthenticatedAccountMenu name={accountName} email={accountEmail}/></div>
         : <><Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
-          <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link className="sv-mobile-login" href="/login">Log in</Link><Link className="sv-button sv-small" href="/signup">Start Free</Link></nav></>}
+          <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link className="sv-mobile-login" href="/login">Log in</Link><HeaderSignupLink/></nav></>}
     </div></header>
     {children}
     <footer className="sv-footer"><div className="sv-container sv-footer-grid">
