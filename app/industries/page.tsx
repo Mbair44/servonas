@@ -3,7 +3,7 @@ const industries=[
 ["Pest control","Recurring treatments, route-aware dispatch, field technicians, invoicing, and payments.","/industries/pest-control"],
 ["Cleaning services","Recurring clients, team scheduling, checklists, customer notes, and billing.","/industries/cleaning"],
 ["Lawn & landscaping","Property maintenance, crews, estimates, routes, equipment, and payments.","/industries/landscaping"],
-["Event & party rentals","Inventory quantities, galleries, blocked dates, delivery, deposits, and pickup.",null],
+["Event & party rentals","Inventory quantities, galleries, blocked dates, delivery, deposits, and pickup.","/industries/event-party-rentals"],
 ["Equipment rentals","Track availability, utilization, customer bookings, and item quantities."],
 ["Home services","Collect requests, schedule jobs, communicate with customers, and take payment."],
 ["Mobile services","Coordinate appointments, travel windows, technicians, and customer updates."],

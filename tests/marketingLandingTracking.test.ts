@@ -12,7 +12,7 @@ test("shared marketing landing attribution wrapper initializes landing and build
 });
 
 test("all paid-traffic industry landing pages use shared landing attribution",async()=>{
- const [shared,car,pest,hvac,plumbing,landscaping,cleaning,powerwashing,floral]=await Promise.all([
+ const [shared,car,pest,hvac,plumbing,landscaping,cleaning,powerwashing,floral,eventPartyRentals]=await Promise.all([
   read("components/WebsiteIndustryLanding.tsx"),
   read("app/car-detailing-website/page.tsx"),
   read("app/pest-control-website/page.tsx"),
@@ -22,6 +22,7 @@ test("all paid-traffic industry landing pages use shared landing attribution",as
   read("app/cleaning-website/page.tsx"),
   read("app/powerwashing-website/page.tsx"),
   read("app/floral-event-website/page.tsx"),
+  read("app/event-party-rentals-website/page.tsx"),
  ]);
  assert.match(shared,/MarketingLandingAttribution/);
  assert.match(car,/MarketingLandingAttribution source="car-detailing-website"/);
@@ -32,6 +33,7 @@ test("all paid-traffic industry landing pages use shared landing attribution",as
  assert.match(cleaning,/WebsiteIndustryLanding/);
  assert.match(powerwashing,/WebsiteIndustryLanding/);
  assert.match(floral,/WebsiteIndustryLanding/);
+ assert.match(eventPartyRentals,/WebsiteIndustryLanding/);
 });
 
 test("car-detailing and pest-control builder CTAs emit builder-start tracking",async()=>{
@@ -53,5 +55,5 @@ test("header start-free CTA preserves website-builder source on industry landing
  assert.match(header,/websiteFirstPaths/);
  assert.match(header,/websiteFirstSources/);
  assert.match(header,/source=|URLSearchParams\(\{source\}\)/);
- for(const source of ["pest-control-website","car-detailing-website","hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","floral-event-website"])assert.match(config,new RegExp(source));
+ for(const source of ["pest-control-website","car-detailing-website","hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","floral-event-website","event-party-rentals-website"])assert.match(config,new RegExp(source));
 });
