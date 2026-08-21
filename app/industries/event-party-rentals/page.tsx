@@ -9,6 +9,7 @@ const config:IndustryLandingConfig={
  headline:"Keep every rental, route, and reservation",
  accent:"working together.",
  description:"Manage rental inventory, date availability, customer bookings, delivery schedules, blocked dates, deposits, invoices, and payments from one connected system.",
+ heroImage:{src:"/images/event-party-rentals-team-setting-up-tent.png",alt:"Event-rental professionals setting up a white tent with tables and chairs while a bounce house is prepared in the background"},
  proof:["Rental inventory and availability","Delivery and pickup scheduling","Deposits, invoices, and payments"],
  workflow:["Customer browses rentals","Checks date availability","Builds a quote or booking","Schedule delivery and pickup","Invoice and collect payment"],
  features:[

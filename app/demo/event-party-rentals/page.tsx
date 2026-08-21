@@ -36,7 +36,11 @@ export default async function Page({searchParams}:{searchParams:Promise<Record<s
   googleRating:null,
   googleReviewCount:null,
   googleReviews:[],
-  photoUrls:[],
+  photoUrls:[
+   "/images/event-party-rentals-bounce-house-setup.png",
+   "/images/event-party-rentals-team-setting-up-tent.png",
+   "/images/event-party-rentals-upscale-tent-setup.png",
+  ],
   requestEnabled:false,
   bookingEnabled:false,
   bookingUrl:null,
