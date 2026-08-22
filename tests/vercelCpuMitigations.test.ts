@@ -13,9 +13,9 @@ test("custom-domain website route reuses cached public website data",async()=>{
 });
 
 test("public booking page caches its expensive shared data loader",async()=>{
- const page=await read("app/book/[businessSlug]/page.tsx");
- assert.match(page,/const loadPublicBookingData=unstable_cache/);
- assert.match(page,/revalidate:300/);
+ const [page,loader]=await Promise.all([read("app/book/[businessSlug]/page.tsx"),read("app/book/[businessSlug]/loadPublicBookingData.ts")]);
+ assert.match(loader,/export const loadPublicBookingData=unstable_cache/);
+ assert.match(loader,/revalidate:300/);
  assert.match(page,/await loadPublicBookingData\(businessSlug\)/);
 });
 

@@ -82,13 +82,29 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.equal((source.match(/showReservationPage\(selected\.length(?:\+1)?\)/g)??[]).length,3);
  assert.equal((source.match(/onClick=\{goToCart\}/g)??[]).length,2);
  assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
- assert.match(source,/showCheckout\?<section className="rental-checkout-screen">\{reservationContent\}<\/section>:/);
+ assert.match(source,/const checkoutEmptyState=<section className="rental-checkout-screen">/);
+ assert.match(source,/const shouldRenderCheckoutScreen=showCheckout\|\|\(initialCheckout&&cartStateHydrated\);/);
+ assert.match(source,/shouldRenderCheckoutScreen\?\(selected\.length\?<section className="rental-checkout-screen">\{reservationContent\}<\/section>:checkoutEmptyState\):/);
  assert.match(source,/rental-checkout-screen-header/);
  assert.match(styles,/\.rental-checkout-screen\{/);
  assert.match(styles,/\.rental-checkout-screen-header\{/);
  assert.match(source,/Back to rentals/);
  assert.match(source,/View Party/);
  assert.match(source,/Your Party/);
+});
+
+test("party rental storefront and embedded website point checkout to the dedicated booking route",async()=>{
+ const [bookingPage,websiteSource,checkoutPage]=await Promise.all([
+  read("app/book/[businessSlug]/page.tsx"),
+  read("components/BusinessWebsite.tsx"),
+  read("app/book/[businessSlug]/booking/page.tsx"),
+ ]);
+ assert.match(bookingPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
+ assert.match(websiteSource,/const bookingCheckoutUrl=site\.bookingUrl\?`\$\{site\.bookingUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
+ assert.match(websiteSource,/checkoutUrl=\$\{encodeURIComponent\(bookingCheckoutUrl\?\?site\.bookingUrl\)\}/);
+ assert.match(checkoutPage,/initialCheckout/);
+ assert.match(checkoutPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
+ assert.match(checkoutPage,/Reservation checkout/);
 });
 
 test("party rental availability effect uses a stable cart signature so successful checks do not refetch forever",async()=>{
