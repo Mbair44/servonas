@@ -8,6 +8,7 @@ import {acquisitionDateRange,buildAcquisitionReport,classifyAcquisitionSource} f
 const label=(value:string)=>value.replaceAll("_"," ").replace(/\b\w/g,l=>l.toUpperCase());
 const percent=(value:number)=>`${value.toFixed(value%1===0?0:1)}%`;
 const formatDate=(value:string)=>value.slice(0,10);
+const platformReportingTimeZone="America/Phoenix";
 
 export default async function AcquisitionReport({searchParams}:{searchParams:Promise<{industry?:string;source?:string;range?:string;from?:string;to?:string}>}){
  const q=await searchParams,s=await createSupabaseServerClient(),{data:{user}}=await s.auth.getUser();
@@ -15,12 +16,12 @@ export default async function AcquisitionReport({searchParams}:{searchParams:Pro
  const db=getSupabaseAdmin();
  if(!db)return <main className="admin-entitlements"><p>Private analytics access is not configured.</p></main>;
  const range=q.range==="today"||q.range==="last_30_days"||q.range==="custom"?q.range:"last_7_days";
- const window=acquisitionDateRange(range,q.from,q.to,new Date());
- let sessionsQuery=db.from("website_acquisition_sessions").select("id,industry,first_landing_path,first_landing_url,first_referrer,first_seen_at,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,utm_content").gte("first_seen_at",window.from).lte("first_seen_at",window.to);
+ const window=acquisitionDateRange(range,q.from,q.to,new Date(),platformReportingTimeZone);
+ let sessionsQuery=db.from("website_acquisition_sessions").select("id,industry,first_landing_path,first_landing_url,first_referrer,first_seen_at,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_term,utm_content").gte("first_seen_at",window.from).lt("first_seen_at",window.to);
  if(q.industry)sessionsQuery=sessionsQuery.eq("industry",q.industry);
  const {data:sessionRows,error}=await sessionsQuery.order("first_seen_at",{ascending:false});
  const sessionIds=(sessionRows??[]).map(row=>row.id);
- const {data:eventRows}=sessionIds.length?await db.from("website_acquisition_events").select("acquisition_session_id,event_name").in("acquisition_session_id",sessionIds).gte("occurred_at",window.from).lte("occurred_at",window.to):{data:[]};
+ const {data:eventRows}=sessionIds.length?await db.from("website_acquisition_events").select("acquisition_session_id,event_name").in("acquisition_session_id",sessionIds).gte("occurred_at",window.from).lt("occurred_at",window.to):{data:[]};
  const filteredSessions=(sessionRows??[]).filter(row=>!q.source||classifyAcquisitionSource(row)===q.source);
  const industries=[...new Set((sessionRows??[]).map(row=>row.industry).filter(Boolean) as string[])].sort();
  const report=buildAcquisitionReport(filteredSessions,eventRows??[]);

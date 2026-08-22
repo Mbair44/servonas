@@ -1,3 +1,4 @@
+import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "./bookingTime.ts";
 import { normalizeAcquisitionLandingPagePath, type AcquisitionEvent } from "./acquisitionFunnel.ts";
 
 export const acquisitionReportStages = ["marketing_landing_view","website_builder_started","website_preview_viewed","business_created"] as const;
@@ -210,23 +211,29 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
   };
 }
 
-export function acquisitionDateRange(range: string | undefined, from: string | undefined, to: string | undefined, now = new Date()) {
+export function acquisitionDateRange(range: string | undefined, from: string | undefined, to: string | undefined, now = new Date(), timeZone = "America/Phoenix") {
   const hasFrom = Boolean(from && /^\d{4}-\d{2}-\d{2}$/.test(from));
   const hasTo = Boolean(to && /^\d{4}-\d{2}-\d{2}$/.test(to));
-  const end = hasTo ? `${to}T23:59:59.999Z` : now.toISOString();
+  const localToday = dateInTimeZone(now, timeZone);
+  const effectiveTo = hasTo ? to! : localToday;
+  const end = hasTo ? zonedDateTimeToUtc(addDays(effectiveTo, 1), "00:00", timeZone).toISOString() : now.toISOString();
   if (hasFrom || hasTo || range === "custom") {
-    const fallbackStart = hasTo ? `${to}T00:00:00.000Z` : new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) + "T00:00:00.000Z";
-    return { from: hasFrom ? `${from}T00:00:00.000Z` : fallbackStart, to: end };
+    const fallbackStartDate = hasTo ? effectiveTo : addDays(localToday, -6);
+    return {
+      from: zonedDateTimeToUtc(hasFrom ? from! : fallbackStartDate, "00:00", timeZone).toISOString(),
+      to: end,
+    };
   }
-  const start = new Date(now);
+  let startDate = localToday;
   if (range === "today") {
-    start.setUTCHours(0, 0, 0, 0);
+    startDate = localToday;
   } else if (range === "last_30_days") {
-    start.setUTCDate(start.getUTCDate() - 29);
-    start.setUTCHours(0, 0, 0, 0);
+    startDate = addDays(localToday, -29);
   } else {
-    start.setUTCDate(start.getUTCDate() - 6);
-    start.setUTCHours(0, 0, 0, 0);
+    startDate = addDays(localToday, -6);
   }
-  return { from: start.toISOString(), to: end };
+  return {
+    from: zonedDateTimeToUtc(startDate, "00:00", timeZone).toISOString(),
+    to: end,
+  };
 }
