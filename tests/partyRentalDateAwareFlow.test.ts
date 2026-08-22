@@ -57,6 +57,10 @@ test("party rental booking surfaces unavailable alternatives and conflict messag
 test("party rental booking blocks empty checkout and uses a storefront-style party summary",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
+ assert.match(source,/function findSuggestedUpsell\(\)/);
+ assert.match(source,/const suggestion=findSuggestedUpsell\(\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
+ assert.match(source,/pendingUpsellAction\.current="submit"/);
+ assert.match(source,/if\(nextAction==="submit"&&data\)\{void completeBooking\(data,upsell\);return;\}setShowCheckout\(true\);/);
  assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
  assert.match(source,/View Party/);
  assert.match(source,/Your Party/);
