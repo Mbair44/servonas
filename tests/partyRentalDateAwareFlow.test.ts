@@ -70,7 +70,8 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
  assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
- assert.match(source,/function showReservationPage\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);trackBookingFunnel\(businessSlug,"booking_started"[\s\S]*if\(typeof window!=="undefined"&&checkoutUrl&&window\.top&&window\.top!==window\)\{window\.top\.location\.assign\(checkoutUrl\);return;\}setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);/);
+ assert.match(source,/const resolveAbsoluteUrl=\(value:string\)=>\{if\(typeof window==="undefined"\)return value;try\{return new URL\(value,window\.location\.origin\)\.toString\(\);\}catch\{return value;\}\};/);
+ assert.match(source,/function showReservationPage\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);trackBookingFunnel\(businessSlug,"booking_started"[\s\S]*if\(typeof window!=="undefined"&&checkoutUrl&&window\.top&&window\.top!==window\)\{window\.top\.location\.assign\(resolveAbsoluteUrl\(checkoutUrl\)\);return;\}setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);/);
  assert.match(source,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);goToCart\(\);\}/);
  assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
@@ -100,8 +101,10 @@ test("party rental storefront and embedded website point checkout to the dedicat
   read("app/book/[businessSlug]/booking/page.tsx"),
  ]);
  assert.match(bookingPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
- assert.match(websiteSource,/const bookingCheckoutUrl=site\.bookingUrl\?`\$\{site\.bookingUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
- assert.match(websiteSource,/checkoutUrl=\$\{encodeURIComponent\(bookingCheckoutUrl\?\?site\.bookingUrl\)\}/);
+ assert.match(websiteSource,/const absolutizeUrl=\(value:string\)=>\/\^https\?:\\\/\\\/\/i\.test\(value\)\?value:`https:\/\/servonas\.com\$\{value\.startsWith\("\/"\)\?"":"\/"\}\$\{value\}`;/);
+ assert.match(websiteSource,/const bookingBaseUrl=site\.bookingUrl\?absolutizeUrl\(site\.bookingUrl\):null;/);
+ assert.match(websiteSource,/const bookingCheckoutUrl=bookingBaseUrl\?`\$\{bookingBaseUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
+ assert.match(websiteSource,/checkoutUrl=\$\{encodeURIComponent\(bookingCheckoutUrl\?\?bookingBaseUrl\)\}/);
  assert.match(checkoutPage,/initialCheckout/);
  assert.match(checkoutPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
  assert.match(checkoutPage,/Reservation checkout/);
