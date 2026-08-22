@@ -23,7 +23,7 @@ const websiteFirstTarget=(slug:string,mode:"preview"|"domain"|"live",kind?:"succ
  if(extra)for(const [key,value] of Object.entries(extra))if(value)query.set(key,value);
  return `/onboarding?${query.toString()}`;
 };
-const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,12);
+const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,24);
 const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
  return authors.map((author,index)=>({author:author.trim(),rating:ratings[index],text:texts[index]??""})).filter(review=>review.author||review.text).slice(0,6);
