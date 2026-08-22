@@ -40,6 +40,8 @@ test("party rental booking supports a date range, item-aware calendar, and check
  assert.match(source,/Availability calendar for \$\{availabilityItem\.name\}/);
  assert.match(source,/Arrival time/);
  assert.match(source,/catalog-inline-cart-button/);
+ assert.match(source,/quantity-picker-wrap"><div className="quantity-picker">[\s\S]*catalog-inline-cart-button/s);
+ assert.doesNotMatch(source,/\{!showCheckout&&<button type="button" className="catalog-inline-cart-button"/);
  assert.match(source,/Complete your reservation/);
 });
 
@@ -60,6 +62,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsell\(options\?:\{ignoreDismissed\?:boolean\}\)/);
  assert.match(source,/function proceedToCheckout\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);requestAnimationFrame\(\(\)=>\{setShowCheckout\(true\);const heading=checkoutHeadingRef\.current;if\(heading\)\{/);
+ assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);openCheckout\(\);\}/);
  assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
  assert.match(source,/return;\}proceedToCheckout\(selected\.length\);\}/);
  assert.match(source,/pendingUpsellAction\.current="submit"/);
