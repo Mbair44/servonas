@@ -19,8 +19,10 @@ const journeyShort:Record<StageName,string>={
 
 type EventRow={
  event_name:StageName;
+ inventory_item_id?:string|null;
  booking_total_cents:number|null;
  metadata:Record<string,unknown>|null;
+ inventory_items?:{name?:string|null}|{name?:string|null}[]|null;
  booking_attribution_sessions?:{utm_source?:string|null;gclid?:string|null;gbraid?:string|null;wbraid?:string|null}|{utm_source?:string|null;gclid?:string|null;gbraid?:string|null;wbraid?:string|null}[]|null;
 };
 
@@ -44,6 +46,11 @@ function sourceCount(rows:EventRow[],source:string,stage:StageName){
  return rows.filter(row=>row.event_name===stage&&sourceOf(row)===source).length;
 }
 
+function inventoryNameOf(row:EventRow){
+ const relation=Array.isArray(row.inventory_items)?row.inventory_items[0]:row.inventory_items;
+ return relation?.name?.trim()||null;
+}
+
 export default async function BookingFunnelPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{from?:string;to?:string;source?:string}>}){
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
  const canViewMarketing=canManageBusiness(role);
@@ -53,7 +60,7 @@ export default async function BookingFunnelPage({params,searchParams}:{params:Pr
  const source=(q.source==="google"?"google":"all") as SourceFilter;
  if(!canViewMarketing)return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can view marketing analytics.</div></section></main>;
 
- let query=supabase.from("booking_funnel_events").select("event_name,booking_total_cents,metadata,booking_attribution_sessions!inner(utm_source,gclid,gbraid,wbraid)").eq("business_id",business.id).gte("occurred_at",`${from}T00:00:00Z`).lte("occurred_at",`${to}T23:59:59Z`);
+ let query=supabase.from("booking_funnel_events").select("event_name,inventory_item_id,booking_total_cents,metadata,inventory_items(name),booking_attribution_sessions!inner(utm_source,gclid,gbraid,wbraid)").eq("business_id",business.id).gte("occurred_at",`${from}T00:00:00Z`).lte("occurred_at",`${to}T23:59:59Z`);
  if(source==="google")query=query.or("gclid.not.is.null,gbraid.not.is.null,wbraid.not.is.null,utm_source.ilike.google",{foreignTable:"booking_attribution_sessions"});
  const {data,error}=await query;
 
@@ -69,6 +76,17 @@ export default async function BookingFunnelPage({params,searchParams}:{params:Pr
  const noBookings=!noActivity&&completedBookings===0;
  const avgCompletedBooking=completedBookings?Math.round(revenue/completedBookings):0;
  const quickRanges=[{label:"Last 7 days",from:shiftDays(to,-6),to},{label:"Last 30 days",from:shiftDays(to,-29),to},{label:"This month",from:monthStart(to),to}];
+ const topInventoryRows=Array.from(rows.reduce((map,row)=>{
+  if(!row.inventory_item_id)return map;
+  const existing=map.get(row.inventory_item_id)??{id:row.inventory_item_id,name:inventoryNameOf(row)??"Rental item",clicks:0,dateSelections:0,bookingStarts:0,bookings:0,revenue:0};
+  if(!existing.name||existing.name==="Rental item")existing.name=inventoryNameOf(row)??existing.name;
+  if(row.event_name==="check_availability_clicked")existing.clicks++;
+  else if(row.event_name==="availability_date_selected")existing.dateSelections++;
+  else if(row.event_name==="booking_started")existing.bookingStarts++;
+  else if(row.event_name==="booking_completed"){existing.bookings++;existing.revenue+=Number(row.booking_total_cents??0);}
+  map.set(row.inventory_item_id,existing);
+  return map;
+ },new Map<string,{id:string;name:string;clicks:number;dateSelections:number;bookingStarts:number;bookings:number;revenue:number}>()).values()).filter(row=>row.clicks||row.dateSelections||row.bookingStarts||row.bookings||row.revenue).sort((a,b)=>b.clicks-a.clicks||b.dateSelections-a.dateSelections||b.bookingStarts-a.bookingStarts||b.bookings-a.bookings||b.revenue-a.revenue||a.name.localeCompare(b.name)).slice(0,8);
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content marketing-page marketing-funnel-page">
   <header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing</span><h1>Booking funnel</h1><p>See how visitors move from your website to a completed booking.</p>{business.name&&<small>{business.name}</small>}</div></header>
@@ -88,6 +106,7 @@ export default async function BookingFunnelPage({params,searchParams}:{params:Pr
     <article className="workspace-panel"><h2>Biggest drop-off</h2>{biggestDrop?<><strong>{journeyShort[biggestDrop.from]} → {journeyShort[biggestDrop.to]}</strong><b>{biggestDrop.dropRate}% drop</b><p>{biggestDrop.drop===1?`1 customer reached ${journeyShort[biggestDrop.from].toLowerCase()}, but none continued to ${journeyShort[biggestDrop.to].toLowerCase()}.`:`${biggestDrop.drop} customers reached ${journeyShort[biggestDrop.from].toLowerCase()}, but fewer continued to ${journeyShort[biggestDrop.to].toLowerCase()}.`}</p></>:<><strong>Not enough data yet</strong><p>More activity is needed before Servonas can identify a meaningful drop-off.</p></>}</article>
     <article className="workspace-panel"><h2>Conversion overview</h2><dl className="marketing-conversion-list"><div><dt>Visitor → Availability</dt><dd>{displayRate(counts.check_availability_clicked,counts.landing_page_view)}</dd></div><div><dt>Availability → Booking Started</dt><dd>{displayRate(counts.booking_started,counts.check_availability_clicked)}</dd></div><div><dt>Booking Started → Completed</dt><dd>{displayRate(counts.booking_completed,counts.booking_started)}</dd></div><div><dt>Visitor → Completed</dt><dd>{displayRate(counts.booking_completed,counts.landing_page_view)}</dd></div><div><dt>Average completed booking</dt><dd>{completedBookings?money(avgCompletedBooking):"—"}</dd></div></dl></article>
    </section>
+   {topInventoryRows.length>0&&<section className="workspace-panel marketing-sources-panel"><header><div><h2>Most-clicked rental items</h2><p>See which rentals visitors are trying to book from your website.</p></div></header><div className="marketing-item-demand-table"><div><b>Rental item</b><b>Clicks</b><b>Date picks</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{topInventoryRows.map(row=><div key={row.id}><span>{row.name}</span><span>{row.clicks}</span><span>{row.dateSelections}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenue)}</span></div>)}</div></section>}
    {sourceRows.length>1&&<section className="workspace-panel marketing-sources-panel"><header><div><h2>Traffic sources</h2><p>Source performance based on the attribution already captured by Servonas.</p></div></header><div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Availability</b><b>Bookings</b><b>Revenue</b></div>{sourceRows.map(row=><div key={row.name}><span>{row.name}</span><span>{row.visits}</span><span>{row.availability}</span><span>{row.bookings}</span><span>{money(row.revenue)}</span></div>)}</div></section>}
    <details className="workspace-panel marketing-attribution-note"><summary>How attribution works</summary><p>Google Ads attribution: A session is considered Google Ads-attributed when Servonas captures a Google click identifier or recognized Google Ads UTM attribution. These represent Servonas-attributed sessions, not imported Google Ads click totals.</p></details>
   </>}
