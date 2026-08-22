@@ -11,10 +11,17 @@ test("rental inventory supports authenticated item-specific blocked dates withou
  ]);
  assert.match(page,/Block this item on specific dates/);
  assert.match(page,/Use Online Booking → Blocked dates and times to block every rental/);
+ assert.match(page,/name="startDate"/);
+ assert.match(page,/name="endDate"/);
+ assert.match(page,/Block item date range/);
  assert.match(page,/addRentalItemBlockedDate/);
  assert.match(actions,/export async function addRentalItemBlockedDate/);
+ assert.match(actions,/eachDate/);
+ assert.match(actions,/startDate/);
+ assert.match(actions,/endDate/);
+ assert.match(actions,/missingDates/);
  assert.match(actions,/\.eq\("business_id",business\.id\)/);
- assert.match(actions,/inventory_item_id:item\.id/);
+  assert.match(actions,/inventory_item_id:item\.id/);
  assert.match(actions,/export async function removeRentalItemBlockedDate/);
  assert.match(availability,/\.eq\("inventory_item_id",itemId\)/);
  assert.match(bookingPage,/Blocked dates and times/);
