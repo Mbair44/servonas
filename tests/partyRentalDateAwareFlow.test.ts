@@ -25,10 +25,18 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
  assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_view"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"item_added_to_cart"/);
- assert.match(source,/if\(!date\)\{setBookingError\("Choose your party date first\."\);focusDatePicker\("rental_first"\);return;\}/);
+ assert.match(source,/if\(!date\)\{setAvailabilityItemId\(item\.id\);setFocusedItemId\(item\.id\);setBookingError\("Choose your party date first\."\);focusDatePicker\("rental_first"\);return;\}/);
  assert.match(source,/\{`Add to Party — \$\{money\(item\.daily_price_cents\)\}`\}/);
  assert.doesNotMatch(source,/See Available Rentals/);
  assert.doesNotMatch(source,/chooseDate\(value\)[\s\S]*setQuantities/s);
+});
+
+test("party rental booking supports a date range, item-aware calendar, and checkout arrival time selection",async()=>{
+ const source=await read("components/PartyRentalBookingClient.tsx");
+ assert.match(source,/function chooseEndDate\(value:string\)/);
+ assert.match(source,/Party ends/);
+ assert.match(source,/Availability calendar for \$\{availabilityItem\.name\}/);
+ assert.match(source,/Arrival time/);
 });
 
 test("party rental booking surfaces unavailable alternatives and conflict messaging",async()=>{
