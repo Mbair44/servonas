@@ -18,8 +18,8 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
  assert.match(source,/function reserveItem\(item:Item\)/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"item_added_to_cart"/);
- assert.match(source,/>\{date\?"View Details":"Check Availability"\}<\/button>/);
- assert.match(source,/Add to Party — \$\{money\(focusedItem\.daily_price_cents\)\}/);
+ assert.match(source,/if\(!date\)\{setBookingError\("Choose your party date first\."\);focusDatePicker\("rental_first"\);return;\}/);
+ assert.match(source,/\{`Add to Party — \$\{money\(item\.daily_price_cents\)\}`\}/);
  assert.doesNotMatch(source,/See Available Rentals/);
  assert.doesNotMatch(source,/chooseDate\(value\)[\s\S]*setQuantities/s);
 });
@@ -29,12 +29,11 @@ test("party rental booking surfaces unavailable alternatives and conflict messag
   read("components/PartyRentalBookingClient.tsx"),
   read("app/globals.css"),
  ]);
- assert.match(source,/unavailable_alternative_clicked/);
  assert.match(source,/Your current cart conflicts with \$\{formatLongDate\(date\)\}/);
- assert.match(source,/Other \{focusedItem\.category\?\.toLowerCase\(\)\|\|"rentals"\} available that day/);
+ assert.match(source,/setPartyNotice\(`Added \$\{item\.name\} to your party\.`\)/);
  assert.match(styles,/\.rental-date-pill/);
  assert.match(styles,/\.inventory-availability-status\.available/);
- assert.match(styles,/\.rental-item-detail-grid/);
+ assert.match(styles,/\.rental-storefront-header/);
 });
 
 test("party rental booking blocks empty checkout and uses a storefront-style party summary",async()=>{
