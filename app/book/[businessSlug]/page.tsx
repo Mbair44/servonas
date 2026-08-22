@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import {unstable_cache} from "next/cache";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import PublicBookingForm from "@/components/PublicBookingForm";
 import PartyRentalBookingClient from "@/components/PartyRentalBookingClient";
@@ -13,38 +14,17 @@ import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracke
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({params}:{params:Promise<{businessSlug:string}>}):Promise<Metadata>{
-  const {businessSlug}=await params,supabase=getSupabaseAdmin();if(!supabase)return {};
-  const {data:settings}=await supabase.from("booking_settings").select("business_id,logo_path,logo_url,businesses(name)").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();
-  if(!settings)return {};
-  const business=Array.isArray(settings.businesses)?settings.businesses[0]:settings.businesses;
-  const {data:signed}=settings.logo_path?await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path,3600):{data:null};
-  const logo=signed?.signedUrl??settings.logo_url??null;
-  return {title:`Book Online | ${business?.name??"Business"}`,icons:logo?{icon:[{url:logo}],shortcut:logo,apple:logo}:undefined};
-}
-
-export default async function PublicBookingPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ businessSlug: string }>;
-  searchParams: Promise<{ error?: string; embed?: string; item?: string; sv_at?: string }>;
-}) {
-  const { businessSlug } = await params;
-  const query = await searchParams;
-  const embedded = query.embed === "1";
-  const supabase = getSupabaseAdmin();
-  if (!supabase) notFound();
-
+const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
+  const supabase=getSupabaseAdmin();
+  if(!supabase)return null;
   const { data: settings } = await supabase
     .from("booking_settings")
-    .select("*,businesses(name,website_url)")
+    .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url)")
     .ilike("public_slug", businessSlug)
     .eq("enabled", true)
     .maybeSingle();
-  if (!settings) notFound();
-
-  const [{ data: services }, { data: hours }] = await Promise.all([
+  if (!settings) return null;
+  const [{ data: services }, { data: hours }, {data: businessProfile}] = await Promise.all([
     supabase
       .from("services")
       .select("id,name,description,duration_minutes,price_amount,price_label")
@@ -58,6 +38,7 @@ export default async function PublicBookingPage({
       .select("weekday,start_time,end_time")
       .eq("business_id", settings.business_id)
       .eq("active", true),
+    supabase.from("businesses").select("industry_profile").eq("id", settings.business_id).maybeSingle(),
   ]);
 
   const schedule = Object.fromEntries(
@@ -74,7 +55,6 @@ export default async function PublicBookingPage({
     : { data: null };
   const bookingLogo = signedLogo?.signedUrl ?? settings.logo_url ?? null;
 
-  const { data: businessProfile } = await supabase.from("businesses").select("industry_profile").eq("id", settings.business_id).maybeSingle();
   const isPartyRental = businessProfile?.industry_profile === "party_rental";
   let rentalInventory: any[] = [];
   let rentalCapacity: Record<string, Record<string, number>> = {};
@@ -86,13 +66,13 @@ export default async function PublicBookingPage({
       .select("onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
-    const [{data},{data:rentalCategories}]=await Promise.all([
+    const [{data},{data:rentalCategories},{data:upsells}]=await Promise.all([
       supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected").eq("business_id", settings.business_id).eq("active", true),
       supabase.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
+      supabase.from("rental_item_upsells").select("source_item_id,suggested_item_id,sort_order").eq("business_id",settings.business_id).order("sort_order"),
     ]);
     const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}]));
     rentalInventory=(data??[]).sort((left,right)=>{const a=categoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=categoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||a.name.localeCompare(b.name)||left.name.localeCompare(right.name);});
-    const {data:upsells}=await supabase.from("rental_item_upsells").select("source_item_id,suggested_item_id,sort_order").eq("business_id",settings.business_id).order("sort_order");
     rentalUpsells=(upsells??[]).reduce((map:Record<string,string[]>,row)=>{(map[row.source_item_id]??=[]).push(row.suggested_item_id);return map;},{});
     const start = new Date(); start.setDate(1);
     const end = new Date(start.getFullYear(), start.getMonth() + 13, 0);
@@ -115,6 +95,28 @@ export default async function PublicBookingPage({
       if(coveredByBusiness||everyItemBlocked)rentalBlockedDates.push(value);
     }
   }
+  return {settings,services:services??[],schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates};
+},["public-booking-page"],{revalidate:300});
+
+export async function generateMetadata({params}:{params:Promise<{businessSlug:string}>}):Promise<Metadata>{
+  const {businessSlug}=await params,data=await loadPublicBookingData(businessSlug);
+  if(!data)return {};
+  return {title:`Book Online | ${data.businessName??"Business"}`,icons:data.bookingLogo?{icon:[{url:data.bookingLogo}],shortcut:data.bookingLogo,apple:data.bookingLogo}:undefined};
+}
+
+export default async function PublicBookingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ businessSlug: string }>;
+  searchParams: Promise<{ error?: string; embed?: string; item?: string; sv_at?: string }>;
+}) {
+  const { businessSlug } = await params;
+  const query = await searchParams;
+  const embedded = query.embed === "1";
+  const data=await loadPublicBookingData(businessSlug);
+  if (!data) notFound();
+  const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
 
   return (
     <>{embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} initialSessionId={query.sv_at}/><main
