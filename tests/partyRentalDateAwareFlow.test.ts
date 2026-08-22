@@ -40,6 +40,8 @@ test("party rental booking supports a date range, item-aware calendar, and check
  assert.match(source,/Availability calendar for \$\{availabilityItem\.name\}/);
  assert.match(source,/Arrival time/);
  assert.match(source,/catalog-inline-cart-button/);
+ assert.match(source,/quantity-picker-wrap"><div className="quantity-picker">[\s\S]*catalog-inline-cart-button/s);
+ assert.doesNotMatch(source,/\{!showCheckout&&<button type="button" className="catalog-inline-cart-button"/);
  assert.match(source,/Complete your reservation/);
 });
 
