@@ -106,16 +106,16 @@ test("handles zero denominators safely", () => {
 
 test("builds expected date ranges", () => {
   const now = new Date("2026-08-20T12:00:00.000Z");
-  assert.deepEqual(acquisitionDateRange("today", undefined, undefined, now), {
-    from: "2026-08-20T00:00:00.000Z",
+  assert.deepEqual(acquisitionDateRange("today", undefined, undefined, now, "America/Phoenix"), {
+    from: "2026-08-20T07:00:00.000Z",
     to: "2026-08-20T12:00:00.000Z",
   });
-  assert.deepEqual(acquisitionDateRange("custom", "2026-08-01", "2026-08-20", now), {
-    from: "2026-08-01T00:00:00.000Z",
-    to: "2026-08-20T23:59:59.999Z",
+  assert.deepEqual(acquisitionDateRange("custom", "2026-08-01", "2026-08-20", now, "America/Phoenix"), {
+    from: "2026-08-01T07:00:00.000Z",
+    to: "2026-08-21T07:00:00.000Z",
   });
-  assert.deepEqual(acquisitionDateRange("last_7_days", "2026-08-10", "2026-08-12", now), {
-    from: "2026-08-10T00:00:00.000Z",
-    to: "2026-08-12T23:59:59.999Z",
+  assert.deepEqual(acquisitionDateRange("last_7_days", "2026-08-10", "2026-08-12", now, "America/Phoenix"), {
+    from: "2026-08-10T07:00:00.000Z",
+    to: "2026-08-13T07:00:00.000Z",
   });
 });

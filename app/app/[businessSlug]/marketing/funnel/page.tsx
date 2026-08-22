@@ -2,6 +2,7 @@ import Link from "next/link";
 import {WorkspaceNav} from "../../WorkspaceNav";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
+import {addDays, dateInTimeZone, zonedDateTimeToUtc} from "@/lib/bookingTime";
 
 const stages=["landing_page_view","check_availability_clicked","availability_date_selected","booking_started","customer_info_entered","checkout_started","booking_completed"] as const;
 type StageName=(typeof stages)[number];
@@ -31,7 +32,6 @@ const money=(cents:number)=>new Intl.NumberFormat("en-US",{style:"currency",curr
 const displayRate=(value:number,total:number)=>{const result=percent(value,total);return result==null?"—":`${result}%`;};
 const validDate=(value:string|undefined)=>Boolean(value&&/^\d{4}-\d{2}-\d{2}$/.test(value));
 const monthStart=(value:string)=>`${value.slice(0,8)}01`;
-const shiftDays=(value:string,days:number)=>{const date=new Date(`${value}T12:00:00Z`);date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10);};
 const sourceOf=(row:EventRow)=>{const relation=Array.isArray(row.booking_attribution_sessions)?row.booking_attribution_sessions[0]:row.booking_attribution_sessions;if(!relation)return "Direct";if(relation.gclid||relation.gbraid||relation.wbraid||/google/i.test(relation.utm_source??""))return "Google Ads";if(relation.utm_source)return relation.utm_source;return "Direct";};
 
 function stageCount(rows:EventRow[],name:StageName,source:SourceFilter){
@@ -54,13 +54,15 @@ function inventoryNameOf(row:EventRow){
 export default async function BookingFunnelPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{from?:string;to?:string;source?:string}>}){
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
  const canViewMarketing=canManageBusiness(role);
- const today="2026-08-20";
+ const today=dateInTimeZone(new Date(),business.timezone);
  const to=validDate(q.to)?q.to!:today;
  const from=validDate(q.from)?q.from!:monthStart(to);
  const source=(q.source==="google"?"google":"all") as SourceFilter;
  if(!canViewMarketing)return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can view marketing analytics.</div></section></main>;
 
- let query=supabase.from("booking_funnel_events").select("event_name,inventory_item_id,booking_total_cents,metadata,inventory_items(name),booking_attribution_sessions!inner(utm_source,gclid,gbraid,wbraid)").eq("business_id",business.id).gte("occurred_at",`${from}T00:00:00Z`).lte("occurred_at",`${to}T23:59:59Z`);
+ const rangeStart=zonedDateTimeToUtc(from,"00:00",business.timezone).toISOString();
+ const rangeEnd=zonedDateTimeToUtc(addDays(to,1),"00:00",business.timezone).toISOString();
+ let query=supabase.from("booking_funnel_events").select("event_name,inventory_item_id,booking_total_cents,metadata,inventory_items(name),booking_attribution_sessions!inner(utm_source,gclid,gbraid,wbraid)").eq("business_id",business.id).gte("occurred_at",rangeStart).lt("occurred_at",rangeEnd);
  if(source==="google")query=query.or("gclid.not.is.null,gbraid.not.is.null,wbraid.not.is.null,utm_source.ilike.google",{foreignTable:"booking_attribution_sessions"});
  const {data,error}=await query;
 
@@ -75,7 +77,7 @@ export default async function BookingFunnelPage({params,searchParams}:{params:Pr
  const noActivity=!rows.length;
  const noBookings=!noActivity&&completedBookings===0;
  const avgCompletedBooking=completedBookings?Math.round(revenue/completedBookings):0;
- const quickRanges=[{label:"Last 7 days",from:shiftDays(to,-6),to},{label:"Last 30 days",from:shiftDays(to,-29),to},{label:"This month",from:monthStart(to),to}];
+ const quickRanges=[{label:"Last 7 days",from:addDays(to,-6),to},{label:"Last 30 days",from:addDays(to,-29),to},{label:"This month",from:monthStart(to),to}];
  const topInventoryRows=Array.from(rows.reduce((map,row)=>{
   if(!row.inventory_item_id)return map;
   const existing=map.get(row.inventory_item_id)??{id:row.inventory_item_id,name:inventoryNameOf(row)??"Rental item",clicks:0,dateSelections:0,bookingStarts:0,bookings:0,revenue:0};
