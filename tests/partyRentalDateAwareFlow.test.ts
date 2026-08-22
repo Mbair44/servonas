@@ -58,24 +58,32 @@ test("party rental booking surfaces unavailable alternatives and conflict messag
 });
 
 test("party rental booking blocks empty checkout and uses a storefront-style party summary",async()=>{
- const source=await read("components/PartyRentalBookingClient.tsx");
+ const [source,styles]=await Promise.all([
+  read("components/PartyRentalBookingClient.tsx"),
+  read("app/globals.css"),
+ ]);
  assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsell\(options\?:\{ignoreDismissed\?:boolean\}\)/);
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
- assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current,form=checkoutRef\.current;if\(!heading\|\|!form\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;form\.scrollIntoView\(\{behavior:"smooth",block:"center"\}\);window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
-assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
-assert.match(source,/function showReservationPage\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);trackBookingFunnel\(businessSlug,"booking_started"[\s\S]*window\.setTimeout\(\(\)=>focusReservationHeading\(\),0\);\}/);
+ assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
+ assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
+ assert.match(source,/function showReservationPage\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);trackBookingFunnel\(businessSlug,"booking_started"[\s\S]*window\.scrollTo\(\{top:0,behavior:"smooth"\}\);window\.setTimeout\(\(\)=>focusReservationHeading\(\),0\);\}/);
  assert.match(source,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);goToCart\(\);\}/);
-assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
-assert.match(source,/return;\}showReservationPage\(selected\.length\);\}/);
-assert.match(source,/pendingUpsellAction\.current="submit"/);
-assert.match(source,/setQuantity\(upsell,1\);dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;showReservationPage\(selected\.length\+1\);/);
-assert.match(source,/dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;showReservationPage\(selected\.length\);/);
-assert.doesNotMatch(source,/Add to cart and continue[\s\S]*completeBooking\(data,upsell\)/s);
-assert.equal((source.match(/showReservationPage\(selected\.length(?:\+1)?\)/g)??[]).length,3);
+ assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
+ assert.match(source,/return;\}showReservationPage\(selected\.length\);\}/);
+ assert.match(source,/pendingUpsellAction\.current="submit"/);
+ assert.match(source,/setQuantity\(upsell,1\);dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;showReservationPage\(selected\.length\+1\);/);
+ assert.match(source,/dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;showReservationPage\(selected\.length\);/);
+ assert.doesNotMatch(source,/Add to cart and continue[\s\S]*completeBooking\(data,upsell\)/s);
+ assert.equal((source.match(/showReservationPage\(selected\.length(?:\+1)?\)/g)??[]).length,3);
  assert.equal((source.match(/onClick=\{goToCart\}/g)??[]).length,2);
  assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
+ assert.match(source,/showCheckout\?<section className="rental-checkout-screen">\{reservationContent\}<\/section>:/);
+ assert.match(source,/rental-checkout-screen-header/);
+ assert.match(styles,/\.rental-checkout-screen\{/);
+ assert.match(styles,/\.rental-checkout-screen-header\{/);
+ assert.match(source,/Back to rentals/);
  assert.match(source,/View Party/);
  assert.match(source,/Your Party/);
 });
