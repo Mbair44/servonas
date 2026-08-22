@@ -31,6 +31,7 @@ test("website settings submit all 24 saved photo urls without resetting uploads"
  assert.match(manager,/type="hidden" name="photoUrls" value=\{items\.join\("\\n"\)\}/);
  assert.match(manager,/const lastSyncedPhotosRef=useRef\(photos\)/);
  assert.match(manager,/if\(nextKey!==lastKey\)\{/);
+ assert.match(actions,/const urls=\(value:string\)=>\[\.\.\.new Set\(value\.split\(\/\\r\?\\n\/\)\.map\(item=>item\.trim\(\)\)\.filter\(Boolean\)\)\]\.slice\(0,24\)/);
  assert.match(actions,/slice\(0,24\)/);
 });
 
