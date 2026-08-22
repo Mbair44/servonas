@@ -1,8 +1,11 @@
 import type {SupabaseClient} from "@supabase/supabase-js";
+import {unstable_cache} from "next/cache";
 import type {BusinessSiteData} from "@/components/BusinessWebsite";
 import {getGoogleBusinessRating} from "@/lib/googleBusinessPlace";
 import {getGoogleBusinessProfileReviews} from "@/lib/googleBusinessProfile";
 import {rentalPricingMessage,resolveRentalPricingRules,type AdditionalDayPricingType} from "@/lib/rentalPricing";
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {normalizeWebsiteDomain} from "@/lib/website";
 
 type WebsiteRow=Record<string,any>;
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow):Promise<BusinessSiteData|null>{
@@ -46,3 +49,14 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],
  };
 }
+
+const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
+
+export const loadPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain:string)=>{
+ const db=getSupabaseAdmin(),domain=normalizeWebsiteDomain(rawDomain);
+ if(!db||!domain)return null;
+ const {data:settings}=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).ilike("custom_domain",domain).or("status.eq.published,domain_status.eq.connected").maybeSingle();
+ if(!settings)return null;
+ const site=await loadBusinessWebsiteData(db,settings);
+ return site?{settings,site}:null;
+},["published-business-website-domain"],{revalidate:300});
