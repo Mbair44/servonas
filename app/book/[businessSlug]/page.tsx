@@ -47,9 +47,9 @@ const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
       { start: hour.start_time.slice(0, 5), end: hour.end_time.slice(0, 5) },
     ]),
   );
-  const businessName = Array.isArray(settings.businesses)
-    ? settings.businesses[0]?.name
-    : settings.businesses?.name;
+  const businessRelation=settings.businesses as {name?:string;website_url?:string|null}|{name?:string;website_url?:string|null}[]|null|undefined;
+  const businessRecord=Array.isArray(businessRelation)?businessRelation[0]:businessRelation;
+  const businessName = businessRecord?.name;
   const { data: signedLogo } = settings.logo_path
     ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
     : { data: null };
