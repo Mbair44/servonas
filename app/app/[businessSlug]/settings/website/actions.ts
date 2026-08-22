@@ -348,7 +348,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
    uploadedPaths.push(paths.displayPath);uploadedUrls.push(admin.storage.from("website-assets").getPublicUrl(paths.displayPath).data.publicUrl);
   }
  }
- const photoUrls=[...new Set([...manualPhotoUrls,...uploadedUrls])].slice(0,12);
+ const photoUrls=[...new Set([...manualPhotoUrls,...uploadedUrls])].slice(0,24);
  const removedManagedPhotos=(existing?.photo_urls??[]).filter((url:string)=>!photoUrls.includes(url)).flatMap((url:string)=>managedImageVariantPathsFromPublicUrl(url,"website-assets"));
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"not_connected";
  const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,floral_font_style:floralFontStyle,floral_accent_color:floralAccentColor,floral_background_color:floralBackgroundColor,floral_photo_layout:floralPhotoLayout,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
