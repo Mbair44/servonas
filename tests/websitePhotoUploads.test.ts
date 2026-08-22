@@ -19,6 +19,8 @@ test("mobile website photos are optimized and failures are shown inline",async()
  const manager=await read("components/WebsitePhotoManager.tsx");
  assert.match(manager,/image\/heic/);
  assert.match(manager,/image\/heif/);
+ assert.match(manager,/MAX_UPLOAD_COUNT=24/);
+ assert.match(manager,/MAX_UPLOAD_BATCH=6/);
  assert.match(manager,/canvas\.toBlob\(resolve,"image\/jpeg"/);
  assert.match(manager,/role="alert"/);
  assert.match(manager,/Uploading \$\{uploadStates\.filter/);
