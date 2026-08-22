@@ -59,9 +59,12 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsell\(options\?:\{ignoreDismissed\?:boolean\}\)/);
+ assert.match(source,/function proceedToCheckout\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);requestAnimationFrame\(\(\)=>\{setShowCheckout\(true\);const heading=checkoutHeadingRef\.current;if\(heading\)\{/);
  assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
+ assert.match(source,/return;\}proceedToCheckout\(selected\.length\);\}/);
  assert.match(source,/pendingUpsellAction\.current="submit"/);
- assert.match(source,/if\(nextAction==="submit"&&data\)\{void completeBooking\(data,upsell\);return;\}setShowCheckout\(true\);/);
+ assert.match(source,/setQuantity\(upsell,1\);dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;proceedToCheckout\(selected\.length\+1\);/);
+ assert.match(source,/if\(nextAction==="submit"&&data\)\{setUpsell\(null\);void completeBooking\(data\);return;\}proceedToCheckout\(selected\.length\);/);
  assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
  assert.match(source,/View Party/);
  assert.match(source,/Your Party/);
