@@ -62,6 +62,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsell\(options\?:\{ignoreDismissed\?:boolean\}\)/);
  assert.match(source,/function proceedToCheckout\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);requestAnimationFrame\(\(\)=>\{setShowCheckout\(true\);const heading=checkoutHeadingRef\.current;if\(heading\)\{/);
+ assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);openCheckout\(\);\}/);
  assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
  assert.match(source,/return;\}proceedToCheckout\(selected\.length\);\}/);
  assert.match(source,/pendingUpsellAction\.current="submit"/);
