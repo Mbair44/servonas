@@ -9,6 +9,9 @@ test("party rental booking keeps one shared event-date state across browsing and
  assert.match(source,/bookingDateStateKey=\(slug:string\)=>`servonas\.rental-booking-date\.\$\{slug\}`/);
  assert.match(source,/window\.localStorage\.getItem\(bookingDateStateKey\(businessSlug\)\)/);
  assert.match(source,/window\.localStorage\.setItem\(bookingDateStateKey\(businessSlug\),JSON\.stringify\(\{date,endDate,startTime,endTime\}\)\)/);
+ assert.match(source,/function restoreStoredDateSelection\(stored:\{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\}\)/);
+ assert.match(source,/if\(hasStoredTimes&&stored\.startTime===hours\.start\)/);
+ assert.match(source,/chooseStart\(hours\.start,stored\.date\)/);
  assert.match(source,/function applyDate\(value:string,source:"date_first"\|"rental_first",changing=false\)/);
  assert.match(source,/if\(hours\)chooseStart\(hours\.start,value\)/);
  assert.match(source,/event_date_changed/);
