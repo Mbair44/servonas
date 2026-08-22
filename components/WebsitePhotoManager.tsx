@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState,type ChangeEvent} from "react";
+import {useEffect, useMemo, useRef, useState,type ChangeEvent} from "react";
 import {createSupabaseBrowserClient} from "@/lib/supabaseBrowser";
 import {discardWebsiteAiPhotoSafe,generateWebsiteAiPhotoSafe,openWebsiteAiImageGeneratorSafe,prepareWebsitePhotoUpload,saveWebsiteAiPhotoSafe} from "@/app/app/[businessSlug]/settings/website/actions";
 import {websiteAiImageTypes,type WebsiteAiImageType} from "@/lib/websiteAiImages";
@@ -46,7 +46,14 @@ function getUsage(index:number,photoCount:number){
 
 export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[];disabled?:boolean}){
  const [items,setItems]=useState(photos),[pendingRemove,setPendingRemove]=useState<PhotoItem|null>(null),[selected,setSelected]=useState<string[]>([]),[previewIndex,setPreviewIndex]=useState<number|null>(null),[libraryOpen,setLibraryOpen]=useState(false),[uploading,setUploading]=useState(false),[uploadError,setUploadError]=useState(""),[uploadStates,setUploadStates]=useState<UploadState[]>([]),[aiOpen,setAiOpen]=useState(false),[aiType,setAiType]=useState<WebsiteAiImageType>("hero_banner"),[aiDescription,setAiDescription]=useState(""),[aiStatus,setAiStatus]=useState<AiStatus>("idle"),[aiError,setAiError]=useState(""),[aiDraft,setAiDraft]=useState<AiDraft|null>(null);
- useEffect(()=>setItems(photos),[photos]);
+ const lastSyncedPhotosRef=useRef(photos);
+ useEffect(()=>{
+  const nextKey=photos.join("\n"),lastKey=lastSyncedPhotosRef.current.join("\n");
+  if(nextKey!==lastKey){
+   lastSyncedPhotosRef.current=photos;
+   setItems(photos);
+  }
+ },[photos]);
  useEffect(()=>{if(libraryOpen||previewIndex!=null)document.body.classList.add("website-photo-library-open");else document.body.classList.remove("website-photo-library-open");return()=>document.body.classList.remove("website-photo-library-open");},[libraryOpen,previewIndex]);
  const photoItems=useMemo(()=>items.map((url,index)=>({url,usage:getUsage(index,items.length),index})),[items]);
  const previewPhoto=previewIndex==null?null:photoItems[previewIndex]??null;
@@ -134,7 +141,7 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
  }
  const selectedCount=selected.length;
  return <div className="website-photo-manager">
-  <textarea className="website-photo-values" name="photoUrls" value={items.join("\n")} readOnly aria-hidden="true" tabIndex={-1}/>
+  <input className="website-photo-values" type="hidden" name="photoUrls" value={items.join("\n")}/>
   <section className="website-photo-summary">
    <header>
     <button type="button" className="website-photo-summary-heading" onClick={()=>setLibraryOpen(true)}>

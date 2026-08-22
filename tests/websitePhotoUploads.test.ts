@@ -26,6 +26,14 @@ test("mobile website photos are optimized and failures are shown inline",async()
  assert.match(manager,/Uploading \$\{uploadStates\.filter/);
 });
 
+test("website settings submit all 24 saved photo urls without resetting uploads",async()=>{
+ const [manager,actions]=await Promise.all([read("components/WebsitePhotoManager.tsx"),read("app/app/[businessSlug]/settings/website/actions.ts")]);
+ assert.match(manager,/type="hidden" name="photoUrls" value=\{items\.join\("\\n"\)\}/);
+ assert.match(manager,/const lastSyncedPhotosRef=useRef\(photos\)/);
+ assert.match(manager,/if\(nextKey!==lastKey\)\{/);
+ assert.match(actions,/slice\(0,24\)/);
+});
+
 test("large website photo sets stay contained in the design editor",async()=>{
  const [builder,styles]=await Promise.all([read("app/website-builder.css"),read("app/website.css")]);
  assert.match(builder,/\.website-step-design \.website-photo-manager\{min-width:0;max-width:100%\}/);
