@@ -35,6 +35,7 @@ test("party rental booking supports a date range, item-aware calendar, and check
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/function chooseEndDate\(value:string\)/);
  assert.match(source,/function chooseCalendarDay\(value:string\)/);
+ assert.match(source,/if\(date&&endDate>date&&\(value===date\|\|value===endDate\|\|\(value>date&&value<endDate\)\)\)\{applyDate\(value,source,true\);return;\}/);
  assert.match(source,/Choose your dates/);
  assert.match(source,/Availability calendar for \$\{availabilityItem\.name\}/);
  assert.match(source,/Arrival time/);
