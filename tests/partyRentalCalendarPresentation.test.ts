@@ -14,5 +14,5 @@ test("selected item availability errors name the rental without exposing reserva
  const source=await readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8");
  assert.match(source,/setBookingError\(`\$\{item\.name\} is unavailable \$\{eventDateLabel\}\. Choose another date or a similar rental\.`\)/);
  assert.match(source,/Your current cart conflicts with \$\{formatLongDate\(date\)\}/);
- assert.match(source,/Other \{focusedItem\.category\?\.toLowerCase\(\)\|\|"rentals"\} available that day/);
+ assert.match(source,/Choose your party date first\./);
 });
