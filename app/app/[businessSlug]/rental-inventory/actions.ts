@@ -12,6 +12,15 @@ const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/rental-inventory?${kind}=${encodeURIComponent(message)}`;
 const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,70);
 const uploadRules={image:{bucket:"inventory-images",max:8*1024*1024,types:new Set(["image/jpeg","image/png","image/webp"])},receipt:{bucket:"rental-purchase-receipts",max:10*1024*1024,types:new Set(["application/pdf","image/jpeg","image/png","image/webp"])}} as const;
+const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+
+function eachDate(startDate:string,endDate:string){
+ const dates:string[]=[];
+ const start=new Date(`${startDate}T12:00:00Z`),end=new Date(`${endDate}T12:00:00Z`);
+ if(Number.isNaN(start.getTime())||Number.isNaN(end.getTime())||start>end)return dates;
+ for(const cursor=new Date(start);cursor<=end;cursor.setUTCDate(cursor.getUTCDate()+1))dates.push(cursor.toISOString().slice(0,10));
+ return dates;
+}
 
 async function context(slug:string){
  const workspace=await requireWorkspace(slug);
@@ -116,14 +125,23 @@ export async function archiveRentalItem(slug:string,itemId:string){
 }
 
 export async function addRentalItemBlockedDate(slug:string,itemId:string,data:FormData){
- const {supabase,business}=await context(slug),blockedDate=text(data,"blockedDate"),reason=text(data,"reason");
- if(!/^\d{4}-\d{2}-\d{2}$/.test(blockedDate))redirect(path(slug,"error","Choose a valid date to block."));
+ const {supabase,business}=await context(slug),startDate=text(data,"startDate"),endDate=text(data,"endDate")||startDate,reason=text(data,"reason");
+ if(!datePattern.test(startDate)||!datePattern.test(endDate))redirect(path(slug,"error","Choose a valid start and end date to block."));
+ if(startDate>endDate)redirect(path(slug,"error","The blocked end date must be on or after the start date."));
  const {data:item}=await supabase.from("inventory_items").select("id,name").eq("id",itemId).eq("business_id",business.id).maybeSingle();
  if(!item)redirect(path(slug,"error","Rental item not found."));
  const admin=getSupabaseAdmin();if(!admin)redirect(path(slug,"error","Rental availability is not configured."));
- const {error}=await admin.from("blocked_dates").insert({business_id:business.id,inventory_item_id:item.id,blocked_date:blockedDate,reason:reason||null});
- if(error)redirect(path(slug,"error",error.code==="23505"?`${item.name} is already blocked on that date.`:"That item date could not be blocked. Apply the rental booking migrations if needed."));
- revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success",`${item.name} is blocked on ${blockedDate}.`));
+ const requestedDates=eachDate(startDate,endDate);
+ if(!requestedDates.length)redirect(path(slug,"error","Choose a valid blocked date range."));
+ const {data:existing,error:existingError}=await admin.from("blocked_dates").select("blocked_date").eq("business_id",business.id).eq("inventory_item_id",item.id).gte("blocked_date",startDate).lte("blocked_date",endDate);
+ if(existingError)redirect(path(slug,"error","Existing blocked dates could not be checked."));
+ const existingDates=new Set((existing??[]).map(row=>row.blocked_date));
+ const missingDates=requestedDates.filter(value=>!existingDates.has(value));
+ if(!missingDates.length)redirect(path(slug,"error",`${item.name} is already blocked for that entire date range.`));
+ const {error}=await admin.from("blocked_dates").insert(missingDates.map(blockedDate=>({business_id:business.id,inventory_item_id:item.id,blocked_date:blockedDate,reason:reason||null})));
+ if(error)redirect(path(slug,"error","That item date range could not be blocked. Apply the rental booking migrations if needed."));
+ const rangeLabel=startDate===endDate?startDate:`${startDate} through ${endDate}`;
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success",`${item.name} is blocked for ${missingDates.length} date${missingDates.length===1?"":"s"} from ${rangeLabel}.`));
 }
 
 export async function removeRentalItemBlockedDate(slug:string,itemId:string,blockedDateId:string){
