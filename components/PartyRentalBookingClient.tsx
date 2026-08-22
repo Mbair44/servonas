@@ -53,13 +53,23 @@ export default function PartyRentalBookingClient({businessSlug,businessName,inve
  const availabilityItem=inventory.find(item=>item.id===availabilityItemId)??null;
  const available=(item:Item,value=date)=>timeCapacity&&value===date?timeCapacity[item.id]??0:value?(capacityByItem[item.id]?.[value]??item.stock_quantity):item.stock_quantity;
  const categories=useMemo(()=>["All rentals",...new Set(inventory.map(item=>item.category||"Other rentals"))],[inventory]);
+ const categoryOrder=useMemo(()=>new Map(categories.slice(1).map((name,index)=>[name,index])),[categories]);
  const blockedDateSet=useMemo(()=>{const next=new Set(blockedDates);for(const item of selected){for(const [value,capacity] of Object.entries(capacityByItem[item.id]??{})){if(capacity===0)next.add(value);}}return next;},[blockedDates,capacityByItem,selected]);
  const visible=useMemo(()=>inventory.filter(item=>{
   const matchesCategory=category==="All rentals"||(item.category||"Other rentals")===category;
   const matchesSearch=`${item.name} ${item.description??""}`.toLowerCase().includes(search.trim().toLowerCase());
   const matchesAvailability=!date||!timeCapacity?(true):(timeCapacity[item.id]??0)>0;
   return matchesCategory&&matchesSearch&&matchesAvailability;
- }).sort((left,right)=>{if(!date||!timeCapacity)return 0;const leftAvailable=(timeCapacity[left.id]??0)>0,rightAvailable=(timeCapacity[right.id]??0)>0;if(leftAvailable===rightAvailable)return 0;return leftAvailable?-1:1;}),[category,date,inventory,search,timeCapacity]);
+ }).sort((left,right)=>{
+  const leftCategory=left.category||"Other rentals",rightCategory=right.category||"Other rentals";
+  const categoryDelta=(categoryOrder.get(leftCategory)??Number.MAX_SAFE_INTEGER)-(categoryOrder.get(rightCategory)??Number.MAX_SAFE_INTEGER);
+  if(categoryDelta!==0)return categoryDelta;
+  if(date&&timeCapacity){
+   const leftAvailable=(timeCapacity[left.id]??0)>0,rightAvailable=(timeCapacity[right.id]??0)>0;
+   if(leftAvailable!==rightAvailable)return leftAvailable?-1:1;
+  }
+  return left.name.localeCompare(right.name);
+ }),[category,categoryOrder,date,inventory,search,timeCapacity]);
  const safeDepositPercent=Math.min(100,Math.max(0,depositPercent)),onlinePaymentsReady=stripeReady&&safeDepositPercent>0;
  const rentalDurationMinutes=Math.max(30,Math.round(safePositiveNumber(standardDurationMinutes,240)));
  const businessPricing={standardRentalHours,allowMultiDay,additionalDayPricingType,additionalDayDiscountPercent,additionalDayFlatRateCents,maxRentalDays};
