@@ -71,6 +71,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/pendingUpsellAction\.current="submit"/);
  assert.match(source,/setQuantity\(upsell,1\);dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;proceedToCheckout\(selected\.length\+1\);/);
  assert.match(source,/dismissedUpsells\.current\.add\(upsell\.id\);pendingBooking\.current=null;pendingUpsellAction\.current=null;proceedToCheckout\(selected\.length\);/);
+ assert.doesNotMatch(source,/Add to cart and continue[\s\S]*completeBooking\(data,upsell\)/s);
  assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
  assert.match(source,/View Party/);
  assert.match(source,/Your Party/);
