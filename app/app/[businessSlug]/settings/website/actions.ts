@@ -331,7 +331,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  const allowedPhotoTypes=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
  if(photoFiles.length>6)redirect(target(slug,"error","Upload up to 6 website photos at a time."));
  if(photoFiles.some(file=>file.size>8*1024*1024||!allowedPhotoTypes.has(file.type)))redirect(target(slug,"error","Use JPG, PNG, WebP, GIF, or AVIF photos under 8MB each."));
- if(manualPhotoUrls.length+photoFiles.length>12)redirect(target(slug,"error","A website can display up to 12 photos."));
+ if(manualPhotoUrls.length+photoFiles.length>24)redirect(target(slug,"error","A website can display up to 24 photos."));
  const [{data:existing},{data:businessAddress}]=await Promise.all([supabase.from("business_website_settings").select("custom_domain,status,google_place_id,photo_urls").eq("business_id",business.id).maybeSingle(),supabase.from("businesses").select("name,address_line1,city,state,postal_code").eq("id",business.id).maybeSingle()]);
  const expectedGoogleBusiness=businessAddress?{name:businessAddress.name,address:[businessAddress.address_line1,businessAddress.city,businessAddress.state,businessAddress.postal_code].filter(Boolean).join(", ")}:null;
  let googlePlace:Awaited<ReturnType<typeof findGoogleBusinessPlace>>|null=null;

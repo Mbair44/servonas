@@ -7,7 +7,7 @@ import {websiteAiImageTypes,type WebsiteAiImageType} from "@/lib/websiteAiImages
 import {optimizeImageForUpload,validateOptimizableImage} from "@/lib/browserImageOptimizer";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
 
-const MB=1024*1024,MAX_SOURCE_BYTES=12*MB,MAX_UPLOAD_COUNT=12;
+const MB=1024*1024,MAX_SOURCE_BYTES=12*MB,MAX_UPLOAD_COUNT=24,MAX_UPLOAD_BATCH=6;
 const supportedTypes=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
 const phoneTypes=new Set(["image/heic","image/heif"]);
 const phoneName=(name:string)=>/\.(heic|heif)$/i.test(name);
@@ -96,8 +96,8 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
  async function upload(event:ChangeEvent<HTMLInputElement>){
   const selectedFiles=Array.from(event.target.files??[]);event.target.value="";setUploadError("");
   if(!selectedFiles.length)return;
-  if(selectedFiles.length>MAX_UPLOAD_COUNT){setUploadError("Choose up to 12 photos at a time.");return;}
-  if(items.length+selectedFiles.length>MAX_UPLOAD_COUNT){setUploadError(`This website can display 12 photos. You can add ${Math.max(0,MAX_UPLOAD_COUNT-items.length)} more.`);return;}
+  if(selectedFiles.length>MAX_UPLOAD_BATCH){setUploadError("Choose up to 6 photos at a time.");return;}
+  if(items.length+selectedFiles.length>MAX_UPLOAD_COUNT){setUploadError(`This website can display 24 photos. You can add ${Math.max(0,MAX_UPLOAD_COUNT-items.length)} more.`);return;}
   if(!businessSlug){setUploadError("The workspace could not be identified. Refresh and try again.");return;}
   setUploading(true);
   setUploadStates(selectedFiles.map(file=>({name:file.name,status:"queued"})));
