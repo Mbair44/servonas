@@ -10,8 +10,9 @@ test("party rental booking keeps one shared event-date state across browsing and
  assert.match(source,/window\.localStorage\.getItem\(bookingDateStateKey\(businessSlug\)\)/);
  assert.match(source,/window\.localStorage\.setItem\(bookingDateStateKey\(businessSlug\),JSON\.stringify\(\{date,endDate,startTime,endTime\}\)\)/);
  assert.match(source,/function restoreStoredDateSelection\(stored:\{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\}\)/);
- assert.match(source,/if\(hasStoredTimes&&stored\.startTime===hours\.start\)/);
+ assert.match(source,/if\(hasStoredTimes&&storedStartTime===hours\.start&&storedEndTime\)/);
  assert.match(source,/chooseStart\(hours\.start,stored\.date\)/);
+ assert.match(source,/const selectedAvailabilitySignature=useMemo\(\(\)=>selected\.map\(item=>`\$\{item\.id\}:\$\{quantities\[item\.id\]\?\?0\}`\)/);
  assert.match(source,/function applyDate\(value:string,source:"date_first"\|"rental_first",changing=false\)/);
  assert.match(source,/if\(hours\)chooseStart\(hours\.start,value\)/);
  assert.match(source,/event_date_changed/);
@@ -48,4 +49,11 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
  assert.match(source,/View Party/);
  assert.match(source,/Your Party/);
+});
+
+test("party rental availability effect uses a stable cart signature so successful checks do not refetch forever",async()=>{
+ const source=await read("components/PartyRentalBookingClient.tsx");
+ assert.match(source,/selectedAvailabilitySignature/);
+ assert.match(source,/\[availabilityItemId,businessSlug,date,endDate,focusedItemId,flowSource,quantities,selectedAvailabilitySignature,startTime,endTime\]/);
+ assert.doesNotMatch(source,/\[availabilityItemId,businessSlug,date,endDate,focusedItemId,flowSource,quantities,selected,startTime,endTime\]/);
 });
