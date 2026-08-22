@@ -61,7 +61,10 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsell\(options\?:\{ignoreDismissed\?:boolean\}\)/);
- assert.match(source,/function proceedToCheckout\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);requestAnimationFrame\(\(\)=>\{setShowCheckout\(true\);const heading=checkoutHeadingRef\.current;if\(heading\)\{/);
+ assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
+ assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;const frame=requestAnimationFrame\(\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)return;/);
+ assert.match(source,/\},\[checkoutNavigationCount,showCheckout\]\);/);
+ assert.match(source,/function proceedToCheckout\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);trackBookingFunnel\(businessSlug,"booking_started"/);
  assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);openCheckout\(\);\}/);
  assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
  assert.match(source,/return;\}proceedToCheckout\(selected\.length\);\}/);
