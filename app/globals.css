@@ -472,6 +472,9 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 }
 .quantity-picker strong { font-size: 1.1rem; }
 .quantity-picker span { font-size: .72rem; color: var(--muted, #666); }
+.quantity-picker-wrap { display: grid; gap: 10px; }
+.catalog-inline-cart-button { width: 100%; padding: 11px 14px; border: 1px solid color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 22%,#d7dfeb); border-radius: 10px; background: #fff; color: var(--booking-brand,var(--site-primary,var(--purple))); font: inherit; font-size: .8rem; font-weight: 900; cursor: pointer; }
+.catalog-inline-cart-button:hover { background: #f8fbff; }
 .inventory-stock-label { margin: .35rem 0; font-size: .82rem; font-weight: 650; }
 
 /* Version 8 storefront redesign */
