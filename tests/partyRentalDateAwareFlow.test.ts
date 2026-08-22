@@ -17,6 +17,8 @@ test("party rental booking keeps one shared event-date state across browsing and
 test("party rental booking uses explicit reserve actions instead of auto-adding on date selection",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/function reserveItem\(item:Item\)/);
+ assert.match(source,/function noteInventoryInteraction\(item:Item,source:"browse"\|"adjust"\|"reserve"="browse"\)/);
+ assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_view"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"item_added_to_cart"/);
  assert.match(source,/if\(!date\)\{setBookingError\("Choose your party date first\."\);focusDatePicker\("rental_first"\);return;\}/);
