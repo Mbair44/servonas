@@ -7,8 +7,11 @@ const read=(path:string)=>readFile(path,"utf8");
 test("party rental booking keeps one shared event-date state across browsing and reservation",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/bookingDateStateKey=\(slug:string\)=>`servonas\.rental-booking-date\.\$\{slug\}`/);
+ assert.match(source,/bookingCartStateKey=\(slug:string\)=>`servonas\.rental-booking-cart\.\$\{slug\}`/);
  assert.match(source,/window\.localStorage\.getItem\(bookingDateStateKey\(businessSlug\)\)/);
  assert.match(source,/window\.localStorage\.setItem\(bookingDateStateKey\(businessSlug\),JSON\.stringify\(\{date,endDate,startTime,endTime\}\)\)/);
+ assert.match(source,/window\.localStorage\.getItem\(bookingCartStateKey\(businessSlug\)\)/);
+ assert.match(source,/window\.localStorage\.setItem\(bookingCartStateKey\(businessSlug\),JSON\.stringify\(quantities\)\)/);
  assert.match(source,/function restoreStoredDateSelection\(stored:\{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\}\)/);
  assert.match(source,/if\(hasStoredTimes&&storedStartTime===hours\.start&&storedEndTime\)/);
  assert.match(source,/chooseStart\(hours\.start,stored\.date\)/);
@@ -67,7 +70,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
  assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
- assert.match(source,/function showReservationPage\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);trackBookingFunnel\(businessSlug,"booking_started"[\s\S]*window\.scrollTo\(\{top:0,behavior:"smooth"\}\);window\.setTimeout\(\(\)=>focusReservationHeading\(\),0\);\}/);
+ assert.match(source,/function showReservationPage\(itemCount:number\)\{setBookingError\(""\);setUpsell\(null\);trackBookingFunnel\(businessSlug,"booking_started"[\s\S]*if\(typeof window!=="undefined"&&checkoutUrl&&window\.top&&window\.top!==window\)\{window\.top\.location\.assign\(checkoutUrl\);return;\}setCheckoutNavigationCount\(current=>current\+1\);setShowCheckout\(true\);/);
  assert.match(source,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);goToCart\(\);\}/);
  assert.match(source,/const suggestion=findSuggestedUpsell\(\{ignoreDismissed:true\}\);if\(suggestion\)\{pendingUpsellAction\.current="checkout";setUpsell\(suggestion\);return;\}/);
