@@ -211,9 +211,12 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
 }
 
 export function acquisitionDateRange(range: string | undefined, from: string | undefined, to: string | undefined, now = new Date()) {
-  const end = to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to}T23:59:59.999Z` : now.toISOString();
-  if (range === "custom" && from && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
-    return { from: `${from}T00:00:00.000Z`, to: end };
+  const hasFrom = Boolean(from && /^\d{4}-\d{2}-\d{2}$/.test(from));
+  const hasTo = Boolean(to && /^\d{4}-\d{2}-\d{2}$/.test(to));
+  const end = hasTo ? `${to}T23:59:59.999Z` : now.toISOString();
+  if (hasFrom || hasTo || range === "custom") {
+    const fallbackStart = hasTo ? `${to}T00:00:00.000Z` : new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) + "T00:00:00.000Z";
+    return { from: hasFrom ? `${from}T00:00:00.000Z` : fallbackStart, to: end };
   }
   const start = new Date(now);
   if (range === "today") {

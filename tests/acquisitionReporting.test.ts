@@ -114,4 +114,8 @@ test("builds expected date ranges", () => {
     from: "2026-08-01T00:00:00.000Z",
     to: "2026-08-20T23:59:59.999Z",
   });
+  assert.deepEqual(acquisitionDateRange("last_7_days", "2026-08-10", "2026-08-12", now), {
+    from: "2026-08-10T00:00:00.000Z",
+    to: "2026-08-12T23:59:59.999Z",
+  });
 });
