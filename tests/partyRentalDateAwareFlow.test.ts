@@ -37,6 +37,7 @@ test("party rental booking supports a date range, item-aware calendar, and check
  assert.match(source,/Party ends/);
  assert.match(source,/Availability calendar for \$\{availabilityItem\.name\}/);
  assert.match(source,/Arrival time/);
+ assert.match(source,/Go to cart/);
 });
 
 test("party rental booking surfaces unavailable alternatives and conflict messaging",async()=>{
