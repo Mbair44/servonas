@@ -12,9 +12,7 @@ test("party-rental calendar remains a compact seven-column grid",async()=>{
 
 test("selected item availability errors name the rental without exposing reservation details",async()=>{
  const source=await readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8");
- assert.match(source,/availabilityItem\?`\$\{availabilityItem\.name\}/);
- assert.match(source,/is not available in the selected quantity/);
- assert.match(source,/This business is closed on this date/);
- assert.match(source,/Online rentals are not available on this date/);
- assert.match(source,/dateLabel=new Date/);
+ assert.match(source,/setBookingError\(`\$\{item\.name\} is unavailable \$\{eventDateLabel\}\. Choose another date or a similar rental\.`\)/);
+ assert.match(source,/Your current cart conflicts with \$\{formatLongDate\(date\)\}/);
+ assert.match(source,/Other \{focusedItem\.category\?\.toLowerCase\(\)\|\|"rentals"\} available that day/);
 });

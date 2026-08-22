@@ -19,7 +19,8 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"item_added_to_cart"/);
  assert.match(source,/>\{date\?"View Details":"Check Availability"\}<\/button>/);
- assert.match(source,/Reserve for \$\{eventDateLabel\}/);
+ assert.match(source,/Add to Party — \$\{money\(focusedItem\.daily_price_cents\)\}/);
+ assert.doesNotMatch(source,/See Available Rentals/);
  assert.doesNotMatch(source,/chooseDate\(value\)[\s\S]*setQuantities/s);
 });
 
@@ -34,4 +35,12 @@ test("party rental booking surfaces unavailable alternatives and conflict messag
  assert.match(styles,/\.rental-date-pill/);
  assert.match(styles,/\.inventory-availability-status\.available/);
  assert.match(styles,/\.rental-item-detail-grid/);
+});
+
+test("party rental booking blocks empty checkout and uses a storefront-style party summary",async()=>{
+ const source=await read("components/PartyRentalBookingClient.tsx");
+ assert.match(source,/function openCheckout\(\)\{if\(!selected\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
+ assert.match(source,/selected\.length>0&&!showCheckout&&<div className="selection-bar visible">/);
+ assert.match(source,/View Party/);
+ assert.match(source,/Your Party/);
 });
