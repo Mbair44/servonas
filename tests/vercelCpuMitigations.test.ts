@@ -24,12 +24,15 @@ test("public booking page caches its expensive shared data loader",async()=>{
 test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  const [funnel,marketing,tracker,bookingClient]=await Promise.all([read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("app/api/marketing/events/route.ts"),read("components/TenantBookingFunnelTracker.tsx"),read("components/PartyRentalBookingClient.tsx")]);
  assert.match(funnel,/const bots=\/bot\|crawler\|spider/);
+ assert.match(funnel,/const eventKeyFor=/);
+ assert.match(funnel,/case "booking_started":/);
  assert.match(funnel,/if\(body\.touchSession\)/);
  assert.match(funnel,/upsert\(sessionRow,\{onConflict:"business_id,id"\}\)/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
  assert.match(marketing,/prefetch/i);
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
  assert.match(tracker,/shouldSkipEvent/);
+ assert.match(tracker,/booking_started:15_000/);
  assert.match(bookingClient,/trackedAvailabilityChecks/);
  assert.match(bookingClient,/if\(source==="adjust"\)return;/);
 });

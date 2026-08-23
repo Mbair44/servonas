@@ -18,6 +18,11 @@ const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
  rental_available:5_000,
  rental_unavailable:5_000,
  available_inventory_viewed:5_000,
+ booking_started:15_000,
+ customer_info_entered:10_000,
+ checkout_started:15_000,
+ reserve_clicked:5_000,
+ item_added_to_cart:5_000,
 };
 type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;referrer:string;lastSessionSyncAt?:number};
 const stored=(slug:string):Stored=>{
