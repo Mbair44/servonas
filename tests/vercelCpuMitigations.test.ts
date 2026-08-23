@@ -33,18 +33,25 @@ test("rental availability narrows booking scans before loading booking items",as
 });
 
 test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
- const [funnel,marketing,tracker,bookingClient]=await Promise.all([read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("app/api/marketing/events/route.ts"),read("components/TenantBookingFunnelTracker.tsx"),read("components/PartyRentalBookingClient.tsx")]);
+ const [funnel,marketing,tracker,bookingClient,flags,marketingComponent]=await Promise.all([read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("app/api/marketing/events/route.ts"),read("components/TenantBookingFunnelTracker.tsx"),read("components/PartyRentalBookingClient.tsx"),read("lib/optionalAnalytics.ts"),read("components/MarketingAnalytics.tsx")]);
+ assert.match(flags,/DISABLE_OPTIONAL_ANALYTICS/);
+ assert.match(flags,/NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS/);
+ assert.match(funnel,/optionalAnalyticsEnabled/);
+ assert.match(funnel,/if\(!optionalAnalyticsEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);
  assert.match(funnel,/const bots=\/bot\|crawler\|spider/);
  assert.match(funnel,/const eventKeyFor=/);
  assert.match(funnel,/case "booking_started":/);
  assert.match(funnel,/if\(body\.touchSession\)/);
  assert.match(funnel,/upsert\(sessionRow,\{onConflict:"business_id,id"\}\)/);
+ assert.match(marketingComponent,/publicOptionalAnalyticsEnabled/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
+ assert.match(marketing,/optionalAnalyticsEnabled/);
  assert.match(marketing,/prefetch/i);
  assert.match(marketing,/analyticsTimeoutMs=2500/);
  assert.match(marketing,/Promise\.race/);
  assert.match(marketing,/new NextResponse\(null,\{status:204\}\)/);
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
+ assert.match(tracker,/publicOptionalAnalyticsEnabled/);
  assert.match(tracker,/shouldSkipEvent/);
  assert.match(tracker,/booking_started:15_000/);
  assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
