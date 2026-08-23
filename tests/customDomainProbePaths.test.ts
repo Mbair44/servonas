@@ -23,6 +23,8 @@ test("middleware blocks probe paths before custom-domain rewrite and preserves n
   const middleware = await read("middleware.ts");
   assert.match(middleware, /isBlockedCustomDomainProbePath\(path\)/);
   assert.match(middleware, /return new NextResponse\(null,\{status:404\}\)/);
-  assert.match(middleware, /path==="\/mechanical-bull-rental"\?/);
+  assert.match(middleware, /path==="\/mechanical-bull-rental"/);
+  assert.match(middleware, /path==="\/booking"/);
+  assert.match(middleware, /path==="\/booking\/checkout"/);
   assert.match(middleware, /`\/sites\/domain\/\$\{encodeURIComponent\(hostname\)\}`/);
 });

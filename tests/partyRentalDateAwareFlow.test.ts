@@ -120,16 +120,19 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
 });
 
 test("party rental storefront and embedded website point checkout to the dedicated booking route",async()=>{
- const [bookingPage,websiteSource,checkoutPage,frameSource]=await Promise.all([
+ const [bookingPage,websiteSource,checkoutPage,domainBookingPage,domainCheckoutPage,frameSource]=await Promise.all([
   read("app/book/[businessSlug]/page.tsx"),
   read("components/BusinessWebsite.tsx"),
   read("app/book/[businessSlug]/booking/page.tsx"),
+  read("app/sites/domain/[domain]/booking/page.tsx"),
+  read("app/sites/domain/[domain]/booking/checkout/page.tsx"),
   read("components/EmbeddedBookingFrame.tsx"),
  ]);
  assert.match(bookingPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
  assert.match(websiteSource,/const absolutizeUrl=\(value:string\)=>\/\^https\?:\\\/\\\/\/i\.test\(value\)\?value:`https:\/\/servonas\.com\$\{value\.startsWith\("\/"\)\?"":"\/"\}\$\{value\}`;/);
- assert.match(websiteSource,/const bookingBaseUrl=site\.bookingUrl\?absolutizeUrl\(site\.bookingUrl\):null;/);
- assert.match(websiteSource,/const bookingCheckoutUrl=bookingBaseUrl\?`\$\{bookingBaseUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
+ assert.match(websiteSource,/const customDomainBaseUrl=site\.customDomain\?`https:\/\/\$\{site\.customDomain\}`:null;/);
+ assert.match(websiteSource,/const bookingBaseUrl=customDomainBaseUrl&&site\.bookingEnabled\?`\$\{customDomainBaseUrl\}\/booking`:site\.bookingUrl\?absolutizeUrl\(site\.bookingUrl\):null;/);
+ assert.match(websiteSource,/const bookingCheckoutUrl=customDomainBaseUrl&&site\.bookingEnabled\?`\$\{customDomainBaseUrl\}\/booking\/checkout`:bookingBaseUrl\?`\$\{bookingBaseUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
  assert.match(websiteSource,/checkoutUrl=\$\{encodeURIComponent\(bookingCheckoutUrl\?\?bookingBaseUrl\)\}/);
  assert.match(checkoutPage,/initialCheckout/);
  assert.match(checkoutPage,/function parseCartState\(value:string\|undefined\)/);
@@ -139,6 +142,10 @@ test("party rental storefront and embedded website point checkout to the dedicat
  assert.match(checkoutPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
  assert.match(checkoutPage,/initialCartState=\{initialCartState\} initialDateState=\{initialDateState\}/);
  assert.match(checkoutPage,/Reservation checkout/);
+ assert.match(domainBookingPage,/checkoutUrl=\{query\.checkoutUrl\?\?"\/booking\/checkout"\}/);
+ assert.match(domainBookingPage,/catalogUrl="\/booking"/);
+ assert.match(domainCheckoutPage,/initialCheckout/);
+ assert.match(domainCheckoutPage,/catalogUrl="\/booking"/);
  assert.match(frameSource,/servonas:open-booking-page/);
  assert.match(frameSource,/window\.location\.assign\(nextUrl\)/);
 });
