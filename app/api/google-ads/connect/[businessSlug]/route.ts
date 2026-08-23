@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { canManageBusiness } from "@/lib/access";
-import { googleAdsOauthUrl, createGoogleAdsOauthState } from "@/lib/googleAdsManagement";
+import { googleAdsOauthUrl, createGoogleAdsOauthState, recordGoogleAdsBetaEvent } from "@/lib/googleAdsManagement";
 import { requireWorkspace } from "@/lib/workspace";
 
 const target = (slug: string, message: string) =>
@@ -9,9 +9,10 @@ const target = (slug: string, message: string) =>
 
 export async function GET(_: Request, { params }: { params: Promise<{ businessSlug: string }> }) {
  const { businessSlug } = await params;
- const { business, role } = await requireWorkspace(businessSlug);
+ const { business, role, user } = await requireWorkspace(businessSlug);
  if (!canManageBusiness(role)) return NextResponse.redirect(target(businessSlug, "Only owners and administrators can connect Google Ads."));
  try {
+  await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, eventName: "google_ads_oauth_started", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
   const payload = createGoogleAdsOauthState(businessSlug, business.id);
   const store = await cookies();
   store.set("servonas_google_ads_oauth", JSON.stringify(payload), {

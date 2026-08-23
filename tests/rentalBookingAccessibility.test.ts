@@ -7,15 +7,15 @@ const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8")
 test("party rental booking moves focus to the upsell primary action",async()=>{
  const code=await read("components/PartyRentalBookingClient.tsx");
  assert.match(code,/const upsellPrimaryActionRef=useRef<HTMLButtonElement>\(null\)/);
- assert.match(code,/const primaryAction=upsellPrimaryActionRef\.current/);
- assert.match(code,/primaryAction\.focus\(\{preventScroll:true\}\)/);
+ assert.match(code,/primaryAction=upsellPrimaryActionRef\.current/);
+ assert.match(code,/window\.setTimeout\(\(\)=>primaryAction\.focus\(\{preventScroll:true\}\),120\)/);
  assert.match(code,/ref=\{upsellPrimaryActionRef\}/);
 });
 
 test("party rental booking marks all customer-required fields clearly",async()=>{
  const code=await read("components/PartyRentalBookingClient.tsx");
- assert.match(code,/When&apos;s your party\?/);
  assert.match(code,/Choose your party date/);
+ assert.match(code,/Party date: \{eventDateLabel\}/);
  assert.match(code,/First name <span className="booking-required"/);
  assert.match(code,/Last name <span className="booking-required"/);
  assert.match(code,/Email <span className="booking-required"/);

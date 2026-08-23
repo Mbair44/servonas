@@ -118,6 +118,15 @@ export default async function Workspace({ params, searchParams }: {
 
     {alerts.length > 0 && <section className="attention-alerts" aria-labelledby="attention-heading"><div className="section-heading"><div><span>Action center</span><h2 id="attention-heading">Needs attention</h2></div><p>Items that may need an office decision.</p></div><div>{alerts.map((alert) => <Link key={alert.label} href={alert.href}><strong>{alert.count}</strong><span>{alert.label}</span><b aria-hidden="true">→</b></Link>)}</div></section>}
 
+    <section className="workspace-panel google-ads-dashboard-card">
+      <div>
+        <span className="sv-kicker">Marketing beta</span>
+        <h2>Google Ads is built into Servonas</h2>
+        <p>Create a simple Google Search campaign from your business details, keep Google billing on your own account, and launch with Servonas at no extra cost during beta.</p>
+      </div>
+      <Link className="sv-button" href={`/app/${businessSlug}/marketing/google-ads`}>Open Google Ads Beta</Link>
+    </section>
+
     <section className="executive-two-column" aria-label="Today at a glance">
       <article className="executive-card schedule-card"><div className="section-heading compact"><div><span>Today&apos;s activity</span><h2>Today&apos;s schedule</h2></div><Link href={`/app/${businessSlug}/schedule`}>Full schedule</Link></div>
         <div className="today-schedule">{todaySchedule.length ? todaySchedule.map((job) => {

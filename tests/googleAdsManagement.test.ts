@@ -19,11 +19,36 @@ test("google ads migration creates private connection and campaign tables", asyn
  assert.match(migration, /revoke all on public\.business_google_ads_connections from anon,authenticated/);
 });
 
+test("google ads beta migration creates beta analytics and feedback tables", async () => {
+ const migration = await read("../supabase/migrations/20260823000200_google_ads_beta_release.sql");
+ assert.match(migration, /create table if not exists public\.business_google_ads_beta_events/);
+ assert.match(migration, /create table if not exists public\.business_google_ads_beta_feedback/);
+ assert.match(migration, /enable row level security/);
+});
+
 test("google ads service includes oauth, publish, metrics, and search-term helpers", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /export const googleAdsRedirectUri/);
  assert.match(file, /export async function completeGoogleAdsOauth/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
- assert.match(file, /googleAds:searchStream/);
+  assert.match(file, /googleAds:searchStream/);
  assert.match(file, /search_term_view\.search_term/);
+ assert.match(file, /recordGoogleAdsBetaEvent/);
+ assert.match(file, /submitGoogleAdsBetaFeedback/);
+});
+
+test("google ads workspace uses beta positioning and separates servonas pricing from google spend", async () => {
+ const page = await read("../app/app/[businessSlug]/marketing/google-ads/page.tsx");
+ assert.match(page, /Google Ads Beta/);
+ assert.match(page, /Servonas Ads Beta/);
+ assert.match(page, /Google advertising budget/);
+ assert.match(page, /Complete Billing with Google/);
+ assert.match(page, /Send beta feedback/);
+});
+
+test("google ads admin reporting page surfaces beta adoption data", async () => {
+ const page = await read("../app/app/admin/marketing/google-ads/page.tsx");
+ assert.match(page, /Google Ads beta/);
+ assert.match(page, /Business rollout view/);
+ assert.match(page, /Recent beta events/);
 });

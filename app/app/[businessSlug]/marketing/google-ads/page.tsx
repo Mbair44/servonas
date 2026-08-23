@@ -4,18 +4,21 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import {
  fetchGoogleAdsCampaignMetrics,
- fetchGoogleAdsSearchTerms,
- googleAdsReadyLabel,
- type GoogleAdsCustomer,
- loadTenantGoogleAdsAccess,
+  fetchGoogleAdsSearchTerms,
+  googleAdsReadyLabel,
+ recordGoogleAdsBetaEvent,
+  type GoogleAdsCustomer,
+  loadTenantGoogleAdsAccess,
 } from "@/lib/googleAdsManagement";
 import {
  addGoogleAdsNegativeKeywordAction,
  createGoogleAdsDraftAction,
  disconnectGoogleAds,
+ markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
  refreshGoogleAdsCampaignsAction,
  selectGoogleAdsCustomer,
+ submitGoogleAdsBetaFeedbackAction,
  setGoogleAdsCampaignStatusAction,
  updateGoogleAdsBudgetAction,
  updateGoogleAdsDraftAction,
@@ -29,6 +32,11 @@ const monthStart = (value: string) => `${value.slice(0, 8)}01`;
 function items(value: unknown) {
  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
+
+const billingUrl = (customerId: string | null | undefined) =>
+ customerId ? `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}` : "https://ads.google.com/home/";
+
+const accountCreateUrl = "https://ads.google.com/home/";
 
 export default async function GoogleAdsPage({
  params,
@@ -46,7 +54,7 @@ export default async function GoogleAdsPage({
  const from = validDate(query.from) ? query.from! : monthStart(to);
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
 
- const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, { data: connection }, { data: campaigns }, { data: auditLog }] = await Promise.all([
+ const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, { data: connection }, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }] = await Promise.all([
   supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name"),
   supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("sort_order").order("name"),
   supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
@@ -54,6 +62,8 @@ export default async function GoogleAdsPage({
   supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false }),
   supabase.from("business_google_ads_audit_log").select("event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(8),
+  supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
+  supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5),
  ]);
 
  let connectionAccess: Awaited<ReturnType<typeof loadTenantGoogleAdsAccess>> | null = null;
@@ -90,6 +100,13 @@ export default async function GoogleAdsPage({
   label: String((connection?.accessible_customer_labels as Record<string, unknown> | null)?.[id] ?? id),
  }));
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
+ const selectedCustomerId = connection?.google_ads_customer_id ?? null;
+ const betaEventNames = new Set((betaEvents ?? []).map((event: any) => String(event.event_name)));
+ const billingReady = betaEventNames.has("google_ads_billing_ready") || publishedCampaigns.length > 0;
+ const latestFeedback = betaFeedback?.[0] ?? null;
+ const businessInfoReady = Boolean(business.name && business.email && (business.city || business.state));
+ const landingPageReady = Boolean(website?.custom_domain || website?.public_slug);
+ const setupReady = Boolean(connection?.status && connection.status !== "disconnected");
  const metricsTotals = publishedCampaigns.reduce((totals: { spendMicros: number; impressions: number; clicks: number; conversions: number }, campaign: any) => {
   const metric = campaign.google_campaign_id ? metricsByCampaignId.get(String(campaign.google_campaign_id)) : null;
   if (!metric) return totals;
@@ -101,13 +118,22 @@ export default async function GoogleAdsPage({
  }, { spendMicros: 0, impressions: 0, clicks: 0, conversions: 0 });
  const ctr = metricsTotals.impressions ? (metricsTotals.clicks / metricsTotals.impressions) * 100 : 0;
  const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metricsTotals.conversions : 0;
+ await recordGoogleAdsBetaEvent({
+  businessId: business.id,
+  eventName: "google_ads_beta_viewed",
+  metadata: {
+   business_slug: business.slug,
+   industry: business.industry_profile,
+   timestamp: new Date().toISOString(),
+  },
+ });
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page google-ads-page">
   <header className="marketing-analytics-header">
    <div>
     <span className="sv-kicker">Marketing</span>
-    <h1>Google Ads</h1>
-    <p>Connect a customer-owned Google Ads account, generate a simple search campaign, publish it, and see meaningful performance without leaving Servonas.</p>
+    <h1>Google Ads Beta</h1>
+    <p>Get more customers with Google Ads. Servonas helps build a simple Google Search campaign, choose keywords, write your ads, and track results while Google bills ad spend directly to your own account.</p>
     {business.name && <small>{business.name}</small>}
    </div>
   </header>
@@ -116,10 +142,50 @@ export default async function GoogleAdsPage({
   {query.success && <div className="workspace-notice success">{query.success}</div>}
   {connectionError && <div className="workspace-notice error">{connectionError}</div>}
   {googleAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Google Ads is not fully configured. Add `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, and `GOOGLE_ADS_DEVELOPER_TOKEN` before connecting tenants.</div>}
+  <section className="workspace-panel google-ads-beta-hero">
+   <div>
+    <span className="sv-kicker">Included during beta</span>
+    <h2>Servonas Ads Beta helps you launch faster</h2>
+    <p>Tell Servonas what you want to promote and how much you want to spend. You keep control of your Google Ads account and Google bills your advertising budget directly.</p>
+   </div>
+   <div className="google-ads-beta-pricing">
+    <article>
+     <span>Servonas Ads Beta</span>
+     <strong>$0</strong>
+     <small>Included during beta. No setup fee, no monthly management fee, and no Stripe checkout.</small>
+    </article>
+    <article>
+     <span>Google advertising budget</span>
+     <strong>{campaigns?.length ? money(Number(campaigns?.[0]?.monthly_budget_estimate_cents ?? 0)) : "$500.00"}/month</strong>
+     <small>Paid directly to Google from the Google Ads account you connect.</small>
+    </article>
+   </div>
+  </section>
+  <section className="workspace-panel google-ads-readiness">
+   <header><div><h2>Google Ads setup</h2><p>Use this checklist to move from connection to launch without confusion.</p></div></header>
+   <div className="google-ads-readiness-grid">
+    <article className={setupReady ? "is-complete" : ""}><strong>{setupReady ? "✓" : "○"} Google account connected</strong><small>{setupReady ? "Servonas can talk to Google Ads for this workspace." : "Start by connecting the Google account that owns or manages your Google Ads account."}</small></article>
+    <article className={selectedCustomerId ? "is-complete" : ""}><strong>{selectedCustomerId ? "✓" : "○"} Google Ads account selected</strong><small>{selectedCustomerId ? `Account ${selectedCustomerId} is selected for ${business.name}.` : "If Google returned multiple accounts, choose the one this business should use."}</small></article>
+    <article className={businessInfoReady ? "is-complete" : ""}><strong>{businessInfoReady ? "✓" : "○"} Business information ready</strong><small>{businessInfoReady ? "Servonas already has enough business details to draft ads." : "Add missing business profile details like email, city, or state before launch."}</small></article>
+    <article className={landingPageReady ? "is-complete" : ""}><strong>{landingPageReady ? "✓" : "○"} Landing page ready</strong><small>{landingPageReady ? "You have a destination page ready for ad traffic." : "Publish a website or booking page so Google Ads has somewhere to send clicks."}</small></article>
+    <article className={billingReady ? "is-complete" : "is-attention"}><strong>{billingReady ? "✓" : "○"} Google billing setup</strong><small>{billingReady ? "Billing has been confirmed or a campaign has already launched." : "Google requires a payment method before ads can run. Servonas does not receive or store this payment information."}</small></article>
+    <article className={campaigns?.length ? "is-complete" : ""}><strong>{campaigns?.length ? "✓" : "○"} Campaign ready</strong><small>{campaigns?.length ? "A campaign draft exists and can be reviewed before publishing." : "Choose the service, area, and budget below to generate your first draft."}</small></article>
+   </div>
+   {!setupReady ? <div className="google-ads-readiness-actions">
+    <a className="sv-button" href={`/api/google-ads/connect/${businessSlug}`}>Connect Google Ads</a>
+    <a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a>
+   </div> : !billingReady ? <div className="google-ads-readiness-actions">
+    <a className="sv-button" href={billingUrl(selectedCustomerId)} target="_blank" rel="noopener noreferrer">Complete Billing with Google</a>
+    <form action={markGoogleAdsBillingReadyAction.bind(null, businessSlug)}>
+     <input type="hidden" name="customerId" value={selectedCustomerId ?? ""} />
+     <button className="sv-button sv-secondary">I finished billing setup</button>
+    </form>
+   </div> : null}
+  </section>
   <section className="workspace-panel google-ads-connection-panel">
    <div>
-    <h2>Google Ads connection</h2>
-    <p>Google stays responsible for billing, spend, delivery, and policy review. Servonas only manages the connected customer account you choose here.</p>
+    <h2>Connect Google Ads</h2>
+    <p>Connect your Google Ads account so Servonas can help build and manage your campaigns. Google stays responsible for billing, spend, delivery, and policy review.</p>
    </div>
    {!connection || connection.status === "disconnected" ? <div className="google-ads-connection-actions"><a className="sv-button" href={`/api/google-ads/connect/${businessSlug}`}>Connect Google Ads</a></div> : <>
     <div className="google-ads-connection-state">
@@ -135,6 +201,8 @@ export default async function GoogleAdsPage({
      </label>
      <button className="sv-button sv-secondary">Save account</button>
     </form>}
+    {!customerChoices.length && <div className="workspace-notice warning">No Google Ads accounts were returned for this login. If you do not have one yet, create it in Google first, then reconnect it here.</div>}
+    {!customerChoices.length && <div className="google-ads-connection-actions"><a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a></div>}
     <form action={disconnectGoogleAds.bind(null, businessSlug)}><button className="sv-button sv-secondary">Disconnect</button></form>
    </>}
   </section>
@@ -153,8 +221,20 @@ export default async function GoogleAdsPage({
    <article className="workspace-panel"><span>Conversions</span><strong>{metricsTotals.conversions}</strong><small>Google Ads-reported conversions</small></article>
    <article className="workspace-panel"><span>Estimated CPL</span><strong>{metricsTotals.conversions ? microsToMoney(cplMicros) : "—"}</strong><small>Cost per conversion</small></article>
   </section>
+  <section className="google-ads-budget-explainer">
+   <article className="workspace-panel">
+    <span className="sv-kicker">Servonas Ads Beta</span>
+    <strong>$0</strong>
+    <p>Included during beta. Servonas does not charge a setup fee, monthly management fee, usage fee, or ad-spend percentage in this release.</p>
+   </article>
+   <article className="workspace-panel">
+    <span className="sv-kicker">Your Google Ads budget</span>
+    <strong>{campaigns?.length ? money(Number(campaigns?.[0]?.monthly_budget_estimate_cents ?? 0)) : "$500.00"}/month</strong>
+    <p>This is your advertising budget with Google. Google bills it directly to your Google Ads account, not to Servonas.</p>
+   </article>
+  </section>
   <section className="workspace-panel google-ads-builder">
-   <header><div><h2>Create a simple campaign</h2><p>Choose the offer, pick a location focus, set a daily budget, and let Servonas generate a draft you can review before publishing.</p></div></header>
+   <header><div><h2>Create a simple campaign</h2><p>Choose the offer, pick a location focus, set a budget, and let Servonas generate a draft you can review before publishing.</p></div></header>
    <form className="google-ads-form" action={createGoogleAdsDraftAction.bind(null, businessSlug)}>
     <label>What do you want to advertise?
      <select name="serviceTarget" defaultValue="">
@@ -179,7 +259,7 @@ export default async function GoogleAdsPage({
     </label>
     <label>Daily budget
      <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue="10" />
-     <small>About {money(30000)}/month. Google charges the connected Ads account directly.</small>
+     <small>About {money(30000)}/month. This is your Google advertising budget, and Google charges the connected Ads account directly. Servonas Ads Beta stays free.</small>
     </label>
     <label>Destination website
      <input readOnly value={website?.custom_domain || (website?.public_slug ? `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/sites/${website.public_slug}` : `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/book/${business.slug}`)} />
@@ -253,6 +333,33 @@ export default async function GoogleAdsPage({
    <article className="workspace-panel">
     <h2>Recent Google Ads activity</h2>
     <div className="google-ads-audit-list">{(auditLog ?? []).map((entry: any) => <article key={`${entry.event_type}-${entry.created_at}`}><strong>{entry.event_type.replaceAll("_", " ")}</strong><span>{new Date(entry.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</span></article>)}</div>
+   </article>
+  </section>
+  <section className="marketing-secondary-grid">
+   <article className="workspace-panel">
+    <h2>Beta feedback</h2>
+    <p>Tell us what is clear, what is confusing, and what blocked launch. This helps shape the paid release later.</p>
+    <form className="google-ads-form" action={submitGoogleAdsBetaFeedbackAction.bind(null, businessSlug)}>
+     <label>How did setup feel?
+      <select name="rating" defaultValue={latestFeedback?.rating ?? "successful"}>
+       <option value="successful">Smooth and ready to use</option>
+       <option value="neutral">Mostly clear</option>
+       <option value="confused">Confusing or blocked</option>
+      </select>
+     </label>
+     <label className="wide">Anything we should improve?
+      <textarea name="feedback" rows={4} placeholder="Where did setup get confusing? What should Servonas handle better next?" defaultValue="" />
+     </label>
+     <div className="google-ads-form-actions"><button className="sv-button sv-secondary">Send beta feedback</button></div>
+    </form>
+   </article>
+   <article className="workspace-panel">
+    <h2>What happens during beta</h2>
+    <div className="google-ads-audit-list">
+     <article><strong>Servonas builds the campaign</strong><span>Keyword suggestions, ad copy, budget controls, and reporting stay in Servonas.</span></article>
+     <article><strong>Google serves the ads</strong><span>Your Google Ads account remains the system of record for billing, delivery, and policy review.</span></article>
+     <article><strong>Support stays simple</strong><span>Beta analytics help Servonas see where onboarding stalls and where customers need help.</span></article>
+    </div>
    </article>
   </section>
  </section></main>;
