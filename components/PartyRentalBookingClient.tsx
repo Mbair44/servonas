@@ -66,7 +66,7 @@ const selectedCount=selected.reduce((count,item)=>count+(quantities[item.id]??0)
  const visible=useMemo(()=>inventory.filter(item=>{
   const matchesCategory=category==="All rentals"||(item.category||"Other rentals")===category;
   const matchesSearch=`${item.name} ${item.description??""}`.toLowerCase().includes(search.trim().toLowerCase());
-  const matchesAvailability=!date||!timeCapacity?(true):(timeCapacity[item.id]??0)>0;
+  const matchesAvailability=!date||available(item)>0;
   return matchesCategory&&matchesSearch&&matchesAvailability;
  }).sort((left,right)=>{
   const leftCategory=left.category||"Other rentals",rightCategory=right.category||"Other rentals";
@@ -77,7 +77,7 @@ const selectedCount=selected.reduce((count,item)=>count+(quantities[item.id]??0)
    if(leftAvailable!==rightAvailable)return leftAvailable?-1:1;
   }
   return left.name.localeCompare(right.name);
- }),[category,categoryOrder,date,inventory,search,timeCapacity]);
+ }),[available,category,categoryOrder,date,inventory,search,timeCapacity]);
  const safeDepositPercent=Math.min(100,Math.max(0,depositPercent)),onlinePaymentsReady=stripeReady&&safeDepositPercent>0;
  const rentalDurationMinutes=Math.max(30,Math.round(safePositiveNumber(standardDurationMinutes,240)));
  const businessPricing={standardRentalHours,allowMultiDay,additionalDayPricingType,additionalDayDiscountPercent,additionalDayFlatRateCents,maxRentalDays};
