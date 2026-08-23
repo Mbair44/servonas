@@ -41,6 +41,9 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(funnel,/upsert\(sessionRow,\{onConflict:"business_id,id"\}\)/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
  assert.match(marketing,/prefetch/i);
+ assert.match(marketing,/analyticsTimeoutMs=2500/);
+ assert.match(marketing,/Promise\.race/);
+ assert.match(marketing,/new NextResponse\(null,\{status:204\}\)/);
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
  assert.match(tracker,/shouldSkipEvent/);
  assert.match(tracker,/booking_started:15_000/);
