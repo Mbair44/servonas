@@ -16,7 +16,7 @@ export default async function WebsitePreview({params,searchParams}:{params:Promi
   hero_subheading:q.heroSubheading?.trim()||stored?.hero_subheading,
   custom_domain:normalizeWebsiteDomain(q.customDomain??"")||stored?.custom_domain,
  };
- const site=await loadBusinessWebsiteData(supabase,settings);
+ const site=await loadBusinessWebsiteData(supabase,settings,{includeExternalReviews:true});
  if(!site)return <main className="business-site"><div className="workspace-notice error">The website preview could not be loaded.</div></main>;
  return <BusinessWebsite site={site} preview/>;
 }

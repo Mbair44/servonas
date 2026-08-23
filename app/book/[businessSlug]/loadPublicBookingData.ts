@@ -8,43 +8,42 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
   if(!supabase)return null;
   const { data: settings } = await supabase
     .from("booking_settings")
-    .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url)")
+    .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url,industry_profile)")
     .ilike("public_slug", businessSlug)
     .eq("enabled", true)
     .maybeSingle();
   if (!settings) return null;
-  const [{ data: services }, { data: hours }, {data: businessProfile}] = await Promise.all([
-    supabase
-      .from("services")
-      .select("id,name,description,duration_minutes,price_amount,price_label")
-      .eq("business_id", settings.business_id)
-      .eq("active", true)
-      .eq("is_deleted", false)
-      .order("sort_order")
-      .order("name"),
+  const businessRelation=settings.businesses as {name?:string;website_url?:string|null;industry_profile?:string|null}|{name?:string;website_url?:string|null;industry_profile?:string|null}[]|null|undefined;
+  const businessRecord=Array.isArray(businessRelation)?businessRelation[0]:businessRelation;
+  const businessName = businessRecord?.name;
+  const isPartyRental = businessRecord?.industry_profile === "party_rental";
+  const [{ data: hours }, { data: services }] = await Promise.all([
     supabase
       .from("booking_availability")
       .select("weekday,start_time,end_time")
       .eq("business_id", settings.business_id)
       .eq("active", true),
-    supabase.from("businesses").select("industry_profile").eq("id", settings.business_id).maybeSingle(),
+    isPartyRental
+      ? Promise.resolve({data:[]})
+      : supabase
+          .from("services")
+          .select("id,name,description,duration_minutes,price_amount,price_label")
+          .eq("business_id", settings.business_id)
+          .eq("active", true)
+          .eq("is_deleted", false)
+          .order("sort_order")
+          .order("name"),
   ]);
-
   const schedule = Object.fromEntries(
     (hours ?? []).map((hour: any) => [
       hour.weekday,
       { start: hour.start_time.slice(0, 5), end: hour.end_time.slice(0, 5) },
     ]),
   );
-  const businessRelation=settings.businesses as {name?:string;website_url?:string|null}|{name?:string;website_url?:string|null}[]|null|undefined;
-  const businessRecord=Array.isArray(businessRelation)?businessRelation[0]:businessRelation;
-  const businessName = businessRecord?.name;
   const { data: signedLogo } = settings.logo_path
     ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
     : { data: null };
   const bookingLogo = signedLogo?.signedUrl ?? settings.logo_url ?? null;
-
-  const isPartyRental = businessProfile?.industry_profile === "party_rental";
   let rentalInventory: any[] = [];
   const rentalCapacity: Record<string, Record<string, number>> = {};
   let rentalUpsells: Record<string,string[]> = {};

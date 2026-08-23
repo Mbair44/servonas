@@ -4,15 +4,51 @@ import {useEffect,useRef} from "react";
 import {attributionFromSearch,type AttributionValues,type BookingFunnelEvent} from "@/lib/bookingFunnel";
 
 const key=(slug:string)=>`servonas.booking-attribution.${slug}`;
-type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;referrer:string};
+const dedupeKey=(slug:string)=>`servonas.booking-funnel-dedupe.${slug}`;
+const sessionTouchIntervalMs=15*60*1000;
+const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
+ landing_page_view:60_000,
+ inventory_item_view:60_000,
+ inventory_item_clicked:60_000,
+ availability_check_started:15_000,
+ check_availability_clicked:15_000,
+ event_date_selected:5_000,
+ event_date_changed:5_000,
+ rental_availability_checked:5_000,
+ rental_available:5_000,
+ rental_unavailable:5_000,
+ available_inventory_viewed:5_000,
+};
+type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;referrer:string;lastSessionSyncAt?:number};
 const stored=(slug:string):Stored=>{
  const existing=localStorage.getItem(key(slug));if(existing){try{const value=JSON.parse(existing) as Stored;if(value.sessionId)return value;}catch{/* replace malformed storage */}}
- const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search)),landingUrl:location.href,referrer:document.referrer};localStorage.setItem(key(slug),JSON.stringify(value));return value;
+ const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search)),landingUrl:location.href,referrer:document.referrer,lastSessionSyncAt:0};localStorage.setItem(key(slug),JSON.stringify(value));return value;
+};
+const eventFingerprint=(event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>})=>JSON.stringify([event,options.inventoryItemId??null,options.metadata??{}]);
+const shouldSkipEvent=(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>})=>{
+ const ttl=eventTtlMs[event];
+ if(!ttl||typeof window==="undefined")return false;
+ const fingerprint=eventFingerprint(event,options);
+ try{
+  const raw=window.sessionStorage.getItem(dedupeKey(slug));
+  const current=raw?JSON.parse(raw) as Record<string,number>:{};
+  const now=Date.now();
+  const previous=current[fingerprint];
+  current[fingerprint]=now;
+  for(const [key,value] of Object.entries(current))if(!Number.isFinite(value)||now-value>Math.max(ttl,sessionTouchIntervalMs))delete current[key];
+  window.sessionStorage.setItem(dedupeKey(slug),JSON.stringify(current));
+  return Number.isFinite(previous)&&now-previous<ttl;
+ }catch{
+  return false;
+ }
 };
 
 export function bookingAttributionSession(slug:string){if(typeof window==="undefined")return "";return stored(slug).sessionId;}
 export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>}={}){
- if(typeof window==="undefined")return;const state=stored(slug);void fetch(`/api/public-booking/${encodeURIComponent(slug)}/funnel`,{method:"POST",headers:{"content-type":"application/json"},keepalive:true,body:JSON.stringify({sessionId:state.sessionId,event,path:`${location.pathname}${location.search}`,landingUrl:state.landingUrl,referrer:state.referrer,attribution:state.attribution,inventoryItemId:options.inventoryItemId,metadata:options.metadata??{}})}).catch(()=>undefined);
+ if(typeof window==="undefined"||shouldSkipEvent(slug,event,options))return;
+ const state=stored(slug),now=Date.now(),touchSession=event==="landing_page_view"||!state.lastSessionSyncAt||now-state.lastSessionSyncAt>=sessionTouchIntervalMs;
+ if(touchSession)localStorage.setItem(key(slug),JSON.stringify({...state,lastSessionSyncAt:now}));
+ void fetch(`/api/public-booking/${encodeURIComponent(slug)}/funnel`,{method:"POST",headers:{"content-type":"application/json"},keepalive:true,body:JSON.stringify({sessionId:state.sessionId,event,path:`${location.pathname}${location.search}`,landingUrl:state.landingUrl,referrer:state.referrer,attribution:state.attribution,inventoryItemId:options.inventoryItemId,metadata:options.metadata??{},touchSession})}).catch(()=>undefined);
 }
 
 export function TenantBookingFunnelTracker({businessSlug,initialSessionId}:{businessSlug:string;initialSessionId?:string}){
