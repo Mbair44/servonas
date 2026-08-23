@@ -10,6 +10,17 @@ import {normalizeWebsiteDomain} from "@/lib/website";
 type WebsiteRow=Record<string,any>;
 type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean};
 type QueryResult<T>={data:T|null;error:unknown|null};
+type DomainResolutionRoute="/sites/domain/[domain]"|"/sites/domain/[domain]/booking"|"/sites/domain/[domain]/mechanical-bull-rental";
+type DomainLookupFailureKind="timeout"|"supabase_api_error"|"network_error"|"unexpected_error";
+type DomainLookupContext={domain:string;route:DomainResolutionRoute;operation:string;table:string;attempt:number;startedAt:number};
+type DomainLookupFailure={kind:DomainLookupFailureKind;message:string;code:string|null;status:number|null;temporary:boolean;table:string;operation:string;attempt:number;elapsedMs:number};
+export type DomainSiteResolution=
+ |{kind:"ok";settings:WebsiteRow;site:BusinessSiteData;elapsedMs:number;attemptCount:number}
+ |{kind:"not_found";elapsedMs:number;attemptCount:number}
+ |{kind:"unavailable";failure:DomainLookupFailure;elapsedMs:number;attemptCount:number};
+
+const domainLookupTimeoutMs=2_500;
+const domainLookupRetryDelayMs=150;
 const domainCandidatesFor=(value:string)=>{
  const normalized=normalizeWebsiteDomain(value);
  if(!normalized)return [];
@@ -17,6 +28,61 @@ const domainCandidatesFor=(value:string)=>{
   ?[normalized,normalized.slice(4)]
   :[normalized,`www.${normalized}`];
 };
+
+const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+const nowMs=()=>Date.now();
+const statusFromCode=(code:string|null)=>{
+ if(!code)return null;
+ const match=code.match(/\b(\d{3})\b/);
+ return match?Number(match[1]):null;
+};
+const classifySupabaseFailure=(error:unknown,context:DomainLookupContext):DomainLookupFailure=>{
+ const elapsedMs=nowMs()-context.startedAt;
+ if(error&&typeof error==="object"&&"kind" in error&&error.kind==="timeout"){
+  return {kind:"timeout",message:"Domain lookup timed out.",code:"timeout",status:503,temporary:true,table:context.table,operation:context.operation,attempt:context.attempt,elapsedMs};
+ }
+ const value=error as {code?:string;message?:string;details?:string;hint?:string;name?:string;status?:number};
+ const message=`${value?.message??value?.details??value?.hint??value?.name??String(error)}`;
+ const rawCode=value?.code?String(value.code):null;
+ const status=value?.status??statusFromCode(rawCode)??(/timeout|timed out/i.test(message)?503:null);
+ const temporary=status!==null&&status>=500||/timeout|timed out|network|fetch failed|socket|connection|econn|etimedout/i.test(message);
+ const kind=temporary
+  ?/timeout|timed out/i.test(message)||rawCode==="timeout"?"timeout":status!==null?"supabase_api_error":"network_error"
+  :"unexpected_error";
+ return {kind,message,code:rawCode,status,temporary,table:context.table,operation:context.operation,attempt:context.attempt,elapsedMs};
+};
+const logDomainLookupOutcome=(level:"info"|"warn"|"error",payload:{domain:string;route:DomainResolutionRoute;operation:string;table:string;statusOrCode:number|string|null;message:string;elapsedMs:number;response:"404"|"503"|"200";attempt:number})=>{
+ console[level]("Custom-domain resolution",payload);
+};
+async function withDomainLookupTimeout<T>(promise:PromiseLike<T>){
+ return Promise.race<T>([
+  promise,
+  new Promise<T>((_,reject)=>setTimeout(()=>reject({kind:"timeout"}),domainLookupTimeoutMs)),
+ ]);
+}
+async function runDomainQuery<T>(factory:()=>PromiseLike<{data:T|null;error:unknown|null}>,context:Omit<DomainLookupContext,"attempt"|"startedAt">){
+ const startedAt=nowMs();
+ let lastFailure:DomainLookupFailure|null=null;
+ for(let attempt=1;attempt<=2;attempt++){
+  const attemptContext={...context,attempt,startedAt};
+  try{
+   const result=await withDomainLookupTimeout(factory());
+   if(result.error){
+    const failure=classifySupabaseFailure(result.error,attemptContext);
+    logDomainLookupOutcome(failure.temporary?"warn":"error",{domain:context.domain,route:context.route,operation:context.operation,table:context.table,statusOrCode:failure.status??failure.code,message:failure.message,elapsedMs:failure.elapsedMs,response:failure.temporary?"503":"404",attempt});
+    lastFailure=failure;
+   }else return {kind:"ok" as const,data:result.data,elapsedMs:nowMs()-startedAt,attemptCount:attempt};
+  }catch(error){
+   const failure=classifySupabaseFailure(error,attemptContext);
+   logDomainLookupOutcome("warn",{domain:context.domain,route:context.route,operation:context.operation,table:context.table,statusOrCode:failure.status??failure.code,message:failure.message,elapsedMs:failure.elapsedMs,response:"503",attempt});
+   lastFailure=failure;
+  }
+  if(!lastFailure?.temporary||attempt===2)break;
+  await sleep(domainLookupRetryDelayMs*attempt);
+ }
+ return {kind:"error" as const,failure:lastFailure??{kind:"unexpected_error",message:"Domain lookup failed.",code:null,status:null,temporary:false,table:context.table,operation:context.operation,attempt:2,elapsedMs:nowMs()-startedAt},elapsedMs:nowMs()-startedAt,attemptCount:lastFailure?.attempt??2};
+}
+export const domainLookupTestUtils={classifySupabaseFailure,runDomainQuery};
 
 const normalizeQueryResult=<T,>(result:PromiseSettledResult<{data:T|null;error:unknown|null}>,label:string,businessId:string):QueryResult<T>=>{
  if(result.status==="fulfilled"){
@@ -110,35 +176,45 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
 }
 
 const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
-const logDomainLookupError=(label:string,domain:string,error:unknown)=>{
- if(!error)return;
- const value=error as {code?:string;message?:string;details?:string;hint?:string;name?:string};
- console.error(label,{domain,code:value.code??null,message:value.message??value.name??String(error),details:value.details??null,hint:value.hint??null});
-};
 
-async function queryPublishedBusinessWebsiteByDomain(rawDomain:string){
+async function queryPublishedBusinessWebsiteByDomain(rawDomain:string,route:DomainResolutionRoute):Promise<DomainSiteResolution>{
  const db=getSupabaseAdmin(),candidates=domainCandidatesFor(rawDomain);
- if(!db||!candidates.length)return null;
- const publishedQuery=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("status","published").limit(1);
- if(publishedQuery.error){
-  logDomainLookupError("Published custom-domain website lookup failed",rawDomain,publishedQuery.error);
-  return null;
+ if(!db||!candidates.length)return {kind:"not_found",elapsedMs:0,attemptCount:0};
+ const publishedResult=await runDomainQuery(()=>db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("status","published").limit(1),{domain:rawDomain,route,operation:"resolve_published_domain",table:"business_website_settings"});
+ if(publishedResult.kind==="error")return {kind:"unavailable",failure:publishedResult.failure,elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
+ const publishedSettings=publishedResult.data?.[0]??null;
+ if(publishedSettings){
+  const site=await loadBusinessWebsiteData(db,publishedSettings,{includeExternalReviews:false});
+  if(!site)return {kind:"not_found",elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
+  logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_published_domain",table:"business_website_settings",statusOrCode:200,message:"Resolved custom domain.",elapsedMs:publishedResult.elapsedMs,response:"200",attempt:publishedResult.attemptCount});
+  return {kind:"ok",settings:publishedSettings,site,elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
  }
- const connectedQuery=!publishedQuery.data?.length?await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("domain_status","connected").limit(1):{data:publishedQuery.data,error:null};
- if(connectedQuery.error){
-  logDomainLookupError("Connected custom-domain website lookup failed",rawDomain,connectedQuery.error);
-  return null;
+ const connectedResult=await runDomainQuery(()=>db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("domain_status","connected").limit(1),{domain:rawDomain,route,operation:"resolve_connected_domain",table:"business_website_settings"});
+ if(connectedResult.kind==="error")return {kind:"unavailable",failure:connectedResult.failure,elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};
+ const settings=connectedResult.data?.[0]??null;
+ if(!settings){
+  logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_connected_domain",table:"business_website_settings",statusOrCode:404,message:"No matching custom domain found.",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,response:"404",attempt:publishedResult.attemptCount+connectedResult.attemptCount});
+  return {kind:"not_found",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};
  }
- const settings=(publishedQuery.data?.[0]??connectedQuery.data?.[0])??null;
- if(!settings)return null;
  const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:false});
- return site?{settings,site}:null;
+ if(!site){
+  logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"hydrate_website",table:"businesses",statusOrCode:404,message:"Domain matched but no active business website data was available.",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,response:"404",attempt:publishedResult.attemptCount+connectedResult.attemptCount});
+  return {kind:"not_found",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};
+ }
+ logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_connected_domain",table:"business_website_settings",statusOrCode:200,message:"Resolved connected custom domain.",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,response:"200",attempt:publishedResult.attemptCount+connectedResult.attemptCount});
+ return {kind:"ok",settings,site,elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};
 }
 
-const loadCachedPublishedBusinessWebsiteByDomain=unstable_cache(queryPublishedBusinessWebsiteByDomain,["published-business-website-domain"],{revalidate:300});
+const loadCachedPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain:string)=>{
+ const result=await queryPublishedBusinessWebsiteByDomain(rawDomain,"/sites/domain/[domain]");
+ return result.kind==="ok"?result:null;
+},["published-business-website-domain"],{revalidate:300});
 
-export async function loadPublishedBusinessWebsiteByDomain(rawDomain:string){
+export async function loadPublishedBusinessWebsiteByDomain(rawDomain:string,route:DomainResolutionRoute="/sites/domain/[domain]"):Promise<DomainSiteResolution>{
  const cached=await loadCachedPublishedBusinessWebsiteByDomain(rawDomain);
- if(cached)return cached;
- return queryPublishedBusinessWebsiteByDomain(rawDomain);
+ if(cached){
+  logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_cached_domain",table:"business_website_settings",statusOrCode:200,message:"Resolved custom domain from cache.",elapsedMs:0,response:"200",attempt:0});
+  return {...cached,elapsedMs:0,attemptCount:0};
+ }
+ return queryPublishedBusinessWebsiteByDomain(rawDomain,route);
 }
