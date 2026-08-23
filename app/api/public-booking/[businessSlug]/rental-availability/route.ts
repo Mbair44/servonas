@@ -1,4 +1,5 @@
 import {NextResponse} from "next/server";
+import {loadPublicBookingSettings} from "@/app/book/[businessSlug]/loadPublicBookingData";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {addDays,zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {resolveRentalCalendarDayAvailability,type RentalReservationWindow} from "@/lib/rentalCalendarAvailability";
@@ -96,7 +97,7 @@ export async function GET(request:Request,{params}:{params:Promise<{businessSlug
  try{
  const {businessSlug}=await params,url=new URL(request.url),date=url.searchParams.get("date"),endDate=url.searchParams.get("endDate")||date,start=url.searchParams.get("start"),end=url.searchParams.get("end"),itemId=url.searchParams.get("itemId"),calendarStart=url.searchParams.get("calendarStart"),calendarEnd=url.searchParams.get("calendarEnd"),requestedQuantity=Number(url.searchParams.get("quantity")||1),quantity=Number.isFinite(requestedQuantity)?Math.max(1,Math.floor(requestedQuantity)):1;
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Availability is temporarily unavailable."},{status:503});
- const {data:settings}=await db.from("booking_settings").select("business_id,buffer_minutes,timezone,rental_duration_minutes").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();
+ const settings=await loadPublicBookingSettings(businessSlug);
  if(!settings)return NextResponse.json({error:"Booking page not found."},{status:404});
  const timezone=settings.timezone??"America/Phoenix",buffer=Math.max(0,Number(settings.buffer_minutes||0));
  if(itemId&&calendarStart&&calendarEnd){
