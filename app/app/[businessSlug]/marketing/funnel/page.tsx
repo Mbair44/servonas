@@ -3,6 +3,7 @@ import {WorkspaceNav} from "../../WorkspaceNav";
 import {requireWorkspace} from "@/lib/workspace";
 import {canManageBusiness} from "@/lib/access";
 import {addDays, dateInTimeZone, zonedDateTimeToUtc} from "@/lib/bookingTime";
+import type {BookingFunnelEvent} from "@/lib/bookingFunnel";
 
 const stages=["landing_page_view","check_availability_clicked","availability_date_selected","booking_started","customer_info_entered","checkout_started","booking_completed"] as const;
 type StageName=(typeof stages)[number];
@@ -19,7 +20,7 @@ const journeyShort:Record<StageName,string>={
 };
 
 type EventRow={
- event_name:StageName;
+ event_name:BookingFunnelEvent;
  inventory_item_id?:string|null;
  booking_total_cents:number|null;
  metadata:Record<string,unknown>|null;
