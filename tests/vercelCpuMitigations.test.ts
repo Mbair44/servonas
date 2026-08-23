@@ -13,12 +13,14 @@ test("custom-domain website route reuses cached public website data",async()=>{
 });
 
 test("public booking page caches its expensive shared data loader",async()=>{
- const [page,loader]=await Promise.all([read("app/book/[businessSlug]/page.tsx"),read("app/book/[businessSlug]/loadPublicBookingData.ts")]);
- assert.match(loader,/export const loadPublicBookingData=unstable_cache/);
- assert.match(loader,/revalidate:300/);
- assert.match(page,/await loadPublicBookingData\(businessSlug\)/);
- assert.doesNotMatch(loader,/getInventoryCapacityUsage/);
- assert.match(loader,/booking_blackouts/);
+ const [page,loader,availabilityRoute]=await Promise.all([read("app/book/[businessSlug]/page.tsx"),read("app/book/[businessSlug]/loadPublicBookingData.ts"),read("app/api/public-booking/[businessSlug]/rental-availability/route.ts")]);
+  assert.match(loader,/export const loadPublicBookingData=unstable_cache/);
+  assert.match(loader,/export const loadPublicBookingSettings=unstable_cache/);
+  assert.match(loader,/revalidate:300/);
+  assert.match(page,/await loadPublicBookingData\(businessSlug\)/);
+  assert.doesNotMatch(loader,/getInventoryCapacityUsage/);
+  assert.match(loader,/booking_blackouts/);
+  assert.match(availabilityRoute,/loadPublicBookingSettings/);
 });
 
 test("rental availability narrows booking scans before loading booking items",async()=>{
@@ -54,6 +56,15 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(tracker,/publicOptionalAnalyticsEnabled/);
  assert.match(tracker,/shouldSkipEvent/);
  assert.match(tracker,/booking_started:15_000/);
- assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
- assert.match(bookingClient,/if\(source==="adjust"\)return;/);
+  assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
+  assert.match(bookingClient,/if\(source==="adjust"\)return;/);
+});
+
+test("public shell skips auth refresh when there is no Supabase session cookie",async()=>{
+ const [layout,login,signup,server]=await Promise.all([read("app/layout.tsx"),read("app/login/page.tsx"),read("app/signup/page.tsx"),read("lib/supabaseServer.ts")]);
+ assert.match(server,/hasSupabaseAuthCookies/);
+ assert.match(layout,/if\(hasSupabaseAuthCookies\(cookieStore\)\)/);
+ assert.match(layout,/Root layout auth lookup skipped/);
+ assert.match(login,/if\(hasSupabaseAuthCookies\(cookieStore\)\)try/);
+ assert.match(signup,/if\(hasSupabaseAuthCookies\(cookieStore\)\)try/);
 });

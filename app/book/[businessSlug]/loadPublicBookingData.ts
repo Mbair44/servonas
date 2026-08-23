@@ -3,15 +3,26 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {addDays, dateInTimeZone, zonedDateTimeToUtc} from "@/lib/bookingTime";
 
-export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
+export const loadPublicBookingSettings=unstable_cache(async(businessSlug:string)=>{
   const supabase=getSupabaseAdmin();
   if(!supabase)return null;
-  const { data: settings } = await supabase
+  const { data: settings, error } = await supabase
     .from("booking_settings")
-    .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url,industry_profile)")
+    .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,buffer_minutes,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url,industry_profile)")
     .ilike("public_slug", businessSlug)
     .eq("enabled", true)
     .maybeSingle();
+  if(error){
+    console.error("Public booking settings lookup failed",{businessSlug,code:error.code??null,message:error.message??null,details:error.details??null,hint:error.hint??null});
+    return null;
+  }
+  return settings??null;
+},["public-booking-settings"],{revalidate:300});
+
+export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
+  const supabase=getSupabaseAdmin();
+  if(!supabase)return null;
+  const settings=await loadPublicBookingSettings(businessSlug);
   if (!settings) return null;
   const businessRelation=settings.businesses as {name?:string;website_url?:string|null;industry_profile?:string|null}|{name?:string;website_url?:string|null;industry_profile?:string|null}[]|null|undefined;
   const businessRecord=Array.isArray(businessRelation)?businessRelation[0]:businessRelation;

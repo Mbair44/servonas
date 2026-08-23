@@ -2,8 +2,9 @@ import "./globals.css";
 import "./public-estimate.css";
 import "./website.css";
 import Link from "next/link";
+import {cookies} from "next/headers";
 import { PhoneInputFormatter } from "@/components/PhoneInputFormatter";
-import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { createSupabaseServerClient, hasSupabaseAuthCookies } from "@/lib/supabaseServer";
 import {AuthenticatedAccountMenu} from "@/components/AuthenticatedAccountMenu";
 import {AssistantPopover} from "@/components/AssistantPopover";
 import {MarketingAnalytics} from "@/components/MarketingAnalytics";
@@ -22,12 +23,27 @@ export const metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createSupabaseServerClient();
-  const {data:{user}} = await supabase.auth.getUser();
-  const [{data:profile},{data:employee}]=user?await Promise.all([
-    supabase.from("profiles").select("full_name,email").eq("id",user.id).maybeSingle(),
-    supabase.from("employees").select("preferred_name").eq("auth_user_id",user.id).eq("is_active",true).order("updated_at",{ascending:false}).limit(1).maybeSingle(),
-  ]):[{data:null},{data:null}];
+  const cookieStore=await cookies();
+  let user:null|{id:string;email?:string|null;user_metadata?:Record<string,unknown>}=null;
+  let profile:{full_name?:string|null;email?:string|null}|null=null;
+  let employee:{preferred_name?:string|null}|null=null;
+  if(hasSupabaseAuthCookies(cookieStore)){
+    try{
+      const supabase = await createSupabaseServerClient();
+      const authResult = await supabase.auth.getUser();
+      user = authResult.data.user;
+      if(user){
+        const [profileResult,employeeResult]=await Promise.all([
+          supabase.from("profiles").select("full_name,email").eq("id",user.id).maybeSingle(),
+          supabase.from("employees").select("preferred_name").eq("auth_user_id",user.id).eq("is_active",true).order("updated_at",{ascending:false}).limit(1).maybeSingle(),
+        ]);
+        profile=profileResult.data;
+        employee=employeeResult.data;
+      }
+    }catch(error){
+      console.warn("Root layout auth lookup skipped",{message:error instanceof Error?error.message:String(error)});
+    }
+  }
   const accountName=employee?.preferred_name?.trim()||profile?.full_name?.trim()||String(user?.user_metadata?.full_name??"").trim()||user?.email?.split("@")[0]||"Account";
   const accountEmail=profile?.email||user?.email||"";
   return <html lang="en"><body>
