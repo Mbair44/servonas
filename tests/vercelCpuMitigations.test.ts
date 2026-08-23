@@ -21,6 +21,17 @@ test("public booking page caches its expensive shared data loader",async()=>{
  assert.match(loader,/booking_blackouts/);
 });
 
+test("rental availability narrows booking scans before loading booking items",async()=>{
+ const route=await read("app/api/public-booking/[businessSlug]/rental-availability/route.ts");
+ assert.match(route,/async function loadRelevantBookingItemRows/);
+ assert.match(route,/from\("bookings"\)/);
+ assert.match(route,/\.lt\("rental_starts_at",windowEndsAt\)/);
+ assert.match(route,/\.gt\("rental_ends_at",windowStartsAt\)/);
+ assert.match(route,/\.in\("booking_id",intervalBookingIds\)/);
+ assert.match(route,/\.gte\("rental_date",startDate\)/);
+ assert.match(route,/\.lte\("rental_date",endDate\)/);
+});
+
 test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  const [funnel,marketing,tracker,bookingClient]=await Promise.all([read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("app/api/marketing/events/route.ts"),read("components/TenantBookingFunnelTracker.tsx"),read("components/PartyRentalBookingClient.tsx")]);
  assert.match(funnel,/const bots=\/bot\|crawler\|spider/);
