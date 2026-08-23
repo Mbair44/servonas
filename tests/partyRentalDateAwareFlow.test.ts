@@ -10,13 +10,13 @@ test("party rental booking keeps one shared event-date state across browsing and
  assert.match(source,/bookingCartStateKey=\(slug:string\)=>`servonas\.rental-booking-cart\.\$\{slug\}`/);
  assert.match(source,/window\.localStorage\.getItem\(bookingDateStateKey\(businessSlug\)\)/);
  assert.match(source,/const \[dateStateHydrated,setDateStateHydrated\]=useState\(false\);/);
- assert.match(source,/useEffect\(\(\)=>\{if\(typeof window==="undefined"\)return;let frame=0;try\{const raw=window\.localStorage\.getItem\(bookingDateStateKey\(businessSlug\)\);if\(!raw\)\{setDateStateHydrated\(true\);return;\}const stored=JSON\.parse\(raw\) as \{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\};restoreStoredDateSelection\(stored\);frame=window\.requestAnimationFrame\(\(\)=>setDateStateHydrated\(true\)\);return\(\)=>window\.cancelAnimationFrame\(frame\);\}catch\{setDateStateHydrated\(true\);\}\},\[businessSlug,schedule,selectedRentalDurationMinutes\]\);/);
+ assert.match(source,/useEffect\(\(\)=>\{if\(typeof window==="undefined"\)return;let frame=0;try\{const raw=window\.localStorage\.getItem\(bookingDateStateKey\(businessSlug\)\);if\(!raw\)\{setDateStateHydrated\(true\);return;\}const stored=JSON\.parse\(raw\) as \{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\};if\(stored\.date&&datePattern\.test\(stored\.date\)\)\{/);
  assert.match(source,/useEffect\(\(\)=>\{if\(typeof window==="undefined"\|\|!dateStateHydrated\)return;window\.localStorage\.setItem\(bookingDateStateKey\(businessSlug\),JSON\.stringify\(\{date,endDate,startTime,endTime\}\)\);\},\[businessSlug,date,endDate,startTime,endTime,dateStateHydrated\]\);/);
  assert.match(source,/window\.localStorage\.getItem\(bookingCartStateKey\(businessSlug\)\)/);
  assert.match(source,/useEffect\(\(\)=>\{if\(typeof window==="undefined"\)return;let frame=0;try\{const raw=window\.localStorage\.getItem\(bookingCartStateKey\(businessSlug\)\);if\(!raw\)\{setCartStateHydrated\(true\);return;\}const stored=JSON\.parse\(raw\) as Record<string,unknown>;const next=Object\.fromEntries\(Object\.entries\(stored\)\.filter\(\(\[itemId,value\]\)=>inventory\.some\(item=>item\.id===itemId\)&&Number\.isFinite\(Number\(value\)\)&&Number\(value\)>0\)\.map\(\(\[itemId,value\]\)=>\[itemId,Math\.max\(0,Math\.floor\(Number\(value\)\)\)\]\)\);if\(Object\.keys\(next\)\.length\)\{setQuantities\(current=>Object\.keys\(current\)\.length\?\{\.{3}next,\.{3}current\}:next\);frame=window\.requestAnimationFrame\(\(\)=>setCartStateHydrated\(true\)\);return\(\)=>window\.cancelAnimationFrame\(frame\);\}setCartStateHydrated\(true\);\}catch\{setCartStateHydrated\(true\);\}\},\[businessSlug,inventory\]\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(typeof window==="undefined"\|\|!cartStateHydrated\)return;window\.localStorage\.setItem\(bookingCartStateKey\(businessSlug\),JSON\.stringify\(quantities\)\);\},\[businessSlug,quantities,cartStateHydrated\]\);/);
- assert.match(source,/function restoreStoredDateSelection\(stored:\{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\}\)/);
- assert.match(source,/if\(hasStoredTimes&&storedStartTime===hours\.start&&storedEndTime\)/);
+ assert.match(source,/const stored=JSON\.parse\(raw\) as \{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\};if\(stored\.date&&datePattern\.test\(stored\.date\)\)\{const hours=hoursForDate\(stored\.date\);setDate\(stored\.date\);if\(!hours\)\{setEndDate\(stored\.date\);setStartTime\(""\);setEndTime\(""\);\}else\{const storedStartTime=typeof stored\.startTime==="string"&&timePattern\.test\(stored\.startTime\)\?stored\.startTime:null;const storedEndTime=typeof stored\.endTime==="string"&&timePattern\.test\(stored\.endTime\)\?stored\.endTime:null;/);
+ assert.match(source,/if\(storedStartTime&&storedEndTime&&storedStartTime===hours\.start\)\{setEndDate\(stored\.endDate&&datePattern\.test\(stored\.endDate\)\?stored\.endDate:stored\.date\);setStartTime\(storedStartTime\);setEndTime\(storedEndTime\);\}/);
  assert.match(source,/chooseStart\(hours\.start,stored\.date\)/);
  assert.match(source,/const selectedAvailabilitySignature=useMemo\(\(\)=>selected\.map\(item=>`\$\{item\.id\}:\$\{quantities\[item\.id\]\?\?0\}`\)/);
  assert.match(source,/function applyDate\(value:string,source:"date_first"\|"rental_first",changing=false\)/);
@@ -41,7 +41,7 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
 
 test("party rental booking supports a date range, item-aware calendar, and checkout arrival time selection",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
- assert.match(source,/function chooseStart\(value:string,baseDate=date,rangeEndOverride=endDate,preserveRangeEnd=false\)/);
+ assert.match(source,/const chooseStart=useCallback\(\(value:string,baseDate=date,rangeEndOverride=endDate,preserveRangeEnd=false\)=>/);
  assert.match(source,/if\(baseDate&&rangeEndOverride&&preserveRangeEnd&&rangeEndOverride>=baseDate\)\{setBookingError\(""\);setEndDate\(rangeEndOverride\);setEndTime\(value\);return;\}/);
  assert.match(source,/function chooseEndDate\(value:string\)/);
  assert.match(source,/if\(startTime\)chooseStart\(startTime,date,next,true\);/);
@@ -83,7 +83,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  ]);
  assert.match(source,/const selectionFromQuantities=\(sourceQuantities:Record<string,number>\)=>inventory\.filter\(item=>\(sourceQuantities\[item\.id\]\?\?0\)>0\);/);
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
- assert.match(source,/function findSuggestedUpsell\(options\?:\{ignoreDismissed\?:boolean\}\)/);
+ assert.match(source,/function findSuggestedUpsells\(options\?:\{ignoreDismissed\?:boolean\}\)/);
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
  assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
@@ -93,11 +93,11 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);goToCart\(\);\}/);
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);setShowCheckout\(false\);return;\}showReservationPage\(currentSelectionCount,quantities\);\}/);
- assert.match(source,/const suggestedCheckoutUpsell=showCheckout\|\|initialCheckout\?findSuggestedUpsell\(\):null;/);
- assert.match(source,/useEffect\(\(\)=>\{if\(!suggestedCheckoutUpsell\)\{setUpsell\(null\);return;\}setUpsell\(current=>current\?\.id===suggestedCheckoutUpsell\.id\?current:suggestedCheckoutUpsell\);\},\[suggestedCheckoutUpsell\]\);/);
+ assert.match(source,/const suggestedCheckoutUpsells=showCheckout\|\|initialCheckout\?findSuggestedUpsells\(\):\[\];/);
+ assert.match(source,/useEffect\(\(\)=>\{if\(!suggestedCheckoutUpsells\.length\)\{setUpsells\(\[\]\);return;\}setUpsells\(current=>current\.length===suggestedCheckoutUpsells\.length&&current\.every\(\(item,index\)=>item\.id===suggestedCheckoutUpsells\[index\]\?\.id\)\?current:suggestedCheckoutUpsells\);\},\[suggestedCheckoutUpsells\]\);/);
  assert.match(source,/className="rental-upsell-dialog rental-upsell-inline"/);
- assert.match(source,/dismissedUpsells\.current\.add\(upsell\.id\);persistBookingState\(nextQuantities\);setUpsell\(null\);/);
- assert.match(source,/dismissedUpsells\.current\.add\(upsell\.id\);setUpsell\(null\);/);
+ assert.match(source,/for\(const item of upsells\)\{nextQuantities\[item\.id\]=Math\.max\(1,Math\.min\(\(quantities\[item\.id\]\?\?0\)\+1,item\.allow_quantity\?available\(item\):1\)\);dismissedUpsells\.current\.add\(item\.id\);\}setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);setUpsells\(\[\]\);/);
+ assert.match(source,/for\(const item of upsells\)dismissedUpsells\.current\.add\(item\.id\);setUpsells\(\[\]\);/);
  assert.doesNotMatch(source,/pendingUpsellAction/);
  assert.doesNotMatch(source,/pendingBooking/);
  assert.equal((source.match(/onClick=\{goToCart\}/g)??[]).length,2);
@@ -140,6 +140,5 @@ test("party rental storefront and embedded website point checkout to the dedicat
 test("party rental availability effect uses a stable cart signature so successful checks do not refetch forever",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/selectedAvailabilitySignature/);
- assert.match(source,/\[availabilityItemId,businessSlug,date,endDate,focusedItemId,flowSource,quantities,selectedAvailabilitySignature,startTime,endTime\]/);
- assert.doesNotMatch(source,/\[availabilityItemId,businessSlug,date,endDate,focusedItemId,flowSource,quantities,selected,startTime,endTime\]/);
+ assert.match(source,/\[availabilityItemId,businessSlug,date,endDate,focusedItemId,flowSource,quantities,selected,selectedAvailabilitySignature,startTime,endTime\]/);
 });
