@@ -11,7 +11,49 @@ test("custom-domain website route reuses cached public website data",async()=>{
  assert.match(lib,/unstable_cache/);
  assert.match(lib,/const loadCachedPublishedBusinessWebsiteByDomain=unstable_cache/);
  assert.match(lib,/export async function loadPublishedBusinessWebsiteByDomain/);
- assert.match(lib,/return queryPublishedBusinessWebsiteByDomain\(rawDomain\)/);
+ assert.match(lib,/return queryPublishedBusinessWebsiteByDomain\(rawDomain,route\)/);
+ assert.match(lib,/domainLookupTimeoutMs=2_500/);
+ assert.match(lib,/domainLookupRetryDelayMs=150/);
+});
+
+test("custom-domain pages only 404 on confirmed missing results and render fallback on temporary failures",async()=>{
+ const [sitePage,bookingPage,checkoutPage,mechanicalBullPage,fallback]=await Promise.all([
+  read("app/sites/domain/[domain]/page.tsx"),
+  read("app/sites/domain/[domain]/booking/page.tsx"),
+  read("app/sites/domain/[domain]/booking/checkout/page.tsx"),
+  read("app/sites/domain/[domain]/mechanical-bull-rental/page.tsx"),
+  read("components/TemporarySiteUnavailable.tsx"),
+ ]);
+ assert.match(sitePage,/if\(record\.kind==="not_found"\)notFound\(\)/);
+ assert.match(sitePage,/if\(record\.kind==="unavailable"\)return <TemporarySiteUnavailable/);
+ assert.match(bookingPage,/if\(record\.kind==="not_found"\|\|record\.kind==="ok"&&!record\.site\.bookingSlug\)notFound\(\)/);
+ assert.match(bookingPage,/if\(record\.kind==="unavailable"\)return <TemporarySiteUnavailable/);
+ assert.match(checkoutPage,/if\(record\.kind==="not_found"\|\|record\.kind==="ok"&&!record\.site\.bookingSlug\)notFound\(\)/);
+ assert.match(checkoutPage,/if\(record\.kind==="unavailable"\)return <TemporarySiteUnavailable/);
+ assert.match(mechanicalBullPage,/if\(record\.kind==="not_found"\)notFound\(\)/);
+ assert.match(mechanicalBullPage,/if\(record\.kind==="unavailable"\)return <TemporarySiteUnavailable/);
+ assert.match(fallback,/This website is temporarily unavailable\./);
+});
+
+test("domain lookup classifies upstream 522s as temporary failures",async()=>{
+ const lib=await read("lib/businessWebsite.ts");
+ assert.match(lib,/status>=500/);
+ assert.match(lib,/\?"timeout":status!==null\?"supabase_api_error":"network_error"/);
+ assert.match(lib,/timeout\|timed out\|network\|fetch failed\|socket\|connection\|econn\|etimedout/i);
+});
+
+test("domain lookup retry is bounded and succeeds after one retry",async()=>{
+ const lib=await read("lib/businessWebsite.ts");
+ assert.match(lib,/for\(let attempt=1;attempt<=2;attempt\+\+\)/);
+ assert.match(lib,/if\(!lastFailure\?\.temporary\|\|attempt===2\)break/);
+ assert.match(lib,/await sleep\(domainLookupRetryDelayMs\*attempt\)/);
+});
+
+test("domain lookup retry is bounded and cannot loop indefinitely",async()=>{
+ const lib=await read("lib/businessWebsite.ts");
+ assert.match(lib,/return \{kind:"error" as const/);
+ assert.doesNotMatch(lib,/while\s*\(/);
+ assert.doesNotMatch(lib,/setInterval/);
 });
 
 test("public booking page caches its expensive shared data loader",async()=>{
@@ -49,10 +91,8 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(funnel,/upsert\(sessionRow,\{onConflict:"business_id,id"\}\)/);
  assert.match(marketingComponent,/publicOptionalAnalyticsEnabled/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
- assert.match(marketing,/optionalAnalyticsEnabled/);
- assert.match(marketing,/prefetch/i);
- assert.match(marketing,/analyticsTimeoutMs=2500/);
- assert.match(marketing,/Promise\.race/);
+ assert.match(marketing,/Marketing visitor event disabled/);
+ assert.match(marketing,/purpose=request\.headers\.get\("purpose"\)/);
  assert.match(marketing,/new NextResponse\(null,\{status:204\}\)/);
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
  assert.match(tracker,/publicOptionalAnalyticsEnabled/);
