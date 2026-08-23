@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JobActionState } from "@/app/app/[businessSlug]/jobs/actions";
 import { jobPriorities, jobStatuses, paymentStatuses } from "@/lib/jobValidation";
 
@@ -79,7 +79,7 @@ export default function JobForm({
   const [fixedTime,setFixedTime]=useState(initialCommitment!=="flexible");
   const [returnVisit,setReturnVisit]=useState(state.values?.isReturnVisit==="on"||job?.is_return_visit===true);
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
-  const value = (name: string, fallback = "") => formValues[name] ?? fallback;
+  const value = useCallback((name: string, fallback = "") => formValues[name] ?? fallback,[formValues]);
   const [subtotal,setSubtotal]=useState(value("subtotal",String(job?.subtotal??0))),[tax,setTax]=useState(value("taxAmount",String(job?.tax_amount??0))),[discount,setDiscount]=useState(value("discountAmount",String(job?.discount_amount??0)));
   const error = (name: string) => state.fieldErrors?.[name]
     ? <small className="crm-field-error">{state.fieldErrors[name]}</small> : null;
@@ -101,7 +101,7 @@ export default function JobForm({
     setTax(value("taxAmount",String(job?.tax_amount ?? 0)));
     setDiscount(value("discountAmount",String(job?.discount_amount ?? 0)));
     setReturnVisit(value("isReturnVisit",job?.is_return_visit===true?"on":"")==="on");
-  },[defaultCustomerId,defaultStartAt,job,state.values]);
+  },[defaultCustomerId,defaultStartAt,job,state.values,value]);
   useEffect(()=>{
     if(customerLocations.length===1){
       setLocationId(customerLocations[0].id);
