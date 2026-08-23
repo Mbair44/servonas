@@ -7,6 +7,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  const customers=items.find(item=>item.id==="customers")!;
  const operations=items.find(item=>item.id==="operations")!;
  const workforce=items.find(item=>item.id==="workforce")!;
+ const marketing=items.find(item=>item.id==="marketing")!;
  const settings=visibleNavigation(items).find(item=>item.id==="settings")!;
  assert.deepEqual(customers.children?.map(item=>[item.label,item.href]),[
   ["Customers","/app/acme/customers"],
@@ -21,6 +22,11 @@ test("navigation uses grouped labels without changing routes",()=>{
  ]);
  assert.deepEqual(workforce.children?.map(item=>[item.label,item.href]),[
   ["Team","/app/acme/team"],["Field App","/tech"],
+ ]);
+ assert.deepEqual(marketing.children?.map(item=>[item.label,item.href]),[
+  ["Funnel","/app/acme/marketing/funnel"],
+  ["Discounts","/app/acme/marketing/discounts"],
+  ["Google Ads","/app/acme/marketing/google-ads"],
  ]);
  assert.deepEqual(settings.children?.map(item=>[item.label,item.href]),[
   ["General","/app/acme/settings"],
