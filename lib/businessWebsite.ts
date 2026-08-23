@@ -8,7 +8,10 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {normalizeWebsiteDomain} from "@/lib/website";
 
 type WebsiteRow=Record<string,any>;
-export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow):Promise<BusinessSiteData|null>{
+type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean};
+
+export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow,options:LoadBusinessWebsiteDataOptions={}):Promise<BusinessSiteData|null>{
+ const {includeExternalReviews=false}=options;
  const [{data:business},{data:services},{data:rentalItems},{data:rentalCategories},{data:hours},{data:territories},{data:booking},{data:websiteOnboarding},{data:promotion}]=await Promise.all([
   db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
@@ -32,7 +35,8 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  // enabled, do not let a stale/omitted website checkbox hide the embedded
  // inventory calendar from the public site.
  const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||settings.booking_enabled&&booking?.enabled));
- const googleProfile=await getGoogleBusinessProfileReviews(business.id),googleRating=!googleProfile&&settings.google_place_id?await getGoogleBusinessRating(String(settings.google_place_id)):null;
+ const googleProfile=includeExternalReviews?await getGoogleBusinessProfileReviews(business.id):null;
+ const googleRating=includeExternalReviews&&!googleProfile&&settings.google_place_id?await getGoogleBusinessRating(String(settings.google_place_id)):null;
  const manualReviews=(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6);
  const rentalCategoryOrder=new Map((rentalCategories??[]).map((category:any,index:number)=>[category.id,{rank:index,name:category.name}]));
  return {
@@ -57,6 +61,6 @@ export const loadPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain
  if(!db||!domain)return null;
  const {data:settings}=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).ilike("custom_domain",domain).or("status.eq.published,domain_status.eq.connected").maybeSingle();
  if(!settings)return null;
- const site=await loadBusinessWebsiteData(db,settings);
+ const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:false});
  return site?{settings,site}:null;
 },["published-business-website-domain"],{revalidate:300});
