@@ -9,6 +9,13 @@ import {normalizeWebsiteDomain} from "@/lib/website";
 
 type WebsiteRow=Record<string,any>;
 type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean};
+const domainCandidatesFor=(value:string)=>{
+ const normalized=normalizeWebsiteDomain(value);
+ if(!normalized)return [];
+ return normalized.startsWith("www.")
+  ?[normalized,normalized.slice(4)]
+  :[normalized,`www.${normalized}`];
+};
 
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow,options:LoadBusinessWebsiteDataOptions={}):Promise<BusinessSiteData|null>{
  const {includeExternalReviews=false}=options;
@@ -57,9 +64,13 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
 const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
 
 export const loadPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain:string)=>{
- const db=getSupabaseAdmin(),domain=normalizeWebsiteDomain(rawDomain);
- if(!db||!domain)return null;
- const {data:settings}=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).ilike("custom_domain",domain).or("status.eq.published,domain_status.eq.connected").maybeSingle();
+ const db=getSupabaseAdmin(),candidates=domainCandidatesFor(rawDomain);
+ if(!db||!candidates.length)return null;
+ const publishedQuery=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("status","published").limit(1);
+ if(publishedQuery.error)console.error("Published custom-domain website lookup failed",{domain:rawDomain,code:publishedQuery.error.code});
+ const connectedQuery=!publishedQuery.data?.length?await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("domain_status","connected").limit(1):{data:publishedQuery.data,error:null};
+ if(connectedQuery.error)console.error("Connected custom-domain website lookup failed",{domain:rawDomain,code:connectedQuery.error.code});
+ const settings=(publishedQuery.data?.[0]??connectedQuery.data?.[0])??null;
  if(!settings)return null;
  const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:false});
  return site?{settings,site}:null;

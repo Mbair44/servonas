@@ -30,13 +30,12 @@ export async function middleware(request:NextRequest){
   return NextResponse.rewrite(destination);
  }
  let response=NextResponse.next({request});
- if(!(path.startsWith("/app")||path.startsWith("/tech")||path==="/login"||path==="/signup"))return response;
+ if(!(path.startsWith("/app")||path.startsWith("/tech")))return response;
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
  if(!url||!key) return response;
  const supabase=createServerClient(url,key,{cookies:{getAll:()=>request.cookies.getAll(),setAll:(items: { name: string; value: string; options: CookieOptions }[])=>{items.forEach(({name,value})=>request.cookies.set(name,value));response=NextResponse.next({request});items.forEach(({name,value,options})=>response.cookies.set(name,value,options));}}});
  const {data:{user}}=await supabase.auth.getUser();
  if((path.startsWith("/app")||path.startsWith("/tech"))&&!user){const login=request.nextUrl.clone();login.pathname="/login";login.searchParams.set("next",path);return NextResponse.redirect(login);}
- if((path==="/login"||path==="/signup")&&user){const app=request.nextUrl.clone();app.pathname="/app";app.search="";return NextResponse.redirect(app);}
  return response;
 }
 export const config={matcher:["/((?!api(?:/|$)|_next(?:/|$)|favicon\\.ico$|apple-touch-icon\\.png$|icon\\.svg$|manifest(?:\\.json|\\.webmanifest)$|robots\\.txt$|sitemap\\.xml$|.*\\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|png|svg|ttf|webmanifest|webp|woff2?)$).*)"]};

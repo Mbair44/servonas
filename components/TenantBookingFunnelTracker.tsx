@@ -2,9 +2,11 @@
 
 import {useEffect,useRef} from "react";
 import {attributionFromSearch,type AttributionValues,type BookingFunnelEvent} from "@/lib/bookingFunnel";
+import {publicOptionalAnalyticsEnabled} from "@/lib/optionalAnalytics";
 
 const key=(slug:string)=>`servonas.booking-attribution.${slug}`;
 const dedupeKey=(slug:string)=>`servonas.booking-funnel-dedupe.${slug}`;
+const analyticsEnabled=publicOptionalAnalyticsEnabled();
 const sessionTouchIntervalMs=15*60*1000;
 const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
  landing_page_view:60_000,
@@ -50,7 +52,7 @@ const shouldSkipEvent=(slug:string,event:BookingFunnelEvent,options:{inventoryIt
 
 export function bookingAttributionSession(slug:string){if(typeof window==="undefined")return "";return stored(slug).sessionId;}
 export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>}={}){
- if(typeof window==="undefined"||shouldSkipEvent(slug,event,options))return;
+ if(!analyticsEnabled||typeof window==="undefined"||shouldSkipEvent(slug,event,options))return;
  const state=stored(slug),now=Date.now(),touchSession=event==="landing_page_view"||!state.lastSessionSyncAt||now-state.lastSessionSyncAt>=sessionTouchIntervalMs;
  if(touchSession)localStorage.setItem(key(slug),JSON.stringify({...state,lastSessionSyncAt:now}));
  void fetch(`/api/public-booking/${encodeURIComponent(slug)}/funnel`,{method:"POST",headers:{"content-type":"application/json"},keepalive:true,body:JSON.stringify({sessionId:state.sessionId,event,path:`${location.pathname}${location.search}`,landingUrl:state.landingUrl,referrer:state.referrer,attribution:state.attribution,inventoryItemId:options.inventoryItemId,metadata:options.metadata??{},touchSession})}).catch(()=>undefined);
@@ -58,9 +60,10 @@ export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:
 
 export function TenantBookingFunnelTracker({businessSlug,initialSessionId}:{businessSlug:string;initialSessionId?:string}){
  const sent=useRef(false);
- useEffect(()=>{if(initialSessionId&&/^[0-9a-f-]{36}$/i.test(initialSessionId)){const current=stored(businessSlug);localStorage.setItem(key(businessSlug),JSON.stringify({...current,sessionId:initialSessionId}));}if(sent.current)return;sent.current=true;trackBookingFunnel(businessSlug,"landing_page_view");
+ useEffect(()=>{if(!analyticsEnabled)return;if(initialSessionId&&/^[0-9a-f-]{36}$/i.test(initialSessionId)){const current=stored(businessSlug);localStorage.setItem(key(businessSlug),JSON.stringify({...current,sessionId:initialSessionId}));}if(sent.current)return;sent.current=true;trackBookingFunnel(businessSlug,"landing_page_view");
   const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>(`a[href*="/book/${businessSlug}"],iframe[src*="/book/${businessSlug}"]`).forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(url.searchParams.has("sv_at"))return;url.searchParams.set("sv_at",bookingAttributionSession(businessSlug));element.setAttribute(attribute,url.toString());}catch{/* external link remains usable */}});
   rewrite();const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});return()=>observer.disconnect();
  },[businessSlug,initialSessionId]);
+ if(!analyticsEnabled)return null;
  return null;
 }
