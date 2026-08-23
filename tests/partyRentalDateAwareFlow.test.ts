@@ -84,7 +84,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  ]);
  assert.match(source,/const selectionFromQuantities=\(sourceQuantities:Record<string,number>\)=>inventory\.filter\(item=>\(sourceQuantities\[item\.id\]\?\?0\)>0\);/);
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
- assert.match(source,/function findSuggestedUpsells\(options\?:\{ignoreDismissed\?:boolean\}\)/);
+ assert.match(source,/const findSuggestedUpsells=useCallback\(\(options\?:\{ignoreDismissed\?:boolean\}\)=>/);
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
  assert.match(source,/const \[selectedUpsellIds,setSelectedUpsellIds\]=useState<string\[\]>\(\[\]\);/);
  assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
@@ -95,7 +95,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(source,/function handleCartButtonClick\(event:\{preventDefault\(\):void;stopPropagation\(\):void\}\)\{event\.preventDefault\(\);event\.stopPropagation\(\);goToCart\(\);\}/);
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);setShowCheckout\(false\);return;\}showReservationPage\(currentSelectionCount,quantities\);\}/);
- assert.match(source,/const suggestedCheckoutUpsells=showCheckout\|\|initialCheckout\?findSuggestedUpsells\(\):\[\];/);
+ assert.match(source,/const suggestedCheckoutUpsells=useMemo\(\(\)=>showCheckout\|\|initialCheckout\?findSuggestedUpsells\(\):\[\],\[findSuggestedUpsells,initialCheckout,showCheckout\]\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!suggestedCheckoutUpsells\.length\)\{setUpsells\(\[\]\);return;\}setUpsells\(current=>current\.length===suggestedCheckoutUpsells\.length&&current\.every\(\(item,index\)=>item\.id===suggestedCheckoutUpsells\[index\]\?\.id\)\?current:suggestedCheckoutUpsells\);\},\[suggestedCheckoutUpsells\]\);/);
  assert.match(source,/useEffect\(\(\)=>\{setSelectedUpsellIds\(\[\]\);\},\[upsells\]\);/);
  assert.match(source,/className="rental-upsell-dialog rental-upsell-inline"/);

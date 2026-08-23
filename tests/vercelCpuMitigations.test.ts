@@ -17,6 +17,8 @@ test("public booking page caches its expensive shared data loader",async()=>{
  assert.match(loader,/export const loadPublicBookingData=unstable_cache/);
  assert.match(loader,/revalidate:300/);
  assert.match(page,/await loadPublicBookingData\(businessSlug\)/);
+ assert.doesNotMatch(loader,/getInventoryCapacityUsage/);
+ assert.match(loader,/booking_blackouts/);
 });
 
 test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
