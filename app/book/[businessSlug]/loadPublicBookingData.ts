@@ -1,6 +1,5 @@
 import {unstable_cache} from "next/cache";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { getInventoryCapacityUsage } from "@/lib/bookings";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {addDays, dateInTimeZone, zonedDateTimeToUtc} from "@/lib/bookingTime";
 
@@ -47,7 +46,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
 
   const isPartyRental = businessProfile?.industry_profile === "party_rental";
   let rentalInventory: any[] = [];
-  let rentalCapacity: Record<string, Record<string, number>> = {};
+  const rentalCapacity: Record<string, Record<string, number>> = {};
   let rentalUpsells: Record<string,string[]> = {};
   let rentalOnlinePaymentsReady = false;
   const rentalBlockedDates: string[] = [];
@@ -64,15 +63,8 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
     const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}]));
     rentalInventory=(data??[]).sort((left,right)=>{const a=categoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=categoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||a.name.localeCompare(b.name)||left.name.localeCompare(right.name);});
     rentalUpsells=(upsells??[]).reduce((map:Record<string,string[]>,row)=>{(map[row.source_item_id]??=[]).push(row.suggested_item_id);return map;},{});
-    const start = new Date(); start.setDate(1);
-    const end = new Date(start.getFullYear(), start.getMonth() + 13, 0);
-    const iso = (value: Date) => value.toISOString().slice(0, 10);
-    rentalCapacity = Object.fromEntries(await Promise.all(rentalInventory.map(async (item) => {
-      const rows = await getInventoryCapacityUsage(item.id, iso(start), iso(end));
-      return [item.id, Object.fromEntries(rows.filter((row) => row.is_blocked).map((row) => [row.rental_date, 0]))];
-    })));
     const timezone=settings.timezone??"America/Phoenix";
-    const firstDate=dateInTimeZone(new Date(),timezone),lastDate=iso(end);
+    const firstDate=dateInTimeZone(new Date(),timezone),lastDate=addDays(firstDate,395);
     const {data:blackouts}=await supabase.from("booking_blackouts").select("starts_at,ends_at")
       .eq("business_id",settings.business_id)
       .lt("starts_at",zonedDateTimeToUtc(addDays(lastDate,1),"00:00",timezone).toISOString())
@@ -81,8 +73,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
     for(let value=firstDate;value<=lastDate;value=addDays(value,1)){
       const dayStart=zonedDateTimeToUtc(value,"00:00",timezone).getTime(),dayEnd=zonedDateTimeToUtc(addDays(value,1),"00:00",timezone).getTime();
       const coveredByBusiness=blackoutWindows.some(window=>window.start<=dayStart&&window.end>=dayEnd);
-      const everyItemBlocked=rentalInventory.length>0&&rentalInventory.every(item=>rentalCapacity[item.id]?.[value]===0);
-      if(coveredByBusiness||everyItemBlocked)rentalBlockedDates.push(value);
+      if(coveredByBusiness)rentalBlockedDates.push(value);
     }
   }
   return {settings,services:services??[],schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates};
