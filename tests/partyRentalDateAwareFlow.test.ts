@@ -17,7 +17,7 @@ test("party rental booking keeps one shared event-date state across browsing and
  assert.match(source,/chooseStart\(hours\.start,stored\.date\)/);
  assert.match(source,/const selectedAvailabilitySignature=useMemo\(\(\)=>selected\.map\(item=>`\$\{item\.id\}:\$\{quantities\[item\.id\]\?\?0\}`\)/);
  assert.match(source,/function applyDate\(value:string,source:"date_first"\|"rental_first",changing=false\)/);
- assert.match(source,/if\(hours\)chooseStart\(hours\.start,value,value,true\)/);
+ assert.match(source,/if\(hours\)chooseStart\(hours\.start,value,value\)/);
  assert.match(source,/event_date_changed/);
 });
 
@@ -42,7 +42,7 @@ test("party rental booking supports a date range, item-aware calendar, and check
  assert.match(source,/if\(startTime\)chooseStart\(startTime,date,next,true\);/);
  assert.match(source,/function chooseCalendarDay\(value:string\)/);
   assert.match(source,/if\(date&&endDate>date&&\(value===date\|\|value===endDate\|\|\(value>date&&value<endDate\)\)\)\{applyDate\(value,source,true\);return;\}/);
- assert.match(source,/if\(hours\)chooseStart\(hours\.start,value,value,true\)/);
+ assert.match(source,/if\(hours\)chooseStart\(hours\.start,value,value\)/);
  assert.match(source,/Choose your dates/);
  assert.match(source,/Availability calendar for \$\{availabilityItem\.name\}/);
  assert.match(source,/Arrival time/);
