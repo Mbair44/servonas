@@ -33,6 +33,6 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
  assert.match(tracker,/shouldSkipEvent/);
  assert.match(tracker,/booking_started:15_000/);
- assert.match(bookingClient,/trackedAvailabilityChecks/);
+ assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
  assert.match(bookingClient,/if\(source==="adjust"\)return;/);
 });
