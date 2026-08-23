@@ -32,7 +32,8 @@ test("custom-domain pages only 404 on confirmed missing results and render fallb
  assert.match(checkoutPage,/if\(record\.kind==="unavailable"\)return <TemporarySiteUnavailable/);
  assert.match(mechanicalBullPage,/if\(record\.kind==="not_found"\)notFound\(\)/);
  assert.match(mechanicalBullPage,/if\(record\.kind==="unavailable"\)return <TemporarySiteUnavailable/);
- assert.match(fallback,/This website is temporarily unavailable\./);
+ assert.match(fallback,/>404</);
+ assert.match(fallback,/This page is temporarily unavailable\./);
 });
 
 test("domain lookup classifies upstream 522s as temporary failures",async()=>{
