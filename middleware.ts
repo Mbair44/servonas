@@ -18,7 +18,15 @@ export async function middleware(request:NextRequest){
    console.info("Blocked custom-domain probe path",{hostname,path});
    return new NextResponse(null,{status:404});
   }
-  const destination=request.nextUrl.clone();destination.pathname=path==="/mechanical-bull-rental"?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`:`/sites/domain/${encodeURIComponent(hostname)}`;
+  const destination=request.nextUrl.clone();
+  destination.pathname=
+   path==="/mechanical-bull-rental"
+    ?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`
+    :path==="/booking"
+     ?`/sites/domain/${encodeURIComponent(hostname)}/booking`
+     :path==="/booking/checkout"
+      ?`/sites/domain/${encodeURIComponent(hostname)}/booking/checkout`
+      :`/sites/domain/${encodeURIComponent(hostname)}`;
   return NextResponse.rewrite(destination);
  }
  let response=NextResponse.next({request});

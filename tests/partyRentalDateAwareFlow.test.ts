@@ -31,6 +31,7 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
  assert.match(source,/setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);/);
  assert.match(source,/function noteInventoryInteraction\(item:Item,source:"browse"\|"adjust"\|"reserve"="browse"\)/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_view"/);
+ assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"item_added_to_cart"/);
  assert.match(source,/if\(!date\)\{setAvailabilityItemId\(item\.id\);setFocusedItemId\(item\.id\);setBookingError\("Choose your party date first\."\);focusDatePicker\("rental_first"\);return;\}/);
@@ -85,6 +86,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsells\(options\?:\{ignoreDismissed\?:boolean\}\)/);
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
+ assert.match(source,/const \[selectedUpsellIds,setSelectedUpsellIds\]=useState<string\[\]>\(\[\]\);/);
  assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
  assert.match(source,/const resolveAbsoluteUrl=\(value:string\)=>\{if\(typeof window==="undefined"\)return value;try\{return new URL\(value,window\.location\.origin\)\.toString\(\);\}catch\{return value;\}\};/);
@@ -95,9 +97,14 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);setShowCheckout\(false\);return;\}showReservationPage\(currentSelectionCount,quantities\);\}/);
  assert.match(source,/const suggestedCheckoutUpsells=showCheckout\|\|initialCheckout\?findSuggestedUpsells\(\):\[\];/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!suggestedCheckoutUpsells\.length\)\{setUpsells\(\[\]\);return;\}setUpsells\(current=>current\.length===suggestedCheckoutUpsells\.length&&current\.every\(\(item,index\)=>item\.id===suggestedCheckoutUpsells\[index\]\?\.id\)\?current:suggestedCheckoutUpsells\);\},\[suggestedCheckoutUpsells\]\);/);
+ assert.match(source,/useEffect\(\(\)=>\{setSelectedUpsellIds\(\[\]\);\},\[upsells\]\);/);
  assert.match(source,/className="rental-upsell-dialog rental-upsell-inline"/);
- assert.match(source,/for\(const item of upsells\)\{nextQuantities\[item\.id\]=Math\.max\(1,Math\.min\(\(quantities\[item\.id\]\?\?0\)\+1,item\.allow_quantity\?available\(item\):1\)\);dismissedUpsells\.current\.add\(item\.id\);\}setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);setUpsells\(\[\]\);/);
- assert.match(source,/for\(const item of upsells\)dismissedUpsells\.current\.add\(item\.id\);setUpsells\(\[\]\);/);
+ assert.match(source,/Pick any extras you want, then continue to your reservation\./);
+ assert.match(source,/type="checkbox" checked=\{checked\} onChange=\{\(\)=>setSelectedUpsellIds\(current=>current\.includes\(item\.id\)\?current\.filter\(value=>value!==item\.id\):\[\.\.\.current,item\.id\]\)\}/);
+ assert.match(source,/disabled=\{!selectedUpsellIds\.length\}/);
+ assert.match(source,/if\(!selectedUpsellIds\.length\)return;/);
+ assert.match(source,/for\(const item of upsells\.filter\(upsell=>selectedUpsellIds\.includes\(upsell\.id\)\)\)\{nextQuantities\[item\.id\]=Math\.max\(1,Math\.min\(\(quantities\[item\.id\]\?\?0\)\+1,item\.allow_quantity\?available\(item\):1\)\);dismissedUpsells\.current\.add\(item\.id\);\}setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);setSelectedUpsellIds\(\[\]\);setUpsells\(\[\]\);/);
+ assert.match(source,/for\(const item of upsells\)dismissedUpsells\.current\.add\(item\.id\);setSelectedUpsellIds\(\[\]\);setUpsells\(\[\]\);/);
  assert.doesNotMatch(source,/pendingUpsellAction/);
  assert.doesNotMatch(source,/pendingBooking/);
  assert.equal((source.match(/onClick=\{goToCart\}/g)??[]).length,2);
@@ -114,16 +121,19 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
 });
 
 test("party rental storefront and embedded website point checkout to the dedicated booking route",async()=>{
- const [bookingPage,websiteSource,checkoutPage,frameSource]=await Promise.all([
+ const [bookingPage,websiteSource,checkoutPage,domainBookingPage,domainCheckoutPage,frameSource]=await Promise.all([
   read("app/book/[businessSlug]/page.tsx"),
   read("components/BusinessWebsite.tsx"),
   read("app/book/[businessSlug]/booking/page.tsx"),
+  read("app/sites/domain/[domain]/booking/page.tsx"),
+  read("app/sites/domain/[domain]/booking/checkout/page.tsx"),
   read("components/EmbeddedBookingFrame.tsx"),
  ]);
  assert.match(bookingPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
  assert.match(websiteSource,/const absolutizeUrl=\(value:string\)=>\/\^https\?:\\\/\\\/\/i\.test\(value\)\?value:`https:\/\/servonas\.com\$\{value\.startsWith\("\/"\)\?"":"\/"\}\$\{value\}`;/);
- assert.match(websiteSource,/const bookingBaseUrl=site\.bookingUrl\?absolutizeUrl\(site\.bookingUrl\):null;/);
- assert.match(websiteSource,/const bookingCheckoutUrl=bookingBaseUrl\?`\$\{bookingBaseUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
+ assert.match(websiteSource,/const customDomainBaseUrl=site\.customDomain\?`https:\/\/\$\{site\.customDomain\}`:null;/);
+ assert.match(websiteSource,/const bookingBaseUrl=customDomainBaseUrl&&site\.bookingEnabled\?`\$\{customDomainBaseUrl\}\/booking`:site\.bookingUrl\?absolutizeUrl\(site\.bookingUrl\):null;/);
+ assert.match(websiteSource,/const bookingCheckoutUrl=customDomainBaseUrl&&site\.bookingEnabled\?`\$\{customDomainBaseUrl\}\/booking\/checkout`:bookingBaseUrl\?`\$\{bookingBaseUrl\.replace\(\/\\\/\$\/,""\)\}\/booking`:null;/);
  assert.match(websiteSource,/checkoutUrl=\$\{encodeURIComponent\(bookingCheckoutUrl\?\?bookingBaseUrl\)\}/);
  assert.match(checkoutPage,/initialCheckout/);
  assert.match(checkoutPage,/function parseCartState\(value:string\|undefined\)/);
@@ -133,6 +143,10 @@ test("party rental storefront and embedded website point checkout to the dedicat
  assert.match(checkoutPage,/catalogUrl=\{`\/book\/\$\{businessSlug\}`\}/);
  assert.match(checkoutPage,/initialCartState=\{initialCartState\} initialDateState=\{initialDateState\}/);
  assert.match(checkoutPage,/Reservation checkout/);
+ assert.match(domainBookingPage,/checkoutUrl=\{query\.checkoutUrl\?\?"\/booking\/checkout"\}/);
+ assert.match(domainBookingPage,/catalogUrl="\/booking"/);
+ assert.match(domainCheckoutPage,/initialCheckout/);
+ assert.match(domainCheckoutPage,/catalogUrl="\/booking"/);
  assert.match(frameSource,/servonas:open-booking-page/);
  assert.match(frameSource,/window\.location\.assign\(nextUrl\)/);
 });
