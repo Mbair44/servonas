@@ -31,6 +31,7 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
  assert.match(source,/setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);/);
  assert.match(source,/function noteInventoryInteraction\(item:Item,source:"browse"\|"adjust"\|"reserve"="browse"\)/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_view"/);
+ assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"item_added_to_cart"/);
  assert.match(source,/if\(!date\)\{setAvailabilityItemId\(item\.id\);setFocusedItemId\(item\.id\);setBookingError\("Choose your party date first\."\);focusDatePicker\("rental_first"\);return;\}/);
