@@ -68,7 +68,7 @@ const logDomainLookupError=(label:string,domain:string,error:unknown)=>{
  console.error(label,{domain,code:value.code??null,message:value.message??value.name??String(error),details:value.details??null,hint:value.hint??null});
 };
 
-export const loadPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain:string)=>{
+async function queryPublishedBusinessWebsiteByDomain(rawDomain:string){
  const db=getSupabaseAdmin(),candidates=domainCandidatesFor(rawDomain);
  if(!db||!candidates.length)return null;
  const publishedQuery=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("status","published").limit(1);
@@ -85,4 +85,12 @@ export const loadPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain
  if(!settings)return null;
  const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:false});
  return site?{settings,site}:null;
-},["published-business-website-domain"],{revalidate:300});
+}
+
+const loadCachedPublishedBusinessWebsiteByDomain=unstable_cache(queryPublishedBusinessWebsiteByDomain,["published-business-website-domain"],{revalidate:300});
+
+export async function loadPublishedBusinessWebsiteByDomain(rawDomain:string){
+ const cached=await loadCachedPublishedBusinessWebsiteByDomain(rawDomain);
+ if(cached)return cached;
+ return queryPublishedBusinessWebsiteByDomain(rawDomain);
+}

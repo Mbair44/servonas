@@ -9,7 +9,9 @@ test("custom-domain website route reuses cached public website data",async()=>{
  assert.match(page,/loadPublishedBusinessWebsiteByDomain/);
  assert.doesNotMatch(page,/from\("business_website_settings"\)/);
  assert.match(lib,/unstable_cache/);
- assert.match(lib,/export const loadPublishedBusinessWebsiteByDomain=unstable_cache/);
+ assert.match(lib,/const loadCachedPublishedBusinessWebsiteByDomain=unstable_cache/);
+ assert.match(lib,/export async function loadPublishedBusinessWebsiteByDomain/);
+ assert.match(lib,/return queryPublishedBusinessWebsiteByDomain\(rawDomain\)/);
 });
 
 test("public booking page caches its expensive shared data loader",async()=>{
