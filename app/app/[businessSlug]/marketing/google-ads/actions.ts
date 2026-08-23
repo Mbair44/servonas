@@ -10,6 +10,8 @@ import {
  generateGoogleAdsDraft,
  loadTenantGoogleAdsAccess,
  publishGoogleAdsCampaign,
+ recordGoogleAdsBetaEvent,
+ submitGoogleAdsBetaFeedback,
  updateGoogleAdsCampaignBudget,
  updateGoogleAdsCampaignStatus,
  updateTenantGoogleAdsSelection,
@@ -27,6 +29,7 @@ const numberValue = (data: FormData, key: string) => {
  return Number.isFinite(numeric) ? numeric : 0;
 };
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
+const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
 
 async function context(slug: string) {
  const loaded = await requireWorkspace(slug);
@@ -39,6 +42,7 @@ export async function selectGoogleAdsCustomer(slug: string, formData: FormData) 
  const customerId = text(formData, "customerId");
  if (!customerId) redirect(path(slug, "error", "Choose a Google Ads account."));
  await updateTenantGoogleAdsSelection(business.id, customerId);
+ await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, eventName: "google_ads_account_selected", metadata: { customer_id: customerId, business_slug: business.slug, timestamp: new Date().toISOString() } });
  await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_customer_selected", metadata: { customerId } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads account selected."));
@@ -50,6 +54,54 @@ export async function disconnectGoogleAds(slug: string) {
  await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_disconnected" });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads disconnected."));
+}
+
+export async function markGoogleAdsBillingReadyAction(slug: string, formData: FormData) {
+ const { business, user } = await context(slug);
+ const customerId = text(formData, "customerId");
+ await recordGoogleAdsBetaEvent({
+  businessId: business.id,
+  actorUserId: user.id,
+  eventName: "google_ads_billing_ready",
+  metadata: {
+   business_slug: business.slug,
+   customer_id: customerId || null,
+   timestamp: new Date().toISOString(),
+  },
+ });
+ await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_billing_ready", metadata: { customerId: customerId || null } });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Google Ads billing marked ready."));
+}
+
+export async function submitGoogleAdsBetaFeedbackAction(slug: string, formData: FormData) {
+ const { business, user } = await context(slug);
+ const rating = text(formData, "rating");
+ if (!["confused", "neutral", "successful"].includes(rating)) redirect(path(slug, "error", "Choose how setup felt before sending feedback."));
+ const feedback = text(formData, "feedback");
+ await submitGoogleAdsBetaFeedback({
+  businessId: business.id,
+  actorUserId: user.id,
+  rating: rating as "confused" | "neutral" | "successful",
+  feedback,
+  metadata: {
+   business_slug: business.slug,
+   industry: business.industry_profile,
+   timestamp: new Date().toISOString(),
+  },
+ });
+ await recordGoogleAdsBetaEvent({
+  businessId: business.id,
+  actorUserId: user.id,
+  eventName: "google_ads_beta_feedback_submitted",
+  metadata: {
+   business_slug: business.slug,
+   rating,
+   timestamp: new Date().toISOString(),
+  },
+ });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Thanks. Your Google Ads beta feedback was sent."));
 }
 
 export async function createGoogleAdsDraftAction(slug: string, formData: FormData) {
@@ -66,7 +118,8 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
  ]);
  if (!service && !inventory) redirect(path(slug, "error", "Choose a service or rental to advertise."));
  const geoTargetType = text(formData, "geoTargetType") as "service_area" | "cities" | "zip_codes" | "radius";
- const draft = await generateGoogleAdsDraft({
+ const dailyBudgetDollars = numberValue(formData, "dailyBudgetDollars");
+  const draft = await generateGoogleAdsDraft({
   businessId: business.id,
   businessName: business.name,
   industry: business.industry_profile,
@@ -87,9 +140,9 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   geoTargetType,
   geoValues: lines(formData, "geoValues"),
   radiusMiles: geoTargetType === "radius" ? numberValue(formData, "radiusMiles") || null : null,
-  dailyBudgetDollars: numberValue(formData, "dailyBudgetDollars"),
+  dailyBudgetDollars,
  });
- const micros = Math.max(1, Math.round(numberValue(formData, "dailyBudgetDollars") * 1_000_000));
+ const micros = Math.max(1, Math.round(dailyBudgetDollars * 1_000_000));
  const { error } = await supabase.from("business_google_ads_campaigns").insert({
   business_id: business.id,
   service_id: service?.id ?? null,
@@ -100,7 +153,7 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   destination_url: draft.destinationUrl,
   status: "draft",
   daily_budget_micros: micros,
-  monthly_budget_estimate_cents: estimateMonthlyBudgetCents(numberValue(formData, "dailyBudgetDollars")),
+  monthly_budget_estimate_cents: estimateMonthlyBudgetCents(dailyBudgetDollars),
   geo_target_type: geoTargetType,
   geo_target_summary: draft.geoTargetSummary,
   geo_target_config: draft.geoTargetConfig,
@@ -112,6 +165,20 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   updated_by: user.id,
  });
  if (error) redirect(path(slug, "error", "The Google Ads draft could not be saved. Apply the Google Ads migration first."));
+ await recordGoogleAdsBetaEvent({
+  businessId: business.id,
+  actorUserId: user.id,
+  eventName: "google_ads_campaign_generated",
+  metadata: {
+   business_slug: business.slug,
+   service_id: service?.id ?? null,
+   inventory_item_id: inventory?.id ?? null,
+   geo_target_type: geoTargetType,
+   budget_monthly_cents: estimateMonthlyBudgetCents(dailyBudgetDollars),
+   source_flow: "beta_setup",
+   timestamp: new Date().toISOString(),
+  },
+ });
  await writeGoogleAdsAuditLog({
   businessId: business.id,
   actorUserId: user.id,
@@ -143,6 +210,7 @@ export async function updateGoogleAdsDraftAction(slug: string, campaignId: strin
   updated_at: new Date().toISOString(),
  }).eq("business_id", business.id).eq("id", campaignId);
  if (error) redirect(path(slug, "error", "The Google Ads draft could not be updated."));
+ await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_edited", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_draft_updated" });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads draft updated."));
@@ -155,6 +223,7 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
  const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
  if (!campaign) redirect(path(slug, "error", "Google Ads draft not found."));
  try {
+  await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_reviewed", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
   const published = await publishGoogleAdsCampaign({
    accessToken: connection.accessToken,
    customerId: connection.customerId,
@@ -179,17 +248,35 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    updated_at: new Date().toISOString(),
   }).eq("business_id", business.id).eq("id", campaignId);
   if (error) redirect(path(slug, "error", "The campaign was published to Google, but Servonas could not save the resulting IDs."));
+  await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_published", metadata: { business_slug: business.slug, google_campaign_id: published.campaignId, timestamp: new Date().toISOString() } });
   await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_campaign_published", metadata: published });
   revalidatePath(`/app/${slug}/marketing/google-ads`);
   redirect(path(slug, "success", "Campaign published to Google Ads."));
  } catch (error) {
+  const message = error instanceof Error ? error.message : "Google Ads publishing failed.";
   await supabase.from("business_google_ads_campaigns").update({
    status: "failed",
-   last_error: error instanceof Error ? error.message : "Google Ads publishing failed.",
+   last_error: message,
    updated_by: user.id,
    updated_at: new Date().toISOString(),
   }).eq("business_id", business.id).eq("id", campaignId);
-  redirect(path(slug, "error", error instanceof Error ? error.message : "Google Ads publishing failed."));
+  const lower = message.toLowerCase();
+  if (lower.includes("billing") || lower.includes("payment")) {
+   await recordGoogleAdsBetaEvent({
+    businessId: business.id,
+    actorUserId: user.id,
+    campaignId,
+    eventName: "google_ads_billing_required",
+    metadata: {
+     business_slug: business.slug,
+     customer_id: connection.customerId,
+     billing_url: connection.customerId ? billingUrl(connection.customerId) : null,
+     timestamp: new Date().toISOString(),
+    },
+   });
+  }
+  await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_publish_failed", metadata: { business_slug: business.slug, reason: message, timestamp: new Date().toISOString() } });
+  redirect(path(slug, "error", message));
  }
 }
 

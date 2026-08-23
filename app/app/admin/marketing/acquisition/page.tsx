@@ -25,7 +25,7 @@ export default async function AcquisitionReport({searchParams}:{searchParams:Pro
  const filteredSessions=(sessionRows??[]).filter(row=>!q.source||classifyAcquisitionSource(row)===q.source);
  const industries=[...new Set((sessionRows??[]).map(row=>row.industry).filter(Boolean) as string[])].sort();
  const report=buildAcquisitionReport(filteredSessions,eventRows??[]);
- return <main className="admin-entitlements"><header><div><span className="sv-kicker">Servonas acquisition</span><h1>Website-builder funnel</h1><p>Landing pages are grouped by normalized pathname while attribution stays available for drill-down.</p></div><Link className="sv-button sv-secondary" href="/admin">Admin dashboard</Link></header>
+ return <main className="admin-entitlements"><header><div><span className="sv-kicker">Servonas acquisition</span><h1>Website-builder funnel</h1><p>Landing pages are grouped by normalized pathname while attribution stays available for drill-down.</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href="/app/admin/marketing/google-ads">Google Ads beta</Link><Link className="sv-button sv-secondary" href="/admin">Admin dashboard</Link></div></header>
   <form className="admin-filter-form">
    <label>Industry<select name="industry" defaultValue={q.industry??""}><option value="">All industries</option>{industries.map(value=><option value={value} key={value}>{label(value)}</option>)}</select></label>
    <label>Traffic<select name="source" defaultValue={q.source??""}><option value="">All traffic</option><option value="Google Ads">Google Ads</option><option value="Organic">Organic</option><option value="Direct">Direct</option><option value="Facebook">Facebook</option><option value="Other">Other</option></select></label>

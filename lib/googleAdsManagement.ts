@@ -675,6 +675,44 @@ export async function writeGoogleAdsAuditLog(input: {
  });
 }
 
+export async function recordGoogleAdsBetaEvent(input: {
+ businessId: string;
+ actorUserId?: string | null;
+ campaignId?: string | null;
+ eventName: string;
+ metadata?: Record<string, unknown>;
+}) {
+ const db = getSupabaseAdmin();
+ if (!db) return;
+ const { error } = await db.from("business_google_ads_beta_events").insert({
+  business_id: input.businessId,
+  actor_user_id: input.actorUserId ?? null,
+  campaign_id: input.campaignId ?? null,
+  event_name: input.eventName,
+  metadata: input.metadata ?? {},
+ });
+ if (error) console.error("Google Ads beta analytics could not be recorded", { businessId: input.businessId, eventName: input.eventName, code: error.code });
+}
+
+export async function submitGoogleAdsBetaFeedback(input: {
+ businessId: string;
+ actorUserId?: string | null;
+ rating: "confused" | "neutral" | "successful";
+ feedback: string;
+ metadata?: Record<string, unknown>;
+}) {
+ const db = getSupabaseAdmin();
+ if (!db) throw new Error("Google Ads beta feedback is unavailable.");
+ const { error } = await db.from("business_google_ads_beta_feedback").insert({
+  business_id: input.businessId,
+  actor_user_id: input.actorUserId ?? null,
+  rating: input.rating,
+  feedback: input.feedback.trim(),
+  metadata: input.metadata ?? {},
+ });
+ if (error) throw new Error("Google Ads beta feedback could not be saved. Apply the latest Google Ads beta migration.");
+}
+
 export function googleAdsReadyLabel() {
  return oauthConfigured() ? "ready" : "missing_configuration";
 }

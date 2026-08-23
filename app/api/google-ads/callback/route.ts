@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { completeGoogleAdsOauth, storeGoogleAdsConnection, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
+import { completeGoogleAdsOauth, recordGoogleAdsBetaEvent, storeGoogleAdsConnection, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
 
 const destination = (slug: string, kind: "success" | "error", message: string) =>
  new URL(`/app/${encodeURIComponent(slug)}/marketing/google-ads?${kind}=${encodeURIComponent(message)}`, process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com");
@@ -34,6 +34,20 @@ export async function GET(request: Request) {
    eventType: "google_ads_connected",
    metadata: { customerCount: result.customers.length },
   });
+  await recordGoogleAdsBetaEvent({
+   businessId: saved.businessId,
+   actorUserId: user.id,
+   eventName: "google_ads_connected",
+   metadata: { business_slug: saved.businessSlug, customer_count: result.customers.length, timestamp: new Date().toISOString() },
+  });
+  if (!result.customers.length) {
+   await recordGoogleAdsBetaEvent({
+    businessId: saved.businessId,
+    actorUserId: user.id,
+    eventName: "google_ads_account_missing",
+    metadata: { business_slug: saved.businessSlug, timestamp: new Date().toISOString() },
+   });
+  }
   const message = result.customers.length === 1
    ? `Google Ads connected. Account ${result.customers[0].label} is ready.`
    : "Google Ads connected. Select which Google Ads account this business should use.";
