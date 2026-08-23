@@ -62,14 +62,25 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
 }
 
 const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
+const logDomainLookupError=(label:string,domain:string,error:unknown)=>{
+ if(!error)return;
+ const value=error as {code?:string;message?:string;details?:string;hint?:string;name?:string};
+ console.error(label,{domain,code:value.code??null,message:value.message??value.name??String(error),details:value.details??null,hint:value.hint??null});
+};
 
 export const loadPublishedBusinessWebsiteByDomain=unstable_cache(async(rawDomain:string)=>{
  const db=getSupabaseAdmin(),candidates=domainCandidatesFor(rawDomain);
  if(!db||!candidates.length)return null;
  const publishedQuery=await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("status","published").limit(1);
- if(publishedQuery.error)console.error("Published custom-domain website lookup failed",{domain:rawDomain,code:publishedQuery.error.code});
+ if(publishedQuery.error){
+  logDomainLookupError("Published custom-domain website lookup failed",rawDomain,publishedQuery.error);
+  return null;
+ }
  const connectedQuery=!publishedQuery.data?.length?await db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("domain_status","connected").limit(1):{data:publishedQuery.data,error:null};
- if(connectedQuery.error)console.error("Connected custom-domain website lookup failed",{domain:rawDomain,code:connectedQuery.error.code});
+ if(connectedQuery.error){
+  logDomainLookupError("Connected custom-domain website lookup failed",rawDomain,connectedQuery.error);
+  return null;
+ }
  const settings=(publishedQuery.data?.[0]??connectedQuery.data?.[0])??null;
  if(!settings)return null;
  const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:false});
