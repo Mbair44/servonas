@@ -85,6 +85,7 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);/);
  assert.match(source,/function findSuggestedUpsells\(options\?:\{ignoreDismissed\?:boolean\}\)/);
  assert.match(source,/const \[showCheckout,setShowCheckout\]=useState\(false\),\[partyNotice,setPartyNotice\]=useState\(""\),\[checkoutNavigationCount,setCheckoutNavigationCount\]=useState\(0\);/);
+ assert.match(source,/const \[selectedUpsellIds,setSelectedUpsellIds\]=useState<string\[\]>\(\[\]\);/);
  assert.match(source,/function focusReservationHeading\(\)\{let attempts=0;if\(checkoutFocusFrameRef\.current!==null\)cancelAnimationFrame\(checkoutFocusFrameRef\.current\);const focusCheckout=\(\)=>\{const heading=checkoutHeadingRef\.current;if\(!heading\)\{if\(attempts<12\)\{attempts\+=1;checkoutFocusFrameRef\.current=requestAnimationFrame\(focusCheckout\);\}\s*return;\}checkoutFocusFrameRef\.current=null;window\.setTimeout\(\(\)=>heading\.focus\(\{preventScroll:true\}\),120\);/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!showCheckout\)return;focusReservationHeading\(\);return\(\)=>\{if\(checkoutFocusFrameRef\.current!==null\)\{cancelAnimationFrame\(checkoutFocusFrameRef\.current\);checkoutFocusFrameRef\.current=null;\}\};\},\[checkoutNavigationCount,showCheckout\]\);/);
  assert.match(source,/const resolveAbsoluteUrl=\(value:string\)=>\{if\(typeof window==="undefined"\)return value;try\{return new URL\(value,window\.location\.origin\)\.toString\(\);\}catch\{return value;\}\};/);
@@ -95,9 +96,14 @@ test("party rental booking blocks empty checkout and uses a storefront-style par
  assert.match(source,/function openCheckout\(\)\{const currentSelection=selectionFromQuantities\(quantities\),currentSelectionCount=currentSelection\.reduce\(\(count,item\)=>count\+\(quantities\[item\.id\]\?\?0\),0\);if\(!currentSelection\.length\)\{setBookingError\("Add at least one rental to your party before checking out\."\);setShowCheckout\(false\);return;\}showReservationPage\(currentSelectionCount,quantities\);\}/);
  assert.match(source,/const suggestedCheckoutUpsells=showCheckout\|\|initialCheckout\?findSuggestedUpsells\(\):\[\];/);
  assert.match(source,/useEffect\(\(\)=>\{if\(!suggestedCheckoutUpsells\.length\)\{setUpsells\(\[\]\);return;\}setUpsells\(current=>current\.length===suggestedCheckoutUpsells\.length&&current\.every\(\(item,index\)=>item\.id===suggestedCheckoutUpsells\[index\]\?\.id\)\?current:suggestedCheckoutUpsells\);\},\[suggestedCheckoutUpsells\]\);/);
+ assert.match(source,/useEffect\(\(\)=>\{setSelectedUpsellIds\(\[\]\);\},\[upsells\]\);/);
  assert.match(source,/className="rental-upsell-dialog rental-upsell-inline"/);
- assert.match(source,/for\(const item of upsells\)\{nextQuantities\[item\.id\]=Math\.max\(1,Math\.min\(\(quantities\[item\.id\]\?\?0\)\+1,item\.allow_quantity\?available\(item\):1\)\);dismissedUpsells\.current\.add\(item\.id\);\}setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);setUpsells\(\[\]\);/);
- assert.match(source,/for\(const item of upsells\)dismissedUpsells\.current\.add\(item\.id\);setUpsells\(\[\]\);/);
+ assert.match(source,/Pick any extras you want, then continue to your reservation\./);
+ assert.match(source,/type="checkbox" checked=\{checked\} onChange=\{\(\)=>setSelectedUpsellIds\(current=>current\.includes\(item\.id\)\?current\.filter\(value=>value!==item\.id\):\[\.\.\.current,item\.id\]\)\}/);
+ assert.match(source,/disabled=\{!selectedUpsellIds\.length\}/);
+ assert.match(source,/if\(!selectedUpsellIds\.length\)return;/);
+ assert.match(source,/for\(const item of upsells\.filter\(upsell=>selectedUpsellIds\.includes\(upsell\.id\)\)\)\{nextQuantities\[item\.id\]=Math\.max\(1,Math\.min\(\(quantities\[item\.id\]\?\?0\)\+1,item\.allow_quantity\?available\(item\):1\)\);dismissedUpsells\.current\.add\(item\.id\);\}setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);setSelectedUpsellIds\(\[\]\);setUpsells\(\[\]\);/);
+ assert.match(source,/for\(const item of upsells\)dismissedUpsells\.current\.add\(item\.id\);setSelectedUpsellIds\(\[\]\);setUpsells\(\[\]\);/);
  assert.doesNotMatch(source,/pendingUpsellAction/);
  assert.doesNotMatch(source,/pendingBooking/);
  assert.equal((source.match(/onClick=\{goToCart\}/g)??[]).length,2);
