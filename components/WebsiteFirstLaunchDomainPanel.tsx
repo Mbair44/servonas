@@ -1,7 +1,6 @@
-import {checkManagedDomainAvailability,checkWebsiteDomain,completeWebsiteFirstLaunch,connectWebsiteDomain,purchaseManagedDomain,saveWebsiteFirstManagedDomainChoice} from "@/app/app/[businessSlug]/settings/website/actions";
+import {checkManagedDomainAvailability,checkWebsiteDomain,completeWebsiteFirstLaunch,connectWebsiteDomain,saveWebsiteFirstManagedDomainChoice} from "@/app/app/[businessSlug]/settings/website/actions";
 import {AutoSubmitManagedDomainAvailability} from "./AutoSubmitManagedDomainAvailability";
 import {ManagedDomainCustomerSetup} from "./ManagedDomainCustomerSetup";
-import {WebsiteIcon} from "./WebsiteIcon";
 
 type Order={status:string;customer_purchase_price:number|null;customer_renewal_price:number|null;currency:string|null;provider_order_id:string|null;availability_checked_at:string|null;last_error_category:string|null}|null;
 type DomainInfo={configured:boolean;verified:boolean;misconfigured:boolean;error?:string;verification:{type:string;domain:string;value:string;reason?:string}[];dnsRecords:{type:string;name:string;value:string}[]}|null;

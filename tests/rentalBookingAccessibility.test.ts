@@ -8,8 +8,10 @@ test("party rental booking moves focus to the upsell primary action",async()=>{
  const code=await read("components/PartyRentalBookingClient.tsx");
  assert.match(code,/const upsellPrimaryActionRef=useRef<HTMLButtonElement>\(null\)/);
  assert.match(code,/primaryAction=upsellPrimaryActionRef\.current/);
+ assert.match(code,/dialog\.scrollIntoView\(\{behavior:"smooth",block:"center"\}\)/);
  assert.match(code,/window\.setTimeout\(\(\)=>primaryAction\.focus\(\{preventScroll:true\}\),120\)/);
  assert.match(code,/ref=\{upsellPrimaryActionRef\}/);
+ assert.match(code,/className="rental-upsell-dialog rental-upsell-inline"/);
 });
 
 test("party rental booking marks all customer-required fields clearly",async()=>{

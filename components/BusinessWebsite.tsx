@@ -2,7 +2,6 @@ import Link from "next/link";
 import {WebsiteRequestForm,type WebsiteRequestState} from "./WebsiteRequestForm";
 import {EmbeddedBookingFrame} from "./EmbeddedBookingFrame";
 import {WebsitePhotoSlideshow} from "./WebsitePhotoSlideshow";
-import {BusinessRentalCatalog} from "./BusinessRentalCatalog";
 import {TenantBookingFunnelTracker} from "./TenantBookingFunnelTracker";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
 
