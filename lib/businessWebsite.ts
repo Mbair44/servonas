@@ -9,6 +9,7 @@ import {normalizeWebsiteDomain} from "@/lib/website";
 
 type WebsiteRow=Record<string,any>;
 type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean};
+type QueryResult<T>={data:T|null;error:unknown|null};
 const domainCandidatesFor=(value:string)=>{
  const normalized=normalizeWebsiteDomain(value);
  if(!normalized)return [];
@@ -17,21 +18,54 @@ const domainCandidatesFor=(value:string)=>{
   :[normalized,`www.${normalized}`];
 };
 
+const normalizeQueryResult=<T,>(result:PromiseSettledResult<{data:T|null;error:unknown|null}>,label:string,businessId:string):QueryResult<T>=>{
+ if(result.status==="fulfilled"){
+  if(result.value.error){
+   const value=result.value.error as {code?:string;message?:string;details?:string;hint?:string;name?:string};
+   console.warn("Business website data query failed",{businessId,label,code:value.code??null,message:value.message??value.name??String(result.value.error),details:value.details??null,hint:value.hint??null});
+  }
+  return result.value;
+ }
+ console.warn("Business website data query rejected",{businessId,label,message:result.reason instanceof Error?result.reason.message:String(result.reason)});
+ return {data:null,error:result.reason};
+};
+
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow,options:LoadBusinessWebsiteDataOptions={}):Promise<BusinessSiteData|null>{
  const {includeExternalReviews=false}=options;
- const [{data:business},{data:services},{data:rentalItems},{data:rentalCategories},{data:hours},{data:territories},{data:booking},{data:websiteOnboarding},{data:promotion}]=await Promise.all([
-  db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",settings.business_id).eq("is_deleted",false).maybeSingle(),
-  db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",settings.business_id).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
-  db.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override").eq("business_id",settings.business_id).eq("active",true),
-  db.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
-  db.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",settings.business_id).eq("active",true).order("weekday"),
-  db.from("workforce_territories").select("name,postal_codes,neighborhoods,strategy_config").eq("business_id",settings.business_id).eq("is_active",true).order("name"),
-  db.from("booking_settings").select("enabled,public_slug,logo_path,logo_url,brand_color,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days").eq("business_id",settings.business_id).maybeSingle(),
-  db.from("business_website_onboarding_states").select("source").eq("business_id",settings.business_id).maybeSingle(),
-  db.from("discounts").select("announcement_text").eq("business_id",settings.business_id).eq("is_active",true).eq("announcement_enabled",true).or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`).or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+ const businessId=String(settings.business_id);
+ const [businessResult,servicesResult,rentalItemsResult,rentalCategoriesResult,hoursResult,territoriesResult,bookingResult,websiteOnboardingResult,promotionResult]=await Promise.allSettled([
+  db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",businessId).eq("is_deleted",false).maybeSingle(),
+  db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",businessId).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
+  db.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override").eq("business_id",businessId).eq("active",true),
+  db.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",businessId).order("sort_order").order("name"),
+  db.from("booking_availability").select("weekday,start_time,end_time").eq("business_id",businessId).eq("active",true).order("weekday"),
+  db.from("workforce_territories").select("name,postal_codes,neighborhoods,strategy_config").eq("business_id",businessId).eq("is_active",true).order("name"),
+  db.from("booking_settings").select("enabled,public_slug,logo_path,logo_url,brand_color,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days").eq("business_id",businessId).maybeSingle(),
+  db.from("business_website_onboarding_states").select("source").eq("business_id",businessId).maybeSingle(),
+  db.from("discounts").select("announcement_text").eq("business_id",businessId).eq("is_active",true).eq("announcement_enabled",true).or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`).or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order("created_at",{ascending:false}).limit(1).maybeSingle(),
  ]);
+ const {data:business}=normalizeQueryResult(businessResult,"businesses",businessId);
+ const {data:services}=normalizeQueryResult(servicesResult,"services",businessId);
+ const {data:rentalItems}=normalizeQueryResult(rentalItemsResult,"inventory_items",businessId);
+ const {data:rentalCategories}=normalizeQueryResult(rentalCategoriesResult,"rental_inventory_categories",businessId);
+ const {data:hours}=normalizeQueryResult(hoursResult,"booking_availability",businessId);
+ const {data:territories}=normalizeQueryResult(territoriesResult,"workforce_territories",businessId);
+ const {data:booking}=normalizeQueryResult(bookingResult,"booking_settings",businessId);
+ const {data:websiteOnboarding}=normalizeQueryResult(websiteOnboardingResult,"business_website_onboarding_states",businessId);
+ const {data:promotion}=normalizeQueryResult(promotionResult,"discounts",businessId);
  if(!business)return null;
- const {data:signedLogo}=booking?.logo_path?await db.storage.from("booking-branding").createSignedUrl(booking.logo_path,3600):{data:null};
+ let signedLogo:{signedUrl?:string}|null=null;
+ if(booking?.logo_path){
+  try{
+   const result=await db.storage.from("booking-branding").createSignedUrl(booking.logo_path,3600);
+   if(result.error){
+    const value=result.error as {message?:string;name?:string};
+    console.warn("Business website logo signing failed",{businessId,message:value.message??value.name??String(result.error)});
+   }else signedLogo=result.data;
+  }catch(error){
+   console.warn("Business website logo signing rejected",{businessId,message:error instanceof Error?error.message:String(error)});
+  }
+ }
  const areas=[...new Set((territories??[]).flatMap((territory:any)=>[
   territory.name,...(territory.strategy_config?.cities??[]),...(territory.neighborhoods??[]),...(territory.postal_codes??[]).map((zip:string)=>`ZIP ${zip}`),
  ]).filter(Boolean))].slice(0,30) as string[];
@@ -42,8 +76,22 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  // enabled, do not let a stale/omitted website checkbox hide the embedded
  // inventory calendar from the public site.
  const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||settings.booking_enabled&&booking?.enabled));
- const googleProfile=includeExternalReviews?await getGoogleBusinessProfileReviews(business.id):null;
- const googleRating=includeExternalReviews&&!googleProfile&&settings.google_place_id?await getGoogleBusinessRating(String(settings.google_place_id)):null;
+ let googleProfile:null|Awaited<ReturnType<typeof getGoogleBusinessProfileReviews>>=null;
+ let googleRating:null|Awaited<ReturnType<typeof getGoogleBusinessRating>>=null;
+ if(includeExternalReviews){
+  try{
+   googleProfile=await getGoogleBusinessProfileReviews(business.id);
+  }catch(error){
+   console.warn("Google business profile review fetch failed",{businessId,message:error instanceof Error?error.message:String(error)});
+  }
+  if(!googleProfile&&settings.google_place_id){
+   try{
+    googleRating=await getGoogleBusinessRating(String(settings.google_place_id));
+   }catch(error){
+    console.warn("Google business rating fetch failed",{businessId,message:error instanceof Error?error.message:String(error)});
+   }
+  }
+ }
  const manualReviews=(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6);
  const rentalCategoryOrder=new Map((rentalCategories??[]).map((category:any,index:number)=>[category.id,{rank:index,name:category.name}]));
  return {
