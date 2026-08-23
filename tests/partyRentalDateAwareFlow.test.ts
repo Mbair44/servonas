@@ -18,7 +18,6 @@ test("party rental booking keeps one shared event-date state across browsing and
  assert.match(source,/const stored=JSON\.parse\(raw\) as \{date\?:string;endDate\?:string;startTime\?:string;endTime\?:string\};if\(stored\.date&&datePattern\.test\(stored\.date\)\)\{const hours=hoursForDate\(stored\.date\);setDate\(stored\.date\);if\(!hours\)\{setEndDate\(stored\.date\);setStartTime\(""\);setEndTime\(""\);\}else\{const storedStartTime=typeof stored\.startTime==="string"&&timePattern\.test\(stored\.startTime\)\?stored\.startTime:null;const storedEndTime=typeof stored\.endTime==="string"&&timePattern\.test\(stored\.endTime\)\?stored\.endTime:null;/);
  assert.match(source,/if\(storedStartTime&&storedEndTime&&storedStartTime===hours\.start\)\{setEndDate\(stored\.endDate&&datePattern\.test\(stored\.endDate\)\?stored\.endDate:stored\.date\);setStartTime\(storedStartTime\);setEndTime\(storedEndTime\);\}/);
  assert.match(source,/chooseStart\(hours\.start,stored\.date\)/);
- assert.match(source,/const selectedAvailabilitySignature=useMemo\(\(\)=>selected\.map\(item=>`\$\{item\.id\}:\$\{quantities\[item\.id\]\?\?0\}`\)/);
  assert.match(source,/function applyDate\(value:string,source:"date_first"\|"rental_first",changing=false\)/);
  assert.match(source,/if\(hours\)chooseStart\(hours\.start,value,value\)/);
  assert.match(source,/event_date_changed/);
@@ -151,8 +150,9 @@ test("party rental storefront and embedded website point checkout to the dedicat
  assert.match(frameSource,/window\.location\.assign\(nextUrl\)/);
 });
 
-test("party rental availability effect uses a stable cart signature so successful checks do not refetch forever",async()=>{
+test("party rental availability effect no longer emits analytics on every availability refresh",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
- assert.match(source,/selectedAvailabilitySignature/);
- assert.match(source,/\[availabilityItemId,businessSlug,date,endDate,focusedItemId,flowSource,quantities,selected,selectedAvailabilitySignature,startTime,endTime\]/);
+ assert.doesNotMatch(source,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
+ assert.doesNotMatch(source,/trackBookingFunnel\(businessSlug,"available_inventory_viewed"/);
+ assert.doesNotMatch(source,/trackBookingFunnel\(businessSlug,nextAvailable>0\?"rental_available":"rental_unavailable"/);
 });
