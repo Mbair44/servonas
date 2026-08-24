@@ -61,7 +61,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <div><img className="sv-footer-logo" src="/servonas-logo-light.svg" alt="Servonas"/><p>The operating system for modern service businesses.</p></div>
       <div><h3>Product</h3><Link href="/features">Features</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link></div>
       <div><h3>Solutions</h3><Link href="/industries">Rentals</Link><Link href="/industries">Appointments</Link><Link href="/industries">Field services</Link></div>
-      <div><h3>Company</h3><Link href="/contact">Contact</Link><Link href="/onboarding">Create your business</Link><Link href="/privacy">Privacy</Link><span>Terms</span></div>
+      <div><h3>Company</h3><Link href="/contact">Contact</Link><Link href="/onboarding">Create your business</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div>
     </div><div className="sv-container sv-footer-bottom">© {new Date().getFullYear()} Servonas. Built for businesses that keep the world moving.</div></footer>
   </body></html>;
 }
