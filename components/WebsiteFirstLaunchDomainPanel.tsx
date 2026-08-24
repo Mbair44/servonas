@@ -2,6 +2,7 @@ import {changeManagedDomainRequest,checkManagedDomainAvailability,checkWebsiteDo
 import {AutoSubmitManagedDomainAvailability} from "./AutoSubmitManagedDomainAvailability";
 import {DomainAvailabilitySubmit} from "./DomainAvailabilitySubmit";
 import {ManagedDomainCustomerSetup} from "./ManagedDomainCustomerSetup";
+import {PublishCelebrationSubmit} from "./PublishCelebrationSubmit";
 
 type Order={status:string;customer_purchase_price:number|null;customer_renewal_price:number|null;currency:string|null;provider_order_id:string|null;availability_checked_at:string|null;last_error_category:string|null}|null;
 type DomainInfo={configured:boolean;verified:boolean;misconfigured:boolean;error?:string;verification:{type:string;domain:string;value:string;reason?:string}[];dnsRecords:{type:string;name:string;value:string}[]}|null;
@@ -90,7 +91,7 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
      <div><dt>Today</dt><dd>$0</dd></div>
      <div><dt>Renews at</dt><dd>{money(domainOrder?.customer_renewal_price??null,domainOrder?.currency??"USD")}/year</dd></div>
     </dl>
-    {!websitePublished&&<form action={completeWebsiteFirstLaunch.bind(null,businessSlug)}><input type="hidden" name="choice" value="managed_domain"/><button className="sv-button" type="submit">Publish My Website — Free →</button></form>}
+    {!websitePublished&&<form action={completeWebsiteFirstLaunch.bind(null,businessSlug)}><input type="hidden" name="choice" value="managed_domain"/><PublishCelebrationSubmit label="Publish My Website — Free →" celebratingLabel="Launching your website…"/></form>}
    </div>}
   </div>}
 
@@ -111,7 +112,7 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
    <span>You&apos;re ready to launch</span>
    <strong>servonas.com/sites/{businessSlugDisplay}</strong>
    <small>You can add your own .com anytime.</small>
-   <button className="sv-button" type="submit">Publish My Website — Free →</button>
+   <PublishCelebrationSubmit label="Publish My Website — Free →" celebratingLabel="Launching your website…"/>
   </form>}
  </section>;
 }
