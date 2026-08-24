@@ -65,11 +65,18 @@ test("public booking page caches its expensive shared data loader",async()=>{
   assert.match(page,/await loadPublicBookingData\(businessSlug\)/);
   assert.doesNotMatch(loader,/getInventoryCapacityUsage/);
   assert.match(loader,/booking_blackouts/);
-  assert.match(availabilityRoute,/loadPublicBookingSettings/);
+  assert.match(availabilityRoute,/loadPublicBookingData/);
+  assert.doesNotMatch(availabilityRoute,/from\("inventory_items"\)\.select\("id,stock_quantity"\)/);
+  assert.doesNotMatch(availabilityRoute,/from\("blocked_dates"\)\.select\("inventory_item_id"\)/);
+  assert.doesNotMatch(availabilityRoute,/from\("booking_blackouts"\)\.select\("id"\)/);
 });
 
 test("rental availability narrows booking scans before loading booking items",async()=>{
  const route=await read("app/api/public-booking/[businessSlug]/rental-availability/route.ts");
+ assert.match(route,/availabilityQueryTimeoutMs=3_500/);
+ assert.match(route,/class AvailabilityTimeoutError extends Error/);
+ assert.match(route,/withAvailabilityTimeout/);
+ assert.match(route,/status:503/);
  assert.match(route,/async function loadRelevantBookingItemRows/);
  assert.match(route,/from\("bookings"\)/);
  assert.match(route,/\.lt\("rental_starts_at",windowEndsAt\)/);

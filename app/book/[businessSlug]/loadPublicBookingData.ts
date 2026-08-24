@@ -60,19 +60,25 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
   let rentalUpsells: Record<string,string[]> = {};
   let rentalOnlinePaymentsReady = false;
   const rentalBlockedDates: string[] = [];
+  const rentalBlockedDatesByItem: Record<string,string[]> = {};
   if (isPartyRental) {
     const {data:paymentAccount}=await supabase.from("business_payment_accounts")
       .select("onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
-    const [{data},{data:rentalCategories},{data:upsells}]=await Promise.all([
+    const [{data},{data:rentalCategories},{data:upsells},{data:itemBlockedDates}]=await Promise.all([
       supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected").eq("business_id", settings.business_id).eq("active", true),
       supabase.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
       supabase.from("rental_item_upsells").select("source_item_id,suggested_item_id,sort_order").eq("business_id",settings.business_id).order("sort_order"),
+      supabase.from("blocked_dates").select("inventory_item_id,blocked_date").eq("business_id",settings.business_id),
     ]);
     const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}]));
     rentalInventory=(data??[]).sort((left,right)=>{const a=categoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=categoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||a.name.localeCompare(b.name)||left.name.localeCompare(right.name);});
     rentalUpsells=(upsells??[]).reduce((map:Record<string,string[]>,row)=>{(map[row.source_item_id]??=[]).push(row.suggested_item_id);return map;},{});
+    for(const row of itemBlockedDates??[]){
+      if(!row.inventory_item_id||!row.blocked_date)continue;
+      (rentalBlockedDatesByItem[row.inventory_item_id]??=[]).push(String(row.blocked_date));
+    }
     const timezone=settings.timezone??"America/Phoenix";
     const firstDate=dateInTimeZone(new Date(),timezone),lastDate=addDays(firstDate,395);
     const {data:blackouts}=await supabase.from("booking_blackouts").select("starts_at,ends_at")
@@ -86,5 +92,5 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
       if(coveredByBusiness)rentalBlockedDates.push(value);
     }
   }
-  return {settings,services:services??[],schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates};
+  return {settings,services:services??[],schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
 },["public-booking-page"],{revalidate:300});
