@@ -38,7 +38,7 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
  const previewHeader=mode==="live"?"Your website is live. 🎉":"Your website is ready! 🎉";
  const previewBody=mode==="live"
   ?"Your website is live. Click around your site, try different looks, or leave it exactly as it is. You can change anything later."
-  :"We&apos;ve built your website using the information you provided. Take a look around, choose your website address, and launch when you&apos;re ready.";
+  :"We've built your website using the information you provided. Take a look around, choose your website address, and launch when you're ready.";
 
  return <div className="website-first-preview">
   <header><span className="complete">✓ Business</span><i/><span className="complete">✓ Style</span><i/><span>3. Preview / Launch</span></header>
