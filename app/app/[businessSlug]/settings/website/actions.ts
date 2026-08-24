@@ -578,9 +578,25 @@ export async function setWebsitePublished(slug:string,data:FormData){
 }
 
 export async function completeWebsiteFirstLaunch(slug:string,data:FormData){
- const {supabase,business}=await requireWorkspaceCapability(slug,"business_onboarding");
- const {data:website}=await supabase.from("business_website_settings").select("status").eq("business_id",business.id).maybeSingle();
- if(website?.status!=="published")redirect(websiteFirstTarget(slug,"preview","error","Publish your website before finishing launch."));
+ const {supabase,business,user}=await requireWorkspaceCapability(slug,"business_onboarding");
+ const [{data:website},{data:websiteFirst}]=await Promise.all([
+  supabase.from("business_website_settings").select("id,public_slug,status").eq("business_id",business.id).maybeSingle(),
+  supabase.from("business_website_onboarding_states").select("business_id").eq("business_id",business.id).maybeSingle(),
+ ]);
+ if(!website)redirect(websiteFirstTarget(slug,"preview","error","Save the website settings before finishing launch."));
+ if(website.status!=="published"){
+  const {error}=await supabase.from("business_website_settings").update({status:"published",published_at:new Date().toISOString(),updated_by:user.id}).eq("business_id",business.id).eq("id",website.id);
+  if(error)redirect(websiteFirstTarget(slug,"preview","error","Website publishing status could not be changed."));
+  if(websiteFirst){
+   const admin=getSupabaseAdmin();
+   if(admin){
+    const {data:session}=await admin.from("website_acquisition_sessions").select("id,industry,user_id").eq("business_id",business.id).order("last_seen_at",{ascending:false}).limit(1).maybeSingle();
+    if(session)await linkAcquisitionSession(admin,{sessionId:session.id,industry:session.industry,userId:session.user_id,businessId:business.id,event:"website_published"});
+   }
+  }
+  revalidatePath(`/app/${slug}/settings/website`);
+  revalidatePath(`/sites/${website.public_slug}`);
+ }
  await completeWebsiteFirstLaunchState(slug,business.id,supabase);
  redirect(websiteFirstTarget(slug,"live","success",data.get("choice")==="servonas_url"?"Your website is live with its Servonas address.":"Your website is live."));
 }
