@@ -7,8 +7,23 @@ import {resolveRentalCalendarDayAvailability,type RentalReservationWindow} from 
 const activeStatuses=["pending_payment","paid","confirmed"];
 const itemIdPattern=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+const availabilityQueryTimeoutMs=3_500;
 const time=(value:string)=>value.slice(0,5);
 const daysBetween=(start:string,end:string)=>{const days:string[]=[];for(let value=start;value<=end;value=addDays(value,1))days.push(value);return days;};
+
+class AvailabilityTimeoutError extends Error{
+ constructor(operation:string){
+  super(`${operation} timed out.`);
+  this.name="AvailabilityTimeoutError";
+ }
+}
+
+async function withAvailabilityTimeout<T>(promise:Promise<T>,operation:string){
+ return await Promise.race([
+  promise,
+  new Promise<T>((_,reject)=>setTimeout(()=>reject(new AvailabilityTimeoutError(operation)),availabilityQueryTimeoutMs)),
+ ]);
+}
 
 type BookingItemAvailabilityRow={
  inventory_item_id?:string;
@@ -96,13 +111,13 @@ export async function GET(request:Request,{params}:{params:Promise<{businessSlug
  try{
  const {businessSlug}=await params,url=new URL(request.url),date=url.searchParams.get("date"),endDate=url.searchParams.get("endDate")||date,start=url.searchParams.get("start"),end=url.searchParams.get("end"),itemId=url.searchParams.get("itemId"),calendarStart=url.searchParams.get("calendarStart"),calendarEnd=url.searchParams.get("calendarEnd"),requestedQuantity=Number(url.searchParams.get("quantity")||1),quantity=Number.isFinite(requestedQuantity)?Math.max(1,Math.floor(requestedQuantity)):1;
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Availability is temporarily unavailable."},{status:503});
- const bookingData=await loadPublicBookingData(businessSlug);
+ const bookingData=await withAvailabilityTimeout(loadPublicBookingData(businessSlug),"public booking data lookup");
  if(!bookingData)return NextResponse.json({error:"Booking page not found."},{status:404});
  const settings=bookingData.settings;
  const timezone=settings.timezone??"America/Phoenix",buffer=Math.max(0,Number(settings.buffer_minutes||0));
  if(itemId&&calendarStart&&calendarEnd){
   if(!itemIdPattern.test(itemId)||!datePattern.test(calendarStart)||!datePattern.test(calendarEnd)||calendarEnd<calendarStart)return NextResponse.json({error:"Choose a valid calendar range."},{status:400});
-  const result=await loadCalendarAvailability({db,businessId:settings.business_id,timezone,itemId,startDate:calendarStart,endDate:calendarEnd,requestedQuantity:quantity,bufferMinutes:buffer,rentalDurationMinutes:Math.max(30,Number(settings.rental_duration_minutes||240)),bookingData});
+  const result=await withAvailabilityTimeout(loadCalendarAvailability({db,businessId:settings.business_id,timezone,itemId,startDate:calendarStart,endDate:calendarEnd,requestedQuantity:quantity,bufferMinutes:buffer,rentalDurationMinutes:Math.max(30,Number(settings.rental_duration_minutes||240)),bookingData}),"calendar availability query");
   if("error" in result)return NextResponse.json({error:result.error},{status:result.status});
   return NextResponse.json({days:result.days},{headers:{"Cache-Control":"private, max-age=60"}});
  }
@@ -114,7 +129,7 @@ export async function GET(request:Request,{params}:{params:Promise<{businessSlug
  const items=(bookingData.rentalInventory??[]).map((item:any)=>({id:item.id,stock_quantity:item.stock_quantity}));
  const blocked=Object.entries(bookingData.rentalBlockedDatesByItem??{}).flatMap(([inventoryItemId,dates])=>(dates as string[]).filter(value=>value>=date&&value<=endDate).map(()=>({inventory_item_id:inventoryItemId})));
  const businessBlocked=(bookingData.rentalBlockedDates??[]).some(value=>value>=date&&value<=endDate);
- const {rows:reserved,error}=await loadRelevantBookingItemRows({db,businessId:settings.business_id,startDate:date,endDate,windowStartsAt:queryWindowStartsAt,windowEndsAt:queryWindowEndsAt});
+ const {rows:reserved,error}=await withAvailabilityTimeout(loadRelevantBookingItemRows({db,businessId:settings.business_id,startDate:date,endDate,windowStartsAt:queryWindowStartsAt,windowEndsAt:queryWindowEndsAt}),"rental availability query");
  if(error){
   console.error("Rental availability query failed",{businessSlug,businessId:settings.business_id,date,endDate,start,end,queryError:error?.message});
   return NextResponse.json({error:"Availability could not be checked."},{status:500});
@@ -124,6 +139,10 @@ export async function GET(request:Request,{params}:{params:Promise<{businessSlug
  const blockedIds=new Set((blocked??[]).map(row=>row.inventory_item_id));
  return NextResponse.json({availability:Object.fromEntries((items??[]).map(item=>[item.id,businessBlocked||blockedIds.has(item.id)?0:Math.max(0,Number(item.stock_quantity)-Number(used.get(item.id)??0))])),bufferMinutes:buffer,businessBlocked},{headers:{"Cache-Control":"no-store"}});
  }catch(error){
+  if(error instanceof AvailabilityTimeoutError){
+   console.warn("Rental availability timed out",{message:error.message,timeoutMs:availabilityQueryTimeoutMs});
+   return NextResponse.json({error:"Availability is temporarily unavailable. Please try again in a minute."},{status:503});
+  }
   console.error("Rental availability endpoint crashed",{error:error instanceof Error?error.message:String(error),stack:error instanceof Error?error.stack:undefined});
   return NextResponse.json({error:"Availability could not be checked."},{status:500});
  }

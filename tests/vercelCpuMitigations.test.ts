@@ -73,6 +73,10 @@ test("public booking page caches its expensive shared data loader",async()=>{
 
 test("rental availability narrows booking scans before loading booking items",async()=>{
  const route=await read("app/api/public-booking/[businessSlug]/rental-availability/route.ts");
+ assert.match(route,/availabilityQueryTimeoutMs=3_500/);
+ assert.match(route,/class AvailabilityTimeoutError extends Error/);
+ assert.match(route,/withAvailabilityTimeout/);
+ assert.match(route,/status:503/);
  assert.match(route,/async function loadRelevantBookingItemRows/);
  assert.match(route,/from\("bookings"\)/);
  assert.match(route,/\.lt\("rental_starts_at",windowEndsAt\)/);
