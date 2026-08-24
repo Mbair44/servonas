@@ -32,7 +32,8 @@ type Props={
 
 export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=false,celebrationAt,mode,domainChoice,domainStage,error,success,domainSuggestions,website,websiteFirst,domainOrder,domainInfo,business,user}:Props){
  const config=getWebsiteFirstConfig(source)!;
- const celebrationKey=celebrate&&celebrationAt?`${businessId}:${celebrationAt}`:undefined;
+ const previewCelebrationKey=celebrate&&celebrationAt&&mode!=="live"?`${businessId}:preview:${celebrationAt}`:undefined;
+ const liveCelebrationKey=mode==="live"&&success?.toLowerCase().includes("your website is live")?`${businessId}:live:${celebrationAt??success}`:undefined;
  const temporaryUrl=`servonas.com/sites/${website?.public_slug??businessSlug}`;
  const liveUrl=website?.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`https://${temporaryUrl}`;
  const previewHeader=mode==="live"?"Your website is live. 🎉":"Your website is ready! 🎉";
@@ -52,7 +53,7 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
 
    {mode!=="live"&&<>
     <div className="website-first-preview-stage">
-     <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={celebrationKey}/>
+     <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={previewCelebrationKey}/>
      <div className="website-first-preview-frame"><iframe src={`/app/${businessSlug}/settings/website/preview`} title={`Your ${config.industryLabel} website preview`}/></div>
     </div>
     <div className="website-first-preview-links"><Link href={`/app/${businessSlug}/settings/website/preview`} target="_blank">View full-screen preview</Link><span>Temporary website address: <b>{temporaryUrl}</b></span></div>
@@ -61,7 +62,7 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
    </>}
 
    {mode==="live"&&<>
-    <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={celebrationKey}/>
+    <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={liveCelebrationKey}/>
     <div className="website-first-live-actions"><a className="sv-button" href={liveUrl} target="_blank" rel="noreferrer">View My Website</a><Link className="sv-button sv-secondary" href={`/onboarding?business=${encodeURIComponent(businessSlug)}&websiteStep=preview&websiteMode=preview&domainChoice=${websiteFirst?.domain_preference==="existing_domain"?"existing_domain":"need_domain"}&domainStage=${website?.custom_domain||websiteFirst?.requested_domain?"registered":"search"}`}>{website?.custom_domain||websiteFirst?.requested_domain?"Finish domain setup":"Get a custom domain"}</Link><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/settings/website`}>Customize Website</Link></div>
     <WebsiteLaunchPlayground businessSlug={businessSlug} initialTemplate={website?.template_key??"modern"} initialPrimary={website?.primary_color??"#1769f5"} initialSecondary={website?.secondary_color??"#0b1733"} initialHeading={website?.hero_heading??""} initialSubheading={website?.hero_subheading??""}/>
    </>}
