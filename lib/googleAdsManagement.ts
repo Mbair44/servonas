@@ -56,7 +56,11 @@ export type GoogleAdsSearchTerm = {
  costMicros: number;
 };
 
-const googleAdsVersion = process.env.GOOGLE_ADS_API_VERSION?.trim() || "v20";
+const supportedGoogleAdsVersions = new Set(["v23", "v23.1", "v23.2", "v24", "v24.1", "v24.2", "v25"]);
+const configuredGoogleAdsVersion = process.env.GOOGLE_ADS_API_VERSION?.trim() || null;
+const googleAdsVersion = configuredGoogleAdsVersion && supportedGoogleAdsVersions.has(configuredGoogleAdsVersion)
+ ? configuredGoogleAdsVersion
+ : "v25";
 const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://servonas.com").replace(/\/$/, "");
 const adsApiBase = `https://googleads.googleapis.com/${googleAdsVersion}`;
 const oauthBase = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -131,9 +135,17 @@ async function googleAdsRequest<T>(path: string, input: { accessToken: string; m
  try {
   result = (text ? JSON.parse(text) : {}) as T & { error?: { message?: string } };
  } catch {
+  if (response.status === 404) {
+   throw new Error("Google Ads could not be reached with the configured API version. Please retry the connection.");
+  }
   throw new Error(`Google Ads returned an invalid response (${response.status}).`);
  }
- if (!response.ok) throw new Error(result.error?.message || `Google Ads request failed (${response.status}).`);
+ if (!response.ok) {
+  if (response.status === 404) {
+   throw new Error("Google Ads could not be reached with the configured API version. Please retry the connection.");
+  }
+  throw new Error(result.error?.message || `Google Ads request failed (${response.status}).`);
+ }
  return result;
 }
 
