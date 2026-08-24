@@ -21,6 +21,7 @@ type Props={
  domainStage:DomainStage;
  error?:string;
  success?:string;
+ domainSuggestions:string[];
  website:{template_key?:string|null;primary_color?:string|null;secondary_color?:string|null;hero_heading?:string|null;hero_subheading?:string|null;public_slug?:string|null;status?:string|null;custom_domain?:string|null;domain_status?:string|null}|null;
  websiteFirst:{domain_preference?:string|null;requested_domain?:string|null;domain_request_status?:string|null}|null;
  domainOrder:{status:string;customer_purchase_price:number|null;customer_renewal_price:number|null;currency:string|null;provider_order_id:string|null;availability_checked_at:string|null;last_error_category:string|null}|null;
@@ -29,7 +30,7 @@ type Props={
  user:{email?:string;user_metadata?:Record<string,unknown>};
 };
 
-export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=false,celebrationAt,mode,domainChoice,domainStage,error,success,website,websiteFirst,domainOrder,domainInfo,business,user}:Props){
+export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=false,celebrationAt,mode,domainChoice,domainStage,error,success,domainSuggestions,website,websiteFirst,domainOrder,domainInfo,business,user}:Props){
  const config=getWebsiteFirstConfig(source)!;
  const celebrationKey=celebrate&&celebrationAt?`${businessId}:${celebrationAt}`:undefined;
  const temporaryUrl=`servonas.com/sites/${website?.public_slug??businessSlug}`;
@@ -55,7 +56,7 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
      <div className="website-first-preview-frame"><iframe src={`/app/${businessSlug}/settings/website/preview`} title={`Your ${config.industryLabel} website preview`}/></div>
     </div>
     <div className="website-first-preview-links"><Link href={`/app/${businessSlug}/settings/website/preview`} target="_blank">View full-screen preview</Link><span>Temporary website address: <b>{temporaryUrl}</b></span></div>
-    <WebsiteFirstLaunchDomainPanel businessSlug={businessSlug} businessSlugDisplay={website?.public_slug??businessSlug} business={business} user={user} managedDomainRequest={websiteFirst?.domain_preference==="need_domain"} requestedDomain={websiteFirst?.requested_domain??""} domainStatus={websiteFirst?.domain_request_status??"availability_check_needed"} domainOrder={domainOrder} customDomain={website?.custom_domain??""} customDomainStatus={website?.domain_status??"not_connected"} domainInfo={domainInfo} websitePublished={website?.status==="published"} domainChoice={domainChoice} domainStage={domainStage} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/>
+    <WebsiteFirstLaunchDomainPanel businessSlug={businessSlug} businessSlugDisplay={website?.public_slug??businessSlug} business={business} user={user} managedDomainRequest={websiteFirst?.domain_preference==="need_domain"} requestedDomain={websiteFirst?.requested_domain??""} domainStatus={websiteFirst?.domain_request_status??"availability_check_needed"} domainOrder={domainOrder} customDomain={website?.custom_domain??""} customDomainStatus={website?.domain_status??"not_connected"} domainInfo={domainInfo} websitePublished={website?.status==="published"} domainChoice={domainChoice} domainStage={domainStage} domainSuggestions={domainSuggestions} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/>
     <p className="website-first-preview-help">Want to make changes first? <Link href={`/app/${businessSlug}/settings/website`}>Customize website</Link></p>
    </>}
 

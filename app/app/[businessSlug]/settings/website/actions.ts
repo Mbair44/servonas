@@ -23,6 +23,49 @@ const websiteFirstTarget=(slug:string,mode:"preview"|"domain"|"live",kind?:"succ
  if(extra)for(const [key,value] of Object.entries(extra))if(value)query.set(key,value);
  return `/onboarding?${query.toString()}`;
 };
+
+function domainSuggestionCandidates(input:{domain:string;businessName?:string|null;businessSlug?:string|null}){
+ const parsed=normalizeWebsiteDomain(input.domain);
+ if(!parsed)return [];
+ const [host,...rest]=parsed.split(".");
+ const extension=rest.length?`.${rest.join(".")}`:".com";
+ const sanitize=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").replace(/-{2,}/g,"-");
+ const squeeze=(value:string)=>sanitize(value).replace(/-/g,"");
+ const base=sanitize(host);
+ const rawSeeds=[
+  base,
+  squeeze(base),
+  input.businessName?sanitize(input.businessName):"",
+  input.businessName?squeeze(input.businessName):"",
+  input.businessSlug?sanitize(input.businessSlug):"",
+ ].filter(Boolean);
+ const stems=[...new Set(rawSeeds)].filter(value=>value.length>=3).slice(0,3);
+ const variants=new Set<string>();
+ for(const stem of stems){
+  variants.add(`${stem}${extension}`);
+  for(const suffix of ["az","co","hq","now","today","online","service","services","book","get","go"]){
+   variants.add(`${stem}-${suffix}${extension}`);
+   variants.add(`${suffix}-${stem}${extension}`);
+  }
+ }
+ variants.delete(parsed);
+ return [...variants].filter(candidate=>candidate.length<=63).slice(0,18);
+}
+
+async function findAvailableManagedDomainSuggestions(input:{domain:string;businessName?:string|null;businessSlug?:string|null}){
+ const candidates=domainSuggestionCandidates(input);
+ const matches:string[]=[];
+ for(const candidate of candidates){
+  try{
+   const quote=await getVercelDomainQuote(candidate);
+   if(quote.available&&quote.purchasePrice<=standardDomainLimit())matches.push(candidate);
+  }catch{
+   continue;
+  }
+  if(matches.length>=3)break;
+ }
+ return matches;
+}
 const urls=(value:string)=>[...new Set(value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean))].slice(0,24);
 const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
@@ -119,7 +162,8 @@ async function checkManagedDomainAvailabilityForWebsiteFirst(slug:string,input:{
  revalidatePath("/onboarding");
  revalidatePath(`/onboarding?business=${slug}`);
  revalidatePath(`/app/${slug}/settings/website`);
- redirect(websiteFirstTarget(slug,"preview",quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.",{domainChoice:"need_domain",domainStage:status==="available"?"details":"search"}));
+ const domainSuggestions=!quote.available||status==="premium_review"?await findAvailableManagedDomainSuggestions({domain,businessName:(business as {name?:string|null}).name,businessSlug:slug}):[];
+ redirect(websiteFirstTarget(slug,"preview",quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.",{domainChoice:"need_domain",domainStage:status==="available"?"details":"search",domainSuggestions:domainSuggestions.join(",")}));
 }
 
 export async function checkManagedDomainAvailability(slug:string){
