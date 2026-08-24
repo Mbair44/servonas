@@ -4,10 +4,12 @@ import {usePathname} from "next/navigation";
 import {publicOptionalAnalyticsEnabled} from "@/lib/optionalAnalytics";
 
 const CONSENT="servonas.analytics_consent",VISITOR="servonas.visitor_id",SESSION="servonas.session_id";
+const EVENT_DEDUPE="servonas.marketing_event_dedupe";
 const platform=()=>location.hostname==="servonas.com"||location.hostname==="www.servonas.com"||location.hostname==="localhost"||location.hostname.endsWith(".vercel.app");
 const id=(key:string,storage:Storage)=>{let value=storage.getItem(key);if(!value){value=crypto.randomUUID();storage.setItem(key,value);}return value;};
 const device=()=>{const ua=navigator.userAgent;return {browser:/Edg\//.test(ua)?"Edge":/Chrome\//.test(ua)?"Chrome":/Safari\//.test(ua)?"Safari":/Firefox\//.test(ua)?"Firefox":"Other",operatingSystem:/Windows/.test(ua)?"Windows":/Mac OS/.test(ua)?"macOS":/Android/.test(ua)?"Android":/iPhone|iPad/.test(ua)?"iOS":"Other",deviceType:/Mobile|Android|iPhone/.test(ua)?"mobile":/iPad|Tablet/.test(ua)?"tablet":"desktop"};};
 const analyticsEnabled=publicOptionalAnalyticsEnabled();
+const dedupe=(key:string,ttlMs:number)=>{try{const raw=sessionStorage.getItem(EVENT_DEDUPE),now=Date.now(),store=raw?JSON.parse(raw) as Record<string,number>:{};for(const [entry,expiresAt] of Object.entries(store))if(expiresAt<=now)delete store[entry];if((store[key]??0)>now){sessionStorage.setItem(EVENT_DEDUPE,JSON.stringify(store));return true;}store[key]=now+ttlMs;sessionStorage.setItem(EVENT_DEDUPE,JSON.stringify(store));}catch{/* ignore storage issues */}return false;};
 
 export function MarketingAnalytics(){
  const [consent,setConsent]=useState<string|null>(null),pathname=usePathname();
@@ -17,7 +19,7 @@ export function MarketingAnalytics(){
   const visitorId=id(VISITOR,localStorage),sessionId=id(SESSION,sessionStorage),search=location.search.slice(1),params=new URLSearchParams(search);
   for(const key of ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid"]){const value=params.get(key);if(value)localStorage.setItem(`servonas.${key}`,value);}
   const stored=(key:string)=>params.get(key)||localStorage.getItem(`servonas.${key}`)||"";
-  const send=(eventType:string,label="",elementType="",href="")=>{void fetch("/api/marketing/events",{method:"POST",headers:{"content-type":"application/json"},keepalive:true,body:JSON.stringify({visitorId,sessionId,eventType,path:`${pathname}${search?`?${search}`:""}`,referrer:document.referrer,label,elementType,href,utmSource:stored("utm_source"),utmMedium:stored("utm_medium"),utmCampaign:stored("utm_campaign"),utmContent:stored("utm_content"),utmTerm:stored("utm_term"),gclid:stored("gclid"),gbraid:stored("gbraid"),wbraid:stored("wbraid"),...device()})});};
+  const send=(eventType:string,label="",elementType="",href="")=>{const path=`${pathname}${search?`?${search}`:""}`,dedupeKey=[eventType,path,label.trim().slice(0,120),elementType,href].join("|"),ttlMs=eventType==="page_view"?180000:10000;if(dedupe(dedupeKey,ttlMs))return;void fetch("/api/marketing/events",{method:"POST",headers:{"content-type":"application/json"},keepalive:true,body:JSON.stringify({visitorId,sessionId,eventType,path,referrer:document.referrer,label,elementType,href,utmSource:stored("utm_source"),utmMedium:stored("utm_medium"),utmCampaign:stored("utm_campaign"),utmContent:stored("utm_content"),utmTerm:stored("utm_term"),gclid:stored("gclid"),gbraid:stored("gbraid"),wbraid:stored("wbraid"),...device()})}).catch(()=>undefined);};
   send("page_view");
   const content=params.get("utm_content");if(content&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(content))void fetch("/api/marketing/content-lead",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({content}),keepalive:true});
   const click=(event:MouseEvent)=>{const element=(event.target as Element)?.closest("a,button") as HTMLElement|null;if(element)send("click",(element.innerText||element.getAttribute("aria-label")||"").trim(),element.tagName.toLowerCase(),element instanceof HTMLAnchorElement?element.href:"");};
