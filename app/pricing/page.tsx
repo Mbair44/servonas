@@ -6,6 +6,14 @@ const plans=[
  {name:"Pro",price:"125",icon:"♛",description:"For established businesses that want power, control, and scale.",lead:"Everything in Growth, plus:",features:["Multi-location support","Advanced permissions & roles","Custom workflows & automations","API access","Custom reports","Priority support","Up to 30 users"]},
 ];
 
+const websiteMaintenancePlan={
+ name:"Website Maintenance Only",
+ price:"59",
+ icon:"◇",
+ description:"For businesses that only want Servonas to keep a Servonas-built website live, secure, and up to date.",
+ features:["Hosting and uptime monitoring","Routine website updates","Security and SSL upkeep","Basic content and contact-detail changes","Support for your Servonas website address or connected domain"],
+};
+
 const assurances=[
  ["◇","No long-term contracts","Cancel anytime."],
  ["▣","Your data is yours","We’ll never lock you in."],
@@ -26,6 +34,24 @@ export default function Pricing(){
     <article><i aria-hidden="true">♧</i><div><h2>Founding Service Companies</h2><p>Join early and get full access during early access at no cost and <strong>50% off</strong> your selected plan for the first year when paid plans launch.</p></div></article>
    </div>
 
+   <section className="pricing-website-maintenance" aria-label="Website maintenance pricing">
+    <div className="pricing-website-maintenance-copy">
+     <span className="sv-kicker">Website-only option</span>
+     <h2>Just want us to maintain your website?</h2>
+     <p>We&apos;re planning a website-maintenance-only option for businesses that want Servonas to keep their Servonas-built website live and maintained without the full operations platform.</p>
+     <p className="pricing-maintenance-benchmark">Comparable small-business website care plans often start around <strong>$49–$89/month</strong>, so our planned entry point is designed to stay competitive while still covering ongoing upkeep.</p>
+    </div>
+    <article className="pricing-card pricing-card-maintenance">
+     <header><i aria-hidden="true">{websiteMaintenancePlan.icon}</i><h2>{websiteMaintenancePlan.name}</h2></header>
+     <p className="pricing-description">{websiteMaintenancePlan.description}</p>
+     <div className="pricing-price"><strong>${websiteMaintenancePlan.price}</strong><span>/month planned</span></div>
+     <p className="pricing-early-price"><s>${websiteMaintenancePlan.price}/month</s><b>FREE right now during Early Access</b></p>
+     <div className="pricing-divider"/>
+     <ul>{websiteMaintenancePlan.features.map(feature=><li key={feature}><span>✓</span>{feature}</li>)}</ul>
+     <div className="pricing-card-action"><Link className="pricing-outline-button" href="/signup">Start Free Early Access</Link><small>No charge right now. We&apos;ll give advance notice before website-maintenance billing begins.</small></div>
+    </article>
+   </section>
+
    <div className="pricing-grid">{plans.map(plan=><article className={plan.featured?"pricing-card featured":"pricing-card"} key={plan.name}>
     {plan.featured&&<span className="pricing-popular">Most popular</span>}
     <header><i aria-hidden="true">{plan.icon}</i><h2>{plan.name}</h2></header>
@@ -44,6 +70,7 @@ export default function Pricing(){
   <section className="pricing-faq"><div className="sv-container"><h2>Frequently asked questions</h2><div>
    <details><summary>How long is early access free?</summary><p>Early access is free while we build and improve Servonas. We’ll give you plenty of notice before paid billing begins.</p></details>
    <details><summary>When will you start charging?</summary><p>We have not set a paid launch date. Founding companies will be notified well in advance and can choose a plan before charges begin.</p></details>
+   <details><summary>What if I only want Servonas to maintain my website?</summary><p>We&apos;re planning a website-maintenance-only option at <strong>$59/month</strong> after early access. Right now, it&apos;s still <strong>free during Early Access</strong>, and we&apos;ll notify you well before any website-maintenance billing begins.</p></details>
    <details><summary>Can I change plans later?</summary><p>Yes. You’ll be able to move between plans as your business and team grow.</p></details>
   </div></div></section>
 
