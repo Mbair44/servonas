@@ -29,6 +29,7 @@ const websiteFirstTarget=(slug:string,mode:"preview"|"domain"|"live",kind?:"succ
  if(extra)for(const [key,value] of Object.entries(extra))if(value)query.set(key,value);
  return `/onboarding?${query.toString()}`;
 };
+const websiteFirstCelebrationExtra=()=>({celebrate:"1",celebrationAt:new Date().toISOString()});
 const legacyManagedDomainExtra=(stage:"search"|"details"|"registered",suggestions:string[]=[]):Record<string,string>=>({
  domainMode:"managed",
  domainStage:stage,
@@ -571,7 +572,7 @@ export async function setWebsitePublished(slug:string,data:FormData){
  }
  revalidatePath(`/app/${slug}/settings/website`);revalidatePath(`/sites/${settings.public_slug}`);
  if(publish&&websiteFirst){
-  if(returnToWebsiteFirst(slug,data))redirect(websiteFirstTarget(slug,"live","success","Your website is live."));
+  if(returnToWebsiteFirst(slug,data))redirect(websiteFirstTarget(slug,"live","success","Your website is live.",websiteFirstCelebrationExtra()));
   redirect(`/app/${slug}/settings/website/success`);
  }
  redirect(target(slug,"success",publish?"Website published.":"Website unpublished. The public URL is no longer available."));
@@ -598,7 +599,7 @@ export async function completeWebsiteFirstLaunch(slug:string,data:FormData){
   revalidatePath(`/sites/${website.public_slug}`);
  }
  await completeWebsiteFirstLaunchState(slug,business.id,supabase);
- redirect(websiteFirstTarget(slug,"live","success",data.get("choice")==="servonas_url"?"Your website is live with its Servonas address.":"Your website is live."));
+ redirect(websiteFirstTarget(slug,"live","success",data.get("choice")==="servonas_url"?"Your website is live with its Servonas address.":"Your website is live.",websiteFirstCelebrationExtra()));
 }
 
 export async function completeWebsiteFirstAndExplore(slug:string){
