@@ -1,5 +1,6 @@
 import {changeManagedDomainRequest,checkManagedDomainAvailability,checkWebsiteDomain,completeWebsiteFirstLaunch,connectWebsiteDomain,saveWebsiteFirstManagedDomainChoice} from "@/app/app/[businessSlug]/settings/website/actions";
 import {AutoSubmitManagedDomainAvailability} from "./AutoSubmitManagedDomainAvailability";
+import {DomainAvailabilitySubmit} from "./DomainAvailabilitySubmit";
 import {ManagedDomainCustomerSetup} from "./ManagedDomainCustomerSetup";
 
 type Order={status:string;customer_purchase_price:number|null;customer_renewal_price:number|null;currency:string|null;provider_order_id:string|null;availability_checked_at:string|null;last_error_category:string|null}|null;
@@ -42,14 +43,14 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
    {!activeManagedDomain&&<form className="website-first-domain-entry" action={saveWebsiteFirstManagedDomainChoice.bind(null,businessSlug)}>
     <input type="hidden" name="returnFlow" value="website_first"/>
     <label>Find your .com<input required name="domainName" placeholder="yourbusiness.com" autoCapitalize="none" autoCorrect="off"/></label>
-    <button className="sv-button" type="submit">Check Availability →</button>
+    <DomainAvailabilitySubmit/>
    </form>}
 
    {activeManagedDomain&&!domainAvailable&&!connectionStatus&&<form className="website-first-domain-entry" action={checkManagedDomainAvailability.bind(null,businessSlug)} data-auto-check-domain="true">
     <div className="website-first-domain-search-head"><span>Find your .com</span><strong>{activeManagedDomain}</strong></div>
     <input type="hidden" name="returnFlow" value="website_first"/>
     <AutoSubmitManagedDomainAvailability/>
-    <button className="sv-button" type="submit">Check Availability →</button>
+    <DomainAvailabilitySubmit/>
    </form>}
 
    {activeManagedDomain&&domainStatus==="unavailable"&&Boolean(domainSuggestions.length)&&<div className="website-first-domain-status">
