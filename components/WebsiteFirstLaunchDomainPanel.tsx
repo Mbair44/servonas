@@ -1,4 +1,4 @@
-import {checkManagedDomainAvailability,checkWebsiteDomain,completeWebsiteFirstLaunch,connectWebsiteDomain,saveWebsiteFirstManagedDomainChoice} from "@/app/app/[businessSlug]/settings/website/actions";
+import {changeManagedDomainRequest,checkManagedDomainAvailability,checkWebsiteDomain,completeWebsiteFirstLaunch,connectWebsiteDomain,saveWebsiteFirstManagedDomainChoice} from "@/app/app/[businessSlug]/settings/website/actions";
 import {AutoSubmitManagedDomainAvailability} from "./AutoSubmitManagedDomainAvailability";
 import {ManagedDomainCustomerSetup} from "./ManagedDomainCustomerSetup";
 
@@ -8,7 +8,7 @@ type DomainStage="search"|"details"|"registered";
 
 const money=(value:number|null,currency="USD")=>value==null?"Unavailable":new Intl.NumberFormat("en-US",{style:"currency",currency}).format(Number(value));
 
-export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,business,user,managedDomainRequest,requestedDomain,domainStatus,domainOrder,customDomain,customDomainStatus,domainInfo,websitePublished,googleMapsApiKey,domainChoice,domainStage}:{businessSlug:string;businessSlugDisplay:string;business:{name:string;email?:string|null;phone?:string|null;address_line1?:string|null;address_line2?:string|null;city?:string|null;state?:string|null;postal_code?:string|null};user:{email?:string|null;user_metadata?:Record<string,unknown>};managedDomainRequest:boolean;requestedDomain:string;domainStatus:string;domainOrder:Order;customDomain:string;customDomainStatus:string;domainInfo:DomainInfo;websitePublished:boolean;googleMapsApiKey?:string;domainChoice:"need_domain"|"existing_domain"|"servonas";domainStage:DomainStage}) {
+export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,business,user,managedDomainRequest,requestedDomain,domainStatus,domainOrder,customDomain,customDomainStatus,domainInfo,websitePublished,googleMapsApiKey,domainChoice,domainStage,domainSuggestions}:{businessSlug:string;businessSlugDisplay:string;business:{name:string;email?:string|null;phone?:string|null;address_line1?:string|null;address_line2?:string|null;city?:string|null;state?:string|null;postal_code?:string|null};user:{email?:string|null;user_metadata?:Record<string,unknown>};managedDomainRequest:boolean;requestedDomain:string;domainStatus:string;domainOrder:Order;customDomain:string;customDomainStatus:string;domainInfo:DomainInfo;websitePublished:boolean;googleMapsApiKey?:string;domainChoice:"need_domain"|"existing_domain"|"servonas";domainStage:DomainStage;domainSuggestions:string[]}) {
  const activeManagedDomain=managedDomainRequest&&requestedDomain?requestedDomain:"";
  const domainAvailable=domainStatus==="available"&&Boolean(domainOrder);
  const showRegistrationDetails=domainAvailable&&Boolean(domainOrder?.customer_renewal_price!=null)&&(domainStage==="details"||domainStage==="search");
@@ -51,6 +51,21 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
     <AutoSubmitManagedDomainAvailability/>
     <button className="sv-button" type="submit">Check Availability →</button>
    </form>}
+
+   {activeManagedDomain&&domainStatus==="unavailable"&&Boolean(domainSuggestions.length)&&<div className="website-first-domain-status">
+    <div>
+     <span>Available alternatives</span>
+     <strong>Here are a few domains that should still work.</strong>
+     <p>Pick one and we&apos;ll check it right away.</p>
+    </div>
+    <div className="website-first-domain-suggestions">
+     {domainSuggestions.map(suggestion=><form key={suggestion} action={changeManagedDomainRequest.bind(null,businessSlug)}>
+      <input type="hidden" name="returnFlow" value="website_first"/>
+      <input type="hidden" name="newManagedDomain" value={suggestion}/>
+      <button className="sv-button sv-secondary" type="submit">{suggestion}</button>
+     </form>)}
+    </div>
+   </div>}
 
    {domainAvailable&&!renewalVisible&&<div className="website-first-domain-status error">
     <div>
