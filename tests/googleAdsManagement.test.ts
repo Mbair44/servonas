@@ -37,6 +37,13 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /submitGoogleAdsBetaFeedback/);
 });
 
+test("google ads service defaults to a supported api version instead of sunset v20", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /supportedGoogleAdsVersions/);
+ assert.match(file, /"v25"/);
+ assert.doesNotMatch(file, /process\.env\.GOOGLE_ADS_API_VERSION\?\.trim\(\) \|\| "v20"/);
+});
+
 test("google ads workspace uses beta positioning and separates servonas pricing from google spend", async () => {
  const page = await read("../app/app/[businessSlug]/marketing/google-ads/page.tsx");
  assert.match(page, /Google Ads Beta/);
