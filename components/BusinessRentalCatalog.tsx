@@ -4,6 +4,15 @@ import type {BusinessSiteRentalItem} from "./BusinessWebsite";
 import {RentalPricingFooter} from "./RentalPricingFooter";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
 
+function dimensionSummary(item:BusinessSiteRentalItem){
+ const parts=[
+  item.lengthFt?`L ${Number(item.lengthFt).toLocaleString("en-US",{maximumFractionDigits:2})} ft`:null,
+  item.widthFt?`W ${Number(item.widthFt).toLocaleString("en-US",{maximumFractionDigits:2})} ft`:null,
+  item.heightFt?`H ${Number(item.heightFt).toLocaleString("en-US",{maximumFractionDigits:2})} ft`:null,
+ ].filter(Boolean);
+ return parts.length?parts.join(" × "):null;
+}
+
 export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
  const [category,setCategory]=useState("All rentals"),[search,setSearch]=useState("");
  const categories=useMemo(()=>["All rentals",...Array.from(new Set(items.map(item=>item.category||"Other rentals")))],[items]);
@@ -13,12 +22,12 @@ export function BusinessRentalCatalog({items}:{items:BusinessSiteRentalItem[]}){
    <label><span>Search rentals</span><input type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Bounce houses, tables, chairs…"/></label>
    <label><span>Category</span><select value={category} onChange={event=>setCategory(event.target.value)}>{categories.map(value=><option value={value} key={value}>{value}</option>)}</select></label>
   </div>
- {visible.length?<div className="business-site-rental-grid">{visible.map(item=><article className="business-site-rental-card" key={item.id}>
+ {visible.length?<div className="business-site-rental-grid">{visible.map(item=>{const dimensions=dimensionSummary(item);return <article className="business-site-rental-card" key={item.id}>
    <div className="business-site-rental-media">{item.imageUrl?<img src={storageImageThumbUrl(item.imageUrl)??item.imageUrl} alt={item.name} loading="lazy"/>:<div className="business-site-rental-placeholder" aria-hidden="true">{item.name.slice(0,1)}</div>}</div>
    <div className="business-site-rental-content">
-    <div className="business-site-rental-copy">{item.category&&<span>{item.category}</span>}<h3>{item.name}</h3>{item.description&&<p>{item.description}</p>}</div>
+    <div className="business-site-rental-copy">{item.category&&<span>{item.category}</span>}<h3>{item.name}</h3>{dimensions&&<small>{dimensions}</small>}{item.description&&<p>{item.description}</p>}</div>
     <RentalPricingFooter priceCents={item.dailyPriceCents} rentalHours={item.standardRentalHours} multiDayMessage={item.multiDayMessage} action={<a href="#book-online" data-rental-item-id={item.id} aria-label={`Check availability for ${item.name}`}>Check availability</a>}/>
    </div>
-  </article>)}</div>:<div className="business-site-rental-empty"><strong>No rentals match those filters.</strong><p>Choose another category or clear your search.</p></div>}
+  </article>})}</div>:<div className="business-site-rental-empty"><strong>No rentals match those filters.</strong><p>Choose another category or clear your search.</p></div>}
  </>;
 }

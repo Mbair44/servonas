@@ -55,9 +55,16 @@ export async function prepareRentalUpload(slug:string,kind:"image"|"receipt",nam
 }
 
 function directPath(data:FormData,key:string,businessId:string){const value=text(data,key);return value.startsWith(`${businessId}/`)?value:null;}
+function optionalPositiveNumber(value:string,fieldLabel:string){
+ if(value==="")return null;
+ const numeric=Number(value);
+ if(!Number.isFinite(numeric)||numeric<=0)throw new Error(`Enter a valid ${fieldLabel} in feet.`);
+ return Number(numeric.toFixed(2));
+}
 
 async function values(supabase:SupabaseClient,businessId:string,data:FormData){
  const name=text(data,"name"),categoryId=text(data,"categoryId")||null,description=text(data,"description"),price=Number(text(data,"price")),purchaseCostRaw=text(data,"purchaseCost"),purchaseCost=purchaseCostRaw===""?null:Number(purchaseCostRaw),stock=Number(text(data,"stockQuantity"));
+ const lengthFt=optionalPositiveNumber(text(data,"lengthFt"),"length"),widthFt=optionalPositiveNumber(text(data,"widthFt"),"width"),heightFt=optionalPositiveNumber(text(data,"heightFt"),"height");
  const operatorMode=text(data,"operatorMode")||"none",operatorRateRaw=text(data,"operatorHourlyRate"),operatorRate=operatorRateRaw===""?null:Number(operatorRateRaw);
  if(!name||name.length>120)throw new Error("Enter a rental name up to 120 characters.");
  if(!Number.isFinite(price)||price<0||price>100000)throw new Error("Enter a valid daily rental price.");
@@ -71,7 +78,7 @@ async function values(supabase:SupabaseClient,businessId:string,data:FormData){
  const overrideTouched=data.get("usePricingOverride")==="on"||Boolean(overrideHours)||Boolean(overrideDiscount)||Boolean(overrideFlat)||Boolean(overrideMax)||overrideType!=="full_price"||data.get("allowMultiDayOverride")==="on";
  const useOverride=overrideTouched;
  if(useOverride&&(!["full_price","percentage_discount","flat_rate"].includes(overrideType)||!Number.isInteger(Number(overrideHours))||Number(overrideHours)<1||(overrideDiscount&&(Number(overrideDiscount)<0||Number(overrideDiscount)>100))||(overrideFlat&&Number(overrideFlat)<0)||(overrideMax&&Number(overrideMax)<1)))throw new Error("Review the item-specific rental pricing.");
- return {name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),purchase_cost_cents:purchaseCost===null?null:Math.round(purchaseCost*100),stock_quantity:stock,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on",standard_rental_hours_override:useOverride?Number(overrideHours):null,allow_multi_day_override:useOverride?data.get("allowMultiDayOverride")==="on":null,additional_day_pricing_type_override:useOverride?overrideType:null,additional_day_discount_percent_override:useOverride&&overrideDiscount?Number(overrideDiscount):null,additional_day_flat_rate_cents_override:useOverride&&overrideFlat?Math.round(Number(overrideFlat)*100):null,max_rental_days_override:useOverride&&overrideMax?Number(overrideMax):null,operator_mode:operatorMode,operator_hourly_rate_cents:operatorMode==="none"?null:Math.round(operatorRate!*100),operator_default_selected:operatorMode==="required"?true:data.get("operatorDefaultSelected")==="on"};
+ return {name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),purchase_cost_cents:purchaseCost===null?null:Math.round(purchaseCost*100),stock_quantity:stock,length_ft:lengthFt,width_ft:widthFt,height_ft:heightFt,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on",standard_rental_hours_override:useOverride?Number(overrideHours):null,allow_multi_day_override:useOverride?data.get("allowMultiDayOverride")==="on":null,additional_day_pricing_type_override:useOverride?overrideType:null,additional_day_discount_percent_override:useOverride&&overrideDiscount?Number(overrideDiscount):null,additional_day_flat_rate_cents_override:useOverride&&overrideFlat?Math.round(Number(overrideFlat)*100):null,max_rental_days_override:useOverride&&overrideMax?Number(overrideMax):null,operator_mode:operatorMode,operator_hourly_rate_cents:operatorMode==="none"?null:Math.round(operatorRate!*100),operator_default_selected:operatorMode==="required"?true:data.get("operatorDefaultSelected")==="on"};
 }
 async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:string,data:FormData){
  const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];

@@ -4,7 +4,7 @@ import { canManageBusiness } from "@/lib/access";
 import { defaultEmployeeNumbering } from "@/lib/employeeNumbering";
 import { stripePaymentsReady } from "@/lib/stripeConnect";
 import { SettingsDashboard } from "@/components/SettingsDashboard";
-import { connectStripe, deleteWorkspace, disconnectStripe, refreshStripeStatus, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy } from "./actions";
+import { connectStripe, deleteWorkspace, disconnectStripe, refreshStripeStatus, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy, updateTaxSettings } from "./actions";
 import {MissedCallRecoverySettings} from "@/components/MissedCallRecoverySettings";
 import {PoolServiceSettings} from "@/components/PoolServiceSettings";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
@@ -59,6 +59,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
    refreshStripeAction={refreshStripeStatus.bind(null,businessSlug)}
    disconnectStripeAction={disconnectStripe.bind(null,businessSlug)}
    invoicePaymentOptionsAction={updateInvoicePaymentOptions.bind(null,businessSlug)}
+   taxSettingsAction={updateTaxSettings.bind(null,businessSlug)}
    deleteWorkspaceAction={deleteWorkspace.bind(null,businessSlug)}
   />}
   {section==="communications"&&<header className="settings-page-header"><span>Workspace configuration</span><h1>Communication settings</h1><p>Manage inbound messages, automatic responses, and missed-call recovery.</p></header>}
