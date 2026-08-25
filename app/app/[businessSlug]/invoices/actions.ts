@@ -46,6 +46,42 @@ type TaxLineArtifact = {
   externalTaxCalculationId: string | null;
 };
 
+async function ensureInvoiceCustomer(
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
+  data: FormData,
+) {
+  const manualCustomerOption = "__manual_customer__";
+  const rawCustomerId = text(data, "customerId");
+  if (rawCustomerId !== manualCustomerOption) return { customerId: rawCustomerId, valuesCustomerId: rawCustomerId };
+  const manualName = text(data, "manualCustomerName");
+  if (!manualName) return { customerId: "", valuesCustomerId: rawCustomerId, error: "Enter the new customer name." };
+  const [firstName, ...rest] = manualName.split(/\s+/).filter(Boolean);
+  const lastName = rest.join(" ");
+  const { data: customer, error } = await context.supabase.from("customers").insert({
+    business_id: context.business.id,
+    first_name: firstName || manualName,
+    last_name: lastName || "",
+    company_name: manualName,
+    email: null,
+    phone: null,
+    secondary_phone: null,
+    preferred_contact_method: "email",
+    notes: "Created automatically while drafting an invoice.",
+    tax_exempt: false,
+    tax_exemption_reference: null,
+    tags: [],
+    lead_source: "Invoice draft",
+    is_active: true,
+    created_by: context.user.id,
+    updated_by: context.user.id,
+  }).select("id").single();
+  if (error || !customer) {
+    console.error("Invoice inline customer creation failed", { businessId: context.business.id, code: error?.code, message: error?.message });
+    return { customerId: "", valuesCustomerId: rawCustomerId, error: "The new customer could not be created." };
+  }
+  return { customerId: customer.id, valuesCustomerId: customer.id };
+}
+
 async function calculateInvoiceTotalsForBusiness(input: {
   settings: BusinessTaxSettings;
   customer: TaxCustomerRow;
@@ -135,9 +171,13 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   const values=valuesFrom(data),errors:Record<string,string>={};
   const lines=safeJson<EstimateLineDraft[]>(text(data,"linesJson"),[]);
   const fees=safeJson<EstimateFeeDraft[]>(text(data,"feesJson"),[]);
-  const customerId=text(data,"customerId"),locationId=text(data,"serviceLocationId")||null,jobId=text(data,"jobId")||null;
+  const inlineCustomer=await ensureInvoiceCustomer(context,data);
+  const customerId=inlineCustomer.customerId,locationId=text(data,"serviceLocationId")||null,jobId=text(data,"jobId")||null;
   const title=text(data,"title");
-  if(!customerId)errors.customerId="Choose a customer.";
+  values.customerId=inlineCustomer.valuesCustomerId;
+  if(text(data,"customerId")==="__manual_customer__")values.manualCustomerName=text(data,"manualCustomerName");
+  if(inlineCustomer.error)errors.manualCustomerName=inlineCustomer.error;
+  if(!customerId&&text(data,"customerId")!=="__manual_customer__")errors.customerId="Choose a customer.";
   if(!title)errors.title="Enter an invoice title.";
   if(!lines.length)errors.lines="Add at least one line item.";
   const [{data:customer},{data:location},{data:job},{data:billingSettings},{data:billingAddress},{data:paymentAccount}]=await Promise.all([

@@ -33,7 +33,7 @@ type Props={
 export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=false,celebrationAt,mode,domainChoice,domainStage,error,success,domainSuggestions,website,websiteFirst,domainOrder,domainInfo,business,user}:Props){
  const config=getWebsiteFirstConfig(source)!;
  const previewCelebrationKey=celebrate&&celebrationAt&&mode!=="live"?`${businessId}:preview:${celebrationAt}`:undefined;
- const liveCelebrationKey=mode==="live"&&success?.toLowerCase().includes("your website is live")?`${businessId}:live:${celebrationAt??success}`:undefined;
+ const liveCelebrationKey=celebrate&&mode==="live"&&celebrationAt?`${businessId}:live:${celebrationAt}`:undefined;
  const temporaryUrl=`servonas.com/sites/${website?.public_slug??businessSlug}`;
  const liveUrl=website?.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`https://${temporaryUrl}`;
  const previewHeader=mode==="live"?"Your website is live. 🎉":"Your website is ready! 🎉";

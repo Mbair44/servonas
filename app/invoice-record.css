@@ -29,3 +29,10 @@
 .invoice-record-aside .estimate-event-list small{color:#667085;font-size:.72rem}
 @media(max-width:1100px){.invoice-record-aside{grid-template-columns:1fr 1fr}.invoice-record-aside .invoice-record-actions{grid-row:span 2}}
 @media(max-width:700px){.invoice-record-aside{grid-template-columns:1fr}.invoice-record-aside .invoice-record-actions{grid-row:auto}.invoice-offline-payment .estimate-form{grid-template-columns:1fr}.invoice-offline-payment .estimate-form .wide,.invoice-offline-payment .estimate-form .sv-button{grid-column:auto}}
+@media print{
+ html,body{background:#fff!important}
+ .sv-header,.sv-footer,.epic3-shell>aside,.customer-record-header,.workspace-notice,.estimate-public-link,.customer-record-metrics,.customer-record-tabs,.invoice-record-aside,.invoice-document-card>.panel-title,.invoice-document-card .estimate-document-head a,.crm-header-actions,.public-estimate-print{display:none!important}
+ .epic3-shell,.epic3-content,.customer-record-page,.invoice-record-page,.customer-record-columns,.customer-record-main,.invoice-record-main{display:block!important;min-height:auto!important;padding:0!important;margin:0!important;background:#fff!important}
+ .invoice-document-card{margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;overflow:visible!important}
+ .estimate-document-lines>div,.estimate-totals>div,.estimate-message,.public-invoice-history article{break-inside:avoid}
+}

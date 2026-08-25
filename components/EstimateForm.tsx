@@ -34,8 +34,10 @@ export default function EstimateForm({
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   void _taxRates;
+  const manualCustomerOption = "__manual_customer__";
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
-  const [customerId, setCustomerId] = useState(String(estimate?.customer_id ?? ""));
+  const [customerId, setCustomerId] = useState(String(state.values?.customerId ?? estimate?.customer_id ?? ""));
+  const [manualCustomerName, setManualCustomerName] = useState(String(state.values?.manualCustomerName ?? ""));
   const [lines, setLines] = useState(initialLines.length ? initialLines : [blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)]);
   const [fees, setFees] = useState(initialFees);
   const [discountType, setDiscountType] = useState(String(estimate?.document_discount_type ?? "none"));
@@ -48,9 +50,10 @@ export default function EstimateForm({
     depositType === "fixed" ? (Number(estimate?.deposit_value ?? 0) / 100).toFixed(2)
       : depositType === "percentage" ? (Number(estimate?.deposit_value ?? 0) / 100).toFixed(2) : "0",
   );
-  const visibleLocations = locations.filter((row) => row.customer_id === customerId);
-  const visibleJobs = jobs.filter((row) => row.customer_id === customerId);
-  const selectedCustomer = customers.find((row) => row.id === customerId) ?? null;
+  const selectedExistingCustomerId = customerId === manualCustomerOption ? "" : customerId;
+  const visibleLocations = locations.filter((row) => row.customer_id === selectedExistingCustomerId);
+  const visibleJobs = jobs.filter((row) => row.customer_id === selectedExistingCustomerId);
+  const selectedCustomer = customers.find((row) => row.id === selectedExistingCustomerId) ?? null;
   const taxContext = documentType === "invoice" && businessTaxSettings
     ? resolveInvoiceTaxContext({
       settings: businessTaxSettings,
@@ -104,9 +107,10 @@ export default function EstimateForm({
     {(!estimate||newDocument)&&<input type="hidden" name="requestKey" value={requestKey.current}/>}
     <input type="hidden" name="linesJson" value={JSON.stringify(lines)}/><input type="hidden" name="feesJson" value={JSON.stringify(fees)}/>
     <label className="wide">{documentType === "invoice" ? "Invoice title" : "Estimate title"}<input required name="title" defaultValue={String(estimate?.title ?? "")}/>{error("title")}</label>
-    <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
-    <label>Service location<select name="serviceLocationId" defaultValue={String(estimate?.service_location_id ?? "")}><option value="">No location</option>{visibleLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}</option>)}</select>{error("serviceLocationId")}</label>
-    <label>Related job<select name="jobId" defaultValue={String(estimate?.job_id ?? "")}><option value="">Standalone estimate</option>{visibleJobs.map((job) => <option key={job.id} value={job.id}>#{job.job_number} — {job.title}</option>)}</select>{error("jobId")}</label>
+    <label>Customer<select required name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Choose customer</option>{documentType==="invoice"&&<option value={manualCustomerOption}>Add a new customer</option>}{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
+    {documentType==="invoice"&&customerId===manualCustomerOption&&<label>New customer name<input required name="manualCustomerName" value={manualCustomerName} onChange={(event) => setManualCustomerName(event.target.value)} placeholder="Enter customer or company name"/>{error("manualCustomerName")}<small>This will create a new customer record when you save the invoice.</small></label>}
+    <label>Service location<select name="serviceLocationId" defaultValue={String(state.values?.serviceLocationId ?? estimate?.service_location_id ?? "")} disabled={customerId===manualCustomerOption}><option value="">No location</option>{visibleLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}</option>)}</select>{error("serviceLocationId")}</label>
+    <label>Related job<select name="jobId" defaultValue={String(state.values?.jobId ?? estimate?.job_id ?? "")} disabled={customerId===manualCustomerOption}><option value="">Standalone estimate</option>{visibleJobs.map((job) => <option key={job.id} value={job.id}>#{job.job_number} — {job.title}</option>)}</select>{error("jobId")}</label>
     <label>Issue date<input name="issueDate" type="date" defaultValue={String(estimate?.issue_date ?? new Date().toISOString().slice(0, 10))}/></label>
     <label>{documentType==="invoice"?"Due date":"Expiration date"}<input name={documentType==="invoice"?"dueDate":"expirationDate"} type="date" defaultValue={String(documentType==="invoice"?estimate?.due_date??"":estimate?.expiration_date??"")}/>{error(documentType==="invoice"?"dueDate":"expirationDate")}</label>
     {documentType === "invoice" && selectedCustomer?.tax_exempt && <div className="workspace-notice wide">
