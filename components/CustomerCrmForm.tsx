@@ -7,7 +7,8 @@ type Customer = {
   first_name?: string | null; last_name?: string | null; company_name?: string | null;
   email?: string | null; phone?: string | null; secondary_phone?: string | null;
   preferred_contact_method?: string | null; notes?: string | null; tags?: string[] | null;
-  lead_source?: string | null; is_active?: boolean | null;
+  lead_source?: string | null; is_active?: boolean | null; tax_exempt?: boolean | null;
+  tax_exemption_reference?: string | null;
 };
 
 export default function CustomerCrmForm({
@@ -34,6 +35,8 @@ export default function CustomerCrmForm({
     <label><span className="crm-label-title">Preferred contact</span><select name="preferredContactMethod" defaultValue={value("preferredContactMethod", customer?.preferred_contact_method ?? "email")}><option value="email">Email</option><option value="phone">Phone</option><option value="sms">SMS</option><option value="none">No preference</option></select></label>
     <label><span className="crm-label-title">Lead source</span><input name="leadSource" defaultValue={value("leadSource", customer?.lead_source ?? "")} placeholder="Referral, Google, repeat customer…"/></label>
     <label><span className="crm-label-title">Status</span><select name="isActive" defaultValue={value("isActive", String(customer?.is_active ?? true))}><option value="true">Active</option><option value="false">Inactive</option></select></label>
+    <label><span className="crm-label-title">Sales tax</span><select name="taxExempt" defaultValue={value("taxExempt", String(customer?.tax_exempt ?? false))}><option value="false">Taxable customer</option><option value="true">Tax-exempt customer</option></select></label>
+    <label className="crm-wide"><span className="crm-label-title">Tax exemption reference <small>Optional</small></span><input name="taxExemptionReference" defaultValue={value("taxExemptionReference", customer?.tax_exemption_reference ?? "")} placeholder="Certificate number or internal note"/></label>
     <label className="crm-wide"><span className="crm-label-title">Tags <small>Optional</small></span><input name="tags" defaultValue={value("tags", customer?.tags?.join(", ") ?? "")} placeholder="VIP, commercial, maintenance"/></label>
     <label className="crm-wide"><span className="crm-label-title">Customer notes <small>Optional</small></span><textarea name="notes" rows={3} defaultValue={value("notes", customer?.notes ?? "")}/></label>
     {fieldError("duplicate")}

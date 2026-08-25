@@ -12,7 +12,7 @@ import {createSupabaseServerClient} from "@/lib/supabaseServer";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 export async function updateBusinessSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding"); if(!canManageBusiness(role)) redirect(`/app/${slug}/settings?error=Only+owners+and+admins+can+change+settings`);
- const payload={name:text(formData,"name"),email:text(formData,"email")||null,phone:text(formData,"phone")||null,timezone:text(formData,"timezone")||"America/Phoenix",primary_color:text(formData,"primaryColor")||"#2563eb",website_url:text(formData,"websiteUrl")||null,address_line1:text(formData,"addressLine1")||null,city:text(formData,"city")||null,state:text(formData,"state")||null,postal_code:text(formData,"postalCode")||null,tax_rate:Number(text(formData,"taxRate")||0),updated_by:user.id,updated_at:new Date().toISOString()};
+ const payload={name:text(formData,"name"),email:text(formData,"email")||null,phone:text(formData,"phone")||null,timezone:text(formData,"timezone")||"America/Phoenix",primary_color:text(formData,"primaryColor")||"#2563eb",website_url:text(formData,"websiteUrl")||null,address_line1:text(formData,"addressLine1")||null,city:text(formData,"city")||null,state:text(formData,"state")||null,postal_code:text(formData,"postalCode")||null,updated_by:user.id,updated_at:new Date().toISOString()};
  if(!payload.name) redirect(`/app/${slug}/settings?error=Business+name+is+required`);
  const {error}=await supabase.from("businesses").update(payload).eq("id",business.id); if(error) redirect(`/app/${slug}/settings?error=${encodeURIComponent(error.message)}`);
  revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/settings`); redirect(`/app/${slug}/settings?success=Settings+saved`);
@@ -179,13 +179,21 @@ export async function updateInvoicePaymentOptions(slug:string,formData:FormData)
  const {supabase,business,role}=await requireWorkspace(slug);
  if(!canManageBusiness(role))redirect(stripeResult(slug,"error","Only owners and admins can change payment options."));
  const acceptCheck=formData.get("acceptCheck")==="on",acceptPhone=formData.get("acceptPayByPhone")==="on";
- const checkPayableTo=text(formData,"checkPayableTo"),paymentPhone=text(formData,"paymentPhone");
+  const checkPayableTo=text(formData,"checkPayableTo"),paymentPhone=text(formData,"paymentPhone");
+ const defaultTaxRate=text(formData,"defaultTaxRate");
+ const defaultTaxRateBasisPoints=Math.round(Number(defaultTaxRate||0)*100);
  if(acceptCheck&&!checkPayableTo)redirect(stripeResult(slug,"error","Enter who checks should be payable to."));
  if(acceptPhone&&!paymentPhone)redirect(stripeResult(slug,"error","Enter a phone number for phone payments."));
+ if(!Number.isFinite(defaultTaxRateBasisPoints)||defaultTaxRateBasisPoints<0||defaultTaxRateBasisPoints>10000)redirect(stripeResult(slug,"error","Enter a valid manual tax rate between 0% and 100%."));
  const {error}=await supabase.from("business_billing_settings").upsert({
   business_id:business.id,accept_online_card:formData.get("acceptOnlineCard")==="on",
   accept_cash:formData.get("acceptCash")==="on",accept_check:acceptCheck,accept_pay_by_phone:acceptPhone,
   check_payable_to:checkPayableTo||null,payment_phone:paymentPhone||null,updated_at:new Date().toISOString(),
+  tax_enabled:formData.get("taxEnabled")==="on",
+  tax_calculation_method:text(formData,"taxCalculationMethod")==="automatic"?"automatic":"manual",
+  default_tax_rate_basis_points:defaultTaxRateBasisPoints,
+  tax_display_mode:text(formData,"taxDisplayMode")==="inclusive"?"inclusive":"exclusive",
+  default_invoice_item_taxable:text(formData,"defaultInvoiceItemTaxable")!=="false",
  },{onConflict:"business_id"});
  if(error){console.error("Invoice payment options update failed",{businessId:business.id,code:error.code});redirect(stripeResult(slug,"error","Invoice payment options could not be saved."));}
  revalidatePath(`/app/${slug}/settings`);

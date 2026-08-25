@@ -52,6 +52,10 @@ export default function Pricing(){
     </article>
    </section>
 
+   <div className="workspace-notice success pricing-website-callout">
+    Want Servonas to just maintain your website? See the <strong>Website Maintenance Only</strong> option above. It&apos;s planned at <strong>$59/month</strong> and <strong>free right now during Early Access</strong>.
+   </div>
+
    <div className="pricing-grid">{plans.map(plan=><article className={plan.featured?"pricing-card featured":"pricing-card"} key={plan.name}>
     {plan.featured&&<span className="pricing-popular">Most popular</span>}
     <header><i aria-hidden="true">{plan.icon}</i><h2>{plan.name}</h2></header>

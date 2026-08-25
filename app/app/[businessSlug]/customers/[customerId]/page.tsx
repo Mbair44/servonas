@@ -155,7 +155,8 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
   </div><aside className="customer-record-aside">
    <section className="workspace-panel customer-side-card customer-billing-preferences">
     <div className="panel-title"><h2>Billing preferences</h2><span className="customer-billing-pill">{billingMethodLabel}</span></div>
-    <dl><div><dt>Settings source</dt><dd>{usesBillingDefaults?"Business defaults":"Customer-specific"}</dd></div><div><dt>Payment terms</dt><dd>{paymentTerms===0?"Due immediately":paymentTerms?`Net ${paymentTerms}`:"Not configured"}</dd></div><div><dt>Invoice delivery</dt><dd>{autoSend?"Send automatically":"Review before sending"}</dd></div><div><dt>Autopay</dt><dd>{billingProfile?.autopay_enabled?"Enabled":"Off"}</dd></div><div><dt>Billing email</dt><dd>{billingProfile?.billing_email||customer.email||"Not provided"}</dd></div></dl>
+    <dl><div><dt>Settings source</dt><dd>{usesBillingDefaults?"Business defaults":"Customer-specific"}</dd></div><div><dt>Payment terms</dt><dd>{paymentTerms===0?"Due immediately":paymentTerms?`Net ${paymentTerms}`:"Not configured"}</dd></div><div><dt>Invoice delivery</dt><dd>{autoSend?"Send automatically":"Review before sending"}</dd></div><div><dt>Autopay</dt><dd>{billingProfile?.autopay_enabled?"Enabled":"Off"}</dd></div><div><dt>Billing email</dt><dd>{billingProfile?.billing_email||customer.email||"Not provided"}</dd></div><div><dt>Sales tax</dt><dd>{customer.tax_exempt?"Tax-exempt customer":"Taxable unless item is non-taxable"}</dd></div></dl>
+    {customer.tax_exempt&&customer.tax_exemption_reference&&<p><strong>Exemption reference</strong>{customer.tax_exemption_reference}</p>}
     {billingProfile?.billing_notes&&<p><strong>Notes</strong>{billingProfile.billing_notes}</p>}
    </section>
    <section className="workspace-panel customer-side-card">
