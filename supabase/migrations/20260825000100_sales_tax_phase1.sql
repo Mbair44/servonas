@@ -5,8 +5,9 @@ begin;
 create or replace function public.protect_non_draft_invoice_children() returns trigger
 language plpgsql set search_path=public as $$
 declare v_invoice_id uuid; v_business_id uuid; v_status text;
+declare v_backfill text:=lower(coalesce(current_setting('servonas.allow_invoice_child_backfill', true), ''));
 begin
-  if current_setting('servonas.allow_invoice_child_backfill', true) = 'on' then
+  if v_backfill in ('on','true','1','yes') then
     if tg_op='DELETE' then return old; end if;
     return new;
   end if;

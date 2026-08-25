@@ -6,7 +6,7 @@ import {TenantBookingFunnelTracker} from "./TenantBookingFunnelTracker";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
 
 export type BusinessSiteService={id:string;name:string;description:string|null;price_amount:number|null;price_label:string|null};
-export type BusinessSiteRentalItem={id:string;name:string;category:string|null;description:string|null;dailyPriceCents:number;imageUrl:string|null;standardRentalHours:number;multiDayMessage:string|null};
+export type BusinessSiteRentalItem={id:string;name:string;category:string|null;description:string|null;dailyPriceCents:number;imageUrl:string|null;standardRentalHours:number;multiDayMessage:string|null;lengthFt:number|null;widthFt:number|null;heightFt:number|null};
 export type BusinessSiteData={
  bookingSlug?:string|null;
  customDomain?:string|null;

@@ -174,38 +174,59 @@ export async function updateRoutingPolicy(slug:string,formData:FormData){
 }
 
 const stripeResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/billing?${kind}=${encodeURIComponent(message)}#payments`;
+const taxResult=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/settings/billing?${kind}=${encodeURIComponent(message)}#taxes`;
 
 export async function updateInvoicePaymentOptions(slug:string,formData:FormData){
  const {supabase,business,role}=await requireWorkspace(slug);
  if(!canManageBusiness(role))redirect(stripeResult(slug,"error","Only owners and admins can change payment options."));
  const acceptCheck=formData.get("acceptCheck")==="on",acceptPhone=formData.get("acceptPayByPhone")==="on";
   const checkPayableTo=text(formData,"checkPayableTo"),paymentPhone=text(formData,"paymentPhone");
- const defaultTaxRate=text(formData,"defaultTaxRate");
- const defaultTaxRateBasisPoints=Math.round(Number(defaultTaxRate||0)*100);
  if(acceptCheck&&!checkPayableTo)redirect(stripeResult(slug,"error","Enter who checks should be payable to."));
  if(acceptPhone&&!paymentPhone)redirect(stripeResult(slug,"error","Enter a phone number for phone payments."));
- if(!Number.isFinite(defaultTaxRateBasisPoints)||defaultTaxRateBasisPoints<0||defaultTaxRateBasisPoints>10000)redirect(stripeResult(slug,"error","Enter a valid manual tax rate between 0% and 100%."));
  const {error}=await supabase.from("business_billing_settings").upsert({
   business_id:business.id,accept_online_card:formData.get("acceptOnlineCard")==="on",
   accept_cash:formData.get("acceptCash")==="on",accept_check:acceptCheck,accept_pay_by_phone:acceptPhone,
   check_payable_to:checkPayableTo||null,payment_phone:paymentPhone||null,updated_at:new Date().toISOString(),
-  tax_enabled:formData.get("taxEnabled")==="on",
-  tax_calculation_method:text(formData,"taxCalculationMethod")==="automatic"?"automatic":"manual",
-  default_tax_rate_basis_points:defaultTaxRateBasisPoints,
-  tax_display_mode:text(formData,"taxDisplayMode")==="inclusive"?"inclusive":"exclusive",
-  default_invoice_item_taxable:text(formData,"defaultInvoiceItemTaxable")!=="false",
  },{onConflict:"business_id"});
  if(error){
   console.error("Invoice payment options update failed",{businessId:business.id,code:error.code,message:error.message,details:error.details,hint:error.hint});
   const message=["42703","PGRST204","PGRST205","42P01"].includes(error.code)
-   ?"Sales tax fields are not installed in the database yet. Apply the latest sales-tax migration, then try again."
+   ?"Billing settings are not installed in the database yet. Apply the latest billing migration, then try again."
    :error.code==="23514"
-    ?"One of the sales tax or payment settings failed validation. Review the tax rate and payment fields, then try again."
+    ?"One of the payment settings failed validation. Review the payment fields, then try again."
     :"Invoice payment options could not be saved.";
   redirect(stripeResult(slug,"error",message));
  }
  revalidatePath(`/app/${slug}/settings`);
  redirect(stripeResult(slug,"success","Invoice payment options saved."));
+}
+
+export async function updateTaxSettings(slug:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(taxResult(slug,"error","Only owners and admins can change tax settings."));
+ const defaultTaxRate=text(formData,"defaultTaxRate");
+ const defaultTaxRateBasisPoints=Math.round(Number(defaultTaxRate||0)*100);
+ if(!Number.isFinite(defaultTaxRateBasisPoints)||defaultTaxRateBasisPoints<0||defaultTaxRateBasisPoints>10000)redirect(taxResult(slug,"error","Enter a valid manual tax rate between 0% and 100%."));
+ const {error}=await supabase.from("business_billing_settings").upsert({
+  business_id:business.id,
+  tax_enabled:formData.get("taxEnabled")==="on",
+  tax_calculation_method:text(formData,"taxCalculationMethod")==="automatic"?"automatic":"manual",
+  default_tax_rate_basis_points:defaultTaxRateBasisPoints,
+  tax_display_mode:text(formData,"taxDisplayMode")==="inclusive"?"inclusive":"exclusive",
+  default_invoice_item_taxable:text(formData,"defaultInvoiceItemTaxable")!=="false",
+  updated_at:new Date().toISOString(),
+ },{onConflict:"business_id"});
+ if(error){
+  console.error("Tax settings update failed",{businessId:business.id,code:error.code,message:error.message,details:error.details,hint:error.hint});
+  const message=["42703","PGRST204","PGRST205","42P01"].includes(error.code)
+   ?"Sales tax fields are not installed in the database yet. Apply the latest sales-tax migration, then try again."
+   :error.code==="23514"
+    ?"One of the sales tax settings failed validation. Review the tax fields, then try again."
+    :"Tax settings could not be saved.";
+  redirect(taxResult(slug,"error",message));
+ }
+ revalidatePath(`/app/${slug}/settings`);
+ redirect(taxResult(slug,"success","Tax settings saved."));
 }
 
 export async function connectStripe(slug:string){
