@@ -62,7 +62,7 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
    </>}
 
    {mode==="live"&&<>
-    <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={liveCelebrationKey}/>
+    <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={liveCelebrationKey} fullscreen/>
     <div className="website-first-live-actions"><a className="sv-button" href={liveUrl} target="_blank" rel="noreferrer">View My Website</a><Link className="sv-button sv-secondary" href={`/onboarding?business=${encodeURIComponent(businessSlug)}&websiteStep=preview&websiteMode=preview&domainChoice=${websiteFirst?.domain_preference==="existing_domain"?"existing_domain":"need_domain"}&domainStage=${website?.custom_domain||websiteFirst?.requested_domain?"registered":"search"}`}>{website?.custom_domain||websiteFirst?.requested_domain?"Finish domain setup":"Get a custom domain"}</Link><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/settings/website`}>Customize Website</Link></div>
     <WebsiteLaunchPlayground businessSlug={businessSlug} initialTemplate={website?.template_key??"modern"} initialPrimary={website?.primary_color??"#1769f5"} initialSecondary={website?.secondary_color??"#0b1733"} initialHeading={website?.hero_heading??""} initialSubheading={website?.hero_subheading??""}/>
    </>}
