@@ -23,7 +23,7 @@ function useReducedMotion(){
  return reduced;
 }
 
-export function WebsiteCreationCelebration({source,businessId,businessSlug,celebrationKey}:{source:WebsiteFirstSource;businessId:string;businessSlug:string;celebrationKey?:string}){
+export function WebsiteCreationCelebration({source,businessId,businessSlug,celebrationKey,fullscreen=false}:{source:WebsiteFirstSource;businessId:string;businessSlug:string;celebrationKey?:string;fullscreen?:boolean}){
  const reducedMotion=useReducedMotion();
  const variant=variantForIndustry(source);
  const [active,setActive]=useState(false);
@@ -40,5 +40,5 @@ export function WebsiteCreationCelebration({source,businessId,businessSlug,celeb
   return ()=>window.clearTimeout(timer);
  },[businessId,businessSlug,celebrationKey,reducedMotion,source,variant]);
  if(!celebrationKey||reducedMotion)return null;
- return <div className={`website-creation-celebration ${active?"active":""}`} aria-hidden="true">{variant==="car_detailing_reveal"?<div className="website-celebration-detailing"><div className="website-celebration-soap"/><div className="website-celebration-squeegee"><span/><b/></div></div>:<div className="website-celebration-confetti">{particles.map(particle=><i key={particle.id} style={{left:particle.left,animationDelay:particle.delay,animationDuration:particle.duration,rotate:particle.rotate}}/>)}</div>}</div>;
+ return <div className={`website-creation-celebration ${active?"active":""}${fullscreen?" fullscreen":""}`} aria-hidden="true">{variant==="car_detailing_reveal"?<div className="website-celebration-detailing"><div className="website-celebration-soap"/><div className="website-celebration-squeegee"><span/><b/></div></div>:<div className="website-celebration-confetti">{particles.map(particle=><i key={particle.id} style={{left:particle.left,animationDelay:particle.delay,animationDuration:particle.duration,rotate:particle.rotate}}/>)}</div>}</div>;
 }
