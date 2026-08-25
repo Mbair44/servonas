@@ -166,7 +166,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   heroHeading:settings.hero_heading??`${business.name} keeps your home or business running smoothly.`,
   heroSubheading:settings.hero_subheading??"Reliable local service, clear communication, and a team that is ready when you need help.",
   aboutText:settings.about_text??`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`,instagramUrl:settings.instagram_url??null,
-  googleReviewUrl:googleRating?.googleMapsUri??settings.google_review_url,googleRating:googleProfile?.rating??googleRating?.rating??null,googleReviewCount:googleProfile?.reviewCount??googleRating?.reviewCount??null,googleReviews:googleProfile?.reviews.length?googleProfile.reviews.map(review=>({...review,fromGoogleProfile:true})):manualReviews,photoUrls:(settings.photo_urls??[]).filter(Boolean),requestEnabled:settings.request_service_enabled??true,
+  googleReviewUrl:googleRating?.googleMapsUri??settings.google_review_url,googleRating:googleProfile?.rating??googleRating?.rating??null,googleReviewCount:googleProfile?.reviewCount??googleRating?.reviewCount??null,googleReviews:googleProfile?.reviews.length?googleProfile.reviews.map(review=>({...review,fromGoogleProfile:true})):manualReviews,photoUrls:(settings.photo_urls??[]).filter(Boolean),photoMotionStyle:settings.photo_motion_style==="ken_burns"?"ken_burns":"static",requestEnabled:settings.request_service_enabled??true,
   bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
   announcementText:promotion?.announcement_text??null,
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
@@ -175,7 +175,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  };
 }
 
-const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
+const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
 
 async function queryPublishedBusinessWebsiteByDomain(rawDomain:string,route:DomainResolutionRoute):Promise<DomainSiteResolution>{
  const db=getSupabaseAdmin(),candidates=domainCandidatesFor(rawDomain);

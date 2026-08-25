@@ -44,7 +44,7 @@ function getUsage(index:number,photoCount:number){
  return "";
 }
 
-export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[];disabled?:boolean}){
+export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=false}:{photos?:string[];motionStyle?:"static"|"ken_burns";disabled?:boolean}){
  const [items,setItems]=useState(photos),[pendingRemove,setPendingRemove]=useState<PhotoItem|null>(null),[selected,setSelected]=useState<string[]>([]),[previewIndex,setPreviewIndex]=useState<number|null>(null),[libraryOpen,setLibraryOpen]=useState(false),[uploading,setUploading]=useState(false),[uploadError,setUploadError]=useState(""),[uploadStates,setUploadStates]=useState<UploadState[]>([]),[aiOpen,setAiOpen]=useState(false),[aiType,setAiType]=useState<WebsiteAiImageType>("hero_banner"),[aiDescription,setAiDescription]=useState(""),[aiStatus,setAiStatus]=useState<AiStatus>("idle"),[aiError,setAiError]=useState(""),[aiDraft,setAiDraft]=useState<AiDraft|null>(null);
  const lastSyncedPhotosRef=useRef(photos);
  useEffect(()=>{
@@ -151,6 +151,24 @@ export function WebsitePhotoManager({photos=[],disabled=false}:{photos?:string[]
     <button type="button" className="website-photo-manage-link" onClick={()=>setLibraryOpen(true)} disabled={disabled}>Manage photos</button>
    </header>
    {items.length?<div className="website-photo-hero-grid">{visiblePreviewItems.map((photo,index)=><button type="button" className="website-photo-thumb" onClick={()=>{setPreviewIndex(index);setLibraryOpen(true);}} key={photo.url}><img src={storageImageThumbUrl(photo.url)??photo.url} alt={`Website photo ${index+1}`} loading="lazy"/><span>{photo.usage}</span></button>)}{extraCount>0&&<button type="button" className="website-photo-thumb website-photo-thumb-more" onClick={()=>setLibraryOpen(true)}><strong>+{extraCount}</strong><span>More photos</span></button>}</div>:<div className="website-photo-empty"><strong>No website photos yet</strong><span>Upload photos to personalize your website.</span></div>}
+   <div className="website-photo-motion-setting">
+    <div className="website-photo-motion-copy">
+     <div className="website-photo-motion-title">
+      <strong>Photo motion</strong>
+      <span className="website-photo-tooltip" tabIndex={0} aria-label="Ken Burns effect explanation">?
+       <small>Ken Burns slowly pans and zooms your website photos so the page feels more polished and alive. It works best with wide, high-quality images and turns off automatically for visitors who prefer reduced motion.</small>
+      </span>
+     </div>
+     <p>Use a subtle Ken Burns effect on your uploaded website photos.</p>
+    </div>
+    <label className="website-photo-motion-toggle">
+     <input type="checkbox" name="photoMotionStyle" value="ken_burns" defaultChecked={motionStyle==="ken_burns"} disabled={disabled}/>
+     <span>
+      <b>Enable Ken Burns effect</b>
+      <small>Subtle pan-and-zoom motion on hero and about photos.</small>
+     </span>
+    </label>
+   </div>
    <div className="website-photo-actions">
     <label className="website-photo-upload">Upload photos<small>{uploading?`Uploading ${uploadStates.filter(item=>item.status==="done").length} of ${uploadStates.length} photos...`:"Drag photos here or choose files. Phone photos supported, including HEIC."}</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
     <button type="button" className="website-photo-ai-button" onClick={()=>void openAiGenerator()} disabled={disabled||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
