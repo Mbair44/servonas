@@ -4,6 +4,7 @@ import {useState} from "react";
 import {ManagementDrawer} from "./ManagementDrawer";
 import {CustomerActionIcon} from "./CustomerActionIcon";
 import {formatEmployeeNumber,type EmployeeNumbering} from "@/lib/employeeNumbering";
+import type { AutomaticTaxReadiness } from "@/lib/financial/stripeTax";
 
 type Action=(formData:FormData)=>void|Promise<void>;
 type NoArgAction=()=>void|Promise<void>;
@@ -18,9 +19,10 @@ function SectionHeader({icon,title,description,onEdit,editable}:{icon:"briefcase
 }
 const modeLabel=(mode:string|undefined)=>({office:"Main office",custom:"Custom address",first_job:"First job",last_job:"Last job",none:"None"}[mode??""]??"Not configured");
 
-export function SettingsDashboard({section,business,timezone,editable,canDelete,entitlement,endpointDefaults,technicians,endpointOverrides,routingPolicy,numbering,payment,invoicePaymentOptions,businessAction,routingAction,endpointAction,numberingAction,connectStripeAction,refreshStripeAction,disconnectStripeAction,invoicePaymentOptionsAction,taxSettingsAction,deleteWorkspaceAction}:{
+export function SettingsDashboard({section,business,timezone,editable,canDelete,entitlement,endpointDefaults,technicians,endpointOverrides,routingPolicy,numbering,payment,invoicePaymentOptions,automaticTaxReadiness,businessAction,routingAction,endpointAction,numberingAction,connectStripeAction,refreshStripeAction,disconnectStripeAction,invoicePaymentOptionsAction,taxSettingsAction,deleteWorkspaceAction}:{
  section:"general"|"operations"|"billing"|"employees";
  business:Row;timezone:string;editable:boolean;canDelete:boolean;entitlement:Row;endpointDefaults:Row|null;technicians:Row[];endpointOverrides:Row[];routingPolicy:Row|null;numbering:EmployeeNumbering;payment:Row;invoicePaymentOptions:Row|null;
+ automaticTaxReadiness:AutomaticTaxReadiness;
  businessAction:Action;routingAction:Action;endpointAction:Action;numberingAction:Action;connectStripeAction:NoArgAction;refreshStripeAction:NoArgAction;disconnectStripeAction:Action;invoicePaymentOptionsAction:Action;taxSettingsAction:Action;deleteWorkspaceAction:Action;
 }){
  const [drawer,setDrawer]=useState<DrawerName>(null);
@@ -75,7 +77,7 @@ export function SettingsDashboard({section,business,timezone,editable,canDelete,
    <SectionHeader icon="briefcase" title="Sales tax" description="Manage invoice tax defaults separately from payment collection." onEdit={()=>setDrawer("taxes")} editable={editable}/>
    <dl className="settings-business-summary">
     <div><dt>Tax status</dt><dd>{invoicePaymentOptions?.tax_enabled?"Enabled":"Disabled"}</dd></div>
-    <div><dt>Calculation method</dt><dd>{invoicePaymentOptions?.tax_calculation_method==="automatic"?"Automatic":"Manual"}</dd></div>
+    <div><dt>Calculation method</dt><dd>{invoicePaymentOptions?.tax_calculation_method==="automatic"?"Automatic (Stripe Tax)":"Manual"}</dd></div>
     <div><dt>Manual tax rate</dt><dd>{`${(Number(invoicePaymentOptions?.default_tax_rate_basis_points??0)/100).toFixed(2)}%`}</dd></div>
     <div><dt>Tax display</dt><dd>{invoicePaymentOptions?.tax_display_mode==="inclusive"?"Included in displayed prices":"Added on top of prices"}</dd></div>
     <div><dt>Default invoice item taxability</dt><dd>{invoicePaymentOptions?.default_invoice_item_taxable===false?"Non-taxable":"Taxable"}</dd></div>
@@ -107,7 +109,7 @@ export function SettingsDashboard({section,business,timezone,editable,canDelete,
   </ManagementDrawer>
 
   <ManagementDrawer open={drawer==="taxes"} title="Manage sales tax" subtitle="Configure invoice tax defaults without changing payment setup." onDirty={()=>{}} onClose={close}>
-   <form action={taxSettingsAction} className="settings-drawer-form single"><h3>Sales tax</h3><label className="settings-check wide"><input name="taxEnabled" type="checkbox" defaultChecked={invoicePaymentOptions?.tax_enabled??false}/>Charge sales tax on invoices</label><label>Calculation method<select name="taxCalculationMethod" defaultValue={invoicePaymentOptions?.tax_calculation_method??"manual"}><option value="manual">Manual tax rate</option><option value="automatic" disabled>Automatic tax calculation (coming soon)</option></select></label><label>Manual tax rate (%)<input name="defaultTaxRate" type="number" min="0" max="100" step=".01" defaultValue={(Number(invoicePaymentOptions?.default_tax_rate_basis_points??0)/100).toFixed(2)}/></label><label>Tax display<select name="taxDisplayMode" defaultValue={invoicePaymentOptions?.tax_display_mode??"exclusive"}><option value="exclusive">Add tax on top of prices</option><option value="inclusive">Tax included in displayed prices</option></select></label><label>Default invoice item taxability<select name="defaultInvoiceItemTaxable" defaultValue={String(invoicePaymentOptions?.default_invoice_item_taxable??true)}><option value="true">Taxable</option><option value="false">Non-taxable</option></select></label><p className="wide">Your business is responsible for determining its tax obligations, registrations, taxability settings, filing requirements, and remittance.</p><button className="sv-button">Save tax settings</button></form>
+   <form action={taxSettingsAction} className="settings-drawer-form single"><h3>Sales tax</h3><label className="settings-check wide"><input name="taxEnabled" type="checkbox" defaultChecked={invoicePaymentOptions?.tax_enabled??false}/>Charge sales tax on invoices</label><label>Calculation method<select name="taxCalculationMethod" defaultValue={invoicePaymentOptions?.tax_calculation_method??"manual"}><option value="manual">Manual tax rate</option><option value="automatic" disabled={automaticTaxReadiness.status!=="ready"}>Automatic tax calculation (Stripe Tax)</option></select></label><p className="wide">{automaticTaxReadiness.message}</p><label>Manual tax rate (%)<input name="defaultTaxRate" type="number" min="0" max="100" step=".01" defaultValue={(Number(invoicePaymentOptions?.default_tax_rate_basis_points??0)/100).toFixed(2)}/></label><label>Tax display<select name="taxDisplayMode" defaultValue={invoicePaymentOptions?.tax_display_mode??"exclusive"}><option value="exclusive">Add tax on top of prices</option><option value="inclusive">Tax included in displayed prices</option></select></label><label>Default invoice item taxability<select name="defaultInvoiceItemTaxable" defaultValue={String(invoicePaymentOptions?.default_invoice_item_taxable??true)}><option value="true">Taxable</option><option value="false">Non-taxable</option></select></label><p className="wide">Automatic tax calculates applicable sales tax using Stripe Tax and the service location. Manual tax remains available if Stripe is not connected or tax setup is incomplete.</p><p className="wide">Your business is responsible for determining its tax obligations, registrations, taxability settings, filing requirements, and remittance.</p><button className="sv-button">Save tax settings</button></form>
   </ManagementDrawer>
  </>;
 }

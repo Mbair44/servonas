@@ -114,9 +114,11 @@ export default function EstimateForm({
     </div>}
     {documentType === "invoice" && businessTaxSettings && <div className="workspace-notice wide">
       {businessTaxSettings.taxEnabled
-        ? businessTaxSettings.displayMode === "exclusive"
-          ? `Sales tax will be added on top of taxable line items at ${(businessTaxSettings.manualTaxRateBasisPoints / 100).toFixed(2)}%.`
-          : "Tax-inclusive pricing is not fully enabled yet; sales tax is currently added on top of taxable line items."
+        ? businessTaxSettings.calculationMethod === "automatic"
+          ? "Automatic tax will be calculated from the service or billing address when you save or send this invoice. If the address is incomplete, Servonas will ask you to complete it or switch back to manual tax."
+          : businessTaxSettings.displayMode === "exclusive"
+            ? `Sales tax will be added on top of taxable line items at ${(businessTaxSettings.manualTaxRateBasisPoints / 100).toFixed(2)}%.`
+            : "Tax-inclusive pricing is not fully enabled yet; sales tax is currently added on top of taxable line items."
         : "Sales tax is disabled for this business. Invoice totals will remain pre-tax."}
     </div>}
     <section className="estimate-lines wide"><div className="panel-title"><div><h2>Line items</h2>{error("lines")}</div><button type="button" className="sv-button sv-secondary sv-small" onClick={() => setLines((current) => [...current, blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)])}>Add custom line</button></div>

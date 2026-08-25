@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
 import { requireWorkspace,requireWorkspaceCapability } from "@/lib/workspace";
 import { createStripeOnboardingLink,stripeClient,stripeConnectState,stripeProviderError,syncStripeConnectAccount } from "@/lib/stripeConnect";
+import { stripeAutomaticTaxReadiness } from "@/lib/financial/stripeTax";
 import {validateEmployeeNumbering} from "@/lib/employeeNumbering";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {poolChemistryFields} from "@/lib/poolService";
@@ -206,11 +207,17 @@ export async function updateTaxSettings(slug:string,formData:FormData){
  if(!canManageBusiness(role))redirect(taxResult(slug,"error","Only owners and admins can change tax settings."));
  const defaultTaxRate=text(formData,"defaultTaxRate");
  const defaultTaxRateBasisPoints=Math.round(Number(defaultTaxRate||0)*100);
+ const taxCalculationMethod=text(formData,"taxCalculationMethod")==="automatic"?"automatic":"manual";
  if(!Number.isFinite(defaultTaxRateBasisPoints)||defaultTaxRateBasisPoints<0||defaultTaxRateBasisPoints>10000)redirect(taxResult(slug,"error","Enter a valid manual tax rate between 0% and 100%."));
+ if(taxCalculationMethod==="automatic"){
+  const {data:paymentAccount}=await supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled,disabled_reason,last_provider_error,capabilities").eq("business_id",business.id).eq("provider","stripe").maybeSingle();
+  const readiness=stripeAutomaticTaxReadiness(paymentAccount??null);
+  if(readiness.status!=="ready")redirect(taxResult(slug,"error",readiness.message));
+ }
  const {error}=await supabase.from("business_billing_settings").upsert({
   business_id:business.id,
   tax_enabled:formData.get("taxEnabled")==="on",
-  tax_calculation_method:text(formData,"taxCalculationMethod")==="automatic"?"automatic":"manual",
+  tax_calculation_method:taxCalculationMethod,
   default_tax_rate_basis_points:defaultTaxRateBasisPoints,
   tax_display_mode:text(formData,"taxDisplayMode")==="inclusive"?"inclusive":"exclusive",
   default_invoice_item_taxable:text(formData,"defaultInvoiceItemTaxable")!=="false",

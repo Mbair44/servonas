@@ -3,6 +3,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { defaultEmployeeNumbering } from "@/lib/employeeNumbering";
 import { stripePaymentsReady } from "@/lib/stripeConnect";
+import { stripeAutomaticTaxReadiness } from "@/lib/financial/stripeTax";
 import { SettingsDashboard } from "@/components/SettingsDashboard";
 import { connectStripe, deleteWorkspace, disconnectStripe, refreshStripeStatus, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy, updateTaxSettings } from "./actions";
 import {MissedCallRecoverySettings} from "@/components/MissedCallRecoverySettings";
@@ -19,7 +20,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
  const isPool=hasIndustryCapability(business.industry_profile,"poolServiceLogs");
  if(section==="pool-service"&&!isPool)notFound();
  const [{data:paymentAccount,error:paymentAccountError},{data:endpointDefaults},{data:technicians},{data:endpointOverrides},{data:routingPolicy},{data:numbering},{data:invoicePaymentOptions},{data:inboundSmsSettings},{data:missedCallSettings},{data:poolSettings},{data:poolRanges},{data:poolChemicals},{data:poolChecklist}]=await Promise.all([
-  supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled,details_submitted,requirements_currently_due,requirements_eventually_due,requirements_past_due,disabled_reason,last_provider_sync_at,last_provider_error,disconnected_at").eq("business_id",business.id).eq("provider","stripe").maybeSingle(),
+  supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled,details_submitted,requirements_currently_due,requirements_eventually_due,requirements_past_due,disabled_reason,last_provider_sync_at,last_provider_error,disconnected_at,capabilities").eq("business_id",business.id).eq("provider","stripe").maybeSingle(),
   editable?supabase.from("business_route_endpoint_defaults").select("*").eq("business_id",business.id).maybeSingle():Promise.resolve({data:null}),
   editable?supabase.from("technician_directory").select("id,preferred_name").eq("business_id",business.id).eq("is_active",true).eq("is_technician",true).order("preferred_name"):Promise.resolve({data:[]}),
   editable?supabase.from("technician_route_endpoint_overrides").select("*").eq("business_id",business.id):Promise.resolve({data:[]}),
@@ -39,6 +40,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
  }:defaultEmployeeNumbering;
  const restrictions=[...(paymentAccount?.requirements_past_due??[]),...(paymentAccount?.requirements_currently_due??[])];
  const payment={...paymentAccount,ready:Boolean(paymentAccount?.provider_account_id&&stripePaymentsReady(paymentAccount)),restrictions,error:Boolean(paymentAccountError)};
+ const automaticTaxReadiness=stripeAutomaticTaxReadiness(paymentAccount??null);
  const entitlement={
   name:entitlementSummary.name??"Access unavailable",status:entitlementSummary.effectiveStatus??"inactive",
   key:entitlementSummary.entitlement?.entitlement_key??null,startsAt:entitlementSummary.entitlement?.starts_at??null,
@@ -51,6 +53,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
    canDelete={isServonasPlatformAdmin(user)}
    endpointDefaults={endpointDefaults} technicians={technicians??[]} endpointOverrides={endpointOverrides??[]}
    routingPolicy={routingPolicy} numbering={employeeNumbering} payment={payment} invoicePaymentOptions={invoicePaymentOptions}
+   automaticTaxReadiness={automaticTaxReadiness}
    businessAction={updateBusinessSettings.bind(null,businessSlug)}
    routingAction={updateRoutingPolicy.bind(null,businessSlug)}
    endpointAction={updateRouteEndpoints.bind(null,businessSlug)}

@@ -10,6 +10,7 @@ export type FinancialLineInput = {
   unitPriceCents: number;
   taxable: boolean;
   taxRateBasisPoints?: number;
+  taxCentsOverride?: number;
   discount?: Discount;
 };
 
@@ -85,6 +86,7 @@ export function calculateFinancialDocument(input: FinancialDocumentInput) {
       afterLineDiscount: subtotal - lineDiscount,
       taxable: line.taxable,
       taxRate: line.taxable ? basisPoints(line.taxRateBasisPoints ?? 0, `Line ${index + 1} tax rate`) : 0n,
+      taxOverride: line.taxCentsOverride === undefined ? null : cents(line.taxCentsOverride, `Line ${index + 1} tax override`),
     };
   });
 
@@ -106,7 +108,8 @@ export function calculateFinancialDocument(input: FinancialDocumentInput) {
     remainingDiscount -= documentDiscountShare;
     remainingBase -= line.afterLineDiscount;
     const taxableAmount = line.afterLineDiscount - documentDiscountShare;
-    const tax = line.taxable ? roundDivide(taxableAmount * line.taxRate, 10_000n) : 0n;
+    const calculatedTax = line.taxable ? roundDivide(taxableAmount * line.taxRate, 10_000n) : 0n;
+    const tax = line.taxOverride ?? calculatedTax;
     return {
       id: line.id,
       lineSubtotalCents: safeNumber(line.subtotal, "Line subtotal"),
