@@ -22,7 +22,7 @@ export type PreparedInvoiceTaxContext = {
   settings: BusinessTaxSettings;
   customer: InvoiceTaxCustomer | null;
   provider: TaxProviderName;
-  source: "manual_business_rate" | "customer_exempt" | "tax_disabled";
+  source: "manual_business_rate" | "customer_exempt" | "tax_disabled" | "provider";
   effectiveTaxRateBasisPoints: number;
 };
 
@@ -40,6 +40,15 @@ export type InvoiceTaxSnapshot = {
   taxExemptionReference: string | null;
   externalTaxCalculationId: string | null;
   taxCalculatedAt: string;
+  taxProviderMetadata?: Record<string, unknown>;
+  taxSourceAddressSnapshot?: Record<string, unknown> | null;
+};
+
+export type InvoiceTaxProviderLineResult = {
+  taxCents: number;
+  taxRateBasisPoints: number;
+  taxProviderMetadata: Record<string, unknown>;
+  externalTaxCalculationId: string | null;
 };
 
 export type InvoiceFinancialDocumentResult = ReturnType<typeof calculateFinancialDocument> & {
@@ -68,6 +77,15 @@ export function resolveInvoiceTaxContext(input: {
       effectiveTaxRateBasisPoints: 0,
     };
   }
+  if (input.settings.calculationMethod === "automatic") {
+    return {
+      settings: input.settings,
+      customer: input.customer,
+      provider: "stripe_tax",
+      source: "provider",
+      effectiveTaxRateBasisPoints: 0,
+    };
+  }
   return {
     settings: input.settings,
     customer: input.customer,
@@ -87,12 +105,18 @@ export function calculateInvoiceDocumentWithTax(input: {
   amountRefundedCents?: number;
   taxContext: PreparedInvoiceTaxContext;
   taxCalculatedAt?: string;
+  providerMetadata?: Record<string, unknown>;
+  taxJurisdiction?: string | null;
+  externalTaxCalculationId?: string | null;
+  taxSourceAddressSnapshot?: Record<string, unknown> | null;
+  providerLineResults?: InvoiceTaxProviderLineResult[];
 }): InvoiceFinancialDocumentResult {
   const documentInput: FinancialDocumentInput = {
     currency: input.currency,
-    lines: input.lines.map((line) => ({
+    lines: input.lines.map((line, index) => ({
       ...line,
       taxRateBasisPoints: line.taxable ? input.taxContext.effectiveTaxRateBasisPoints : 0,
+      taxCentsOverride: input.providerLineResults?.[index]?.taxCents,
     })),
     documentDiscount: input.documentDiscount,
     feesCents: input.feesCents,
@@ -107,15 +131,17 @@ export function calculateInvoiceDocumentWithTax(input: {
     taxDisplayMode: input.taxContext.settings.displayMode,
     taxProvider: input.taxContext.provider,
     taxSource: input.taxContext.source,
-    taxJurisdiction: null,
+    taxJurisdiction: input.taxJurisdiction ?? null,
     taxableSubtotalCents,
     taxSubtotalCents: taxableSubtotalCents,
     taxAmountCents: totals.taxTotalCents,
     taxRateBasisPoints: input.taxContext.effectiveTaxRateBasisPoints,
     taxExemptCustomer: Boolean(input.taxContext.customer?.taxExempt),
     taxExemptionReference: input.taxContext.customer?.taxExemptionReference ?? null,
-    externalTaxCalculationId: null,
+    externalTaxCalculationId: input.externalTaxCalculationId ?? null,
     taxCalculatedAt: input.taxCalculatedAt ?? new Date().toISOString(),
+    taxProviderMetadata: input.providerMetadata ?? {},
+    taxSourceAddressSnapshot: input.taxSourceAddressSnapshot ?? null,
   };
   return { ...totals, taxSnapshot };
 }
