@@ -46,6 +46,57 @@ type TaxLineArtifact = {
   externalTaxCalculationId: string | null;
 };
 
+async function resolvePublicInvoiceOrigin(
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
+) {
+  const fallbackOrigin = (process.env.NEXT_PUBLIC_SITE_URL || (await headers()).get("origin") || "http://localhost:3000").replace(/\/$/, "");
+  const { data: website } = await context.supabase
+    .from("business_website_settings")
+    .select("custom_domain,domain_status")
+    .eq("business_id", context.business.id)
+    .maybeSingle();
+  if (website?.domain_status === "connected" && website.custom_domain) {
+    return `https://${String(website.custom_domain).replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+  }
+  return fallbackOrigin;
+}
+
+async function ensureInvoiceCustomer(
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
+  data: FormData,
+) {
+  const manualCustomerOption = "__manual_customer__";
+  const rawCustomerId = text(data, "customerId");
+  if (rawCustomerId !== manualCustomerOption) return { customerId: rawCustomerId, valuesCustomerId: rawCustomerId };
+  const manualName = text(data, "manualCustomerName");
+  if (!manualName) return { customerId: "", valuesCustomerId: rawCustomerId, error: "Enter the new customer name." };
+  const [firstName, ...rest] = manualName.split(/\s+/).filter(Boolean);
+  const lastName = rest.join(" ");
+  const { data: customer, error } = await context.supabase.from("customers").insert({
+    business_id: context.business.id,
+    first_name: firstName || manualName,
+    last_name: lastName || "",
+    company_name: manualName,
+    email: null,
+    phone: null,
+    secondary_phone: null,
+    preferred_contact_method: "email",
+    notes: "Created automatically while drafting an invoice.",
+    tax_exempt: false,
+    tax_exemption_reference: null,
+    tags: [],
+    lead_source: "Invoice draft",
+    is_active: true,
+    created_by: context.user.id,
+    updated_by: context.user.id,
+  }).select("id").single();
+  if (error || !customer) {
+    console.error("Invoice inline customer creation failed", { businessId: context.business.id, code: error?.code, message: error?.message });
+    return { customerId: "", valuesCustomerId: rawCustomerId, error: "The new customer could not be created." };
+  }
+  return { customerId: customer.id, valuesCustomerId: customer.id };
+}
+
 async function calculateInvoiceTotalsForBusiness(input: {
   settings: BusinessTaxSettings;
   customer: TaxCustomerRow;
@@ -135,9 +186,13 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   const values=valuesFrom(data),errors:Record<string,string>={};
   const lines=safeJson<EstimateLineDraft[]>(text(data,"linesJson"),[]);
   const fees=safeJson<EstimateFeeDraft[]>(text(data,"feesJson"),[]);
-  const customerId=text(data,"customerId"),locationId=text(data,"serviceLocationId")||null,jobId=text(data,"jobId")||null;
+  const inlineCustomer=await ensureInvoiceCustomer(context,data);
+  const customerId=inlineCustomer.customerId,locationId=text(data,"serviceLocationId")||null,jobId=text(data,"jobId")||null;
   const title=text(data,"title");
-  if(!customerId)errors.customerId="Choose a customer.";
+  values.customerId=inlineCustomer.valuesCustomerId;
+  if(text(data,"customerId")==="__manual_customer__")values.manualCustomerName=text(data,"manualCustomerName");
+  if(inlineCustomer.error)errors.manualCustomerName=inlineCustomer.error;
+  if(!customerId&&text(data,"customerId")!=="__manual_customer__")errors.customerId="Choose a customer.";
   if(!title)errors.title="Enter an invoice title.";
   if(!lines.length)errors.lines="Add at least one line item.";
   const [{data:customer},{data:location},{data:job},{data:billingSettings},{data:billingAddress},{data:paymentAccount}]=await Promise.all([
@@ -299,7 +354,8 @@ export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceA
 }
 
 export async function sendInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
+  const context=await requireWorkspaceCapability(slug,"invoices");
+  const {supabase,business,user,role}=context;
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const {data:invoice}=await supabase.from("invoices").select("id,business_id,customer_id,service_location_id,job_id,title,currency,deposit_type,deposit_value,amount_paid_cents,amount_refunded_cents,document_discount_type,document_discount_value,issue_date,due_date,status,allow_partial_payments,minimum_partial_payment_cents").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
   if(!invoice||invoice.status!=="draft")redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
@@ -397,13 +453,14 @@ export async function sendInvoice(slug:string,invoiceId:string){
   if(error||!data)redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
   revalidatePath(`/app/${slug}/invoices`);
-  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  const origin=await resolvePublicInvoiceOrigin(context);
   await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
+  const context=await requireWorkspaceCapability(slug,"invoices");
+  const {supabase,business,user,role}=context;
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const {data:invoice}=await supabase.from("invoices").select("status").eq("id",invoiceId).eq("business_id",business.id).maybeSingle();
   if(!invoice||!["sent","viewed","partially_paid","overdue"].includes(invoice.status))redirect(path(slug,invoiceId,"error","This invoice cannot be resent"));
@@ -414,7 +471,7 @@ export async function resendInvoice(slug:string,invoiceId:string){
   }).eq("id",invoiceId).eq("business_id",business.id);
   if(error){console.error("Invoice portal link rotation failed",{code:error.code,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error","A new secure invoice link could not be created"));}
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id,metadata:{resend:true}});
-  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  const origin=await resolvePublicInvoiceOrigin(context);
   await sendInvoiceFinancialEmail(invoiceId,"payment_link_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("New secure invoice link created")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }

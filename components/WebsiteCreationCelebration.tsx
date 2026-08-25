@@ -30,13 +30,15 @@ export function WebsiteCreationCelebration({source,businessId,businessSlug,celeb
  const particles=useMemo(()=>Array.from({length:18},(_,index)=>({id:index,left:`${6+index*5}%`,delay:`${(index%6)*0.07}s`,duration:`${1.1+(index%4)*0.18}s`,rotate:`${(index%5-2)*18}deg`})),[]);
  useEffect(()=>{
   if(!celebrationKey||typeof window==="undefined")return;
-  const storageKey=`servonas.website-celebration:${celebrationKey}`;
+  const storageKey=`servonas.website-celebration.v2:${celebrationKey}`;
   try{
    if(sessionStorage.getItem(storageKey))return;
-   sessionStorage.setItem(storageKey,"shown");
   }catch{}
   if(reducedMotion)return;
   setActive(true);
+  try{
+   sessionStorage.setItem(storageKey,"shown");
+  }catch{}
   try{
    trackAcquisition(source,"website_creation_celebration_shown",{industry:source,celebration_variant:variant,business_id:businessId,business_slug:businessSlug,timestamp:new Date().toISOString()});
   }catch{}
