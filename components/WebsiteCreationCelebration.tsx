@@ -31,11 +31,15 @@ export function WebsiteCreationCelebration({source,businessId,businessSlug,celeb
  useEffect(()=>{
   if(!celebrationKey||typeof window==="undefined")return;
   const storageKey=`servonas.website-celebration:${celebrationKey}`;
-  if(sessionStorage.getItem(storageKey))return;
-  sessionStorage.setItem(storageKey,"shown");
-  trackAcquisition(source,"website_creation_celebration_shown",{industry:source,celebration_variant:variant,business_id:businessId,business_slug:businessSlug,timestamp:new Date().toISOString()});
+  try{
+   if(sessionStorage.getItem(storageKey))return;
+   sessionStorage.setItem(storageKey,"shown");
+  }catch{}
   if(reducedMotion)return;
   setActive(true);
+  try{
+   trackAcquisition(source,"website_creation_celebration_shown",{industry:source,celebration_variant:variant,business_id:businessId,business_slug:businessSlug,timestamp:new Date().toISOString()});
+  }catch{}
   const timer=window.setTimeout(()=>setActive(false),1800);
   return ()=>window.clearTimeout(timer);
  },[businessId,businessSlug,celebrationKey,reducedMotion,source,variant]);
