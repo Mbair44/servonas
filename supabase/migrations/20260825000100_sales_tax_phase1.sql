@@ -2,6 +2,24 @@
 -- immutable invoice tax snapshots, and provider-ready tax metadata.
 begin;
 
+create or replace function public.protect_non_draft_invoice_children() returns trigger
+language plpgsql set search_path=public as $$
+declare v_invoice_id uuid; v_business_id uuid; v_status text;
+begin
+  if current_setting('servonas.allow_invoice_child_backfill', true) = 'on' then
+    if tg_op='DELETE' then return old; end if;
+    return new;
+  end if;
+  v_invoice_id:=coalesce(new.invoice_id,old.invoice_id);
+  v_business_id:=coalesce(new.business_id,old.business_id);
+  select status into v_status from public.invoices where id=v_invoice_id and business_id=v_business_id;
+  if v_status is distinct from 'draft' then
+    raise exception 'Only draft invoice details can be changed' using errcode='23514';
+  end if;
+  if tg_op='DELETE' then return old; end if;
+  return new;
+end $$;
+
 alter table public.business_billing_settings
   add column if not exists tax_calculation_method text not null default 'manual',
   add column if not exists tax_display_mode text not null default 'exclusive',
@@ -130,6 +148,8 @@ where
   or tax_calculated_at is null
   or tax_provider_metadata is null;
 
+select set_config('servonas.allow_invoice_child_backfill', 'on', true);
+
 update public.invoice_line_items
 set
   taxable_amount_cents = coalesce(
@@ -142,6 +162,8 @@ set
     case when is_taxable and coalesce(tax_amount_cents, 0) > 0 then 'manual_business_rate' else 'tax_disabled' end
   )
 where taxable_amount_cents is null or tax_provider_metadata is null or tax_source is null;
+
+select set_config('servonas.allow_invoice_child_backfill', 'off', true);
 
 create index if not exists invoices_tax_reporting_idx
   on public.invoices (business_id, issue_date, tax_provider, tax_source);

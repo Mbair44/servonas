@@ -195,7 +195,15 @@ export async function updateInvoicePaymentOptions(slug:string,formData:FormData)
   tax_display_mode:text(formData,"taxDisplayMode")==="inclusive"?"inclusive":"exclusive",
   default_invoice_item_taxable:text(formData,"defaultInvoiceItemTaxable")!=="false",
  },{onConflict:"business_id"});
- if(error){console.error("Invoice payment options update failed",{businessId:business.id,code:error.code});redirect(stripeResult(slug,"error","Invoice payment options could not be saved."));}
+ if(error){
+  console.error("Invoice payment options update failed",{businessId:business.id,code:error.code,message:error.message,details:error.details,hint:error.hint});
+  const message=["42703","PGRST204","PGRST205","42P01"].includes(error.code)
+   ?"Sales tax fields are not installed in the database yet. Apply the latest sales-tax migration, then try again."
+   :error.code==="23514"
+    ?"One of the sales tax or payment settings failed validation. Review the tax rate and payment fields, then try again."
+    :"Invoice payment options could not be saved.";
+  redirect(stripeResult(slug,"error",message));
+ }
  revalidatePath(`/app/${slug}/settings`);
  redirect(stripeResult(slug,"success","Invoice payment options saved."));
 }
