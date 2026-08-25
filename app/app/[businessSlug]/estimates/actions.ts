@@ -15,7 +15,7 @@ export type EstimateLineDraft = {
   id?: string; priceBookItemId?: string; serviceId?: string; name: string; description?: string;
   quantity: string; unitType: string; unitPrice: string; internalCost?: string;
   discountType: "none" | "fixed" | "percentage"; discountValue: string;
-  taxable: boolean; taxRateBasisPoints: number;
+  taxable: boolean; taxRateBasisPoints?: number; taxCode?: string;
 };
 export type EstimateFeeDraft = { name: string; amount: string };
 

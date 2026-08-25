@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { canManageCustomers } from "@/lib/access";
-import { calculateFinancialDocument, type Discount } from "@/lib/financial/calculations";
+import type { Discount } from "@/lib/financial/calculations";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
+import { calculateInvoiceDocumentWithTax, resolveInvoiceTaxContext, type BusinessTaxSettings } from "@/lib/financial/tax";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
@@ -35,19 +36,35 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   if(!customerId)errors.customerId="Choose a customer.";
   if(!title)errors.title="Enter an invoice title.";
   if(!lines.length)errors.lines="Add at least one line item.";
-  const [{data:customer},{data:location},{data:job}]=await Promise.all([
-    customerId?context.supabase.from("customers").select("id").eq("id",customerId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle():Promise.resolve({data:null}),
+  const [{data:customer},{data:location},{data:job},{data:billingSettings}]=await Promise.all([
+    customerId?context.supabase.from("customers").select("id,tax_exempt,tax_exemption_reference").eq("id",customerId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle():Promise.resolve({data:null}),
     locationId?context.supabase.from("service_locations").select("id,customer_id").eq("id",locationId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle():Promise.resolve({data:null}),
     jobId?context.supabase.from("jobs").select("id,customer_id").eq("id",jobId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle():Promise.resolve({data:null}),
+    context.supabase.from("business_billing_settings").select("tax_enabled,default_tax_rate_basis_points,tax_calculation_method,tax_display_mode,default_invoice_item_taxable").eq("business_id",context.business.id).maybeSingle(),
   ]);
   if(customerId&&!customer)errors.customerId="Customer does not belong to this business.";
   if(locationId&&(!location||location.customer_id!==customerId))errors.serviceLocationId="Location does not belong to this customer.";
   if(jobId&&(!job||job.customer_id!==customerId))errors.jobId="Job does not belong to this customer.";
+  const taxSettings:BusinessTaxSettings={
+    taxEnabled:Boolean(billingSettings?.tax_enabled),
+    calculationMethod:billingSettings?.tax_calculation_method==="automatic"?"automatic":"manual",
+    manualTaxRateBasisPoints:Number(billingSettings?.default_tax_rate_basis_points??0),
+    displayMode:billingSettings?.tax_display_mode==="inclusive"?"inclusive":"exclusive",
+    defaultInvoiceItemTaxable:Boolean(billingSettings?.default_invoice_item_taxable??true),
+  };
+  const taxContext=resolveInvoiceTaxContext({
+    settings:taxSettings,
+    customer:customer?{
+      id:customer.id,
+      taxExempt:Boolean(customer.tax_exempt),
+      taxExemptionReference:customer.tax_exemption_reference??null,
+    }:null,
+  });
   const lineInputs=lines.map((line,index)=>{
     const price=parseCurrencyToCents(line.unitPrice),cost=parseCurrencyToCents(line.internalCost||"0");
     const lineDiscount=discount(line.discountType,line.discountValue||"0");
     if(!line.name.trim()||price===null||cost===null||!lineDiscount)errors.lines=`Correct line ${index+1}.`;
-    return {currency:"USD",quantity:line.quantity,unitPriceCents:price??-1,taxable:line.taxable,taxRateBasisPoints:line.taxRateBasisPoints,discount:lineDiscount??undefined};
+    return {currency:"USD",quantity:line.quantity,unitPriceCents:price??-1,taxable:line.taxable,discount:lineDiscount??undefined};
   });
   const feeCents=fees.map((fee,index)=>{const amount=parseCurrencyToCents(fee.amount);if(!fee.name.trim()||amount===null)errors.fees=`Correct fee ${index+1}.`;return amount??-1;});
   const documentDiscount=discount(text(data,"documentDiscountType"),text(data,"documentDiscountValue")||"0");
@@ -56,7 +73,7 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   if(!deposit)errors.depositValue="Enter a valid deposit.";
   let totals;
   if(!Object.keys(errors).length){
-    try{totals=calculateFinancialDocument({currency:"USD",lines:lineInputs,feesCents:feeCents,documentDiscount:documentDiscount!,deposit:deposit!});}
+    try{totals=calculateInvoiceDocumentWithTax({currency:"USD",lines:lineInputs,feesCents:feeCents,documentDiscount:documentDiscount!,deposit:deposit!,taxContext});}
     catch(error){errors.lines=error instanceof Error?error.message:"Invoice totals are invalid.";}
   }
   const issueDate=text(data,"issueDate")||null,dueDate=text(data,"dueDate")||null;
@@ -69,9 +86,22 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
     customer_notes:text(data,"customerMessage")||null,internal_notes:text(data,"internalNotes")||null,
     currency:"USD",subtotal_cents:totals.subtotalCents,discount_total_cents:totals.discountTotalCents,
     tax_total_cents:totals.taxTotalCents,fee_total_cents:totals.feeTotalCents,grand_total_cents:totals.grandTotalCents,
+    tax_rate_basis_points:totals.taxSnapshot.taxRateBasisPoints,
+    taxable_subtotal_cents:totals.taxSnapshot.taxableSubtotalCents,
     deposit_type:text(data,"depositType"),deposit_value:deposit!.value,deposit_required_cents:totals.depositRequiredCents,
     balance_due_cents:totals.grandTotalCents,document_discount_type:text(data,"documentDiscountType"),
     document_discount_value:documentDiscount!.value,issue_date:issueDate,due_date:dueDate,
+    tax_calculation_method:totals.taxSnapshot.taxCalculationMethod,
+    tax_display_mode:totals.taxSnapshot.taxDisplayMode,
+    tax_provider:totals.taxSnapshot.taxProvider,
+    tax_source:totals.taxSnapshot.taxSource,
+    tax_jurisdiction:totals.taxSnapshot.taxJurisdiction,
+    external_tax_calculation_id:totals.taxSnapshot.externalTaxCalculationId,
+    tax_calculated_at:totals.taxSnapshot.taxCalculatedAt,
+    tax_customer_exempt:totals.taxSnapshot.taxExemptCustomer,
+    tax_exemption_reference_snapshot:totals.taxSnapshot.taxExemptionReference,
+    tax_provider_metadata:{},
+    tax_source_address_snapshot:null,
     allow_partial_payments:data.get("allowPartialPayments")==="on",
     minimum_partial_payment_cents:minimumPartialPayment!,
   }};
@@ -93,8 +123,9 @@ async function replaceChildren(context:Awaited<ReturnType<typeof requireWorkspac
       internal_unit_cost_cents:parseCurrencyToCents(line.internalCost||"0")!,discount_type:line.discountType,
       discount_value:discount(line.discountType,line.discountValue||"0")?.value??0,
       line_discount_cents:calculated.lineDiscountCents+calculated.documentDiscountShareCents,
-      is_taxable:line.taxable,tax_rate_basis_points:line.taxRateBasisPoints,line_subtotal_cents:calculated.lineSubtotalCents,
-      tax_amount_cents:calculated.taxCents,line_total_cents:calculated.lineTotalCents,sort_order:index,
+      is_taxable:line.taxable,tax_rate_basis_points:prepared.totals.taxSnapshot.taxRateBasisPoints,line_subtotal_cents:calculated.lineSubtotalCents,
+      taxable_amount_cents:calculated.taxableAmountCents,tax_amount_cents:calculated.taxCents,line_total_cents:calculated.lineTotalCents,sort_order:index,
+      tax_code_snapshot:line.taxCode?.trim()||null,tax_provider_metadata:{},tax_source:prepared.totals.taxSnapshot.taxSource,external_tax_calculation_id:null,
     };
   });
   const feeRows=prepared.fees.map((fee,index)=>({business_id:business.id,invoice_id:invoiceId,name_snapshot:fee.name.trim(),amount_cents:parseCurrencyToCents(fee.amount)!,sort_order:index}));

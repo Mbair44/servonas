@@ -10,7 +10,8 @@ type Customer={
  first_name?:string|null;last_name?:string|null;company_name?:string|null;
  email?:string|null;phone?:string|null;secondary_phone?:string|null;
  preferred_contact_method?:string|null;notes?:string|null;tags?:string[]|null;
- lead_source?:string|null;is_active?:boolean|null;
+ lead_source?:string|null;is_active?:boolean|null;tax_exempt?:boolean|null;
+ tax_exemption_reference?:string|null;
 };
 
 export function EditCustomerDrawer({customer,action,trigger="menu"}:{
