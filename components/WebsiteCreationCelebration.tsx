@@ -35,15 +35,29 @@ export function WebsiteCreationCelebration({source,businessId,businessSlug,celeb
    if(sessionStorage.getItem(storageKey))return;
   }catch{}
   if(reducedMotion)return;
-  setActive(true);
-  try{
-   sessionStorage.setItem(storageKey,"shown");
-  }catch{}
-  try{
-   trackAcquisition(source,"website_creation_celebration_shown",{industry:source,celebration_variant:variant,business_id:businessId,business_slug:businessSlug,timestamp:new Date().toISOString()});
-  }catch{}
-  const timer=window.setTimeout(()=>setActive(false),1800);
-  return ()=>window.clearTimeout(timer);
+  let cancelled=false;
+  let hideTimer=0;
+  const start=()=>{
+   if(cancelled)return;
+   setActive(false);
+   window.requestAnimationFrame(()=>{
+    if(cancelled)return;
+    setActive(true);
+    try{
+     sessionStorage.setItem(storageKey,"shown");
+    }catch{}
+    try{
+     trackAcquisition(source,"website_creation_celebration_shown",{industry:source,celebration_variant:variant,business_id:businessId,business_slug:businessSlug,timestamp:new Date().toISOString()});
+    }catch{}
+    hideTimer=window.setTimeout(()=>setActive(false),1800);
+   });
+  };
+  const startTimer=window.setTimeout(start,fullscreen?180:40);
+  return ()=>{
+   cancelled=true;
+   window.clearTimeout(startTimer);
+   window.clearTimeout(hideTimer);
+  };
  },[businessId,businessSlug,celebrationKey,reducedMotion,source,variant]);
  if(!celebrationKey||reducedMotion)return null;
  return <div className={`website-creation-celebration ${active?"active":""}${fullscreen?" fullscreen":""}`} aria-hidden="true">{variant==="car_detailing_reveal"?<div className="website-celebration-detailing"><div className="website-celebration-soap"/><div className="website-celebration-squeegee"><span/><b/></div></div>:<div className="website-celebration-confetti">{particles.map(particle=><i key={particle.id} style={{left:particle.left,animationDelay:particle.delay,animationDuration:particle.duration,rotate:particle.rotate}}/>)}</div>}</div>;
