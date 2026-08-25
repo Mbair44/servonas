@@ -41,6 +41,7 @@ export default async function Page({searchParams}:{searchParams:Promise<Record<s
    "/images/event-party-rentals-team-setting-up-tent.png",
    "/images/event-party-rentals-upscale-tent-setup.png",
   ],
+  photoMotionStyle:"static",
   requestEnabled:false,
   bookingEnabled:false,
   bookingUrl:null,
