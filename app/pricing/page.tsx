@@ -72,8 +72,8 @@ export default function Pricing(){
     <article className="pricing-card pricing-card-maintenance">
      <header><i aria-hidden="true"><PricingIcon name={websiteMaintenancePlan.icon as "website"}/></i><h2>{websiteMaintenancePlan.name}</h2></header>
      <p className="pricing-description">{websiteMaintenancePlan.description}</p>
-     <div className="pricing-price"><strong>${websiteMaintenancePlan.price}</strong><span>/month planned</span></div>
-     <p className="pricing-early-price"><s>${websiteMaintenancePlan.price}/month</s><b>FREE right now during Early Access</b></p>
+     <div className="pricing-price"><s>$59</s><strong>${websiteMaintenancePlan.price}</strong><span>/month planned</span></div>
+     <p className="pricing-early-price"><b>FREE right now during Early Access</b></p>
      <div className="pricing-divider"/>
      <ul>{websiteMaintenancePlan.features.map(feature=><li key={feature}><span>✓</span>{feature}</li>)}</ul>
      <div className="pricing-card-action"><Link className="pricing-outline-button" href="/signup">Start Free Early Access</Link><small>No charge right now. We&apos;ll give advance notice before website-maintenance billing begins.</small></div>
