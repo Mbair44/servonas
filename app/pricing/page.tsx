@@ -36,7 +36,7 @@ const plans=[
 
 const websiteMaintenancePlan={
  name:"Website Maintenance Only",
- price:"59",
+ price:"29",
  icon:"website",
  description:"For businesses that only want Servonas to keep a Servonas-built website live, secure, and up to date.",
  features:["Hosting and uptime monitoring","Routine website updates","Security and SSL upkeep","Basic content and contact-detail changes","Support for your Servonas website address or connected domain"],
@@ -81,7 +81,7 @@ export default function Pricing(){
    </section>
 
    <div className="workspace-notice success pricing-website-callout">
-    Want Servonas to just maintain your website? See the <strong>Website Maintenance Only</strong> option above. It&apos;s planned at <strong>$59/month</strong> and <strong>free right now during Early Access</strong>.
+    Want Servonas to just maintain your website? See the <strong>Website Maintenance Only</strong> option above. It&apos;s planned at <strong>$29/month</strong> and <strong>free right now during Early Access</strong>.
    </div>
 
    <div className="pricing-grid">{plans.map(plan=><article className={plan.featured?"pricing-card featured":"pricing-card"} key={plan.name}>
@@ -102,7 +102,7 @@ export default function Pricing(){
   <section className="pricing-faq"><div className="sv-container"><h2>Frequently asked questions</h2><div>
    <details><summary>How long is early access free?</summary><p>Early access is free while we build and improve Servonas. We’ll give you plenty of notice before paid billing begins.</p></details>
    <details><summary>When will you start charging?</summary><p>We have not set a paid launch date. Founding companies will be notified well in advance and can choose a plan before charges begin.</p></details>
-   <details><summary>What if I only want Servonas to maintain my website?</summary><p>We&apos;re planning a website-maintenance-only option at <strong>$59/month</strong> after early access. Right now, it&apos;s still <strong>free during Early Access</strong>, and we&apos;ll notify you well before any website-maintenance billing begins.</p></details>
+   <details><summary>What if I only want Servonas to maintain my website?</summary><p>We&apos;re planning a website-maintenance-only option at <strong>$29/month</strong> after early access. Right now, it&apos;s still <strong>free during Early Access</strong>, and we&apos;ll notify you well before any website-maintenance billing begins.</p></details>
    <details><summary>Can I change plans later?</summary><p>Yes. You’ll be able to move between plans as your business and team grow.</p></details>
   </div></div></section>
 
