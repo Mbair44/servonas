@@ -46,6 +46,21 @@ type TaxLineArtifact = {
   externalTaxCalculationId: string | null;
 };
 
+async function resolvePublicInvoiceOrigin(
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
+) {
+  const fallbackOrigin = (process.env.NEXT_PUBLIC_SITE_URL || (await headers()).get("origin") || "http://localhost:3000").replace(/\/$/, "");
+  const { data: website } = await context.supabase
+    .from("business_website_settings")
+    .select("custom_domain,domain_status")
+    .eq("business_id", context.business.id)
+    .maybeSingle();
+  if (website?.domain_status === "connected" && website.custom_domain) {
+    return `https://${String(website.custom_domain).replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+  }
+  return fallbackOrigin;
+}
+
 async function ensureInvoiceCustomer(
   context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
   data: FormData,
@@ -339,7 +354,8 @@ export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceA
 }
 
 export async function sendInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
+  const context=await requireWorkspaceCapability(slug,"invoices");
+  const {supabase,business,user,role}=context;
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const {data:invoice}=await supabase.from("invoices").select("id,business_id,customer_id,service_location_id,job_id,title,currency,deposit_type,deposit_value,amount_paid_cents,amount_refunded_cents,document_discount_type,document_discount_value,issue_date,due_date,status,allow_partial_payments,minimum_partial_payment_cents").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
   if(!invoice||invoice.status!=="draft")redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
@@ -437,13 +453,14 @@ export async function sendInvoice(slug:string,invoiceId:string){
   if(error||!data)redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
   revalidatePath(`/app/${slug}/invoices`);
-  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  const origin=await resolvePublicInvoiceOrigin(context);
   await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){
-  const {supabase,business,user,role}=await requireWorkspaceCapability(slug,"invoices");
+  const context=await requireWorkspaceCapability(slug,"invoices");
+  const {supabase,business,user,role}=context;
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const {data:invoice}=await supabase.from("invoices").select("status").eq("id",invoiceId).eq("business_id",business.id).maybeSingle();
   if(!invoice||!["sent","viewed","partially_paid","overdue"].includes(invoice.status))redirect(path(slug,invoiceId,"error","This invoice cannot be resent"));
@@ -454,7 +471,7 @@ export async function resendInvoice(slug:string,invoiceId:string){
   }).eq("id",invoiceId).eq("business_id",business.id);
   if(error){console.error("Invoice portal link rotation failed",{code:error.code,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error","A new secure invoice link could not be created"));}
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id,metadata:{resend:true}});
-  const origin=(process.env.NEXT_PUBLIC_SITE_URL||(await headers()).get("origin")||"http://localhost:3000").replace(/\/$/,"");
+  const origin=await resolvePublicInvoiceOrigin(context);
   await sendInvoiceFinancialEmail(invoiceId,"payment_link_sent",{publicUrl:`${origin}/invoice/${token}`});
   redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("New secure invoice link created")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
 }

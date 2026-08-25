@@ -14,6 +14,7 @@ export async function middleware(request:NextRequest){
  const hostname=request.nextUrl.hostname.toLowerCase(),productionHost=(process.env.NEXT_PUBLIC_APP_URL?new URL(process.env.NEXT_PUBLIC_APP_URL).hostname:"servonas.com").toLowerCase();
  const platformHosts=new Set([productionHost,`www.${productionHost}`,"localhost","127.0.0.1",process.env.VERCEL_URL?.toLowerCase()].filter(Boolean));
  if(!platformHosts.has(hostname)&&!hostname.endsWith(".vercel.app")){
+  if(path.startsWith("/invoice/")||path.startsWith("/estimate/")) return NextResponse.next();
   if(isBlockedCustomDomainProbePath(path)){
    console.info("Blocked custom-domain probe path",{hostname,path});
    return new NextResponse(null,{status:404});
