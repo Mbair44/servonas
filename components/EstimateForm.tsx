@@ -153,6 +153,11 @@ export default function EstimateForm({
   const [expandedLineIndex, setExpandedLineIndex] = useState<number | null>(
     isInvoice && (!initialLines.length || newDocument) ? 0 : null,
   );
+  const [lineEditorSnapshot, setLineEditorSnapshot] = useState<{ index: number; line: EstimateLineDraft; isNew: boolean } | null>(
+    isInvoice && (!initialLines.length || newDocument)
+      ? { index: 0, line: blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true), isNew: !initialLines.length || newDocument }
+      : null,
+  );
 
   const selectedExistingCustomerId = customerId === manualCustomerOption ? "" : customerId;
   const visibleLocations = locations.filter((row) => row.customer_id === selectedExistingCustomerId);
@@ -182,6 +187,30 @@ export default function EstimateForm({
 
   const updateLine = (index: number, patch: Partial<EstimateLineDraft>) =>
     setLines((current) => current.map((line, position) => (position === index ? { ...line, ...patch } : line)));
+
+  const openLineEditor = (index: number, isNew = false) => {
+    setExpandedLineIndex(index);
+    setLineEditorSnapshot({ index, line: { ...lines[index] }, isNew });
+  };
+
+  const closeLineEditor = () => {
+    setExpandedLineIndex(null);
+    setLineEditorSnapshot(null);
+  };
+
+  const cancelLineEditor = () => {
+    if (lineEditorSnapshot) {
+      if (lineEditorSnapshot.isNew) {
+        setLines((current) => current.filter((_, position) => position !== lineEditorSnapshot.index));
+      } else {
+        setLines((current) =>
+          current.map((line, position) => (position === lineEditorSnapshot.index ? { ...lineEditorSnapshot.line } : line)),
+        );
+      }
+    }
+    setExpandedLineIndex(null);
+    setLineEditorSnapshot(null);
+  };
 
   const addPriceItem = (index: number, id: string) => {
     const item = priceItems.find((row) => row.id === id);
@@ -247,8 +276,11 @@ export default function EstimateForm({
   );
 
   const addLine = () => {
-    setExpandedLineIndex(lines.length);
-    setLines((current) => [...current, blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)]);
+    const nextLine = blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true);
+    const nextIndex = lines.length;
+    setLines((current) => [...current, nextLine]);
+    setExpandedLineIndex(nextIndex);
+    setLineEditorSnapshot({ index: nextIndex, line: { ...nextLine }, isNew: true });
   };
   const removeLine = (index: number) => {
     setLines((current) => current.filter((_, position) => position !== index));
@@ -256,6 +288,12 @@ export default function EstimateForm({
       if (current === null) return null;
       if (current === index) return null;
       return current > index ? current - 1 : current;
+    });
+    setLineEditorSnapshot((current) => {
+      if (!current) return null;
+      if (current.index === index) return null;
+      if (current.index > index) return { ...current, index: current.index - 1 };
+      return current;
     });
   };
   const lineAmount = (index: number) => {
@@ -468,23 +506,16 @@ export default function EstimateForm({
                       </span>
                     </div>
                     <div className="estimate-line-summary-actions">
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() => setExpandedLineIndex(isExpanded ? null : index)}
-                        aria-label={isExpanded ? `Collapse invoice item ${index + 1}` : `Edit invoice item ${index + 1}`}
-                      >
-                        {isExpanded ? "Done" : "Edit"}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-button danger"
-                        disabled={lines.length === 1}
-                        aria-label={`Remove invoice item ${index + 1}`}
-                        onClick={() => removeLine(index)}
-                      >
-                        Remove
-                      </button>
+                      {!isExpanded && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => openLineEditor(index)}
+                          aria-label={`Edit invoice item ${index + 1}`}
+                        >
+                          Edit
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -600,6 +631,20 @@ export default function EstimateForm({
                           )}
                         </div>
                       </div>
+
+                      {isInvoice && (
+                        <div className="invoice-line-footer-actions">
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={closeLineEditor}>
+                            Done
+                          </button>
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
+                            + Add Another item
+                          </button>
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={cancelLineEditor}>
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </article>
@@ -867,9 +912,20 @@ export default function EstimateForm({
             <p className="estimate-summary-empty">Correct the invoice details to preview the totals.</p>
           )}
           <div className="estimate-summary-actions">
-            <button className="sv-button" disabled={pending}>
-              {pending ? "Saving…" : submitLabel}
-            </button>
+            {isInvoice && newDocument ? (
+              <>
+                <button className="sv-button" disabled={pending}>
+                  {pending ? "Saving…" : submitLabel}
+                </button>
+                <button className="sv-button sv-secondary" disabled={pending} name="submissionMode" value="send">
+                  {pending ? "Saving…" : "Create and email invoice"}
+                </button>
+              </>
+            ) : (
+              <button className="sv-button" disabled={pending}>
+                {pending ? "Saving…" : submitLabel}
+              </button>
+            )}
           </div>
         </div>
       </aside>
