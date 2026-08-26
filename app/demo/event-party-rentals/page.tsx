@@ -59,7 +59,7 @@ export default async function Page({searchParams}:{searchParams:Promise<Record<s
   announcementText:"Demo website only. Availability and checkout are disabled in this example.",
  };
  return <>
-  <aside className="industry-example-banner"><span>This is a fictional example website built with Servonas.</span><Link href={`/signup?${query}`}>Build My Rental Website — Free</Link></aside>
+  <aside className="industry-example-banner"><span>This is a fictional example website built with Servonas.</span><Link href={`/onboarding?${query}`}>Build My Rental Website — Free</Link></aside>
   <BusinessWebsite site={site}/>
  </>;
 }

@@ -23,7 +23,7 @@ const included=[
 ];
 const attributionKeys=["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid"] as const;
 
-function signupHref(params:Record<string,string|string[]|undefined>){const query=new URLSearchParams({source:"pest-control-website"});for(const key of attributionKeys){const raw=params[key],value=Array.isArray(raw)?raw[0]:raw;if(value)query.set(key,value.slice(0,500));}return `/signup?${query}`;}
+function signupHref(params:Record<string,string|string[]|undefined>){const query=new URLSearchParams({source:"pest-control-website"});for(const key of attributionKeys){const raw=params[key],value=Array.isArray(raw)?raw[0]:raw;if(value)query.set(key,value.slice(0,500));}return `/onboarding?${query}`;}
 function demoHref(params:Record<string,string|string[]|undefined>){const query=new URLSearchParams();for(const key of attributionKeys){const raw=params[key],value=Array.isArray(raw)?raw[0]:raw;if(value)query.set(key,value.slice(0,500));}const suffix=query.toString();return `/demo/pest-control${suffix?`?${suffix}`:""}`;}
 
 export default async function PestControlWebsitePage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
