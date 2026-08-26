@@ -122,7 +122,9 @@ export default function EstimateForm({
   const [manualCustomerCompanyName, setManualCustomerCompanyName] = useState(String(state.values?.manualCustomerCompanyName ?? ""));
   const [manualCustomerEmail, setManualCustomerEmail] = useState(String(state.values?.manualCustomerEmail ?? ""));
   const [manualCustomerPhone, setManualCustomerPhone] = useState(String(state.values?.manualCustomerPhone ?? ""));
-  const [lines, setLines] = useState(initialLines.length ? initialLines : [blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)]);
+  const [lines, setLines] = useState(
+    initialLines.length ? initialLines : isInvoice ? [] : [blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)],
+  );
   const [fees, setFees] = useState(initialFees);
   const [discountType, setDiscountType] = useState(String(estimate?.document_discount_type ?? "none"));
   const [discountValue, setDiscountValue] = useState(
@@ -150,14 +152,12 @@ export default function EstimateForm({
     Boolean(String(state.values?.internalNotes ?? estimate?.internal_notes ?? "").trim()),
   );
   const [allowPartialPayments, setAllowPartialPayments] = useState(Boolean(estimate?.allow_partial_payments));
-  const [expandedLineIndex, setExpandedLineIndex] = useState<number | null>(
-    isInvoice && (!initialLines.length || newDocument) ? 0 : null,
-  );
-  const [lineEditorSnapshot, setLineEditorSnapshot] = useState<{ index: number; line: EstimateLineDraft; isNew: boolean } | null>(
-    isInvoice && (!initialLines.length || newDocument)
-      ? { index: 0, line: blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true), isNew: !initialLines.length || newDocument }
-      : null,
-  );
+  const [expandedLineIndex, setExpandedLineIndex] = useState<number | null>(null);
+  const [lineEditorSnapshot, setLineEditorSnapshot] = useState<{ index: number; line: EstimateLineDraft; isNew: boolean } | null>(null);
+  const [lineDescriptionOpen, setLineDescriptionOpen] = useState<Record<number, boolean>>({});
+  const [lineOptionsOpen, setLineOptionsOpen] = useState<Record<number, boolean>>({});
+  const [lineErrors, setLineErrors] = useState<Record<number, Partial<Record<"name" | "quantity" | "rate", string>>>>({});
+  const itemInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const selectedExistingCustomerId = customerId === manualCustomerOption ? "" : customerId;
   const visibleLocations = locations.filter((row) => row.customer_id === selectedExistingCustomerId);
@@ -188,14 +188,29 @@ export default function EstimateForm({
   const updateLine = (index: number, patch: Partial<EstimateLineDraft>) =>
     setLines((current) => current.map((line, position) => (position === index ? { ...line, ...patch } : line)));
 
+  const validateLine = (line: EstimateLineDraft) => {
+    const errors: Partial<Record<"name" | "quantity" | "rate", string>> = {};
+    if (!line.name.trim()) errors.name = "Item is required.";
+    const quantity = Number(line.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) errors.quantity = "Quantity must be greater than zero.";
+    if (parseCurrencyToCents(line.unitPrice) === null) errors.rate = "Rate must be valid.";
+    return errors;
+  };
+
+  const saveLineErrors = (index: number, errors: Partial<Record<"name" | "quantity" | "rate", string>>) => {
+    setLineErrors((current) => {
+      if (!Object.keys(errors).length) {
+        const next = { ...current };
+        delete next[index];
+        return next;
+      }
+      return { ...current, [index]: errors };
+    });
+  };
+
   const openLineEditor = (index: number, isNew = false) => {
     setExpandedLineIndex(index);
     setLineEditorSnapshot({ index, line: { ...lines[index] }, isNew });
-  };
-
-  const closeLineEditor = () => {
-    setExpandedLineIndex(null);
-    setLineEditorSnapshot(null);
   };
 
   const cancelLineEditor = () => {
@@ -208,6 +223,7 @@ export default function EstimateForm({
         );
       }
     }
+    saveLineErrors(lineEditorSnapshot?.index ?? -1, {});
     setExpandedLineIndex(null);
     setLineEditorSnapshot(null);
   };
@@ -226,6 +242,55 @@ export default function EstimateForm({
       taxable: item.is_taxable,
       taxCode: item.tax_code ?? "",
     });
+  };
+
+  const syncLineWithItemInput = (index: number, value: string) => {
+    const exactMatch = priceItems.find((item) => item.name.toLowerCase() === value.trim().toLowerCase());
+    if (exactMatch) {
+      addPriceItem(index, exactMatch.id);
+      return;
+    }
+    updateLine(index, { name: value, priceBookItemId: undefined, serviceId: undefined });
+  };
+
+  const hasAdvancedOptions = (line: EstimateLineDraft) =>
+    line.unitType !== "each" ||
+    line.discountType !== "none" ||
+    Number(line.discountValue || "0") > 0 ||
+    (taxEnabled && (!line.taxable || Boolean(line.taxCode?.trim())));
+
+  const lineDescriptionVisible = (line: EstimateLineDraft, index: number) =>
+    Boolean(line.description?.trim()) || Boolean(lineDescriptionOpen[index]);
+
+  const lineOptionsVisible = (line: EstimateLineDraft, index: number) =>
+    hasAdvancedOptions(line) || Boolean(lineOptionsOpen[index]);
+
+  const focusItemField = (index: number) => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => itemInputRefs.current[index]?.focus());
+  };
+
+  useEffect(() => {
+    if (expandedLineIndex !== null) focusItemField(expandedLineIndex);
+  }, [expandedLineIndex]);
+
+  const completeLineEditing = (index: number) => {
+    const errors = validateLine(lines[index]);
+    saveLineErrors(index, errors);
+    if (Object.keys(errors).length) return false;
+    setExpandedLineIndex(null);
+    setLineEditorSnapshot(null);
+    return true;
+  };
+
+  const remapIndexedState = <T,>(current: Record<number, T>, removedIndex: number) => {
+    const next: Record<number, T> = {};
+    Object.entries(current).forEach(([rawKey, value]) => {
+      const key = Number(rawKey);
+      if (key === removedIndex) return;
+      next[key > removedIndex ? key - 1 : key] = value;
+    });
+    return next;
   };
 
   const totals = useMemo<ReturnType<typeof calculateFinancialDocument> | InvoiceFinancialDocumentResult | null>(() => {
@@ -276,14 +341,20 @@ export default function EstimateForm({
   );
 
   const addLine = () => {
+    if (expandedLineIndex !== null && !completeLineEditing(expandedLineIndex)) return;
     const nextLine = blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true);
     const nextIndex = lines.length;
     setLines((current) => [...current, nextLine]);
     setExpandedLineIndex(nextIndex);
     setLineEditorSnapshot({ index: nextIndex, line: { ...nextLine }, isNew: true });
+    setLineDescriptionOpen((current) => ({ ...current, [nextIndex]: false }));
+    setLineOptionsOpen((current) => ({ ...current, [nextIndex]: false }));
   };
   const removeLine = (index: number) => {
     setLines((current) => current.filter((_, position) => position !== index));
+    setLineDescriptionOpen((current) => remapIndexedState(current, index));
+    setLineOptionsOpen((current) => remapIndexedState(current, index));
+    setLineErrors((current) => remapIndexedState(current, index));
     setExpandedLineIndex((current) => {
       if (current === null) return null;
       if (current === index) return null;
@@ -471,193 +542,239 @@ export default function EstimateForm({
 
           {error("lines")}
 
-          <div className={`estimate-line-list${isInvoice ? " invoice-line-list" : ""}`}>
-            {lines.map((line, index) => {
-              const badges = lineSettingBadges(line, taxEnabled);
-              const isExpanded = !isInvoice || expandedLineIndex === index;
-              return (
-                <article className={`estimate-line-card${isExpanded ? " expanded" : " collapsed"}${isInvoice ? " invoice-line-card" : ""}`} key={index}>
-                  <div className="estimate-line-summary">
-                    <button
-                      type="button"
-                      className="estimate-line-summary-toggle"
-                      onClick={() => setExpandedLineIndex(isExpanded ? null : index)}
-                      aria-expanded={isExpanded}
-                      aria-controls={`invoice-line-editor-${index}`}
-                    >
-                      <div className="estimate-line-summary-main">
-                        <span className="estimate-line-label">Item {index + 1}</span>
-                        <strong>{line.name.trim() || "Untitled item"}</strong>
-                        <small>{line.description?.trim() || (badges.length ? badges.join(" · ") : "Edit item details")}</small>
-                      </div>
-                    </button>
-                    <div className="estimate-line-summary-metrics">
-                      <span>
-                        Qty
-                        <b>{line.quantity || "0"}</b>
-                      </span>
-                      <span>
-                        Rate
-                        <b>{formatCents(parseCurrencyToCents(line.unitPrice) ?? 0)}</b>
-                      </span>
-                      <span className="estimate-line-amount">
-                        Amount
-                        <b>{lineAmount(index)}</b>
-                      </span>
-                    </div>
-                    <div className="estimate-line-summary-actions">
-                      {!isExpanded && (
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => openLineEditor(index)}
-                          aria-label={`Edit invoice item ${index + 1}`}
-                        >
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {badges.length > 0 && (
-                    <div className="estimate-line-badges" aria-label={`Invoice item ${index + 1} settings`}>
-                      {badges.map((badge) => (
-                        <span key={badge}>{badge}</span>
-                      ))}
-                    </div>
-                  )}
-
-                  {isExpanded && (
-                    <div className="estimate-line-fields" id={`invoice-line-editor-${index}`}>
-                      <div className="estimate-line-fields-grid">
-                        <label>
-                          Price book
-                          <select value={line.priceBookItemId ?? ""} onChange={(event) => addPriceItem(index, event.target.value)}>
-                            <option value="">Custom item</option>
-                            {priceItems.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <label className="estimate-field-span-2">
-                          Item
-                          <input value={line.name} onChange={(event) => updateLine(index, { name: event.target.value })} placeholder="AC tune-up, service fee, etc." />
-                        </label>
-
-                        <span>
-                          Line amount
-                          <b>{lineAmount(index)}</b>
-                        </span>
-
-                        <label>
-                          Qty
-                          <input value={line.quantity} inputMode="decimal" onChange={(event) => updateLine(index, { quantity: event.target.value })} />
-                        </label>
-
-                        <label>
-                          Rate
-                          <div className="estimate-money-input">
-                            <span>$</span>
-                            <input
-                              value={currencyInputValue(line.unitPrice)}
-                              type="number"
-                              min="0"
-                              step=".01"
-                              onChange={(event) => updateLine(index, { unitPrice: event.target.value || "0" })}
-                            />
-                          </div>
-                        </label>
-
-                        <label className="estimate-field-span-3">
-                          Description
-                          <textarea
-                            rows={2}
-                            value={line.description ?? ""}
-                            onChange={(event) => updateLine(index, { description: event.target.value })}
-                            placeholder="Optional description shown on the invoice."
-                          />
-                        </label>
-                      </div>
-
-                      <div className="estimate-line-advanced">
-                        <h3>More options</h3>
-                        <div className="estimate-line-advanced-grid">
-                          <label>
-                            Unit
-                            <select value={line.unitType} onChange={(event) => updateLine(index, { unitType: event.target.value })}>
-                              {priceBookUnitTypes.map((unit) => (
-                                <option key={unit} value={unit}>
-                                  {unit.replaceAll("_", " ")}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-
-                          <label>
-                            Discount type
-                            <select value={line.discountType} onChange={(event) => updateLine(index, { discountType: event.target.value as EstimateLineDraft["discountType"] })}>
-                              <option value="none">None</option>
-                              <option value="fixed">Fixed</option>
-                              <option value="percentage">Percent</option>
-                            </select>
-                          </label>
-
-                          <label>
-                            Discount value
-                            <input
-                              value={line.discountValue}
-                              type="number"
-                              min="0"
-                              step=".01"
-                              disabled={line.discountType === "none"}
-                              onChange={(event) => updateLine(index, { discountValue: event.target.value })}
-                            />
-                          </label>
-
-                          {taxEnabled && (
-                            <>
-                              <label className="estimate-toggle-row">
-                                <input type="checkbox" checked={line.taxable} onChange={(event) => updateLine(index, { taxable: event.target.checked })} />
-                                <span>Taxable item</span>
-                              </label>
-                              <label>
-                                Tax code
-                                <input value={line.taxCode ?? ""} placeholder="Optional" onChange={(event) => updateLine(index, { taxCode: event.target.value })} />
-                              </label>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="estimate-add-row">
-            {isInvoice && expandedLineIndex !== null ? (
-              <>
-                <button type="button" className="sv-button sv-secondary sv-small" onClick={closeLineEditor}>
-                  Done
-                </button>
-                <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
-                  + Add Another item
-                </button>
-                <button type="button" className="sv-button sv-secondary sv-small" onClick={cancelLineEditor}>
-                  Cancel
-                </button>
-              </>
-            ) : (
+          {!lines.length ? (
+            <div className="estimate-line-empty">
+              <p>No line items yet.</p>
               <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
                 + Add item
               </button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className={`estimate-line-list${isInvoice ? " invoice-line-list" : ""}`}>
+              {lines.map((line, index) => {
+                const badges = lineSettingBadges(line, taxEnabled);
+                const isExpanded = !isInvoice || expandedLineIndex === index;
+                const descriptionVisible = lineDescriptionVisible(line, index);
+                const optionsVisible = lineOptionsVisible(line, index);
+                const currentLineErrors = lineErrors[index] ?? {};
+                return (
+                  <article className={`estimate-line-card${isExpanded ? " expanded" : " collapsed"}${isInvoice ? " invoice-line-card" : ""}`} key={index}>
+                    {!isExpanded ? (
+                      <>
+                        <button
+                          type="button"
+                          className="estimate-line-summary-toggle"
+                          onClick={() => openLineEditor(index)}
+                          aria-expanded={false}
+                          aria-controls={`invoice-line-editor-${index}`}
+                        >
+                          <div className="estimate-line-summary invoice-line-summary-row">
+                            <div className="estimate-line-summary-main">
+                              <strong>{line.name.trim() || "Untitled item"}</strong>
+                              <small>{line.description?.trim() || "Optional short description"}</small>
+                            </div>
+                            <div className="estimate-line-summary-metrics">
+                              <span>
+                                Qty
+                                <b>{line.quantity || "0"}</b>
+                              </span>
+                              <span>
+                                Rate
+                                <b>{formatCents(parseCurrencyToCents(line.unitPrice) ?? 0)}</b>
+                              </span>
+                              <span className="estimate-line-amount">
+                                Amount
+                                <b>{lineAmount(index)}</b>
+                              </span>
+                            </div>
+                            <div className="estimate-line-summary-actions">
+                              <span className="text-button">Edit</span>
+                            </div>
+                          </div>
+                        </button>
+                        {badges.length > 0 && (
+                          <div className="estimate-line-badges" aria-label={`Invoice item ${index + 1} settings`}>
+                            {badges.map((badge) => (
+                              <span key={badge}>{badge}</span>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="estimate-line-fields" id={`invoice-line-editor-${index}`}>
+                        <div className="estimate-line-editor-head">
+                          <span className="estimate-line-label">Item {index + 1}</span>
+                          <button type="button" className="text-button danger" onClick={cancelLineEditor}>
+                            {lineEditorSnapshot?.isNew ? "Discard item" : "Discard changes"}
+                          </button>
+                        </div>
+
+                        <div className="estimate-line-fields-grid">
+                          <label className="estimate-field-span-3">
+                            Item
+                            <input
+                              ref={(node) => {
+                                itemInputRefs.current[index] = node;
+                              }}
+                              list={`price-book-items-${index}`}
+                              value={line.name}
+                              onChange={(event) => syncLineWithItemInput(index, event.target.value)}
+                              onBlur={(event) => syncLineWithItemInput(index, event.target.value)}
+                              placeholder="AC tune-up, service fee, etc."
+                              aria-invalid={currentLineErrors.name ? "true" : undefined}
+                            />
+                            <datalist id={`price-book-items-${index}`}>
+                              {priceItems.map((item) => (
+                                <option key={item.id} value={item.name} />
+                              ))}
+                            </datalist>
+                            {currentLineErrors.name ? <small className="crm-field-error">{currentLineErrors.name}</small> : null}
+                          </label>
+
+                          <label>
+                            Qty
+                            <input
+                              value={line.quantity}
+                              inputMode="decimal"
+                              onChange={(event) => updateLine(index, { quantity: event.target.value })}
+                              aria-invalid={currentLineErrors.quantity ? "true" : undefined}
+                            />
+                            {currentLineErrors.quantity ? <small className="crm-field-error">{currentLineErrors.quantity}</small> : null}
+                          </label>
+
+                          <label>
+                            Rate
+                            <div className="estimate-money-input">
+                              <span>$</span>
+                              <input
+                                value={currencyInputValue(line.unitPrice)}
+                                type="number"
+                                min="0"
+                                step=".01"
+                                onChange={(event) => updateLine(index, { unitPrice: event.target.value || "0" })}
+                                aria-invalid={currentLineErrors.rate ? "true" : undefined}
+                              />
+                            </div>
+                            {currentLineErrors.rate ? <small className="crm-field-error">{currentLineErrors.rate}</small> : null}
+                          </label>
+
+                          <div className="estimate-line-amount-panel">
+                            <span>Amount</span>
+                            <b>{lineAmount(index)}</b>
+                          </div>
+                        </div>
+
+                        <div className="estimate-line-editor-links">
+                          {!descriptionVisible ? (
+                            <button type="button" className="text-button" onClick={() => setLineDescriptionOpen((current) => ({ ...current, [index]: true }))}>
+                              Add description
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => setLineOptionsOpen((current) => ({ ...current, [index]: !(current[index] ?? hasAdvancedOptions(line)) }))}
+                          >
+                            More options
+                          </button>
+                        </div>
+
+                        {descriptionVisible ? (
+                          <label className="estimate-field-span-3">
+                            Description
+                            <textarea
+                              rows={2}
+                              value={line.description ?? ""}
+                              onChange={(event) => updateLine(index, { description: event.target.value })}
+                              placeholder="Visible on the invoice."
+                            />
+                            <small>Visible on the invoice.</small>
+                          </label>
+                        ) : null}
+
+                        {optionsVisible ? (
+                          <div className="estimate-line-advanced">
+                            <div className="estimate-line-advanced-grid">
+                              <label>
+                                Unit
+                                <select value={line.unitType} onChange={(event) => updateLine(index, { unitType: event.target.value })}>
+                                  {priceBookUnitTypes.map((unit) => (
+                                    <option key={unit} value={unit}>
+                                      {unit.replaceAll("_", " ")}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              <label>
+                                Discount
+                                <select value={line.discountType} onChange={(event) => updateLine(index, { discountType: event.target.value as EstimateLineDraft["discountType"] })}>
+                                  <option value="none">None</option>
+                                  <option value="fixed">Fixed amount</option>
+                                  <option value="percentage">Percentage</option>
+                                </select>
+                              </label>
+
+                              {line.discountType !== "none" ? (
+                                <label>
+                                  Discount value
+                                  <input
+                                    value={line.discountValue}
+                                    type="number"
+                                    min="0"
+                                    step=".01"
+                                    onChange={(event) => updateLine(index, { discountValue: event.target.value })}
+                                  />
+                                </label>
+                              ) : (
+                                <div className="estimate-line-advanced-placeholder" />
+                              )}
+
+                              {taxEnabled ? (
+                                <>
+                                  <label className="estimate-toggle-row">
+                                    <input type="checkbox" checked={line.taxable} onChange={(event) => updateLine(index, { taxable: event.target.checked })} />
+                                    <span>Taxable</span>
+                                  </label>
+                                  <label>
+                                    Tax code
+                                    <input value={line.taxCode ?? ""} placeholder="Optional" onChange={(event) => updateLine(index, { taxCode: event.target.value })} />
+                                  </label>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="estimate-add-row">
+                          <button
+                            type="button"
+                            className="sv-button sv-secondary sv-small"
+                            onClick={() => {
+                              completeLineEditing(index);
+                            }}
+                          >
+                            Done
+                          </button>
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
+                            + Add item
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {lines.length > 0 && expandedLineIndex === null ? (
+            <div className="estimate-add-row">
+              <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
+                + Add item
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section className="estimate-section">

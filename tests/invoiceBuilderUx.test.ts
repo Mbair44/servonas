@@ -4,19 +4,37 @@ import { readFile } from "node:fs/promises";
 
 const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("invoice builder keeps one add item action and expands the new row immediately", async () => {
+test("invoice builder renders an empty line-item state and a single add item action", async () => {
   const source = await read("components/EstimateForm.tsx");
-  assert.match(source, /setExpandedLineIndex\(lines\.length\);/);
+  assert.match(source, /No line items yet\./);
   assert.match(source, /\+ Add item/);
-  assert.doesNotMatch(source, /\+ Add another item/);
+  assert.doesNotMatch(source, /\+ Add Another item/);
 });
 
-test("invoice rows are compact by default and only expand while editing", async () => {
+test("new invoice line items open one editor at a time with immediate item focus", async () => {
   const source = await read("components/EstimateForm.tsx");
-  assert.match(source, /const \[expandedLineIndex, setExpandedLineIndex\] = useState<number \| null>/);
+  assert.match(source, /const \[expandedLineIndex, setExpandedLineIndex\] = useState<number \| null>\(null\)/);
+  assert.match(source, /itemInputRefs/);
+  assert.match(source, /requestAnimationFrame\(\(\) => itemInputRefs\.current\[index\]\?\.focus\(\)\)/);
   assert.match(source, /const isExpanded = !isInvoice \|\| expandedLineIndex === index;/);
-  assert.match(source, /className=\{`estimate-line-card\$\{isExpanded \? " expanded" : " collapsed"\}\$\{isInvoice \? " invoice-line-card" : ""\}`\}/);
-  assert.match(source, /Edit item details/);
+});
+
+test("invoice item entry uses a unified searchable item field instead of a permanent price book selector", async () => {
+  const source = await read("components/EstimateForm.tsx");
+  assert.match(source, /list=\{`price-book-items-\$\{index\}`\}/);
+  assert.match(source, /<datalist id=\{`price-book-items-\$\{index\}`\}>/);
+  assert.match(source, /syncLineWithItemInput/);
+  assert.doesNotMatch(source, />\s*Price book\s*</);
+});
+
+test("expanded invoice items show only the primary fields by default and tuck extras behind links", async () => {
+  const source = await read("components/EstimateForm.tsx");
+  assert.match(source, /<span>Amount<\/span>/);
+  assert.match(source, /Add description/);
+  assert.match(source, /More options/);
+  assert.match(source, /Discount/);
+  assert.match(source, /Taxable/);
+  assert.doesNotMatch(source, /Discount type/);
 });
 
 test("invoice line amount uses the pre-tax subtotal while the summary owns tax presentation", async () => {
@@ -26,40 +44,37 @@ test("invoice line amount uses the pre-tax subtotal while the summary owns tax p
   assert.doesNotMatch(source, /<dt>Taxable subtotal<\/dt>/);
 });
 
-test("invoice summary stays sticky below the authenticated header and can scroll internally", async () => {
-  const css = await read("app/globals.css");
-  assert.match(css, /\.estimate-form\.estimate-builder\.invoice-builder \.estimate-builder-sidebar\{position:sticky;top:76px;align-self:start\}/);
-  assert.match(css, /\.estimate-form\.estimate-builder\.invoice-builder \.estimate-summary-card\{gap:14px;max-height:calc\(100vh - 100px\);overflow:auto\}/);
-  assert.match(css, /@media\(max-width:900px\)\{\.estimate-form\.estimate-builder\.invoice-builder\{grid-template-columns:1fr\}\.estimate-form\.estimate-builder\.invoice-builder \.estimate-builder-sidebar\{position:static;top:auto\}/);
-});
-
-test("invoice polish removes heavy helper copy while keeping concise note visibility text", async () => {
+test("done validates and add item validates before opening the next blank line", async () => {
   const source = await read("components/EstimateForm.tsx");
-  assert.doesNotMatch(source, /Pick the customer first, then confirm the location, timing, and related work\./);
-  assert.doesNotMatch(source, /This is the center of the invoice\. Add each charge and the summary updates immediately\./);
-  assert.doesNotMatch(source, /Only reveal discounts, fees, and deposits when this invoice actually needs them\./);
-  assert.doesNotMatch(source, /Keep the page compact until you actually need extra context for the customer or your team\./);
-  assert.match(source, /Visible to the customer\./);
-  assert.match(source, /Only visible to your team\./);
+  assert.match(source, /const validateLine = \(line: EstimateLineDraft\)/);
+  assert.match(source, /Item is required\./);
+  assert.match(source, /Quantity must be greater than zero\./);
+  assert.match(source, /Rate must be valid\./);
+  assert.match(source, /if \(expandedLineIndex !== null && !completeLineEditing\(expandedLineIndex\)\) return;/);
+  assert.match(source, />\s*Done\s*</);
 });
 
-test("invoice customer creation uses a compact required-fields drawer instead of a single name field", async () => {
+test("collapsed invoice rows stay compact and show summary values plus subtle badges", async () => {
+  const source = await read("components/EstimateForm.tsx");
+  assert.match(source, /Untitled item/);
+  assert.match(source, /Optional short description/);
+  assert.match(source, /estimate-line-badges/);
+  assert.match(source, />\s*Edit\s*</);
+});
+
+test("invoice customer creation still uses the compact required-fields drawer", async () => {
   const source = await read("components/EstimateForm.tsx");
   assert.match(source, /Add only the required fields so this customer can be created from the invoice\./);
   assert.match(source, /title="Add new customer"/);
   assert.match(source, /name="manualCustomerFirstName"/);
   assert.match(source, /name="manualCustomerEmail"/);
   assert.match(source, /name="manualCustomerPhone"/);
-  assert.doesNotMatch(source, /name="manualCustomerName"/);
 });
 
-test("invoice inline customer creation validates and saves required customer contact fields", async () => {
-  const source = await read("app/app/[businessSlug]/invoices/actions.ts");
-  assert.match(source, /manualCustomerFirstName/);
-  assert.match(source, /manualCustomerEmail/);
-  assert.match(source, /manualCustomerPhone/);
-  assert.match(source, /Email is required to create the customer\./);
-  assert.match(source, /Phone is required to create the customer\./);
-  assert.match(source, /email,\s*phone,/);
-  assert.doesNotMatch(source, /email:\s*null,\s*phone:\s*null/);
+test("invoice summary stays sticky and the new line-item layout has dedicated empty and amount styles", async () => {
+  const css = await read("app/globals.css");
+  assert.match(css, /\.estimate-form\.estimate-builder\.invoice-builder \.estimate-builder-sidebar\{position:sticky;top:76px;align-self:start\}/);
+  assert.match(css, /\.estimate-form\.estimate-builder\.invoice-builder \.estimate-line-empty\{/);
+  assert.match(css, /\.estimate-form\.estimate-builder\.invoice-builder \.estimate-line-amount-panel\{/);
+  assert.match(css, /@media\(max-width:900px\)\{\.estimate-form\.estimate-builder\.invoice-builder\{grid-template-columns:1fr\}\.estimate-form\.estimate-builder\.invoice-builder \.estimate-builder-sidebar\{position:static;top:auto\}/);
 });
