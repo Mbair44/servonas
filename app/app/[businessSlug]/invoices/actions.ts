@@ -18,6 +18,13 @@ import type { EstimateFeeDraft, EstimateLineDraft } from "../estimates/actions";
 
 export type InvoiceActionState={error?:string;fieldErrors?:Record<string,string>;values?:Record<string,string>};
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
+const digitsOnly=(value:string)=>value.replace(/\D/g,"");
+const formatPhoneNumber=(value:string)=>{
+  const digits=digitsOnly(value).slice(0,10);
+  if(digits.length<=3)return digits;
+  if(digits.length<=6)return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+};
 const valuesFrom=(data:FormData)=>Object.fromEntries([...data.entries()].filter(([,value])=>typeof value==="string")) as Record<string,string>;
 const safeJson=<T,>(value:string,fallback:T):T=>{try{return JSON.parse(value) as T;}catch{return fallback;}};
 const path=(slug:string,id:string,kind:"success"|"error",message:string)=>`/app/${slug}/invoices/${id}?${kind}=${encodeURIComponent(message)}`;
@@ -81,14 +88,17 @@ async function ensureInvoiceCustomer(
   const lastName = text(data, "manualCustomerLastName");
   const companyName = text(data, "manualCustomerCompanyName");
   const email = text(data, "manualCustomerEmail").toLowerCase();
-  const phone = text(data, "manualCustomerPhone");
+  const rawPhone = text(data, "manualCustomerPhone");
+  const phoneDigits = digitsOnly(rawPhone);
+  const phone = formatPhoneNumber(rawPhone);
   const nameForValidation = [firstName, lastName].filter(Boolean).join(" ") || companyName;
   const fieldErrors: Record<string, string> = {};
 
   if (!firstName) fieldErrors.manualCustomerFirstName = "First name is required to create the customer.";
   if (!email) fieldErrors.manualCustomerEmail = "Email is required to create the customer.";
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.manualCustomerEmail = "Enter a valid email address.";
-  if (!phone) fieldErrors.manualCustomerPhone = "Phone is required to create the customer.";
+  if (!phoneDigits) fieldErrors.manualCustomerPhone = "Phone is required to create the customer.";
+  else if (phoneDigits.length !== 10) fieldErrors.manualCustomerPhone = "Enter a 10-digit phone number.";
 
   if (!nameForValidation) {
     fieldErrors.manualCustomerFirstName = fieldErrors.manualCustomerFirstName ?? "Add at least a first name to create the customer.";
