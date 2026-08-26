@@ -20,7 +20,7 @@ export default async function Onboarding({searchParams}:{searchParams:Promise<{b
   const admin=getSupabaseAdmin();
   const anonymousDraft=!user&&admin?await loadWebsiteBuilderDraftForBusinessSlug(admin,query.business):null;
   const dataClient=anonymousDraft&&admin?admin:s;
-  const {data:business,error:businessError}=await dataClient.from("businesses").select("id,name,display_name,slug,timezone").eq("slug",query.business).eq("is_deleted",false).maybeSingle();
+  const {data:business,error:businessError}=await dataClient.from("businesses").select("id,name,display_name,slug,timezone,email,phone,address_line1,address_line2,city,state,postal_code").eq("slug",query.business).eq("is_deleted",false).maybeSingle();
   if(businessError){console.error("Onboarding workspace resume lookup failed",{code:businessError.code,message:businessError.message,details:businessError.details,hint:businessError.hint,businessSlug:query.business,userId:user?.id??null});return <main className="onboarding-resume"><section><span className="sv-kicker">Setup saved</span><h1>Your workspace was created.</h1><p>Servonas could not load the workspace membership needed for onboarding. Open your workspaces and retry setup.</p><div><Link className="sv-button" href="/app">Open your workspaces</Link></div></section></main>;}
   if(!business){
    if(!user&&query.source)return redirect(`/login?next=${encodeURIComponent(`/onboarding?business=${query.business}&websiteStep=${query.websiteStep??"preview"}&source=${query.source}`)}`);

@@ -34,10 +34,17 @@ test("website-first onboarding uses real templates and keeps launch inside the 3
  assert.match(actions,/booking-branding/);
  assert.match(preview,/settings\/website/);
  assert.match(preview,/Preview \/ Launch/);
+ assert.match(preview,/const accountEmail=user\.email\?\?business\.email\?\?"";/);
+ assert.match(preview,/&email=\$\{encodeURIComponent\(accountEmail\)\}/);
  assert.match(panel,/Publish My Website/);
  assert.match(preview,/Get a custom domain/);
  assert.match(preview,/Customize website/i);
  assert.doesNotMatch(preview,/finishWebsiteFirstOnboarding/);
+});
+
+test("website-first onboarding loads business contact details for the preview account gate",async()=>{
+ const onboarding=await read("app/onboarding/page.tsx");
+ assert.match(onboarding,/select\("id,name,display_name,slug,timezone,email,phone,address_line1,address_line2,city,state,postal_code"\)/);
 });
 
 test("public pest demo is fictional, safe and linked to campaign signup",async()=>{
