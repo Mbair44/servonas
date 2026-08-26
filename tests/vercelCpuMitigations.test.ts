@@ -90,8 +90,10 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  const [funnel,marketing,tracker,bookingClient,flags,marketingComponent]=await Promise.all([read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("app/api/marketing/events/route.ts"),read("components/TenantBookingFunnelTracker.tsx"),read("components/PartyRentalBookingClient.tsx"),read("lib/optionalAnalytics.ts"),read("components/MarketingAnalytics.tsx")]);
  assert.match(flags,/DISABLE_OPTIONAL_ANALYTICS/);
  assert.match(flags,/NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS/);
- assert.match(funnel,/optionalAnalyticsEnabled/);
- assert.match(funnel,/if\(!optionalAnalyticsEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);
+ assert.match(flags,/DISABLE_BOOKING_FUNNEL_ANALYTICS/);
+ assert.match(flags,/NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS/);
+ assert.match(funnel,/bookingFunnelEnabled/);
+ assert.match(funnel,/if\(!bookingFunnelEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);
  assert.match(funnel,/const bots=\/bot\|crawler\|spider/);
  assert.match(funnel,/const eventKeyFor=/);
  assert.match(funnel,/case "booking_started":/);
@@ -103,7 +105,7 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(marketing,/purpose=request\.headers\.get\("purpose"\)/);
  assert.match(marketing,/new NextResponse\(null,\{status:204\}\)/);
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
- assert.match(tracker,/publicOptionalAnalyticsEnabled/);
+ assert.match(tracker,/publicBookingFunnelEnabled/);
  assert.match(tracker,/shouldSkipEvent/);
  assert.match(tracker,/const criticalEvents=new Set<BookingFunnelEvent>/);
  assert.match(tracker,/navigator\.sendBeacon/);

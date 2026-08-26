@@ -1,6 +1,6 @@
 import {NextResponse} from "next/server";
 import {attributionKeys,bookingFunnelEvents,validSessionId,type AttributionValues,type BookingFunnelEvent} from "@/lib/bookingFunnel";
-import {optionalAnalyticsEnabled} from "@/lib/optionalAnalytics";
+import {bookingFunnelEnabled} from "@/lib/optionalAnalytics";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {unstable_cache} from "next/cache";
 
@@ -48,7 +48,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
 const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const db=getSupabaseAdmin();if(!db)return null;const {data:settings}=await db.from("booking_settings").select("business_id").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();return settings?.business_id??null;},["booking-funnel-business-id"],{revalidate:300});
 
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
- if(!optionalAnalyticsEnabled())return new NextResponse(null,{status:204});
+ if(!bookingFunnelEnabled())return new NextResponse(null,{status:204});
  const purpose=request.headers.get("purpose")||request.headers.get("x-middleware-prefetch")||"",ua=request.headers.get("user-agent")||"";
  if(/prefetch/i.test(purpose)||bots.test(ua))return new NextResponse(null,{status:204});
  const body=await request.json().catch(()=>null) as {sessionId?:string;event?:string;path?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;metadata?:object;touchSession?:boolean}|null;

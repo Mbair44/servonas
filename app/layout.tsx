@@ -2,7 +2,7 @@ import "./globals.css";
 import "./public-estimate.css";
 import "./website.css";
 import Link from "next/link";
-import {cookies} from "next/headers";
+import {cookies,headers} from "next/headers";
 import { PhoneInputFormatter } from "@/components/PhoneInputFormatter";
 import { createSupabaseServerClient, hasSupabaseAuthCookies } from "@/lib/supabaseServer";
 import {AuthenticatedAccountMenu} from "@/components/AuthenticatedAccountMenu";
@@ -24,6 +24,8 @@ export const metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const cookieStore=await cookies();
+  const requestHeaders=await headers();
+  const barePublicShell=requestHeaders.get("x-servonas-public-shell")==="bare";
   let user:null|{id:string;email?:string|null;user_metadata?:Record<string,unknown>}=null;
   let profile:{full_name?:string|null;email?:string|null}|null=null;
   let employee:{preferred_name?:string|null}|null=null;
@@ -50,12 +52,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <PhoneInputFormatter/>
     <MarketingAnalytics/>
     <ConsentAwareGoogleTag/>
-    <header className={`sv-header${user?" sv-header-authenticated":""}`}><div className="sv-container sv-nav">
+    {!barePublicShell&&<header className={`sv-header${user?" sv-header-authenticated":""}`}><div className="sv-container sv-nav">
       {user
         ? <div className="authenticated-ribbon-actions"><AssistantPopover/><AuthenticatedAccountMenu name={accountName} email={accountEmail}/></div>
         : <><Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
           <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link className="sv-mobile-login" href="/login">Log in</Link><HeaderSignupLink/></nav></>}
-    </div></header>
+    </div></header>}
     {children}
     <footer className="sv-footer"><div className="sv-container sv-footer-grid">
       <div><img className="sv-footer-logo" src="/servonas-logo-light.svg" alt="Servonas"/><p>The operating system for modern service businesses.</p></div>

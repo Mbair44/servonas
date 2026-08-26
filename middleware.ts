@@ -4,6 +4,7 @@ import { isBlockedCustomDomainProbePath } from "@/lib/customDomainProbePaths";
 
 const publicMetadataPaths=new Set(["/favicon.ico","/apple-touch-icon.png","/icon.svg","/manifest.json","/manifest.webmanifest","/robots.txt","/sitemap.xml"]);
 const publicAssetExtension=/\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|png|svg|ttf|webmanifest|webp|woff2?)$/i;
+const shouldUseBarePublicShell=(path:string)=>path.startsWith("/book/")||path==="/booking"||path.startsWith("/booking/");
 
 export async function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
@@ -20,6 +21,8 @@ export async function middleware(request:NextRequest){
    return new NextResponse(null,{status:404});
   }
   const destination=request.nextUrl.clone();
+  const bareShellHeaders=new Headers(request.headers);
+  if(shouldUseBarePublicShell(path))bareShellHeaders.set("x-servonas-public-shell","bare");
   destination.pathname=
    path==="/mechanical-bull-rental"
     ?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`
@@ -28,9 +31,11 @@ export async function middleware(request:NextRequest){
      :path==="/booking/checkout"
       ?`/sites/domain/${encodeURIComponent(hostname)}/booking/checkout`
       :`/sites/domain/${encodeURIComponent(hostname)}`;
-  return NextResponse.rewrite(destination);
+  return NextResponse.rewrite(destination,{request:{headers:bareShellHeaders}});
  }
- let response=NextResponse.next({request});
+ const requestHeaders=new Headers(request.headers);
+ if(shouldUseBarePublicShell(path))requestHeaders.set("x-servonas-public-shell","bare");
+ let response=NextResponse.next({request:{headers:requestHeaders}});
  if(!(path.startsWith("/app")||path.startsWith("/tech")))return response;
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
  if(!url||!key) return response;
