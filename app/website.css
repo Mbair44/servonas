@@ -56,10 +56,19 @@ body:has(.business-site)>.sv-header,body:has(.business-site)>.sv-footer{display:
 
 /* Website-first industry presentation variants share the generated-site system. */
 .website-hvac .business-site-hero,.website-plumbing .business-site-hero{background:linear-gradient(135deg,color-mix(in srgb,var(--site-primary) 14%,#fff),#fff)}
+.website-hvac .business-site-hero{position:relative;grid-template-columns:1fr;min-height:700px;overflow:hidden;background:#d9e8fb}
+.website-hvac .business-site-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(241,247,255,.97) 0%,rgba(241,247,255,.9) 30%,rgba(241,247,255,.58) 52%,rgba(241,247,255,.08) 74%);pointer-events:none;z-index:1}
+.website-hvac .business-site-hero>.business-site-photo-slideshow,.website-hvac .business-site-hero>.business-site-industry-image{position:absolute;inset:0;width:100%;height:100%!important;object-fit:cover;z-index:0}
+.website-hvac .business-site-hero>div:first-child{position:relative;z-index:2;display:grid;align-content:center;width:min(760px,calc(100% - 72px));margin:0;padding:88px 0 104px 7vw}
+.website-hvac .business-site-hero>div:first-child>div{flex-wrap:wrap}
+.website-hvac .business-site-hero>div:first-child>span,.website-hvac .business-site-hero h1,.website-hvac .business-site-hero p{position:relative;z-index:2}
+.website-hvac .business-site-hero>div:first-child::before{content:"";position:absolute;inset:38px 0 38px -32px;border-radius:34px;background:linear-gradient(135deg,rgba(255,255,255,.82),rgba(255,255,255,.58));backdrop-filter:blur(10px);box-shadow:0 30px 80px rgba(21,55,110,.12);z-index:0}
 .website-hvac .business-site-hero>aside,.website-plumbing .business-site-hero>aside{background:linear-gradient(145deg,var(--site-secondary),var(--site-primary));color:#fff}
 .website-hvac .business-site-process{background:#eef6ff}.website-plumbing .business-site-process{background:#eff9ff}.website-landscaping .business-site-process{background:#eef7f0}.website-cleaning .business-site-process{background:#effbfc}.website-powerwashing .business-site-process{background:#eef8fc}
 .website-landscaping .business-site-about{background:#edf6ef}.website-cleaning .business-site-about{background:#edf9fa}.website-powerwashing .business-site-about{background:#edf8fc}.website-landscaping .business-site-industry-image,.website-cleaning .business-site-industry-image{object-fit:cover}
 .website-hvac .business-site-footer,.website-plumbing .business-site-footer,.website-landscaping .business-site-footer,.website-cleaning .business-site-footer,.website-powerwashing .business-site-footer{background:var(--site-secondary)}
+@media(max-width:1000px){.website-hvac .business-site-hero{min-height:620px}.website-hvac .business-site-hero>div:first-child{width:calc(100% - 48px);padding:72px 0 88px 24px}.website-hvac .business-site-hero>div:first-child::before{inset:28px 0 28px -18px}}
+@media(max-width:720px){.website-hvac .business-site-hero{min-height:560px}.website-hvac .business-site-hero::after{background:linear-gradient(180deg,rgba(241,247,255,.96) 0%,rgba(241,247,255,.84) 38%,rgba(241,247,255,.3) 100%)}.website-hvac .business-site-hero>div:first-child{width:calc(100% - 32px);padding:56px 0 70px 16px}.website-hvac .business-site-hero>div:first-child::before{inset:18px 0 18px -12px;border-radius:24px}}
 
 /* Rental inventory card footer: keep the price and availability action light, aligned, and touch friendly. */
 .business-site-rental-grid .rental-pricing-footer{margin-top:auto}.business-site-rental-grid .rental-pricing-footer>a{margin:0;border:0;background:var(--site-primary)}
