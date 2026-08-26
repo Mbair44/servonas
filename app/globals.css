@@ -1594,7 +1594,8 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 .estimate-form.estimate-builder.invoice-builder .estimate-line-badges span{padding:4px 8px;border-radius:999px;background:#f3f6fb;color:#516079;font-size:.68rem;font-weight:800}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-fields{gap:14px;padding-top:2px}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid{grid-template-columns:minmax(0,1.5fr) minmax(110px,.6fr) minmax(150px,.8fr) minmax(140px,.8fr);align-items:start}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid{grid-template-columns:minmax(260px,1.8fr) minmax(150px,.8fr) minmax(110px,.55fr) minmax(140px,.75fr);align-items:start}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-item-field{min-width:0}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid .estimate-field-span-3{grid-column:1/-1}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-amount-panel{display:grid;gap:4px;align-self:end;padding:11px 12px;border:1px solid #d7dde5;border-radius:10px;background:#f8fafc;color:#64748b;font-size:.74rem;font-weight:700}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-amount-panel b{color:#17203a;font-size:1rem}

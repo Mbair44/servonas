@@ -610,7 +610,7 @@ export default function EstimateForm({
                         </div>
 
                         <div className="estimate-line-fields-grid">
-                          <label className="estimate-field-span-3">
+                          <label className="estimate-line-item-field">
                             Item
                             <input
                               ref={(node) => {
@@ -632,17 +632,6 @@ export default function EstimateForm({
                           </label>
 
                           <label>
-                            Qty
-                            <input
-                              value={line.quantity}
-                              inputMode="decimal"
-                              onChange={(event) => updateLine(index, { quantity: event.target.value })}
-                              aria-invalid={currentLineErrors.quantity ? "true" : undefined}
-                            />
-                            {currentLineErrors.quantity ? <small className="crm-field-error">{currentLineErrors.quantity}</small> : null}
-                          </label>
-
-                          <label>
                             Rate
                             <div className="estimate-money-input">
                               <span>$</span>
@@ -656,6 +645,17 @@ export default function EstimateForm({
                               />
                             </div>
                             {currentLineErrors.rate ? <small className="crm-field-error">{currentLineErrors.rate}</small> : null}
+                          </label>
+
+                          <label>
+                            Qty
+                            <input
+                              value={line.quantity}
+                              inputMode="decimal"
+                              onChange={(event) => updateLine(index, { quantity: event.target.value })}
+                              aria-invalid={currentLineErrors.quantity ? "true" : undefined}
+                            />
+                            {currentLineErrors.quantity ? <small className="crm-field-error">{currentLineErrors.quantity}</small> : null}
                           </label>
 
                           <div className="estimate-line-amount-panel">
