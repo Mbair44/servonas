@@ -122,6 +122,10 @@ export default function EstimateForm({
   const [manualCustomerCompanyName, setManualCustomerCompanyName] = useState(String(state.values?.manualCustomerCompanyName ?? ""));
   const [manualCustomerEmail, setManualCustomerEmail] = useState(String(state.values?.manualCustomerEmail ?? ""));
   const [manualCustomerPhone, setManualCustomerPhone] = useState(String(state.values?.manualCustomerPhone ?? ""));
+  const [serviceLocationId, setServiceLocationId] = useState(String(state.values?.serviceLocationId ?? estimate?.service_location_id ?? ""));
+  const [jobId, setJobId] = useState(String(state.values?.jobId ?? estimate?.job_id ?? ""));
+  const [title, setTitle] = useState(String(state.values?.title ?? estimate?.title ?? ""));
+  const [titleTouched, setTitleTouched] = useState(Boolean(String(state.values?.title ?? estimate?.title ?? "").trim()));
   const [lines, setLines] = useState(
     initialLines.length ? initialLines : isInvoice ? [] : [blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)],
   );
@@ -163,6 +167,7 @@ export default function EstimateForm({
   const visibleLocations = locations.filter((row) => row.customer_id === selectedExistingCustomerId);
   const visibleJobs = jobs.filter((row) => row.customer_id === selectedExistingCustomerId);
   const selectedCustomer = customers.find((row) => row.id === selectedExistingCustomerId) ?? null;
+  const selectedJob = visibleJobs.find((row) => row.id === jobId) ?? null;
   useEffect(() => {
     if (customerId === manualCustomerOption) {
       setManualCustomerDrawerOpen(true);
@@ -170,6 +175,38 @@ export default function EstimateForm({
       setManualCustomerDrawerOpen(false);
     }
   }, [customerId]);
+  useEffect(() => {
+    if (customerId === manualCustomerOption) {
+      setServiceLocationId("");
+      setJobId("");
+    }
+  }, [customerId]);
+  useEffect(() => {
+    if (serviceLocationId && !visibleLocations.some((row) => row.id === serviceLocationId)) setServiceLocationId("");
+  }, [serviceLocationId, visibleLocations]);
+  useEffect(() => {
+    if (jobId && !visibleJobs.some((row) => row.id === jobId)) setJobId("");
+  }, [jobId, visibleJobs]);
+  useEffect(() => {
+    if (!isInvoice || titleTouched) return;
+    const customerName =
+      customerId === manualCustomerOption
+        ? [manualCustomerFirstName.trim(), manualCustomerLastName.trim()].filter(Boolean).join(" ") || manualCustomerCompanyName.trim()
+        : selectedCustomer
+          ? customerLabel(selectedCustomer)
+          : "";
+    const nextTitle = [customerName, selectedJob?.title?.trim()].filter(Boolean).join(" — ");
+    setTitle(nextTitle);
+  }, [
+    customerId,
+    isInvoice,
+    manualCustomerCompanyName,
+    manualCustomerFirstName,
+    manualCustomerLastName,
+    selectedCustomer,
+    selectedJob,
+    titleTouched,
+  ]);
   const taxEnabled = Boolean(businessTaxSettings?.taxEnabled);
   const taxContext =
     isInvoice && businessTaxSettings
@@ -425,7 +462,8 @@ export default function EstimateForm({
               Service location
               <select
                 name="serviceLocationId"
-                defaultValue={String(state.values?.serviceLocationId ?? estimate?.service_location_id ?? "")}
+                value={serviceLocationId}
+                onChange={(event) => setServiceLocationId(event.target.value)}
                 disabled={customerId === manualCustomerOption}
                 aria-describedby={state.fieldErrors?.serviceLocationId ? "serviceLocationId-error" : undefined}
               >
@@ -443,7 +481,8 @@ export default function EstimateForm({
               Related job
               <select
                 name="jobId"
-                defaultValue={String(state.values?.jobId ?? estimate?.job_id ?? "")}
+                value={jobId}
+                onChange={(event) => setJobId(event.target.value)}
                 disabled={customerId === manualCustomerOption}
                 aria-describedby={state.fieldErrors?.jobId ? "jobId-error" : undefined}
               >
@@ -501,7 +540,11 @@ export default function EstimateForm({
               <input
                 required
                 name="title"
-                defaultValue={String(estimate?.title ?? "")}
+                value={title}
+                onChange={(event) => {
+                  setTitle(event.target.value);
+                  setTitleTouched(true);
+                }}
                 placeholder={isInvoice ? "Spring cleanup, August visit, etc." : ""}
                 aria-describedby={state.fieldErrors?.title ? "title-error" : undefined}
               />
@@ -610,7 +653,7 @@ export default function EstimateForm({
                         </div>
 
                         <div className="estimate-line-fields-grid">
-                          <label className="estimate-field-span-3">
+                          <label className="estimate-line-item-field">
                             Item
                             <input
                               ref={(node) => {
@@ -632,17 +675,6 @@ export default function EstimateForm({
                           </label>
 
                           <label>
-                            Qty
-                            <input
-                              value={line.quantity}
-                              inputMode="decimal"
-                              onChange={(event) => updateLine(index, { quantity: event.target.value })}
-                              aria-invalid={currentLineErrors.quantity ? "true" : undefined}
-                            />
-                            {currentLineErrors.quantity ? <small className="crm-field-error">{currentLineErrors.quantity}</small> : null}
-                          </label>
-
-                          <label>
                             Rate
                             <div className="estimate-money-input">
                               <span>$</span>
@@ -656,6 +688,17 @@ export default function EstimateForm({
                               />
                             </div>
                             {currentLineErrors.rate ? <small className="crm-field-error">{currentLineErrors.rate}</small> : null}
+                          </label>
+
+                          <label>
+                            Qty
+                            <input
+                              value={line.quantity}
+                              inputMode="decimal"
+                              onChange={(event) => updateLine(index, { quantity: event.target.value })}
+                              aria-invalid={currentLineErrors.quantity ? "true" : undefined}
+                            />
+                            {currentLineErrors.quantity ? <small className="crm-field-error">{currentLineErrors.quantity}</small> : null}
                           </label>
 
                           <div className="estimate-line-amount-panel">
