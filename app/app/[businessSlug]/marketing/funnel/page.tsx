@@ -52,6 +52,10 @@ function inventoryNameOf(row:EventRow){
  return relation?.name?.trim()||null;
 }
 
+function isInventoryClick(row:EventRow){
+ return row.event_name==="inventory_item_clicked"||(row.event_name==="inventory_item_view"&&row.metadata?.click_intent===true);
+}
+
 export default async function BookingFunnelPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{from?:string;to?:string;source?:string}>}){
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
  const canViewMarketing=canManageBusiness(role);
@@ -83,7 +87,7 @@ export default async function BookingFunnelPage({params,searchParams}:{params:Pr
   if(!row.inventory_item_id)return map;
   const existing=map.get(row.inventory_item_id)??{id:row.inventory_item_id,name:inventoryNameOf(row)??"Rental item",clicks:0,dateSelections:0,bookingStarts:0,bookings:0,revenue:0};
   if(!existing.name||existing.name==="Rental item")existing.name=inventoryNameOf(row)??existing.name;
-  if(row.event_name==="inventory_item_clicked")existing.clicks++;
+  if(isInventoryClick(row))existing.clicks++;
   else if(row.event_name==="availability_date_selected")existing.dateSelections++;
   else if(row.event_name==="booking_started")existing.bookingStarts++;
   else if(row.event_name==="booking_completed"){existing.bookings++;existing.revenue+=Number(row.booking_total_cents??0);}

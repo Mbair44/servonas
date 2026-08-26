@@ -8,6 +8,7 @@ const bots=/bot|crawler|spider|facebookexternalhit|googleother|headless|lighthou
 const clean=(value:unknown,max=1000)=>typeof value==="string"?value.trim().slice(0,max):"";
 const allowed=new Set<string>(bookingFunnelEvents);
 const safeMetadata=(value:unknown)=>{if(!value||typeof value!=="object"||Array.isArray(value))return {};const out:Record<string,string|number|boolean|null>={};for(const [key,item] of Object.entries(value as Record<string,unknown>)){if(!/^[a-z][a-z0-9_]{0,60}$/i.test(key))continue;if(typeof item==="string")out[key]=clean(item,200);else if(typeof item==="number"&&Number.isFinite(item))out[key]=item;else if(typeof item==="boolean"||item===null)out[key]=item;}return out;};
+const legacyClickConstraint=(error:{code?:string;message?:string;details?:string}|null)=>Boolean(error?.code==="23514"&&(error.message?.includes("booking_funnel_events_event_name_check")||error.details?.includes("booking_funnel_events_event_name_check")));
 const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryItemId?:string;metadata?:object})=>{
  const metadata=safeMetadata(body.metadata);
  const parts=[body.sessionId,body.event];
@@ -60,11 +61,21 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
   const attribution=body.attribution??{},first:Record<string,unknown>={id:sessionId,business_id:businessId,first_landing_url:clean(body.landingUrl,2000)||null,first_landing_path:clean(body.path,1000)||null,first_referrer:clean(body.referrer,2000)||null,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()};
   for(const key of attributionKeys)first[key]=clean(attribution[key],500)||null;
   const sessionRow={...first,business_id:businessId};
-  const {error:sessionError}=await db.from("booking_attribution_sessions").upsert(sessionRow,{onConflict:"business_id,id"});
+ const {error:sessionError}=await db.from("booking_attribution_sessions").upsert(sessionRow,{onConflict:"business_id,id"});
   if(sessionError){console.error("Booking attribution session save failed",{businessId,code:sessionError.code});return new NextResponse(null,{status:204});}
  }
- const eventKey=eventKeyFor({sessionId,event,path:body.path,inventoryItemId:body.inventoryItemId,metadata:body.metadata});
- const {error}=await db.from("booking_funnel_events").insert({business_id:businessId,attribution_session_id:sessionId,event_name:event as BookingFunnelEvent,inventory_item_id:clean(body.inventoryItemId,100)||null,event_key:eventKey,metadata:safeMetadata(body.metadata)});
- if(error&&error.code!=="23505")console.error("Booking funnel event save failed",{businessId,event,code:error.code});
+ const metadata=safeMetadata(body.metadata);
+ const inventoryItemId=clean(body.inventoryItemId,100)||null;
+ const eventKey=eventKeyFor({sessionId,event,path:body.path,inventoryItemId:body.inventoryItemId,metadata});
+ const row={business_id:businessId,attribution_session_id:sessionId,event_name:event as BookingFunnelEvent,inventory_item_id:inventoryItemId,event_key:eventKey,metadata};
+ const {error}=await db.from("booking_funnel_events").insert(row);
+ if(error&&error.code!=="23505"){
+  if(event==="inventory_item_clicked"&&legacyClickConstraint(error)){
+   const fallbackMetadata={...metadata,click_intent:true,original_event:event};
+   const fallbackEventKey=eventKeyFor({sessionId,event:"inventory_item_view",path:body.path,inventoryItemId:body.inventoryItemId,metadata:fallbackMetadata});
+   const {error:fallbackError}=await db.from("booking_funnel_events").insert({...row,event_name:"inventory_item_view",event_key:fallbackEventKey,metadata:fallbackMetadata});
+   if(fallbackError&&fallbackError.code!=="23505")console.error("Booking funnel click fallback save failed",{businessId,event,code:fallbackError.code});
+  }else console.error("Booking funnel event save failed",{businessId,event,code:error.code});
+ }
  return new NextResponse(null,{status:204});
 }
