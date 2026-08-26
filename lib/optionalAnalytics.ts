@@ -1,21 +1,23 @@
-const enabledValues=new Set(["0","false","off","no","disabled",""]);
+const disabledValues=new Set(["1","true","on","yes","disabled"]);
+
+function isDisabled(raw:string|undefined){
+ return disabledValues.has((raw??"").trim().toLowerCase());
+}
 
 export function optionalAnalyticsEnabled(){
- const raw=(process.env.DISABLE_OPTIONAL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS??"").trim().toLowerCase();
- return !enabledValues.has(raw);
+ return !isDisabled(process.env.DISABLE_OPTIONAL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS);
 }
 
 export function publicOptionalAnalyticsEnabled(){
- const raw=(process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS??"").trim().toLowerCase();
- return !enabledValues.has(raw);
+ return !isDisabled(process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS);
 }
 
 export function bookingFunnelEnabled(){
- const raw=(process.env.DISABLE_BOOKING_FUNNEL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS??"").trim().toLowerCase();
- return !enabledValues.has(raw);
+ if(isDisabled(process.env.DISABLE_OPTIONAL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS))return false;
+ return !isDisabled(process.env.DISABLE_BOOKING_FUNNEL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS);
 }
 
 export function publicBookingFunnelEnabled(){
- const raw=(process.env.NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS??"").trim().toLowerCase();
- return !enabledValues.has(raw);
+ if(isDisabled(process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS))return false;
+ return !isDisabled(process.env.NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS);
 }
