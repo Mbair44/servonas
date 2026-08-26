@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { EstimateActionState, EstimateFeeDraft, EstimateLineDraft } from "@/app/app/[businessSlug]/estimates/actions";
 import { type Discount } from "@/lib/financial/calculations";
 import { calculateFinancialDocument } from "@/lib/financial/calculations";
 import { formatCents, parseCurrencyToCents, priceBookUnitTypes } from "@/lib/financial/priceBook";
 import { calculateInvoiceDocumentWithTax, resolveInvoiceTaxContext, type BusinessTaxSettings, type InvoiceFinancialDocumentResult } from "@/lib/financial/tax";
+import { ManagementDrawer } from "./ManagementDrawer";
 
 type Customer = {
   id: string;
@@ -104,7 +105,12 @@ export default function EstimateForm({
   const manualCustomerOption = "__manual_customer__";
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
   const [customerId, setCustomerId] = useState(String(state.values?.customerId ?? estimate?.customer_id ?? ""));
-  const [manualCustomerName, setManualCustomerName] = useState(String(state.values?.manualCustomerName ?? ""));
+  const [manualCustomerDrawerOpen, setManualCustomerDrawerOpen] = useState(false);
+  const [manualCustomerFirstName, setManualCustomerFirstName] = useState(String(state.values?.manualCustomerFirstName ?? ""));
+  const [manualCustomerLastName, setManualCustomerLastName] = useState(String(state.values?.manualCustomerLastName ?? ""));
+  const [manualCustomerCompanyName, setManualCustomerCompanyName] = useState(String(state.values?.manualCustomerCompanyName ?? ""));
+  const [manualCustomerEmail, setManualCustomerEmail] = useState(String(state.values?.manualCustomerEmail ?? ""));
+  const [manualCustomerPhone, setManualCustomerPhone] = useState(String(state.values?.manualCustomerPhone ?? ""));
   const [lines, setLines] = useState(initialLines.length ? initialLines : [blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)]);
   const [fees, setFees] = useState(initialFees);
   const [discountType, setDiscountType] = useState(String(estimate?.document_discount_type ?? "none"));
@@ -141,6 +147,13 @@ export default function EstimateForm({
   const visibleLocations = locations.filter((row) => row.customer_id === selectedExistingCustomerId);
   const visibleJobs = jobs.filter((row) => row.customer_id === selectedExistingCustomerId);
   const selectedCustomer = customers.find((row) => row.id === selectedExistingCustomerId) ?? null;
+  useEffect(() => {
+    if (customerId === manualCustomerOption) {
+      setManualCustomerDrawerOpen(true);
+    } else {
+      setManualCustomerDrawerOpen(false);
+    }
+  }, [customerId]);
   const taxEnabled = Boolean(businessTaxSettings?.taxEnabled);
   const taxContext =
     isInvoice && businessTaxSettings
@@ -243,6 +256,15 @@ export default function EstimateForm({
       {(!estimate || newDocument) && <input type="hidden" name="requestKey" value={requestKey.current} />}
       <input type="hidden" name="linesJson" value={JSON.stringify(lines)} />
       <input type="hidden" name="feesJson" value={JSON.stringify(fees)} />
+      {isInvoice && customerId === manualCustomerOption && (
+        <>
+          <input type="hidden" name="manualCustomerFirstName" value={manualCustomerFirstName} />
+          <input type="hidden" name="manualCustomerLastName" value={manualCustomerLastName} />
+          <input type="hidden" name="manualCustomerCompanyName" value={manualCustomerCompanyName} />
+          <input type="hidden" name="manualCustomerEmail" value={manualCustomerEmail} />
+          <input type="hidden" name="manualCustomerPhone" value={manualCustomerPhone} />
+        </>
+      )}
 
       <div className="estimate-builder-main">
         <section className="estimate-section">
@@ -309,18 +331,26 @@ export default function EstimateForm({
             </label>
 
             {isInvoice && customerId === manualCustomerOption && (
-              <label className="estimate-field-span-3">
-                New customer name
-                <input
-                  required
-                  name="manualCustomerName"
-                  value={manualCustomerName}
-                  onChange={(event) => setManualCustomerName(event.target.value)}
-                  placeholder="Enter customer or company name"
-                  aria-describedby={state.fieldErrors?.manualCustomerName ? "manualCustomerName-error" : undefined}
-                />
-                {error("manualCustomerName")}
-              </label>
+              <div className="estimate-field-span-3 invoice-inline-customer-panel">
+                <div className="invoice-inline-customer-panel__summary">
+                  <div>
+                    <strong>New customer details</strong>
+                    <p>Add only the required fields so this customer can be created from the invoice.</p>
+                  </div>
+                  <button type="button" className="sv-button sv-secondary" onClick={() => setManualCustomerDrawerOpen(true)}>
+                    Add required details
+                  </button>
+                </div>
+                <div className="invoice-inline-customer-panel__chips" aria-live="polite">
+                  <span>{manualCustomerFirstName.trim() ? manualCustomerFirstName.trim() : "First name required"}</span>
+                  <span>{manualCustomerEmail.trim() ? manualCustomerEmail.trim() : "Email required"}</span>
+                  <span>{manualCustomerPhone.trim() ? manualCustomerPhone.trim() : "Phone required"}</span>
+                </div>
+                {error("manualCustomerFirstName")}
+                {error("manualCustomerEmail")}
+                {error("manualCustomerPhone")}
+                {error("manualCustomerCreate")}
+              </div>
             )}
 
             <label>
@@ -825,6 +855,77 @@ export default function EstimateForm({
           </div>
         </div>
       </aside>
+
+      {isInvoice && customerId === manualCustomerOption && (
+        <ManagementDrawer
+          open={manualCustomerDrawerOpen}
+          title="Add new customer"
+          subtitle="Enter only the required details. Servonas will save the customer when this invoice saves."
+          onDirty={() => {}}
+          onClose={() => setManualCustomerDrawerOpen(false)}
+        >
+          <div className="invoice-customer-drawer-form">
+            <div className="quick-form-grid">
+              <label>
+                First name
+                <input
+                  value={manualCustomerFirstName}
+                  onChange={(event) => setManualCustomerFirstName(event.target.value)}
+                  placeholder="Jane"
+                  aria-invalid={state.fieldErrors?.manualCustomerFirstName ? "true" : undefined}
+                />
+                {error("manualCustomerFirstName")}
+              </label>
+              <label>
+                Last name
+                <input
+                  value={manualCustomerLastName}
+                  onChange={(event) => setManualCustomerLastName(event.target.value)}
+                  placeholder="Smith"
+                />
+              </label>
+              <label className="wide">
+                Company name
+                <input
+                  value={manualCustomerCompanyName}
+                  onChange={(event) => setManualCustomerCompanyName(event.target.value)}
+                  placeholder="Optional business name"
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={manualCustomerEmail}
+                  onChange={(event) => setManualCustomerEmail(event.target.value)}
+                  placeholder="jane@example.com"
+                  aria-invalid={state.fieldErrors?.manualCustomerEmail ? "true" : undefined}
+                />
+                {error("manualCustomerEmail")}
+              </label>
+              <label>
+                Phone
+                <input
+                  value={manualCustomerPhone}
+                  onChange={(event) => setManualCustomerPhone(event.target.value)}
+                  placeholder="(555) 555-0100"
+                  aria-invalid={state.fieldErrors?.manualCustomerPhone ? "true" : undefined}
+                />
+                {error("manualCustomerPhone")}
+              </label>
+            </div>
+            {error("manualCustomerCreate")}
+            <div className="invoice-customer-drawer-help">
+              The customer is added to your workspace automatically after the invoice saves successfully.
+            </div>
+            <footer>
+              <button type="button" className="sv-button sv-secondary" onClick={() => setManualCustomerDrawerOpen(false)}>
+                Done
+              </button>
+            </footer>
+          </div>
+        </ManagementDrawer>
+      )}
     </form>
   );
 }

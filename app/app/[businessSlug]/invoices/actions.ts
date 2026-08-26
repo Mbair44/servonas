@@ -77,24 +77,41 @@ async function ensureInvoiceCustomer(
   const manualCustomerOption = "__manual_customer__";
   const rawCustomerId = text(data, "customerId");
   if (rawCustomerId !== manualCustomerOption) return { customerId: rawCustomerId, valuesCustomerId: rawCustomerId };
-  const manualName = text(data, "manualCustomerName");
-  if (!manualName) return { customerId: "", valuesCustomerId: rawCustomerId, error: "Enter the new customer name." };
-  if (manualName.length > 160) {
+  const firstName = text(data, "manualCustomerFirstName");
+  const lastName = text(data, "manualCustomerLastName");
+  const companyName = text(data, "manualCustomerCompanyName");
+  const email = text(data, "manualCustomerEmail").toLowerCase();
+  const phone = text(data, "manualCustomerPhone");
+  const nameForValidation = [firstName, lastName].filter(Boolean).join(" ") || companyName;
+  const fieldErrors: Record<string, string> = {};
+
+  if (!firstName) fieldErrors.manualCustomerFirstName = "First name is required to create the customer.";
+  if (!email) fieldErrors.manualCustomerEmail = "Email is required to create the customer.";
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.manualCustomerEmail = "Enter a valid email address.";
+  if (!phone) fieldErrors.manualCustomerPhone = "Phone is required to create the customer.";
+
+  if (!nameForValidation) {
+    fieldErrors.manualCustomerFirstName = fieldErrors.manualCustomerFirstName ?? "Add at least a first name to create the customer.";
+  }
+  if (nameForValidation.length > 160) {
     return {
       customerId: "",
       valuesCustomerId: rawCustomerId,
-      error: "The customer name is too long. Please keep it under 160 characters.",
+      fieldErrors: {
+        ...fieldErrors,
+        manualCustomerCreate: "The customer name is too long. Please shorten it and try again.",
+      },
     };
   }
-  const [firstName, ...rest] = manualName.split(/\s+/).filter(Boolean);
-  const lastName = rest.join(" ");
+  if (Object.keys(fieldErrors).length) return { customerId: "", valuesCustomerId: rawCustomerId, fieldErrors };
+
   const { data: customer, error } = await context.supabase.from("customers").insert({
     business_id: context.business.id,
-    first_name: firstName || manualName,
+    first_name: firstName,
     last_name: lastName || "",
-    company_name: manualName,
-    email: null,
-    phone: null,
+    company_name: companyName || null,
+    email,
+    phone,
     secondary_phone: null,
     preferred_contact_method: "email",
     notes: "Created automatically while drafting an invoice.",
@@ -111,7 +128,9 @@ async function ensureInvoiceCustomer(
     return {
       customerId: "",
       valuesCustomerId: rawCustomerId,
-      error: customerCreateMessage(error?.code, error?.message),
+      fieldErrors: {
+        manualCustomerCreate: customerCreateMessage(error?.code, error?.message),
+      },
     };
   }
   return { customerId: customer.id, valuesCustomerId: customer.id };
@@ -210,8 +229,14 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   const customerId=inlineCustomer.customerId,locationId=text(data,"serviceLocationId")||null,jobId=text(data,"jobId")||null;
   const title=text(data,"title");
   values.customerId=inlineCustomer.valuesCustomerId;
-  if(text(data,"customerId")==="__manual_customer__")values.manualCustomerName=text(data,"manualCustomerName");
-  if(inlineCustomer.error)errors.manualCustomerName=inlineCustomer.error;
+  if(text(data,"customerId")==="__manual_customer__"){
+    values.manualCustomerFirstName=text(data,"manualCustomerFirstName");
+    values.manualCustomerLastName=text(data,"manualCustomerLastName");
+    values.manualCustomerCompanyName=text(data,"manualCustomerCompanyName");
+    values.manualCustomerEmail=text(data,"manualCustomerEmail");
+    values.manualCustomerPhone=text(data,"manualCustomerPhone");
+  }
+  if(inlineCustomer.fieldErrors)Object.assign(errors,inlineCustomer.fieldErrors);
   if(!customerId&&text(data,"customerId")!=="__manual_customer__")errors.customerId="Choose a customer.";
   if(!title)errors.title="Enter an invoice title.";
   if(!lines.length)errors.lines="Add at least one line item.";
