@@ -503,7 +503,8 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
     if("error" in sent && sent.error){
       return {error:sent.error,values:prepared.values};
     }
-    redirect(`/app/${slug}/invoices/${invoice.id}?success=${encodeURIComponent("Invoice created and emailed")}&publicLink=${encodeURIComponent(sent.publicUrl)}`);
+    const publicUrl=sent.publicUrl;
+    redirect(`/app/${slug}/invoices/${invoice.id}?success=${encodeURIComponent("Invoice created and emailed")}&publicLink=${encodeURIComponent(publicUrl)}`);
   }
   redirect(`/app/${slug}/invoices/${invoice.id}?success=Invoice+created`);
 }
@@ -530,7 +531,8 @@ export async function sendInvoice(slug:string,invoiceId:string){
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const sent=await finalizeAndSendInvoice(context,invoiceId);
   if("error" in sent && sent.error)redirect(path(slug,invoiceId,"error",sent.error));
-  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(sent.publicUrl)}`);
+  const publicUrl=sent.publicUrl;
+  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(publicUrl)}`);
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){
