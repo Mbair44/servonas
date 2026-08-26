@@ -252,7 +252,7 @@ export default function EstimateForm({
 
   return (
     <form action={formAction} className={`estimate-form estimate-builder${isInvoice ? " invoice-builder" : ""}`}>
-      {state.error && <div className="workspace-notice error wide">{state.error}</div>}
+      {state.error && <div className="workspace-notice error wide" role="alert">{state.error}</div>}
       {(!estimate || newDocument) && <input type="hidden" name="requestKey" value={requestKey.current} />}
       <input type="hidden" name="linesJson" value={JSON.stringify(lines)} />
       <input type="hidden" name="feesJson" value={JSON.stringify(fees)} />

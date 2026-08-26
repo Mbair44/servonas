@@ -268,8 +268,10 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
     return {id:line.priceBookItemId||`line_${index+1}`,name:line.name.trim(),currency:"USD",quantity:line.quantity,unitPriceCents:price??-1,taxable:line.taxable,discount:lineDiscount??undefined,taxCode:line.taxCode?.trim()||null};
   });
   const feeCents=fees.map((fee,index)=>{const amount=parseCurrencyToCents(fee.amount);if(!fee.name.trim()||amount===null)errors.fees=`Correct fee ${index+1}.`;return amount??-1;});
-  const documentDiscount=discount(text(data,"documentDiscountType"),text(data,"documentDiscountValue")||"0");
-  const deposit=discount(text(data,"depositType"),text(data,"depositValue")||"0");
+  const rawDocumentDiscountType=text(data,"documentDiscountType");
+  const rawDepositType=text(data,"depositType");
+  const documentDiscount=discount(rawDocumentDiscountType,text(data,"documentDiscountValue")||"0");
+  const deposit=discount(rawDepositType,text(data,"depositValue")||"0");
   if(!documentDiscount)errors.documentDiscountValue="Enter a valid document discount.";
   if(!deposit)errors.depositValue="Enter a valid deposit.";
   let totals;
@@ -306,8 +308,8 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
     tax_total_cents:totals.taxTotalCents,fee_total_cents:totals.feeTotalCents,grand_total_cents:totals.grandTotalCents,
     tax_rate_basis_points:totals.taxSnapshot.taxRateBasisPoints,
     taxable_subtotal_cents:totals.taxSnapshot.taxableSubtotalCents,
-    deposit_type:text(data,"depositType"),deposit_value:deposit!.value,deposit_required_cents:totals.depositRequiredCents,
-    balance_due_cents:totals.grandTotalCents,document_discount_type:text(data,"documentDiscountType"),
+    deposit_type:deposit!.type,deposit_value:deposit!.value,deposit_required_cents:totals.depositRequiredCents,
+    balance_due_cents:totals.grandTotalCents,document_discount_type:documentDiscount!.type,
     document_discount_value:documentDiscount!.value,issue_date:issueDate,due_date:dueDate,
     tax_calculation_method:totals.taxSnapshot.taxCalculationMethod,
     tax_display_mode:totals.taxSnapshot.taxDisplayMode,
