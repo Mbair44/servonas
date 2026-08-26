@@ -28,12 +28,16 @@ type Props={
  domainInfo:DomainInfo|null;
  business:{name:string;email?:string|null;phone?:string|null;address_line1?:string|null;address_line2?:string|null;city?:string|null;state?:string|null;postal_code?:string|null};
  user:{email?:string;user_metadata?:Record<string,unknown>};
+ accountRequired?:boolean;
 };
 
-export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=false,celebrationAt,mode,domainChoice,domainStage,error,success,domainSuggestions,website,websiteFirst,domainOrder,domainInfo,business,user}:Props){
+export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=false,celebrationAt,mode,domainChoice,domainStage,error,success,domainSuggestions,website,websiteFirst,domainOrder,domainInfo,business,user,accountRequired=false}:Props){
  const config=getWebsiteFirstConfig(source)!;
  const previewCelebrationKey=celebrate&&celebrationAt&&mode!=="live"?`${businessId}:preview:${celebrationAt}`:undefined;
  const liveCelebrationKey=celebrate&&mode==="live"&&celebrationAt?`${businessId}:live:${celebrationAt}`:undefined;
+ const signupNext=`/onboarding?business=${encodeURIComponent(businessSlug)}&websiteStep=preview`;
+ const accountEmail=user.email??business.email??"";
+ const previewSrc=accountRequired?`/sites/preview/${website?.public_slug??businessSlug}`:`/app/${businessSlug}/settings/website/preview`;
  const temporaryUrl=`servonas.com/sites/${website?.public_slug??businessSlug}`;
  const liveUrl=website?.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`https://${temporaryUrl}`;
  const previewHeader=mode==="live"?"Your website is live. 🎉":"Your website is ready! 🎉";
@@ -54,11 +58,22 @@ export function WebsiteFirstPreview({businessId,businessSlug,source,celebrate=fa
    {mode!=="live"&&<>
     <div className="website-first-preview-stage">
      <WebsiteCreationCelebration source={source} businessId={businessId} businessSlug={businessSlug} celebrationKey={previewCelebrationKey}/>
-     <div className="website-first-preview-frame"><iframe src={`/app/${businessSlug}/settings/website/preview`} title={`Your ${config.industryLabel} website preview`}/></div>
+     <div className="website-first-preview-frame"><iframe src={previewSrc} title={`Your ${config.industryLabel} website preview`}/></div>
     </div>
-    <div className="website-first-preview-links"><Link href={`/app/${businessSlug}/settings/website/preview`} target="_blank">View full-screen preview</Link><span>Temporary website address: <b>{temporaryUrl}</b></span></div>
-    <WebsiteFirstLaunchDomainPanel businessSlug={businessSlug} businessSlugDisplay={website?.public_slug??businessSlug} business={business} user={user} managedDomainRequest={websiteFirst?.domain_preference==="need_domain"} requestedDomain={websiteFirst?.requested_domain??""} domainStatus={websiteFirst?.domain_request_status??"availability_check_needed"} domainOrder={domainOrder} customDomain={website?.custom_domain??""} customDomainStatus={website?.domain_status??"not_connected"} domainInfo={domainInfo} websitePublished={website?.status==="published"} domainChoice={domainChoice} domainStage={domainStage} domainSuggestions={domainSuggestions} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/>
-    <p className="website-first-preview-help">Want to make changes first? <Link href={`/app/${businessSlug}/settings/website`}>Customize website</Link></p>
+    <div className="website-first-preview-links"><Link href={previewSrc} target="_blank">View full-screen preview</Link><span>Temporary website address: <b>{temporaryUrl}</b></span></div>
+    {accountRequired?<div className="website-first-account-gate">
+      <AcquisitionFunnelTracker industry={source} event="website_builder_account_prompt_viewed"/>
+      <span className="sv-kicker">Save and publish</span>
+      <h2>Your website is ready.</h2>
+      <p>Create your free Servonas account to save your website, customize it further, and publish it when you&apos;re ready.</p>
+      <div className="website-first-account-actions">
+       <Link className="sv-button" href={`/signup?next=${encodeURIComponent(signupNext)}&source=${encodeURIComponent(source)}${accountEmail?`&email=${encodeURIComponent(accountEmail)}`:""}`}>Create My Free Account</Link>
+       <Link className="sv-button sv-secondary" href={`/login?next=${encodeURIComponent(signupNext)}${accountEmail?`&email=${encodeURIComponent(accountEmail)}`:""}`}>Already have an account? Sign in</Link>
+      </div>
+     </div>:<>
+      <WebsiteFirstLaunchDomainPanel businessSlug={businessSlug} businessSlugDisplay={website?.public_slug??businessSlug} business={business} user={user} managedDomainRequest={websiteFirst?.domain_preference==="need_domain"} requestedDomain={websiteFirst?.requested_domain??""} domainStatus={websiteFirst?.domain_request_status??"availability_check_needed"} domainOrder={domainOrder} customDomain={website?.custom_domain??""} customDomainStatus={website?.domain_status??"not_connected"} domainInfo={domainInfo} websitePublished={website?.status==="published"} domainChoice={domainChoice} domainStage={domainStage} domainSuggestions={domainSuggestions} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined}/>
+      <p className="website-first-preview-help">Want to make changes first? <Link href={`/app/${businessSlug}/settings/website`}>Customize website</Link></p>
+     </>}
    </>}
 
    {mode==="live"&&<>

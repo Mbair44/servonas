@@ -16,5 +16,5 @@ export function HeaderSignupLink(){
   const value=searchParams.get(key);
   if(value)query.set(key,value.slice(0,500));
  }
- return <Link className="sv-button sv-small" href={`/signup?${query.toString()}`}>Start Free</Link>;
+ return <Link className="sv-button sv-small" href={`/onboarding?${query.toString()}`}>Start Free</Link>;
 }

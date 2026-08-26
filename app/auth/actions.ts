@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isWebsiteFirstSource} from "@/lib/websiteFirstConfig";
 import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
+import {claimWebsiteBuilderDraftForUser} from "@/lib/websiteBuilderDraft";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -108,6 +109,21 @@ export async function signUp(formData: FormData) {
   // an existing email. Only a newly created identity is a completed signup.
   const signupCompleted = Boolean(data.user && (data.user.identities?.length ?? 0) > 0);
   if(signupCompleted&&source){const admin=getSupabaseAdmin();if(admin)try{await linkAcquisitionSession(admin,{sessionId:acquisitionSessionId,industry:source,userId:data.user!.id,event:"servonas_signup_completed"});}catch{console.warn("Website acquisition signup analytics could not be recorded");}}
+  if(signupCompleted&&data.session&&data.user){
+    const admin=getSupabaseAdmin();
+    if(admin)try{
+      const claimed=await claimWebsiteBuilderDraftForUser(admin,data.user.id);
+      if(claimed?.businessSlug){
+        return {
+          signupCompleted,
+          userId: data.user.id,
+          redirectTo: `/onboarding?business=${encodeURIComponent(claimed.businessSlug)}&websiteStep=preview&success=${encodeURIComponent("Your website is saved! You can keep editing or publish when you're ready.")}`,
+        };
+      }
+    }catch(claimError){
+      console.warn("Website builder draft claim after signup failed",{userId:data.user.id,message:claimError instanceof Error?claimError.message:String(claimError)});
+    }
+  }
   if(signupCompleted&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)){
     const admin=getSupabaseAdmin();
     if(admin){const {error:attributionError}=await admin.rpc("record_marketing_content_signup",{p_content_code:utmContent,p_user_id:data.user!.id});if(attributionError)console.error("Marketing signup attribution could not be saved",{utmContent,userId:data.user!.id,code:attributionError.code});}
@@ -168,9 +184,21 @@ export async function signIn(formData: FormData) {
   const next = value(formData, "next") || "/app";
   const safeNext = next.startsWith("/") ? next : "/app";
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) redirectWithError("/login", error.message);
+  const userId=data.user?.id;
+  if(userId){
+    const admin=getSupabaseAdmin();
+    if(admin){
+      try{
+        const claimed=await claimWebsiteBuilderDraftForUser(admin,userId);
+        if(claimed?.businessSlug)redirect(`/onboarding?business=${encodeURIComponent(claimed.businessSlug)}&websiteStep=preview&success=${encodeURIComponent("Your website is saved! You can keep editing or publish when you're ready.")}`);
+      }catch(claimError){
+        console.warn("Website builder draft claim after sign-in failed",{userId,message:claimError instanceof Error?claimError.message:String(claimError)});
+      }
+    }
+  }
   redirect(safeNext);
 }
 

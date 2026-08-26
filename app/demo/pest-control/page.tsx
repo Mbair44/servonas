@@ -63,7 +63,7 @@ export default async function PestControlDemo({searchParams}:{searchParams:Promi
  }
 
  return <main className="pest-demo">
-  <aside className="pest-demo-banner"><span>This is an example website built with Servonas.</span><Link href={`/signup?${query}`}>Get One For My Business — Free</Link></aside>
+  <aside className="pest-demo-banner"><span>This is an example website built with Servonas.</span><Link href={`/onboarding?${query}`}>Get One For My Business — Free</Link></aside>
 
   <header className="pest-demo-nav">
    <a href="#top" className="pest-demo-brand"><i>DS</i><span><strong>Desert Shield</strong><small>Pest Control</small></span></a>

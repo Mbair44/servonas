@@ -10,32 +10,42 @@ import {getCapabilityAccess} from "@/lib/entitlements/service";
 import {WebsiteFirstBusiness} from "@/components/WebsiteFirstOnboarding";
 import {WebsiteFirstStyle} from "@/components/WebsiteFirstStyle";
 import {WebsiteFirstPreview} from "@/components/WebsiteFirstPreview";
-import {getWebsiteFirstConfig} from "@/lib/websiteFirstConfig";
+import {getWebsiteFirstConfig,type WebsiteFirstSource} from "@/lib/websiteFirstConfig";
 import {getVercelDomainStatus} from "@/lib/vercelDomains";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {loadWebsiteBuilderDraftForBusinessSlug} from "@/lib/websiteBuilderDraft";
 export default async function Onboarding({searchParams}:{searchParams:Promise<{business?:string;saved?:string;error?:string;success?:string;billing?:string;billingAdded?:string;source?:string;websiteStep?:string;websiteMode?:string;domainChoice?:string;domainStage?:string;celebrate?:string;celebrationAt?:string;domainSuggestions?:string}>}){
- const query=await searchParams,s=await createSupabaseServerClient();const {data:{user}}=await s.auth.getUser();if(!user)redirect("/login?next=/onboarding");
+ const query=await searchParams,s=await createSupabaseServerClient();const {data:{user}}=await s.auth.getUser();
  if(query.business){
-  const {data:business,error:businessError}=await s.from("businesses").select("id,name,display_name,slug,timezone").eq("slug",query.business).eq("is_deleted",false).maybeSingle();
-  if(businessError){console.error("Onboarding workspace resume lookup failed",{code:businessError.code,message:businessError.message,details:businessError.details,hint:businessError.hint,businessSlug:query.business,userId:user.id});return <main className="onboarding-resume"><section><span className="sv-kicker">Setup saved</span><h1>Your workspace was created.</h1><p>Servonas could not load the workspace membership needed for onboarding. Open your workspaces and retry setup.</p><div><Link className="sv-button" href="/app">Open your workspaces</Link></div></section></main>;}
-  if(!business)return <main className="onboarding-resume"><section><span className="sv-kicker">Workspace unavailable</span><h1>Onboarding could not be resumed.</h1><p>The workspace does not exist or your account cannot access it.</p><div><Link className="sv-button" href="/app">Open your workspaces</Link></div></section></main>;
-  const {data:websiteFirst}=await s.from("business_website_onboarding_states").select("source,current_step,preview_reached_at,domain_preference,requested_domain,domain_request_status").eq("business_id",business.id).maybeSingle(),websiteConfig=getWebsiteFirstConfig(websiteFirst?.source);
+  const admin=getSupabaseAdmin();
+  const anonymousDraft=!user&&admin?await loadWebsiteBuilderDraftForBusinessSlug(admin,query.business):null;
+  const dataClient=anonymousDraft&&admin?admin:s;
+  const {data:business,error:businessError}=await dataClient.from("businesses").select("id,name,display_name,slug,timezone").eq("slug",query.business).eq("is_deleted",false).maybeSingle();
+  if(businessError){console.error("Onboarding workspace resume lookup failed",{code:businessError.code,message:businessError.message,details:businessError.details,hint:businessError.hint,businessSlug:query.business,userId:user?.id??null});return <main className="onboarding-resume"><section><span className="sv-kicker">Setup saved</span><h1>Your workspace was created.</h1><p>Servonas could not load the workspace membership needed for onboarding. Open your workspaces and retry setup.</p><div><Link className="sv-button" href="/app">Open your workspaces</Link></div></section></main>;}
+  if(!business){
+   if(!user&&query.source)return redirect(`/login?next=${encodeURIComponent(`/onboarding?business=${query.business}&websiteStep=${query.websiteStep??"preview"}&source=${query.source}`)}`);
+   return <main className="onboarding-resume"><section><span className="sv-kicker">Workspace unavailable</span><h1>Onboarding could not be resumed.</h1><p>The workspace does not exist or your account cannot access it.</p><div><Link className="sv-button" href={user?"/app":"/onboarding"}>{user?"Open your workspaces":"Start again"}</Link></div></section></main>;
+  }
+  const {data:websiteFirst}=await dataClient.from("business_website_onboarding_states").select("source,current_step,preview_reached_at,domain_preference,requested_domain,domain_request_status").eq("business_id",business.id).maybeSingle(),websiteConfig=getWebsiteFirstConfig(websiteFirst?.source);
   if(websiteFirst&&websiteConfig&&(websiteFirst.current_step!=="completed"||query.websiteMode==="live")){
    const step=query.websiteStep||websiteFirst.current_step;
    if(step==="preview"){
-    const admin=getSupabaseAdmin();
     const [{data:website},{data:domainOrder}]=await Promise.all([
-     s.from("business_website_settings").select("template_key,primary_color,secondary_color,hero_heading,hero_subheading,public_slug,status,custom_domain,domain_status").eq("business_id",business.id).maybeSingle(),
+     dataClient.from("business_website_settings").select("template_key,primary_color,secondary_color,hero_heading,hero_subheading,public_slug,status,custom_domain,domain_status").eq("business_id",business.id).maybeSingle(),
      websiteFirst.requested_domain&&admin?admin.from("website_domain_orders").select("status,customer_purchase_price,customer_renewal_price,currency,provider_order_id,availability_checked_at,last_error_category").eq("business_id",business.id).eq("domain_name",websiteFirst.requested_domain).maybeSingle():Promise.resolve({data:null}),
     ]);
     const domainInfo=website?.custom_domain?await getVercelDomainStatus(website.custom_domain).catch(()=>null):null;
-    return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstPreview businessId={business.id} businessSlug={business.slug} source={websiteConfig.source} celebrate={query.celebrate==="1"} celebrationAt={query.celebrationAt??websiteFirst.preview_reached_at??undefined} mode={query.websiteMode==="domain"||query.websiteMode==="live"?query.websiteMode:"preview"} domainChoice={query.domainChoice==="existing_domain"||query.domainChoice==="servonas"?query.domainChoice:"need_domain"} domainStage={query.domainStage==="details"||query.domainStage==="registered"?query.domainStage:"search"} error={query.error} success={query.success} domainSuggestions={query.domainSuggestions?.split(",").map(item=>item.trim()).filter(Boolean)??[]} website={website??null} websiteFirst={websiteFirst} domainOrder={domainOrder??null} domainInfo={domainInfo} user={{email:user.email??undefined,user_metadata:user.user_metadata as Record<string,unknown>|undefined}} business={business}/></main>;
+    return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstPreview businessId={business.id} businessSlug={business.slug} source={websiteConfig.source} celebrate={query.celebrate==="1"} celebrationAt={query.celebrationAt??websiteFirst.preview_reached_at??undefined} mode={query.websiteMode==="domain"||query.websiteMode==="live"?query.websiteMode:"preview"} domainChoice={query.domainChoice==="existing_domain"||query.domainChoice==="servonas"?query.domainChoice:"need_domain"} domainStage={query.domainStage==="details"||query.domainStage==="registered"?query.domainStage:"search"} error={query.error} success={query.success} domainSuggestions={query.domainSuggestions?.split(",").map(item=>item.trim()).filter(Boolean)??[]} website={website??null} websiteFirst={websiteFirst} domainOrder={domainOrder??null} domainInfo={domainInfo} user={{email:user?.email??undefined,user_metadata:user?.user_metadata as Record<string,unknown>|undefined}} business={business} accountRequired={!user&&Boolean(anonymousDraft)}/></main>;
    }
    return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstStyle businessSlug={business.slug} error={query.error} source={websiteConfig.source}/></main>;
   }
+  if(!user&&anonymousDraft&&getWebsiteFirstConfig(anonymousDraft.source)){
+   return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstPreview businessId={business.id} businessSlug={business.slug} source={anonymousDraft.source as WebsiteFirstSource} celebrate={query.celebrate==="1"} celebrationAt={query.celebrationAt??undefined} mode="preview" domainChoice="need_domain" domainStage="search" error={query.error} success={query.success} domainSuggestions={[]} website={null} websiteFirst={null} domainOrder={null} domainInfo={null} user={{}} business={business} accountRequired/></main>;
+  }
+  if(!user)redirect(`/login?next=${encodeURIComponent(`/onboarding?business=${query.business}`)}`);
   if(query.saved==="company")return <main className="onboarding-shell"><OnboardingBusinessProfile businessSlug={business.slug} initialModel="appointment_service" initialIndustry=""/></main>;
   const {data:profile,error:profileError}=await s.from("businesses").select("operating_model,industry_profile,onboarding_defaults").eq("id",business.id).maybeSingle();
-  if(profileError)console.error("Onboarding profile fields lookup failed",{code:profileError.code,message:profileError.message,details:profileError.details,hint:profileError.hint,businessId:business.id,userId:user.id});
+  if(profileError)console.error("Onboarding profile fields lookup failed",{code:profileError.code,message:profileError.message,details:profileError.details,hint:profileError.hint,businessId:business.id,userId:user?.id??null});
   const operatingModel=profile?.operating_model??"appointment_service",industryProfile=profile?.industry_profile??"",onboardingDefaults=profile?.onboarding_defaults??{};
   const {data:state,error:stateError}=await s.from("business_onboarding_states").select("status,current_step,completed_steps,last_activity_at").eq("business_id",business.id).maybeSingle();
   if(stateError){console.error("Onboarding state resume failed",{code:stateError.code,businessId:business.id,userId:user.id});return <main className="onboarding-resume"><section><span className="sv-kicker">Setup saved</span><h1>{business.display_name||business.name} was created.</h1><p>The saved onboarding state could not be loaded. Apply the latest Epic 2.1 migration, then retry.</p><div><Link className="sv-button" href="/app">Open workspace</Link></div></section></main>;}
@@ -52,6 +62,11 @@ export default async function Onboarding({searchParams}:{searchParams:Promise<{b
     return <main className="onboarding-shell"><OnboardingReadinessReview businessSlug={business.slug} businessName={business.display_name||business.name} facts={facts} teamStatus={teamStatus??"not_started"} error={query.error}/></main>;}
    return <main className="onboarding-resume"><section><span className="sv-kicker">Profile saved</span><h1>{business.display_name||business.name} is taking shape.</h1><p>Your company and business profile are saved. You can leave safely and return later.</p><div className="onboarding-resume-status"><strong>50% complete</strong><span>Next: Business hours</span><small>Last saved {state?.last_activity_at?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(state.last_activity_at)):"just now"}</small></div><p>Business Hours is the next onboarding checkpoint.</p><div><Link className="sv-button" href={`/app/${business.slug}`}>Continue to workspace</Link><Link className="sv-button sv-secondary" href="/app">Resume later</Link></div></section></main>;
   }}
+ if(!user){
+  const websiteSource=getWebsiteFirstConfig(query.source);
+  if(websiteSource)return <main className="onboarding-shell website-first-onboarding"><WebsiteFirstBusiness defaultEmail="" source={websiteSource.source}/></main>;
+  redirect("/login?next=/onboarding");
+ }
  const {data:userProfile}=await s.from("profiles").select("full_name").eq("id",user.id).maybeSingle();
  const defaultUserName=userProfile?.full_name?.trim()||String(user.user_metadata?.full_name??"").trim();
  const websiteSource=getWebsiteFirstConfig(query.source)||getWebsiteFirstConfig(user.user_metadata?.acquisition_source);
