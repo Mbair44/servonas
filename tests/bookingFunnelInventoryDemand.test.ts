@@ -17,11 +17,16 @@ test("booking funnel reports most-clicked rental items from dedicated click even
  assert.match(booking,/trackBookingFunnel\(businessSlug,"check_availability_clicked",\{inventoryItemId:itemId\}\)/);
  assert.match(booking,/trackBookingFunnel\(businessSlug,"inventory_item_clicked"/);
  assert.match(funnel,/const allowed=new Set<string>\(bookingFunnelEvents\)/);
+ assert.match(funnel,/legacyClickConstraint/);
+ assert.match(funnel,/click_intent:true,original_event:event/);
+ assert.match(funnel,/event_name:"inventory_item_view"/);
  assert.match(migration,/'inventory_item_clicked'/);
  assert.match(page,/inventory_items\(name\)/);
  assert.match(page,/Most-clicked rental items/);
  assert.match(page,/which rentals visitors are trying to book/i);
- assert.match(page,/if\(row\.event_name==="inventory_item_clicked"\)existing\.clicks\+\+/);
+ assert.match(page,/function isInventoryClick\(row:EventRow\)/);
+ assert.match(page,/row\.event_name==="inventory_item_view"&&row\.metadata\?\.click_intent===true/);
+ assert.match(page,/if\(isInventoryClick\(row\)\)existing\.clicks\+\+/);
  assert.match(page,/topInventoryRows/);
  assert.match(styles,/marketing-item-demand-table/);
 });
