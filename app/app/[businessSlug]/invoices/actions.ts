@@ -18,6 +18,13 @@ import type { EstimateFeeDraft, EstimateLineDraft } from "../estimates/actions";
 
 export type InvoiceActionState={error?:string;fieldErrors?:Record<string,string>;values?:Record<string,string>};
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
+const digitsOnly=(value:string)=>value.replace(/\D/g,"");
+const formatPhoneNumber=(value:string)=>{
+  const digits=digitsOnly(value).slice(0,10);
+  if(digits.length<=3)return digits;
+  if(digits.length<=6)return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+};
 const valuesFrom=(data:FormData)=>Object.fromEntries([...data.entries()].filter(([,value])=>typeof value==="string")) as Record<string,string>;
 const safeJson=<T,>(value:string,fallback:T):T=>{try{return JSON.parse(value) as T;}catch{return fallback;}};
 const path=(slug:string,id:string,kind:"success"|"error",message:string)=>`/app/${slug}/invoices/${id}?${kind}=${encodeURIComponent(message)}`;
@@ -61,6 +68,112 @@ async function resolvePublicInvoiceOrigin(
   return fallbackOrigin;
 }
 
+async function finalizeAndSendInvoice(
+  context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
+  invoiceId: string,
+) {
+  const { supabase, business, user } = context;
+  const {data:invoice}=await supabase.from("invoices").select("id,business_id,customer_id,service_location_id,job_id,title,currency,deposit_type,deposit_value,amount_paid_cents,amount_refunded_cents,document_discount_type,document_discount_value,issue_date,due_date,status,allow_partial_payments,minimum_partial_payment_cents").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+  if(!invoice||invoice.status!=="draft")return { error: "Only a complete draft invoice can be sent." as const };
+  const [{data:lines},{data:fees},{data:customer},{data:billingSettings},{data:paymentAccount},{data:billingAddress}] = await Promise.all([
+    supabase.from("invoice_line_items").select("id,name_snapshot,quantity,unit_price_cents,is_taxable,discount_type,discount_value,tax_code_snapshot").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
+    supabase.from("invoice_fees").select("amount_cents").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
+    supabase.from("customers").select("id,tax_exempt,tax_exemption_reference").eq("id",invoice.customer_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
+    supabase.from("business_billing_settings").select("tax_enabled,default_tax_rate_basis_points,tax_calculation_method,tax_display_mode,default_invoice_item_taxable").eq("business_id",business.id).maybeSingle(),
+    supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled,disabled_reason,last_provider_error,capabilities").eq("business_id",business.id).eq("provider","stripe").maybeSingle(),
+    supabase.from("customer_addresses").select("street_address,unit,city,state,postal_code,country").eq("business_id",business.id).eq("customer_id",invoice.customer_id).eq("address_type","billing").eq("is_active",true).order("is_primary",{ascending:false}).limit(1).maybeSingle(),
+  ]);
+  const {data:invoiceLocation}=invoice.service_location_id
+    ? await supabase.from("service_locations").select("street_address,unit,city,state,postal_code,country").eq("id",invoice.service_location_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle()
+    : {data:null};
+  const {data:job}=invoice.job_id
+    ? await supabase.from("jobs").select("service_location_id").eq("id",invoice.job_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle()
+    : {data:null};
+  const {data:jobLocation}=job?.service_location_id
+    ? await supabase.from("service_locations").select("street_address,unit,city,state,postal_code,country").eq("id",job.service_location_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle()
+    : {data:null};
+  const taxSettings:BusinessTaxSettings={
+    taxEnabled:Boolean(billingSettings?.tax_enabled),
+    calculationMethod:billingSettings?.tax_calculation_method==="automatic"?"automatic":"manual",
+    manualTaxRateBasisPoints:Number(billingSettings?.default_tax_rate_basis_points??0),
+    displayMode:billingSettings?.tax_display_mode==="inclusive"?"inclusive":"exclusive",
+    defaultInvoiceItemTaxable:Boolean(billingSettings?.default_invoice_item_taxable??true),
+  };
+  let taxComputation;
+  try{
+    taxComputation=await calculateInvoiceTotalsForBusiness({
+      settings:taxSettings,
+      customer:customer??null,
+      paymentAccount:paymentAccount??null,
+      jobServiceLocation:jobLocation as InvoiceTaxAddressRecord|null|undefined,
+      invoiceServiceLocation:invoiceLocation as InvoiceTaxAddressRecord|null|undefined,
+      customerBillingAddress:billingAddress as InvoiceTaxAddressRecord|null|undefined,
+      currency:String(invoice.currency).toUpperCase(),
+      lines:(lines??[]).map((line)=>({
+        id:line.id,
+        name:line.name_snapshot,
+        quantity:String(line.quantity),
+        unitPriceCents:Number(line.unit_price_cents),
+        taxable:Boolean(line.is_taxable),
+        taxCode:line.tax_code_snapshot??null,
+        discount:{type:line.discount_type as "none"|"fixed"|"percentage",value:Number(line.discount_value)} as Discount,
+      })),
+      feesCents:(fees??[]).map((fee)=>Number(fee.amount_cents)),
+      documentDiscount:{type:String(invoice.document_discount_type) as "none"|"fixed"|"percentage",value:Number(invoice.document_discount_value??0)} as Discount,
+      deposit:{type:String(invoice.deposit_type) as "none"|"fixed"|"percentage",value:Number(invoice.deposit_value??0)} as Discount,
+      amountPaidCents:Number(invoice.amount_paid_cents??0),
+      amountRefundedCents:Number(invoice.amount_refunded_cents??0),
+    });
+  }catch(error){
+    return { error: error instanceof Error ? error.message : "Automatic tax could not be finalized." as const };
+  }
+  await supabase.from("invoices").update({
+    subtotal_cents:taxComputation.totals.subtotalCents,
+    discount_total_cents:taxComputation.totals.discountTotalCents,
+    tax_total_cents:taxComputation.totals.taxTotalCents,
+    fee_total_cents:taxComputation.totals.feeTotalCents,
+    grand_total_cents:taxComputation.totals.grandTotalCents,
+    deposit_required_cents:taxComputation.totals.depositRequiredCents,
+    balance_due_cents:taxComputation.totals.balanceDueCents,
+    tax_rate_basis_points:taxComputation.totals.taxSnapshot.taxRateBasisPoints,
+    taxable_subtotal_cents:taxComputation.totals.taxSnapshot.taxableSubtotalCents,
+    tax_calculation_method:taxComputation.totals.taxSnapshot.taxCalculationMethod,
+    tax_display_mode:taxComputation.totals.taxSnapshot.taxDisplayMode,
+    tax_provider:taxComputation.totals.taxSnapshot.taxProvider,
+    tax_source:taxComputation.totals.taxSnapshot.taxSource,
+    tax_jurisdiction:taxComputation.totals.taxSnapshot.taxJurisdiction,
+    external_tax_calculation_id:taxComputation.totals.taxSnapshot.externalTaxCalculationId,
+    tax_calculated_at:taxComputation.totals.taxSnapshot.taxCalculatedAt,
+    tax_customer_exempt:taxComputation.totals.taxSnapshot.taxExemptCustomer,
+    tax_exemption_reference_snapshot:taxComputation.totals.taxSnapshot.taxExemptionReference,
+    tax_provider_metadata:taxComputation.totals.taxSnapshot.taxProviderMetadata??{},
+    tax_source_address_snapshot:taxComputation.totals.taxSnapshot.taxSourceAddressSnapshot??null,
+    updated_by:user.id,
+  }).eq("id",invoiceId).eq("business_id",business.id).eq("status","draft");
+  await Promise.all((lines??[]).map((line,index)=>supabase.from("invoice_line_items").update({
+    tax_rate_basis_points:taxComputation.lineArtifacts[index]?.taxRateBasisPoints??0,
+    taxable_amount_cents:taxComputation.totals.lines[index]?.taxableAmountCents??0,
+    tax_amount_cents:taxComputation.totals.lines[index]?.taxCents??0,
+    line_total_cents:taxComputation.totals.lines[index]?.lineTotalCents??0,
+    tax_provider_metadata:taxComputation.lineArtifacts[index]?.taxProviderMetadata??{},
+    tax_source:taxComputation.lineArtifacts[index]?.taxSource??taxComputation.totals.taxSnapshot.taxSource,
+    external_tax_calculation_id:taxComputation.lineArtifacts[index]?.externalTaxCalculationId??taxComputation.totals.taxSnapshot.externalTaxCalculationId,
+  }).eq("id",line.id).eq("business_id",business.id)));
+  const token=generatePublicDocumentToken(),tokenHash=await publicDocumentTokenHash(token);
+  const expiresAt=new Date(Date.now()+365*24*60*60*1000).toISOString();
+  const {data,error}=await supabase.from("invoices").update({
+    status:"sent",sent_at:new Date().toISOString(),updated_by:user.id,
+    public_token_hash:tokenHash,public_token_expires_at:expiresAt,public_token_revoked_at:null,
+  })
+    .eq("id",invoiceId).eq("business_id",business.id).eq("status","draft").select("id").maybeSingle();
+  if(error||!data)return { error: "Only a complete draft invoice can be sent." as const };
+  await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
+  revalidatePath(`/app/${business.slug}/invoices`);
+  const origin=await resolvePublicInvoiceOrigin(context);
+  await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
+  return { publicUrl: `${origin}/invoice/${token}` };
+}
+
 async function ensureInvoiceCustomer(
   context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
   data: FormData,
@@ -81,14 +194,17 @@ async function ensureInvoiceCustomer(
   const lastName = text(data, "manualCustomerLastName");
   const companyName = text(data, "manualCustomerCompanyName");
   const email = text(data, "manualCustomerEmail").toLowerCase();
-  const phone = text(data, "manualCustomerPhone");
+  const rawPhone = text(data, "manualCustomerPhone");
+  const phoneDigits = digitsOnly(rawPhone);
+  const phone = formatPhoneNumber(rawPhone);
   const nameForValidation = [firstName, lastName].filter(Boolean).join(" ") || companyName;
   const fieldErrors: Record<string, string> = {};
 
   if (!firstName) fieldErrors.manualCustomerFirstName = "First name is required to create the customer.";
   if (!email) fieldErrors.manualCustomerEmail = "Email is required to create the customer.";
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.manualCustomerEmail = "Enter a valid email address.";
-  if (!phone) fieldErrors.manualCustomerPhone = "Phone is required to create the customer.";
+  if (!phoneDigits) fieldErrors.manualCustomerPhone = "Phone is required to create the customer.";
+  else if (phoneDigits.length !== 10) fieldErrors.manualCustomerPhone = "Enter a 10-digit phone number.";
 
   if (!nameForValidation) {
     fieldErrors.manualCustomerFirstName = fieldErrors.manualCustomerFirstName ?? "Add at least a first name to create the customer.";
@@ -361,6 +477,7 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
   const context=await requireWorkspaceCapability(slug,"invoices"),values=valuesFrom(data);
   if(!canManageCustomers(context.role))return {error:"You do not have permission to create invoices.",values};
   const requestKey=text(data,"requestKey");
+  const submissionMode=text(data,"submissionMode");
   if(!/^[0-9a-f-]{36}$/i.test(requestKey))return {error:"Refresh the page before submitting.",values};
   const {data:existing}=await context.supabase.from("invoices").select("id").eq("business_id",context.business.id).eq("request_key",requestKey).maybeSingle();
   if(existing)redirect(`/app/${slug}/invoices/${existing.id}`);
@@ -381,6 +498,13 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
   const childError=await replaceChildren(context,invoice.id,prepared);
   if(childError){await context.supabase.from("invoices").update({is_deleted:true}).eq("id",invoice.id);console.error("Invoice lines creation failed",{code:childError.code,invoiceId:invoice.id,businessId:context.business.id});return {error:"The invoice header was created, but its line items could not be saved.",values};}
   await context.supabase.from("invoice_events").insert({business_id:context.business.id,invoice_id:invoice.id,event_type:"created",actor_user_id:context.user.id});
+  if(submissionMode==="send"){
+    const sent=await finalizeAndSendInvoice(context,invoice.id);
+    if("error" in sent && sent.error){
+      return {error:sent.error,values:prepared.values};
+    }
+    redirect(`/app/${slug}/invoices/${invoice.id}?success=${encodeURIComponent("Invoice created and emailed")}&publicLink=${encodeURIComponent(sent.publicUrl)}`);
+  }
   redirect(`/app/${slug}/invoices/${invoice.id}?success=Invoice+created`);
 }
 
@@ -402,107 +526,11 @@ export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceA
 
 export async function sendInvoice(slug:string,invoiceId:string){
   const context=await requireWorkspaceCapability(slug,"invoices");
-  const {supabase,business,user,role}=context;
+  const {role}=context;
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
-  const {data:invoice}=await supabase.from("invoices").select("id,business_id,customer_id,service_location_id,job_id,title,currency,deposit_type,deposit_value,amount_paid_cents,amount_refunded_cents,document_discount_type,document_discount_value,issue_date,due_date,status,allow_partial_payments,minimum_partial_payment_cents").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
-  if(!invoice||invoice.status!=="draft")redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
-  const [{data:lines},{data:fees},{data:customer},{data:billingSettings},{data:paymentAccount},{data:billingAddress}] = await Promise.all([
-    supabase.from("invoice_line_items").select("id,name_snapshot,quantity,unit_price_cents,is_taxable,discount_type,discount_value,tax_code_snapshot").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
-    supabase.from("invoice_fees").select("amount_cents").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
-    supabase.from("customers").select("id,tax_exempt,tax_exemption_reference").eq("id",invoice.customer_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle(),
-    supabase.from("business_billing_settings").select("tax_enabled,default_tax_rate_basis_points,tax_calculation_method,tax_display_mode,default_invoice_item_taxable").eq("business_id",business.id).maybeSingle(),
-    supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled,disabled_reason,last_provider_error,capabilities").eq("business_id",business.id).eq("provider","stripe").maybeSingle(),
-    supabase.from("customer_addresses").select("street_address,unit,city,state,postal_code,country").eq("business_id",business.id).eq("customer_id",invoice.customer_id).eq("address_type","billing").eq("is_active",true).order("is_primary",{ascending:false}).limit(1).maybeSingle(),
-  ]);
-  const {data:invoiceLocation}=invoice.service_location_id
-    ? await supabase.from("service_locations").select("street_address,unit,city,state,postal_code,country").eq("id",invoice.service_location_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle()
-    : {data:null};
-  const {data:job}=invoice.job_id
-    ? await supabase.from("jobs").select("service_location_id").eq("id",invoice.job_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle()
-    : {data:null};
-  const {data:jobLocation}=job?.service_location_id
-    ? await supabase.from("service_locations").select("street_address,unit,city,state,postal_code,country").eq("id",job.service_location_id).eq("business_id",business.id).eq("is_deleted",false).maybeSingle()
-    : {data:null};
-  const taxSettings:BusinessTaxSettings={
-    taxEnabled:Boolean(billingSettings?.tax_enabled),
-    calculationMethod:billingSettings?.tax_calculation_method==="automatic"?"automatic":"manual",
-    manualTaxRateBasisPoints:Number(billingSettings?.default_tax_rate_basis_points??0),
-    displayMode:billingSettings?.tax_display_mode==="inclusive"?"inclusive":"exclusive",
-    defaultInvoiceItemTaxable:Boolean(billingSettings?.default_invoice_item_taxable??true),
-  };
-  let taxComputation;
-  try{
-    taxComputation=await calculateInvoiceTotalsForBusiness({
-        settings:taxSettings,
-        customer:customer??null,
-      paymentAccount:paymentAccount??null,
-      jobServiceLocation:jobLocation as InvoiceTaxAddressRecord|null|undefined,
-      invoiceServiceLocation:invoiceLocation as InvoiceTaxAddressRecord|null|undefined,
-      customerBillingAddress:billingAddress as InvoiceTaxAddressRecord|null|undefined,
-      currency:String(invoice.currency).toUpperCase(),
-      lines:(lines??[]).map((line)=>({
-        id:line.id,
-        name:line.name_snapshot,
-        quantity:String(line.quantity),
-        unitPriceCents:Number(line.unit_price_cents),
-        taxable:Boolean(line.is_taxable),
-        taxCode:line.tax_code_snapshot??null,
-        discount:{type:line.discount_type as "none"|"fixed"|"percentage",value:Number(line.discount_value)} as Discount,
-      })),
-      feesCents:(fees??[]).map((fee)=>Number(fee.amount_cents)),
-      documentDiscount:{type:String(invoice.document_discount_type) as "none"|"fixed"|"percentage",value:Number(invoice.document_discount_value??0)} as Discount,
-      deposit:{type:String(invoice.deposit_type) as "none"|"fixed"|"percentage",value:Number(invoice.deposit_value??0)} as Discount,
-      amountPaidCents:Number(invoice.amount_paid_cents??0),
-      amountRefundedCents:Number(invoice.amount_refunded_cents??0),
-    });
-  }catch(error){
-    redirect(path(slug,invoiceId,"error",error instanceof Error?error.message:"Automatic tax could not be finalized"));
-  }
-  await supabase.from("invoices").update({
-    subtotal_cents:taxComputation.totals.subtotalCents,
-    discount_total_cents:taxComputation.totals.discountTotalCents,
-    tax_total_cents:taxComputation.totals.taxTotalCents,
-    fee_total_cents:taxComputation.totals.feeTotalCents,
-    grand_total_cents:taxComputation.totals.grandTotalCents,
-    deposit_required_cents:taxComputation.totals.depositRequiredCents,
-    balance_due_cents:taxComputation.totals.balanceDueCents,
-    tax_rate_basis_points:taxComputation.totals.taxSnapshot.taxRateBasisPoints,
-    taxable_subtotal_cents:taxComputation.totals.taxSnapshot.taxableSubtotalCents,
-    tax_calculation_method:taxComputation.totals.taxSnapshot.taxCalculationMethod,
-    tax_display_mode:taxComputation.totals.taxSnapshot.taxDisplayMode,
-    tax_provider:taxComputation.totals.taxSnapshot.taxProvider,
-    tax_source:taxComputation.totals.taxSnapshot.taxSource,
-    tax_jurisdiction:taxComputation.totals.taxSnapshot.taxJurisdiction,
-    external_tax_calculation_id:taxComputation.totals.taxSnapshot.externalTaxCalculationId,
-    tax_calculated_at:taxComputation.totals.taxSnapshot.taxCalculatedAt,
-    tax_customer_exempt:taxComputation.totals.taxSnapshot.taxExemptCustomer,
-    tax_exemption_reference_snapshot:taxComputation.totals.taxSnapshot.taxExemptionReference,
-    tax_provider_metadata:taxComputation.totals.taxSnapshot.taxProviderMetadata??{},
-    tax_source_address_snapshot:taxComputation.totals.taxSnapshot.taxSourceAddressSnapshot??null,
-    updated_by:user.id,
-  }).eq("id",invoiceId).eq("business_id",business.id).eq("status","draft");
-  await Promise.all((lines??[]).map((line,index)=>supabase.from("invoice_line_items").update({
-    tax_rate_basis_points:taxComputation.lineArtifacts[index]?.taxRateBasisPoints??0,
-    taxable_amount_cents:taxComputation.totals.lines[index]?.taxableAmountCents??0,
-    tax_amount_cents:taxComputation.totals.lines[index]?.taxCents??0,
-    line_total_cents:taxComputation.totals.lines[index]?.lineTotalCents??0,
-    tax_provider_metadata:taxComputation.lineArtifacts[index]?.taxProviderMetadata??{},
-    tax_source:taxComputation.lineArtifacts[index]?.taxSource??taxComputation.totals.taxSnapshot.taxSource,
-    external_tax_calculation_id:taxComputation.lineArtifacts[index]?.externalTaxCalculationId??taxComputation.totals.taxSnapshot.externalTaxCalculationId,
-  }).eq("id",line.id).eq("business_id",business.id)));
-  const token=generatePublicDocumentToken(),tokenHash=await publicDocumentTokenHash(token);
-  const expiresAt=new Date(Date.now()+365*24*60*60*1000).toISOString();
-  const {data,error}=await supabase.from("invoices").update({
-    status:"sent",sent_at:new Date().toISOString(),updated_by:user.id,
-    public_token_hash:tokenHash,public_token_expires_at:expiresAt,public_token_revoked_at:null,
-  })
-    .eq("id",invoiceId).eq("business_id",business.id).eq("status","draft").select("id").maybeSingle();
-  if(error||!data)redirect(path(slug,invoiceId,"error","Only a complete draft invoice can be sent"));
-  await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
-  revalidatePath(`/app/${slug}/invoices`);
-  const origin=await resolvePublicInvoiceOrigin(context);
-  await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
-  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(`${origin}/invoice/${token}`)}`);
+  const sent=await finalizeAndSendInvoice(context,invoiceId);
+  if("error" in sent && sent.error)redirect(path(slug,invoiceId,"error",sent.error));
+  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(sent.publicUrl)}`);
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){

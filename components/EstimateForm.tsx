@@ -57,6 +57,17 @@ function currencyInputValue(value: string) {
   return value === "0" || value === "0.00" ? "" : value;
 }
 
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatPhoneNumber(value: string) {
+  const digits = digitsOnly(value).slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 function lineSettingBadges(line: EstimateLineDraft, taxEnabled: boolean) {
   const badges: string[] = [];
   if (line.discountType === "percentage" && Number(line.discountValue) > 0) badges.push(`${line.discountValue}% discount`);
@@ -142,6 +153,11 @@ export default function EstimateForm({
   const [expandedLineIndex, setExpandedLineIndex] = useState<number | null>(
     isInvoice && (!initialLines.length || newDocument) ? 0 : null,
   );
+  const [lineEditorSnapshot, setLineEditorSnapshot] = useState<{ index: number; line: EstimateLineDraft; isNew: boolean } | null>(
+    isInvoice && (!initialLines.length || newDocument)
+      ? { index: 0, line: blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true), isNew: !initialLines.length || newDocument }
+      : null,
+  );
 
   const selectedExistingCustomerId = customerId === manualCustomerOption ? "" : customerId;
   const visibleLocations = locations.filter((row) => row.customer_id === selectedExistingCustomerId);
@@ -171,6 +187,30 @@ export default function EstimateForm({
 
   const updateLine = (index: number, patch: Partial<EstimateLineDraft>) =>
     setLines((current) => current.map((line, position) => (position === index ? { ...line, ...patch } : line)));
+
+  const openLineEditor = (index: number, isNew = false) => {
+    setExpandedLineIndex(index);
+    setLineEditorSnapshot({ index, line: { ...lines[index] }, isNew });
+  };
+
+  const closeLineEditor = () => {
+    setExpandedLineIndex(null);
+    setLineEditorSnapshot(null);
+  };
+
+  const cancelLineEditor = () => {
+    if (lineEditorSnapshot) {
+      if (lineEditorSnapshot.isNew) {
+        setLines((current) => current.filter((_, position) => position !== lineEditorSnapshot.index));
+      } else {
+        setLines((current) =>
+          current.map((line, position) => (position === lineEditorSnapshot.index ? { ...lineEditorSnapshot.line } : line)),
+        );
+      }
+    }
+    setExpandedLineIndex(null);
+    setLineEditorSnapshot(null);
+  };
 
   const addPriceItem = (index: number, id: string) => {
     const item = priceItems.find((row) => row.id === id);
@@ -228,9 +268,19 @@ export default function EstimateForm({
       </small>
     ) : null;
 
+  const fieldTitle = (label: string, required = false) => (
+    <span className="estimate-field-title">
+      {label}
+      {required ? <small className="estimate-required" aria-hidden="true">*</small> : null}
+    </span>
+  );
+
   const addLine = () => {
-    setExpandedLineIndex(lines.length);
-    setLines((current) => [...current, blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true)]);
+    const nextLine = blankLine(businessTaxSettings?.defaultInvoiceItemTaxable ?? true);
+    const nextIndex = lines.length;
+    setLines((current) => [...current, nextLine]);
+    setExpandedLineIndex(nextIndex);
+    setLineEditorSnapshot({ index: nextIndex, line: { ...nextLine }, isNew: true });
   };
   const removeLine = (index: number) => {
     setLines((current) => current.filter((_, position) => position !== index));
@@ -238,6 +288,12 @@ export default function EstimateForm({
       if (current === null) return null;
       if (current === index) return null;
       return current > index ? current - 1 : current;
+    });
+    setLineEditorSnapshot((current) => {
+      if (!current) return null;
+      if (current.index === index) return null;
+      if (current.index > index) return { ...current, index: current.index - 1 };
+      return current;
     });
   };
   const lineAmount = (index: number) => {
@@ -275,7 +331,7 @@ export default function EstimateForm({
           </div>
           <div className="estimate-builder-grid estimate-builder-grid--details">
             <label>
-              Customer
+              {fieldTitle("Customer", true)}
               <select
                 required
                 name="customerId"
@@ -450,23 +506,16 @@ export default function EstimateForm({
                       </span>
                     </div>
                     <div className="estimate-line-summary-actions">
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() => setExpandedLineIndex(isExpanded ? null : index)}
-                        aria-label={isExpanded ? `Collapse invoice item ${index + 1}` : `Edit invoice item ${index + 1}`}
-                      >
-                        {isExpanded ? "Done" : "Edit"}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-button danger"
-                        disabled={lines.length === 1}
-                        aria-label={`Remove invoice item ${index + 1}`}
-                        onClick={() => removeLine(index)}
-                      >
-                        Remove
-                      </button>
+                      {!isExpanded && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => openLineEditor(index)}
+                          aria-label={`Edit invoice item ${index + 1}`}
+                        >
+                          Edit
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -582,6 +631,20 @@ export default function EstimateForm({
                           )}
                         </div>
                       </div>
+
+                      {isInvoice && (
+                        <div className="invoice-line-footer-actions">
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={closeLineEditor}>
+                            Done
+                          </button>
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
+                            + Add Another item
+                          </button>
+                          <button type="button" className="sv-button sv-secondary sv-small" onClick={cancelLineEditor}>
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </article>
@@ -849,9 +912,20 @@ export default function EstimateForm({
             <p className="estimate-summary-empty">Correct the invoice details to preview the totals.</p>
           )}
           <div className="estimate-summary-actions">
-            <button className="sv-button" disabled={pending}>
-              {pending ? "Saving…" : submitLabel}
-            </button>
+            {isInvoice && newDocument ? (
+              <>
+                <button className="sv-button" disabled={pending}>
+                  {pending ? "Saving…" : submitLabel}
+                </button>
+                <button className="sv-button sv-secondary" disabled={pending} name="submissionMode" value="send">
+                  {pending ? "Saving…" : "Create and email invoice"}
+                </button>
+              </>
+            ) : (
+              <button className="sv-button" disabled={pending}>
+                {pending ? "Saving…" : submitLabel}
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -867,11 +941,12 @@ export default function EstimateForm({
           <div className="invoice-customer-drawer-form">
             <div className="quick-form-grid">
               <label>
-                First name
+                {fieldTitle("First name", true)}
                 <input
                   value={manualCustomerFirstName}
                   onChange={(event) => setManualCustomerFirstName(event.target.value)}
                   placeholder="Jane"
+                  required
                   aria-invalid={state.fieldErrors?.manualCustomerFirstName ? "true" : undefined}
                 />
                 {error("manualCustomerFirstName")}
@@ -893,22 +968,27 @@ export default function EstimateForm({
                 />
               </label>
               <label>
-                Email
+                {fieldTitle("Email", true)}
                 <input
                   type="email"
                   value={manualCustomerEmail}
                   onChange={(event) => setManualCustomerEmail(event.target.value)}
                   placeholder="jane@example.com"
+                  required
                   aria-invalid={state.fieldErrors?.manualCustomerEmail ? "true" : undefined}
                 />
                 {error("manualCustomerEmail")}
               </label>
               <label>
-                Phone
+                {fieldTitle("Phone", true)}
                 <input
                   value={manualCustomerPhone}
-                  onChange={(event) => setManualCustomerPhone(event.target.value)}
+                  onChange={(event) => setManualCustomerPhone(formatPhoneNumber(event.target.value))}
+                  onBlur={(event) => setManualCustomerPhone(formatPhoneNumber(event.target.value))}
                   placeholder="(555) 555-0100"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  required
                   aria-invalid={state.fieldErrors?.manualCustomerPhone ? "true" : undefined}
                 />
                 {error("manualCustomerPhone")}
