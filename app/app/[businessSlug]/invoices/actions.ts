@@ -71,10 +71,10 @@ async function resolvePublicInvoiceOrigin(
 async function finalizeAndSendInvoice(
   context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
   invoiceId: string,
-) {
+): Promise<{ ok: true; publicUrl: string } | { ok: false; error: string }> {
   const { supabase, business, user } = context;
   const {data:invoice}=await supabase.from("invoices").select("id,business_id,customer_id,service_location_id,job_id,title,currency,deposit_type,deposit_value,amount_paid_cents,amount_refunded_cents,document_discount_type,document_discount_value,issue_date,due_date,status,allow_partial_payments,minimum_partial_payment_cents").eq("id",invoiceId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
-  if(!invoice||invoice.status!=="draft")return { error: "Only a complete draft invoice can be sent." as const };
+  if(!invoice||invoice.status!=="draft")return { ok:false, error:"Only a complete draft invoice can be sent." };
   const [{data:lines},{data:fees},{data:customer},{data:billingSettings},{data:paymentAccount},{data:billingAddress}] = await Promise.all([
     supabase.from("invoice_line_items").select("id,name_snapshot,quantity,unit_price_cents,is_taxable,discount_type,discount_value,tax_code_snapshot").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
     supabase.from("invoice_fees").select("amount_cents").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
@@ -125,7 +125,7 @@ async function finalizeAndSendInvoice(
       amountRefundedCents:Number(invoice.amount_refunded_cents??0),
     });
   }catch(error){
-    return { error: error instanceof Error ? error.message : "Automatic tax could not be finalized." as const };
+    return { ok:false, error:error instanceof Error ? error.message : "Automatic tax could not be finalized." };
   }
   await supabase.from("invoices").update({
     subtotal_cents:taxComputation.totals.subtotalCents,
@@ -166,12 +166,12 @@ async function finalizeAndSendInvoice(
     public_token_hash:tokenHash,public_token_expires_at:expiresAt,public_token_revoked_at:null,
   })
     .eq("id",invoiceId).eq("business_id",business.id).eq("status","draft").select("id").maybeSingle();
-  if(error||!data)return { error: "Only a complete draft invoice can be sent." as const };
+  if(error||!data)return { ok:false, error:"Only a complete draft invoice can be sent." };
   await supabase.from("invoice_events").insert({business_id:business.id,invoice_id:invoiceId,event_type:"sent",actor_user_id:user.id});
   revalidatePath(`/app/${business.slug}/invoices`);
   const origin=await resolvePublicInvoiceOrigin(context);
   await sendInvoiceFinancialEmail(invoiceId,"invoice_sent",{publicUrl:`${origin}/invoice/${token}`});
-  return { publicUrl: `${origin}/invoice/${token}` };
+  return { ok:true, publicUrl:`${origin}/invoice/${token}` };
 }
 
 async function ensureInvoiceCustomer(
@@ -500,11 +500,10 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
   await context.supabase.from("invoice_events").insert({business_id:context.business.id,invoice_id:invoice.id,event_type:"created",actor_user_id:context.user.id});
   if(submissionMode==="send"){
     const sent=await finalizeAndSendInvoice(context,invoice.id);
-    if("error" in sent && sent.error){
+    if(!sent.ok){
       return {error:sent.error,values:prepared.values};
     }
-    const publicUrl=sent.publicUrl;
-    redirect(`/app/${slug}/invoices/${invoice.id}?success=${encodeURIComponent("Invoice created and emailed")}&publicLink=${encodeURIComponent(publicUrl)}`);
+    redirect(`/app/${slug}/invoices/${invoice.id}?success=${encodeURIComponent("Invoice created and emailed")}&publicLink=${encodeURIComponent(sent.publicUrl)}`);
   }
   redirect(`/app/${slug}/invoices/${invoice.id}?success=Invoice+created`);
 }
@@ -530,9 +529,8 @@ export async function sendInvoice(slug:string,invoiceId:string){
   const {role}=context;
   if(!canManageCustomers(role))redirect(path(slug,invoiceId,"error","Permission denied"));
   const sent=await finalizeAndSendInvoice(context,invoiceId);
-  if("error" in sent && sent.error)redirect(path(slug,invoiceId,"error",sent.error));
-  const publicUrl=sent.publicUrl;
-  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(publicUrl)}`);
+  if(!sent.ok)redirect(path(slug,invoiceId,"error",sent.error));
+  redirect(`/app/${slug}/invoices/${invoiceId}?success=${encodeURIComponent("Invoice marked sent")}&publicLink=${encodeURIComponent(sent.publicUrl)}`);
 }
 
 export async function resendInvoice(slug:string,invoiceId:string){
