@@ -42,3 +42,24 @@ test("invoice polish removes heavy helper copy while keeping concise note visibi
   assert.match(source, /Visible to the customer\./);
   assert.match(source, /Only visible to your team\./);
 });
+
+test("invoice customer creation uses a compact required-fields drawer instead of a single name field", async () => {
+  const source = await read("components/EstimateForm.tsx");
+  assert.match(source, /Add only the required fields so this customer can be created from the invoice\./);
+  assert.match(source, /title="Add new customer"/);
+  assert.match(source, /name="manualCustomerFirstName"/);
+  assert.match(source, /name="manualCustomerEmail"/);
+  assert.match(source, /name="manualCustomerPhone"/);
+  assert.doesNotMatch(source, /name="manualCustomerName"/);
+});
+
+test("invoice inline customer creation validates and saves required customer contact fields", async () => {
+  const source = await read("app/app/[businessSlug]/invoices/actions.ts");
+  assert.match(source, /manualCustomerFirstName/);
+  assert.match(source, /manualCustomerEmail/);
+  assert.match(source, /manualCustomerPhone/);
+  assert.match(source, /Email is required to create the customer\./);
+  assert.match(source, /Phone is required to create the customer\./);
+  assert.match(source, /email,\s*phone,/);
+  assert.doesNotMatch(source, /email:\s*null,\s*phone:\s*null/);
+});

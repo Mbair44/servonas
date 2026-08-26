@@ -1597,6 +1597,18 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 .estimate-form.estimate-builder.invoice-builder .estimate-line-advanced{padding-top:10px}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-advanced h3{margin:0 0 8px;font-size:.8rem}
 .estimate-form.estimate-builder.invoice-builder .estimate-line-advanced-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.estimate-form.estimate-builder.invoice-builder .invoice-inline-customer-panel{display:grid;gap:12px;padding:14px;border:1px solid #dbe3ef;border-radius:14px;background:#f8fafc}
+.estimate-form.estimate-builder.invoice-builder .invoice-inline-customer-panel__summary{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.estimate-form.estimate-builder.invoice-builder .invoice-inline-customer-panel__summary strong{display:block;color:#17203a;font-size:.95rem}
+.estimate-form.estimate-builder.invoice-builder .invoice-inline-customer-panel__summary p{margin:4px 0 0;color:#667085;line-height:1.5}
+.estimate-form.estimate-builder.invoice-builder .invoice-inline-customer-panel__chips{display:flex;flex-wrap:wrap;gap:8px}
+.estimate-form.estimate-builder.invoice-builder .invoice-inline-customer-panel__chips span{padding:7px 10px;border-radius:999px;background:#fff;color:#475467;font-size:.74rem;font-weight:800;border:1px solid #dbe3ef}
+.invoice-customer-drawer-form{display:grid;gap:16px}
+.invoice-customer-drawer-form label{display:grid;gap:6px;color:#344054;font-size:.78rem;font-weight:800}
+.invoice-customer-drawer-form input{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#17213b;font:inherit}
+.invoice-customer-drawer-form input[aria-invalid="true"]{border-color:#f04438;background:#fff5f4}
+.invoice-customer-drawer-help{color:#667085;font-size:.78rem;line-height:1.55}
+.invoice-customer-drawer-form>footer{display:flex;justify-content:flex-end}
 @media(max-width:1200px){.estimate-form.estimate-builder.invoice-builder{grid-template-columns:minmax(0,1fr) 320px}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid>span{grid-column:1/-1}.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:900px){.estimate-form.estimate-builder.invoice-builder{grid-template-columns:1fr}.estimate-form.estimate-builder.invoice-builder .estimate-builder-sidebar{position:static;top:auto}.estimate-form.estimate-builder.invoice-builder .estimate-summary-card{max-height:none;overflow:visible}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary{grid-template-columns:1fr}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-actions{justify-content:flex-start}}
 @media(max-width:700px){.estimate-form.estimate-builder.invoice-builder .estimate-section{padding:16px}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid,.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced-grid{grid-template-columns:1fr}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid>span{grid-column:auto}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main strong,.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main small{white-space:normal}}
