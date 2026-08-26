@@ -632,19 +632,6 @@ export default function EstimateForm({
                         </div>
                       </div>
 
-                      {isInvoice && (
-                        <div className="invoice-line-footer-actions">
-                          <button type="button" className="sv-button sv-secondary sv-small" onClick={closeLineEditor}>
-                            Done
-                          </button>
-                          <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
-                            + Add Another item
-                          </button>
-                          <button type="button" className="sv-button sv-secondary sv-small" onClick={cancelLineEditor}>
-                            Cancel
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
                 </article>
@@ -653,9 +640,23 @@ export default function EstimateForm({
           </div>
 
           <div className="estimate-add-row">
-            <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
-              + Add item
-            </button>
+            {isInvoice && expandedLineIndex !== null ? (
+              <>
+                <button type="button" className="sv-button sv-secondary sv-small" onClick={closeLineEditor}>
+                  Done
+                </button>
+                <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
+                  + Add Another item
+                </button>
+                <button type="button" className="sv-button sv-secondary sv-small" onClick={cancelLineEditor}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button type="button" className="sv-button sv-secondary sv-small" onClick={addLine}>
+                + Add item
+              </button>
+            )}
           </div>
         </section>
 
