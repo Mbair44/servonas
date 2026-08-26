@@ -29,6 +29,8 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
  assert.match(source,/const nextQuantities=\{\.{3}quantities,\[item\.id\]:Math\.max\(1,quantities\[item\.id\]\?\?1\)\};/);
  assert.match(source,/setQuantities\(nextQuantities\);persistBookingState\(nextQuantities\);/);
  assert.match(source,/function noteInventoryInteraction\(item:Item,source:"browse"\|"adjust"\|"reserve"="browse"\)/);
+ assert.match(source,/setAvailabilityItemId\(item\.id\);/);
+ assert.match(source,/if\(source==="browse"\)setFocusedItemId\(item\.id\);/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_view"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"inventory_item_clicked"/);
  assert.match(source,/trackBookingFunnel\(businessSlug,"reserve_clicked"/);
