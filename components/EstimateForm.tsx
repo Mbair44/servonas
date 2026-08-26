@@ -53,6 +53,10 @@ function customerLabel(customer: Customer) {
   return customer.company_name || `${customer.first_name} ${customer.last_name}`.trim();
 }
 
+function invoiceTitleFromSelection(customerName: string, jobTitle?: string | null) {
+  return [customerName.trim(), jobTitle?.trim()].filter(Boolean).join(" — ");
+}
+
 function currencyInputValue(value: string) {
   return value === "0" || value === "0.00" ? "" : value;
 }
@@ -187,26 +191,6 @@ export default function EstimateForm({
   useEffect(() => {
     if (jobId && !visibleJobs.some((row) => row.id === jobId)) setJobId("");
   }, [jobId, visibleJobs]);
-  useEffect(() => {
-    if (!isInvoice || titleTouched) return;
-    const customerName =
-      customerId === manualCustomerOption
-        ? [manualCustomerFirstName.trim(), manualCustomerLastName.trim()].filter(Boolean).join(" ") || manualCustomerCompanyName.trim()
-        : selectedCustomer
-          ? customerLabel(selectedCustomer)
-          : "";
-    const nextTitle = [customerName, selectedJob?.title?.trim()].filter(Boolean).join(" — ");
-    setTitle(nextTitle);
-  }, [
-    customerId,
-    isInvoice,
-    manualCustomerCompanyName,
-    manualCustomerFirstName,
-    manualCustomerLastName,
-    selectedCustomer,
-    selectedJob,
-    titleTouched,
-  ]);
   const taxEnabled = Boolean(businessTaxSettings?.taxEnabled);
   const taxContext =
     isInvoice && businessTaxSettings
@@ -444,7 +428,17 @@ export default function EstimateForm({
                 required
                 name="customerId"
                 value={customerId}
-                onChange={(event) => setCustomerId(event.target.value)}
+                onChange={(event) => {
+                  const nextCustomerId = event.target.value;
+                  setCustomerId(nextCustomerId);
+                  if (nextCustomerId !== manualCustomerOption) {
+                    const nextCustomer = customers.find((customer) => customer.id === nextCustomerId) ?? null;
+                    const currentJob = visibleJobs.find((row) => row.id === jobId) ?? null;
+                    if (!titleTouched) setTitle(invoiceTitleFromSelection(nextCustomer ? customerLabel(nextCustomer) : "", currentJob?.title));
+                  } else if (!titleTouched) {
+                    setTitle("");
+                  }
+                }}
                 aria-describedby={state.fieldErrors?.customerId ? "customerId-error" : undefined}
               >
                 <option value="">Choose customer</option>
@@ -482,7 +476,15 @@ export default function EstimateForm({
               <select
                 name="jobId"
                 value={jobId}
-                onChange={(event) => setJobId(event.target.value)}
+                onChange={(event) => {
+                  const nextJobId = event.target.value;
+                  setJobId(nextJobId);
+                  if (!titleTouched) {
+                    const nextJob = visibleJobs.find((row) => row.id === nextJobId) ?? null;
+                    const customerName = selectedCustomer ? customerLabel(selectedCustomer) : "";
+                    setTitle(invoiceTitleFromSelection(customerName, nextJob?.title));
+                  }
+                }}
                 disabled={customerId === manualCustomerOption}
                 aria-describedby={state.fieldErrors?.jobId ? "jobId-error" : undefined}
               >
