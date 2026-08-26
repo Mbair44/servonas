@@ -176,11 +176,65 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
 }
 
 const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
+const legacyPublicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
+
+const isMissingPhotoMotionStyleColumnError=(error:unknown)=>{
+ const value=error as {code?:string;message?:string;details?:string;hint?:string}|null;
+ const message=`${value?.message??value?.details??value?.hint??""}`;
+ return value?.code==="42703"&&/photo_motion_style/i.test(message);
+};
+
+async function queryWebsiteSettingsByDomain(
+ db: SupabaseClient,
+ candidates: string[],
+ filters: { status?: string; domainStatus?: string },
+ context: { domain: string; route: DomainResolutionRoute; operation: string },
+){
+ const runSelect=(selectClause:string)=>db.from("business_website_settings").select(selectClause).in("custom_domain",candidates)
+  .match({
+   ...(filters.status?{status:filters.status}:{}),
+   ...(filters.domainStatus?{domain_status:filters.domainStatus}:{}),
+  })
+  .limit(1);
+
+ const primaryResult=await runDomainQuery(()=>runSelect(publicWebsiteSettingsSelect),{
+  domain:context.domain,
+  route:context.route,
+  operation:context.operation,
+  table:"business_website_settings",
+ });
+ if(primaryResult.kind==="ok")return primaryResult;
+ if(!isMissingPhotoMotionStyleColumnError(primaryResult.failure))return primaryResult;
+
+ logDomainLookupOutcome("warn",{
+  domain:context.domain,
+  route:context.route,
+  operation:`${context.operation}_legacy_retry`,
+  table:"business_website_settings",
+  statusOrCode:primaryResult.failure.code??primaryResult.failure.status,
+  message:"Retrying domain lookup without photo_motion_style because the column is missing.",
+  elapsedMs:primaryResult.elapsedMs,
+  response:"503",
+  attempt:primaryResult.attemptCount,
+ });
+
+ const legacyResult=await runDomainQuery(()=>runSelect(legacyPublicWebsiteSettingsSelect),{
+  domain:context.domain,
+  route:context.route,
+  operation:`${context.operation}_legacy`,
+  table:"business_website_settings",
+ });
+ if(legacyResult.kind!=="ok")return legacyResult;
+ return {
+  ...legacyResult,
+  data:(legacyResult.data??[]).map((row:any)=>({photo_motion_style:"static",...row})),
+ };
+}
 
 async function queryPublishedBusinessWebsiteByDomain(rawDomain:string,route:DomainResolutionRoute):Promise<DomainSiteResolution>{
  const db=getSupabaseAdmin(),candidates=domainCandidatesFor(rawDomain);
  if(!db||!candidates.length)return {kind:"not_found",elapsedMs:0,attemptCount:0};
- const publishedResult=await runDomainQuery(()=>db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("status","published").limit(1),{domain:rawDomain,route,operation:"resolve_published_domain",table:"business_website_settings"});
+ const publishedResult=await queryWebsiteSettingsByDomain(db,candidates,{status:"published"},{domain:rawDomain,route,operation:"resolve_published_domain"});
  if(publishedResult.kind==="error")return {kind:"unavailable",failure:publishedResult.failure,elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
  const publishedSettings=publishedResult.data?.[0]??null;
  if(publishedSettings){
@@ -189,7 +243,7 @@ async function queryPublishedBusinessWebsiteByDomain(rawDomain:string,route:Doma
   logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_published_domain",table:"business_website_settings",statusOrCode:200,message:"Resolved custom domain.",elapsedMs:publishedResult.elapsedMs,response:"200",attempt:publishedResult.attemptCount});
   return {kind:"ok",settings:publishedSettings,site,elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
  }
- const connectedResult=await runDomainQuery(()=>db.from("business_website_settings").select(publicWebsiteSettingsSelect).in("custom_domain",candidates).eq("domain_status","connected").limit(1),{domain:rawDomain,route,operation:"resolve_connected_domain",table:"business_website_settings"});
+ const connectedResult=await queryWebsiteSettingsByDomain(db,candidates,{domainStatus:"connected"},{domain:rawDomain,route,operation:"resolve_connected_domain"});
  if(connectedResult.kind==="error")return {kind:"unavailable",failure:connectedResult.failure,elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};
  const settings=connectedResult.data?.[0]??null;
  if(!settings){
