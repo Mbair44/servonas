@@ -2,12 +2,12 @@
 
 import {useEffect,useRef} from "react";
 import {attributionFromSearch,type AttributionValues,type BookingFunnelEvent} from "@/lib/bookingFunnel";
-import {publicOptionalAnalyticsEnabled} from "@/lib/optionalAnalytics";
+import {publicBookingFunnelEnabled} from "@/lib/optionalAnalytics";
 
 const key=(slug:string)=>`servonas.booking-attribution.${slug}`;
 const dedupeKey=(slug:string)=>`servonas.booking-funnel-dedupe.${slug}`;
 const debugKey="servonas.booking-funnel-debug";
-const analyticsEnabled=publicOptionalAnalyticsEnabled();
+const analyticsEnabled=publicBookingFunnelEnabled();
 const sessionTouchIntervalMs=15*60*1000;
 const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
  landing_page_view:60_000,
