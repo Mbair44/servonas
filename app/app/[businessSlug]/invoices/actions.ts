@@ -65,11 +65,27 @@ async function ensureInvoiceCustomer(
   context: Awaited<ReturnType<typeof requireWorkspaceCapability>>,
   data: FormData,
 ) {
+  const customerCreateMessage = (code?: string, message?: string | null) => {
+    const normalized = (message ?? "").trim();
+    if (code === "23502") return "The customer could not be created because a required value is missing.";
+    if (code === "22001") return "The customer name is too long. Please shorten it and try again.";
+    if (code === "23505") return "A customer with that information already exists. Please choose them from the list instead.";
+    if (code === "42501") return "Your workspace is not allowed to create customers from invoices right now.";
+    if (normalized) return `The customer could not be created: ${normalized}`;
+    return "The customer could not be created. Please review the customer name and try again.";
+  };
   const manualCustomerOption = "__manual_customer__";
   const rawCustomerId = text(data, "customerId");
   if (rawCustomerId !== manualCustomerOption) return { customerId: rawCustomerId, valuesCustomerId: rawCustomerId };
   const manualName = text(data, "manualCustomerName");
   if (!manualName) return { customerId: "", valuesCustomerId: rawCustomerId, error: "Enter the new customer name." };
+  if (manualName.length > 160) {
+    return {
+      customerId: "",
+      valuesCustomerId: rawCustomerId,
+      error: "The customer name is too long. Please keep it under 160 characters.",
+    };
+  }
   const [firstName, ...rest] = manualName.split(/\s+/).filter(Boolean);
   const lastName = rest.join(" ");
   const { data: customer, error } = await context.supabase.from("customers").insert({
@@ -92,7 +108,11 @@ async function ensureInvoiceCustomer(
   }).select("id").single();
   if (error || !customer) {
     console.error("Invoice inline customer creation failed", { businessId: context.business.id, code: error?.code, message: error?.message });
-    return { customerId: "", valuesCustomerId: rawCustomerId, error: "The new customer could not be created." };
+    return {
+      customerId: "",
+      valuesCustomerId: rawCustomerId,
+      error: customerCreateMessage(error?.code, error?.message),
+    };
   }
   return { customerId: customer.id, valuesCustomerId: customer.id };
 }

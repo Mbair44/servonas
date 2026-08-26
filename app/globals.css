@@ -1560,3 +1560,43 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 /* Live publish celebrations should cover the full screen, not the preview frame. */
 .website-creation-celebration.fullscreen{position:fixed;inset:0;z-index:1000}
 .website-creation-celebration.fullscreen .website-celebration-detailing,.website-creation-celebration.fullscreen .website-celebration-soap{border-radius:0}
+
+/* Invoice builder polish: keep the two-column layout and a fully visible sticky summary. */
+.estimate-form.estimate-builder.invoice-builder{grid-template-columns:minmax(0,1.5fr) minmax(320px,.78fr);align-items:start}
+.estimate-form.estimate-builder.invoice-builder .estimate-builder-main{gap:14px}
+.estimate-form.estimate-builder.invoice-builder .estimate-builder-sidebar{position:sticky;top:76px;align-self:start}
+.estimate-form.estimate-builder.invoice-builder .estimate-summary-card{gap:14px;max-height:calc(100vh - 100px);overflow:auto}
+.estimate-form.estimate-builder.invoice-builder .estimate-section{padding:18px}
+.estimate-form.estimate-builder.invoice-builder .estimate-section-header{margin-bottom:12px}
+.estimate-form.estimate-builder.invoice-builder .estimate-section-header h2{font-size:1.05rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-builder-grid{gap:12px}
+.estimate-form.estimate-builder.invoice-builder .estimate-tax-banner{padding:10px 12px;font-size:.86rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-adjustment-actions{gap:8px}
+.estimate-form.estimate-builder.invoice-builder .estimate-summary-list div{padding:6px 0}
+.estimate-form.estimate-builder.invoice-builder .estimate-summary-list .total{margin-top:6px;padding-top:12px}
+.estimate-form.estimate-builder.invoice-builder .estimate-add-row{padding-top:4px}
+.estimate-form.estimate-builder.invoice-builder .invoice-line-list{gap:10px}
+.estimate-form.estimate-builder.invoice-builder .invoice-line-card{display:grid;gap:10px;padding:14px;border:1px solid #e1e8f2;border-radius:16px;background:#fbfdff}
+.estimate-form.estimate-builder.invoice-builder .invoice-line-card.expanded{background:#fff}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary{grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-toggle{display:grid;gap:4px;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main strong,.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main small{font-size:.8rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-metrics{grid-template-columns:repeat(3,minmax(72px,auto));gap:10px}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-metrics span{font-size:.72rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-metrics b{font-size:.9rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-actions{display:flex;align-items:center;gap:10px}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-badges{display:flex;gap:6px;flex-wrap:wrap}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-badges span{padding:4px 8px;border-radius:999px;background:#f3f6fb;color:#516079;font-size:.68rem;font-weight:800}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields{gap:14px;padding-top:2px}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,1.3fr) minmax(110px,.6fr) minmax(110px,.62fr) minmax(120px,.68fr);align-items:end}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid>span{display:grid;gap:4px;align-self:stretch;padding:11px 12px;border:1px solid #d7dde5;border-radius:10px;background:#f8fafc;color:#64748b;font-size:.74rem;font-weight:700}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid>span b{color:#17203a;font-size:1rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid .estimate-field-span-2{grid-column:span 2}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid .estimate-field-span-3{grid-column:1/-1}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced{padding-top:10px}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced h3{margin:0 0 8px;font-size:.8rem}
+.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+@media(max-width:1200px){.estimate-form.estimate-builder.invoice-builder{grid-template-columns:minmax(0,1fr) 320px}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid>span{grid-column:1/-1}.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.estimate-form.estimate-builder.invoice-builder{grid-template-columns:1fr}.estimate-form.estimate-builder.invoice-builder .estimate-builder-sidebar{position:static;top:auto}.estimate-form.estimate-builder.invoice-builder .estimate-summary-card{max-height:none;overflow:visible}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary{grid-template-columns:1fr}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-actions{justify-content:flex-start}}
+@media(max-width:700px){.estimate-form.estimate-builder.invoice-builder .estimate-section{padding:16px}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid,.estimate-form.estimate-builder.invoice-builder .estimate-line-advanced-grid{grid-template-columns:1fr}.estimate-form.estimate-builder.invoice-builder .estimate-line-fields-grid>span{grid-column:auto}.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main strong,.estimate-form.estimate-builder.invoice-builder .estimate-line-summary-main small{white-space:normal}}
