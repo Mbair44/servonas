@@ -99,12 +99,16 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(funnel,/upsert\(sessionRow,\{onConflict:"business_id,id"\}\)/);
  assert.match(marketingComponent,/publicOptionalAnalyticsEnabled/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
- assert.match(marketing,/Marketing visitor event disabled/);
+ assert.match(marketing,/if\(!optionalAnalyticsEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);
  assert.match(marketing,/purpose=request\.headers\.get\("purpose"\)/);
  assert.match(marketing,/new NextResponse\(null,\{status:204\}\)/);
  assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
  assert.match(tracker,/publicOptionalAnalyticsEnabled/);
  assert.match(tracker,/shouldSkipEvent/);
+ assert.match(tracker,/const criticalEvents=new Set<BookingFunnelEvent>/);
+ assert.match(tracker,/navigator\.sendBeacon/);
+ assert.match(tracker,/sv_debug_funnel/);
+ assert.match(tracker,/console\.info\("\[Servonas booking funnel\]"/);
  assert.match(tracker,/booking_started:15_000/);
   assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
   assert.match(bookingClient,/if\(source==="adjust"\)return;/);
