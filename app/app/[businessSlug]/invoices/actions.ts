@@ -29,6 +29,47 @@ const valuesFrom=(data:FormData)=>Object.fromEntries([...data.entries()].filter(
 const safeJson=<T,>(value:string,fallback:T):T=>{try{return JSON.parse(value) as T;}catch{return fallback;}};
 const path=(slug:string,id:string,kind:"success"|"error",message:string)=>`/app/${slug}/invoices/${id}?${kind}=${encodeURIComponent(message)}`;
 
+async function nextInvoiceNumberWithFallback(
+  supabase: Awaited<ReturnType<typeof requireWorkspaceCapability>>["supabase"],
+  businessId: string,
+) {
+  const { data: rpcNumber, error: rpcError } = await supabase.rpc("next_financial_document_number", {
+    p_business_id: businessId,
+    p_document_type: "invoice",
+  });
+  if (rpcNumber && !rpcError) return rpcNumber;
+
+  console.error("Invoice numbering RPC failed; using fallback", {
+    businessId,
+    code: rpcError?.code,
+    message: rpcError?.message,
+  });
+
+  const { data: existingInvoices, error: lookupError } = await supabase
+    .from("invoices")
+    .select("invoice_number")
+    .eq("business_id", businessId)
+    .like("invoice_number", "INV-%");
+
+  if (lookupError) {
+    console.error("Invoice numbering fallback lookup failed", {
+      businessId,
+      code: lookupError.code,
+      message: lookupError.message,
+    });
+    return null;
+  }
+
+  const nextValue =
+    (existingInvoices ?? []).reduce((maxValue, row) => {
+      const match = /^INV-(\d+)$/.exec(String(row.invoice_number ?? ""));
+      if (!match) return maxValue;
+      return Math.max(maxValue, Number(match[1]));
+    }, 0) + 1;
+
+  return `INV-${String(nextValue).padStart(6, "0")}`;
+}
+
 function discount(type:string,raw:string):Discount|null{
   if(type==="none")return {type:"none",value:0};
   if(type==="fixed"){const value=parseCurrencyToCents(raw);return value===null?null:{type:"fixed",value};}
@@ -488,12 +529,23 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
       .eq("business_id",context.business.id).eq("source_key",prepared.payload.job_id).maybeSingle();
     if(sourceInvoice)redirect(`/app/${slug}/invoices/${sourceInvoice.id}?success=Invoice+already+exists+for+this+job`);
   }
-  const {data:number,error:numberError}=await context.supabase.rpc("next_financial_document_number",{p_business_id:context.business.id,p_document_type:"invoice"});
-  if(numberError||!number){console.error("Invoice numbering failed",{code:numberError?.code,businessId:context.business.id});return {error:"Invoice numbering is unavailable. Apply the latest Epic 6 migration if this continues.",values};}
-  const {data:invoice,error}=await context.supabase.from("invoices").insert({
-    ...prepared.payload,business_id:context.business.id,invoice_number:number,status:"draft",request_key:requestKey,
+  const invoiceNumber = await nextInvoiceNumberWithFallback(context.supabase, context.business.id);
+  if(!invoiceNumber)return {error:"Invoice numbering is unavailable right now. Please try again in a minute.",values};
+  let {data:invoice,error}=await context.supabase.from("invoices").insert({
+    ...prepared.payload,business_id:context.business.id,invoice_number:invoiceNumber,status:"draft",request_key:requestKey,
     source_key:prepared.payload.job_id,created_by:context.user.id,updated_by:context.user.id,
   }).select("id").single();
+  if(error?.code==="23505"){
+    const retryInvoiceNumber = await nextInvoiceNumberWithFallback(context.supabase, context.business.id);
+    if(retryInvoiceNumber){
+      const retryInsert=await context.supabase.from("invoices").insert({
+        ...prepared.payload,business_id:context.business.id,invoice_number:retryInvoiceNumber,status:"draft",request_key:requestKey,
+        source_key:prepared.payload.job_id,created_by:context.user.id,updated_by:context.user.id,
+      }).select("id").single();
+      invoice=retryInsert.data;
+      error=retryInsert.error;
+    }
+  }
   if(error||!invoice){console.error("Invoice creation failed",{code:error?.code,message:error?.message,businessId:context.business.id});return {error:error?.code==="23503"?"The selected customer, location, or job is no longer available.":"The invoice could not be created. Your entries are still here.",values};}
   const childError=await replaceChildren(context,invoice.id,prepared);
   if(childError){await context.supabase.from("invoices").update({is_deleted:true}).eq("id",invoice.id);console.error("Invoice lines creation failed",{code:childError.code,invoiceId:invoice.id,businessId:context.business.id});return {error:"The invoice header was created, but its line items could not be saved.",values};}
@@ -560,7 +612,8 @@ export async function duplicateInvoice(slug:string,invoiceId:string){
     supabase.from("invoice_fees").select("*").eq("invoice_id",invoiceId).eq("business_id",business.id).order("sort_order"),
   ]);
   if(!source)redirect(`/app/${slug}/invoices?error=Invoice+not+found`);
-  const {data:number}=await supabase.rpc("next_financial_document_number",{p_business_id:business.id,p_document_type:"invoice"});
+  const number=await nextInvoiceNumberWithFallback(supabase,business.id);
+  if(!number)redirect(path(slug,invoiceId,"error","Invoice numbering is unavailable right now"));
   const copy={...source};
   for(const key of ["id","created_at","updated_at","invoice_number","request_key","source_key","public_token_hash","public_token_expires_at","public_token_revoked_at"] as const)delete copy[key];
   const {data:invoice,error}=await supabase.from("invoices").insert({...copy,business_id:business.id,invoice_number:number,status:"draft",title:`${source.title} (copy)`,estimate_id:null,amount_paid_cents:0,amount_refunded_cents:0,balance_due_cents:source.grand_total_cents,sent_at:null,viewed_at:null,paid_at:null,voided_at:null,created_by:user.id,updated_by:user.id}).select("id").single();
