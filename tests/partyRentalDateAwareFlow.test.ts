@@ -54,7 +54,7 @@ test("party rental booking supports a date range, item-aware calendar, and check
  assert.match(source,/catalog-inline-cart-button/);
  assert.match(source,/quantity-picker-wrap"><div className="quantity-picker">[\s\S]*catalog-inline-cart-button/s);
  assert.doesNotMatch(source,/const matchesAvailability=!date\|\|available\(item\)>0;/);
- assert.match(source,/const qty=quantities\[item\.id\]\?\?0,max=available\(item\),pricing=priced\(item\),isUnavailable=Boolean\(date&&max<=0\),statusLabel=!date\?"Choose your party date, then add this to your party\.":checkingAvailability\?"Checking availability…":isUnavailable\?`Unavailable for \$\{eventDateLabel\}`:`✓ Available for \$\{eventDateLabel\}`/);
+ assert.match(source,/const qty=quantities\[item\.id\]\?\?0,max=available\(item\),pricing=priced\(item\),dimensions=rentalDimensions\(item\),isUnavailable=Boolean\(date&&max<=0\),statusLabel=!date\?"Choose your party date, then add this to your party\.":checkingAvailability\?"Checking availability…":isUnavailable\?`Unavailable for \$\{eventDateLabel\}`:`✓ Available for \$\{eventDateLabel\}`/);
  assert.match(source,/isUnavailable&&<p className="inventory-unavailable-tooltip" role="note" title=\{unavailableHint\}>\{unavailableHint\}<\/p>/);
  assert.match(source,/className=\{`inventory-card \$\{qty\?"selected":""\}\$\{focusedItemId===item\.id\?" focused":""\}\$\{descriptionExpanded\?" description-expanded":""\}\$\{isUnavailable\?" unavailable":""\}`\}/);
  assert.match(source,/className="catalog-add-button" onClick=\{\(\)=>reserveItem\(item\)\} disabled=\{isUnavailable\} title=\{isUnavailable\?unavailableHint:undefined\}/);
