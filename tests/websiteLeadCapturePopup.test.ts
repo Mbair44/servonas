@@ -21,12 +21,24 @@ test("public business website renders the lead capture popup from loaded website
   read("app/sites/[siteSlug]/actions.ts"),
  ]);
  assert.match(site,/WebsiteLeadCapturePopup/);
+ assert.match(site,/site\.leadCapturePopup\.enabled/);
  assert.match(page,/localStorage/);
  assert.match(page,/marketingConsent/);
  assert.match(page,/utm_source/);
  assert.match(loader,/lead_capture_popup_enabled/);
  assert.match(actions,/website_discount_leads/);
  assert.match(actions,/lead_source:"Discount Popup"/);
+});
+
+test("website preview can render the lead capture popup without a live submit action",async()=>{
+ const [site,popup,preview]=await Promise.all([
+  read("components/BusinessWebsite.tsx"),
+  read("components/WebsiteLeadCapturePopup.tsx"),
+  read("app/app/[businessSlug]/settings/website/preview/page.tsx"),
+ ]);
+ assert.match(preview,/preview\/>/);
+ assert.match(site,/preview=\{preview\}/);
+ assert.match(popup,/This preview does not submit live popup leads/);
 });
 
 test("lead capture popup analytics include viewed and dismissed events",async()=>{

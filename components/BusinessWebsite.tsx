@@ -67,7 +67,7 @@ export function BusinessWebsite({site,requestAction,leadCaptureAction,preview=fa
  const floralClass=site.websiteSource==="floral-event-website"?` floral-font-${site.floralFontStyle} floral-photos-${site.floralPhotoLayout}`:"";
  return <main className={`business-site template-${site.template}${isPest?" website-pest-control":""}${isDetailing?" website-car-detailing":""}${isPartyRental?" website-party-rental":""}${industryPresentation?` ${industryPresentation.className}`:""}${floralClass}`} style={{"--site-primary":site.primaryColor,"--site-secondary":site.secondaryColor,"--site-accent":site.floralAccentColor,"--site-background":site.floralBackgroundColor} as React.CSSProperties}>
   {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>} 
-  {leadCaptureAction&&site.leadCapturePopup.enabled&&!preview&&<WebsiteLeadCapturePopup site={site} action={leadCaptureAction}/>}
+  {site.leadCapturePopup.enabled&&<WebsiteLeadCapturePopup site={site} action={leadCaptureAction} preview={preview}/>}
   {preview&&<div className="business-site-preview-bar"><span>Preview mode — this is not the public website.</span><small>Close this tab to return to Servonas.</small></div>}
   {site.announcementText&&<div className="business-site-promotion">{site.announcementText}</div>}
   {reviewRibbon}
