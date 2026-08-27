@@ -17,7 +17,7 @@ const initials=(name:string)=>name.split(/\s+/).map(part=>part[0]).join("").slic
 
 export default async function Customers({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<Record<string,string|undefined>>}){
  const {businessSlug}=await params,q=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug),canEdit=canManageCustomers(role);
- const search=clean(q.q??""),status=["active","inactive","no_history","all"].includes(q.status??"")?q.status!:"all",type=["individual","company","all"].includes(q.type??"")?q.type!:"all";
+ const search=clean(q.q??""),status=["active","inactive","no_history","all"].includes(q.status??"")?q.status!:"all",type=["individual","company","all"].includes(q.type??"")?q.type!:"all",leadFilter=q.lead==="website_discount"?"website_discount":"all";
  const page=Math.max(1,Number(q.page)||1);
  const sortKeys=["customer","contact","type","status","locations","last_service","next_service","jobs"] as const;
  type CustomerSort=typeof sortKeys[number];
@@ -42,6 +42,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  });
  const rows=directory.filter(customer=>(status==="all"||(status==="active"&&customer.is_active)||(status==="inactive"&&!customer.is_active)||(status==="no_history"&&!customer.jobCount))
   &&(type==="all"||customer.customerType===type)
+  &&(leadFilter==="all"||(customer.tags??[]).includes("website-discount-lead"))
   &&(!search||[customer.displayName,customer.first_name,customer.last_name,customer.email,customer.phone,customer.primary?.street_address,customer.primary?.city,customer.primary?.state].some(value=>String(value??"").toLowerCase().includes(search))))
   .sort((a,b)=>{
    const value=(customer:typeof a):string|number=>{
@@ -68,7 +69,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const monthStart=new Date();monthStart.setUTCDate(1);monthStart.setUTCHours(0,0,0,0);
  const newThisMonth=directory.filter(customer=>new Date(customer.created_at)>=monthStart).length,noHistory=directory.filter(customer=>!customer.jobCount).length;
  const base=`/app/${businessSlug}/customers`;
- const href=(overrides:Record<string,string|undefined>)=>{const values={q:q.q,status,type,sort,direction,page:String(currentPage),...overrides};const query=new URLSearchParams(Object.entries(values).filter((entry):entry is [string,string]=>Boolean(entry[1])));return `${base}?${query}#customer-directory`;};
+ const href=(overrides:Record<string,string|undefined>)=>{const values={q:q.q,status,type,lead:leadFilter,sort,direction,page:String(currentPage),...overrides};const query=new URLSearchParams(Object.entries(values).filter((entry):entry is [string,string]=>Boolean(entry[1])));return `${base}?${query}#customer-directory`;};
  const sortHref=(column:CustomerSort)=>href({sort:column,direction:sort===column&&direction==="asc"?"desc":"asc",page:"1",customer:undefined});
  const headers:CampaignCustomerHeader[]=[["customer","Customer"],["contact","Primary contact"],["type","Type"],["status","Status"],["locations","Locations"],["last_service","Last service"],["next_service","Next service"],["jobs","Total jobs"]].map(([column,label])=>({label,href:sortHref(column as CustomerSort),active:sort===column,direction}));
 
@@ -91,6 +92,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
      <label className="employee-search"><span className="sr-only">Search customers</span><input name="q" defaultValue={q.q??""} placeholder="Search by name, company, email, phone, or address..."/><b aria-hidden="true">⌕</b></label>
      <label><span>Status</span><select name="status" defaultValue={status}><option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="no_history">No service history</option></select></label>
      <label><span>Customer type</span><select name="type" defaultValue={type}><option value="all">All types</option><option value="individual">Individual</option><option value="company">Company</option></select></label>
+     <label><span>Lead source</span><select name="lead" defaultValue={leadFilter}><option value="all">All leads</option><option value="website_discount">Website Discount Leads</option></select></label>
      <button className="sv-button sv-secondary" type="submit">Filters</button>
     </form>
     <CustomerCampaignSelector businessSlug={businessSlug} canCreate={canEdit} headers={headers} rows={visible.map(customer=>({id:customer.id,href:href({customer:customer.id}),selected:selected?.id===customer.id,initials:initials(customer.displayName),name:customer.displayName,subtitle:customer.company_name?`${customer.first_name} ${customer.last_name}`.trim():"Customer",email:customer.email||"No email",phone:customer.phone||"No phone",type:customer.customerType,active:customer.is_active,locations:customer.locations.length,lastService:customer.lastService?formatBusinessDate(customer.lastService,business.timezone):"—",nextService:customer.nextService?formatBusinessDate(customer.nextService,business.timezone):"—",jobs:customer.jobCount}))}/>

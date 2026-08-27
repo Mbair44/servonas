@@ -106,6 +106,11 @@ const reviews=(data:FormData)=>{
  const authors=data.getAll("reviewAuthor").map(String),ratings=data.getAll("reviewRating").map(Number),texts=data.getAll("reviewText").map(value=>String(value).trim());
  return authors.map((author,index)=>({author:author.trim(),rating:ratings[index],text:texts[index]??""})).filter(review=>review.author||review.text).slice(0,6);
 };
+const centsFromDollars=(value:string)=>{
+ if(!value.trim())return null;
+ const amount=Math.round(Number(value)*100);
+ return Number.isFinite(amount)?amount:null;
+};
 
 async function notifyAcceptedDomainPurchase(admin:NonNullable<ReturnType<typeof getSupabaseAdmin>>,orderId:string,business:{id:string;name:string;slug:string;email?:string|null}){
  const {data:order}=await admin.from("website_domain_orders").select("id,domain_name,provider_order_id,purchase_price,customer_renewal_price,currency,purchase_notification_status,purchase_notification_attempts,purchase_notification_last_attempt_at").eq("id",orderId).maybeSingle();
@@ -494,6 +499,16 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can manage the website."));
  const publicSlug=text(data,"publicSlug").toLowerCase(),template=text(data,"template"),primary=text(data,"primaryColor"),secondary=text(data,"secondaryColor"),floralFontStyle=text(data,"floralFontStyle")||"elegant",floralAccentColor=text(data,"floralAccentColor")||"#b85c7c",floralBackgroundColor=text(data,"floralBackgroundColor")||"#fffafc",floralPhotoLayout=text(data,"floralPhotoLayout")||"hero_right",customDomainRaw=text(data,"customDomain"),customDomain=normalizeWebsiteDomain(customDomainRaw),googleReviewUrl=text(data,"googleReviewUrl"),instagramRaw=text(data,"instagramUrl"),instagramUrl=normalizeInstagramUrl(instagramRaw),requestedGooglePlaceId=text(data,"googlePlaceId"),manualPhotoUrls=urls(text(data,"photoUrls")),googleReviews=reviews(data);
+ const leadCapturePopupEnabled=data.get("leadCapturePopupEnabled")==="on";
+ const leadCapturePopupDiscountType=text(data,"leadCapturePopupDiscountType")||"fixed";
+ const leadCapturePopupDiscountValueRaw=text(data,"leadCapturePopupDiscountValue");
+ const leadCapturePopupDiscountValue=leadCapturePopupDiscountType==="percentage"?Math.round(Number(leadCapturePopupDiscountValueRaw)*100):centsFromDollars(leadCapturePopupDiscountValueRaw);
+ const leadCapturePopupMinimumSubtotal=centsFromDollars(text(data,"leadCapturePopupMinimumSubtotal"));
+ const leadCapturePopupCouponCode=text(data,"leadCapturePopupCouponCode").toUpperCase();
+ const leadCapturePopupDelaySeconds=Number(text(data,"leadCapturePopupDelaySeconds")||"7");
+ const leadCapturePopupExpiresAt=text(data,"leadCapturePopupExpiresAt");
+ const leadCapturePopupServiceId=text(data,"leadCapturePopupServiceId")||null;
+ const leadCapturePopupInventoryItemId=text(data,"leadCapturePopupInventoryItemId")||null;
  const photoFiles=data.getAll("websitePhotos").filter((entry):entry is File=>entry instanceof File&&entry.size>0);
  if(!validWebsiteSlug(publicSlug))redirect(target(slug,"error","Use lowercase letters, numbers, and hyphens for the website URL."));
  if(!websiteTemplates.includes(template as typeof websiteTemplates[number]))redirect(target(slug,"error","Choose a valid website template."));
@@ -502,6 +517,16 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  if(customDomainRaw&&!customDomain)redirect(target(slug,"error","Enter a valid domain name."));
  if(googleReviewUrl){try{const url=new URL(googleReviewUrl);if(url.protocol!=="https:")throw new Error();}catch{redirect(target(slug,"error","The Google review link must be a secure HTTPS URL."));}}
  if(instagramRaw&&!instagramUrl)redirect(target(slug,"error","Enter an Instagram username or profile link, such as @yourbusiness."));
+ if(leadCapturePopupEnabled){
+  if(!["fixed","percentage","custom"].includes(leadCapturePopupDiscountType))redirect(target(slug,"error","Choose a valid popup discount type."));
+  if(!text(data,"leadCapturePopupHeadline")||!text(data,"leadCapturePopupBody")||!text(data,"leadCapturePopupCtaText")||!text(data,"leadCapturePopupSuccessMessage")||!text(data,"leadCapturePopupDisclosure"))redirect(target(slug,"error","Complete the popup headline, body, button text, success message, and disclosure."));
+  if(!Number.isInteger(leadCapturePopupDelaySeconds)||leadCapturePopupDelaySeconds<1||leadCapturePopupDelaySeconds>60)redirect(target(slug,"error","Set the popup delay between 1 and 60 seconds."));
+  if(["fixed","percentage"].includes(leadCapturePopupDiscountType)&&(!leadCapturePopupCouponCode||!leadCapturePopupDiscountValue||leadCapturePopupDiscountValue<=0))redirect(target(slug,"error","Add a shared promo code and discount value for fixed or percentage popup offers."));
+  if(leadCapturePopupDiscountType==="custom"&&!text(data,"leadCapturePopupCustomOffer"))redirect(target(slug,"error","Add the custom offer text for a custom popup offer."));
+  if(leadCapturePopupCouponCode&&!/^[A-Z0-9_-]{2,40}$/.test(leadCapturePopupCouponCode))redirect(target(slug,"error","Use letters, numbers, underscores, or hyphens for the popup promo code."));
+  if(leadCapturePopupExpiresAt&&Number.isNaN(new Date(leadCapturePopupExpiresAt).getTime()))redirect(target(slug,"error","Choose a valid popup expiration date."));
+  if(leadCapturePopupMinimumSubtotal!==null&&leadCapturePopupMinimumSubtotal<0)redirect(target(slug,"error","Choose a valid popup minimum purchase amount."));
+ }
  if(googleReviews.some(review=>review.author.length<1||review.author.length>100||review.text.length<3||review.text.length>600||!Number.isInteger(review.rating)||review.rating<1||review.rating>5))redirect(target(slug,"error","Complete each Google review with a customer name, rating, and review text."));
  if(manualPhotoUrls.some(url=>{try{return new URL(url).protocol!=="https:";}catch{return true;}}))redirect(target(slug,"error","Every photo must use a valid HTTPS URL."));
  const allowedPhotoTypes=new Set(["image/jpeg","image/png","image/webp","image/gif","image/avif"]);
@@ -528,7 +553,7 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
  const photoMotionStyle=data.get("photoMotionStyle")==="ken_burns"?"ken_burns":"static";
  const removedManagedPhotos=(existing?.photo_urls??[]).filter((url:string)=>!photoUrls.includes(url)).flatMap((url:string)=>managedImageVariantPathsFromPublicUrl(url,"website-assets"));
  const domainStatus=!customDomain?"not_connected":existing?.custom_domain===customDomain?undefined:"not_connected";
- const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,floral_font_style:floralFontStyle,floral_accent_color:floralAccentColor,floral_background_color:floralBackgroundColor,floral_photo_layout:floralPhotoLayout,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,photo_motion_style:photoMotionStyle,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
+ const {error}=await supabase.from("business_website_settings").upsert({business_id:business.id,public_slug:publicSlug,template_key:template,primary_color:primary,secondary_color:secondary,floral_font_style:floralFontStyle,floral_accent_color:floralAccentColor,floral_background_color:floralBackgroundColor,floral_photo_layout:floralPhotoLayout,hero_heading:text(data,"heroHeading")||null,hero_subheading:text(data,"heroSubheading")||null,about_text:text(data,"aboutText")||null,instagram_url:instagramUrl,google_review_url:googleReviewUrl||null,google_place_id:googlePlace?.ok?googlePlace.placeId:null,google_place_name:googlePlace?.ok?googlePlace.displayName:null,google_place_address:googlePlace?.ok?googlePlace.formattedAddress:null,google_reviews:googleReviews,photo_urls:photoUrls,photo_motion_style:photoMotionStyle,request_service_enabled:data.get("requestEnabled")==="on",booking_enabled:data.get("bookingEnabled")==="on",lead_capture_popup_enabled:leadCapturePopupEnabled,lead_capture_popup_headline:leadCapturePopupEnabled?text(data,"leadCapturePopupHeadline")||null:null,lead_capture_popup_body:leadCapturePopupEnabled?text(data,"leadCapturePopupBody")||null:null,lead_capture_popup_discount_type:leadCapturePopupEnabled?leadCapturePopupDiscountType:null,lead_capture_popup_discount_value:leadCapturePopupEnabled?leadCapturePopupDiscountValue:null,lead_capture_popup_custom_offer:leadCapturePopupEnabled?text(data,"leadCapturePopupCustomOffer")||null:null,lead_capture_popup_coupon_code:leadCapturePopupEnabled?leadCapturePopupCouponCode||null:null,lead_capture_popup_cta_text:leadCapturePopupEnabled?text(data,"leadCapturePopupCtaText")||null:null,lead_capture_popup_delay_seconds:leadCapturePopupDelaySeconds,lead_capture_popup_expires_at:leadCapturePopupEnabled&&leadCapturePopupExpiresAt?new Date(leadCapturePopupExpiresAt).toISOString():null,lead_capture_popup_service_id:leadCapturePopupEnabled?leadCapturePopupServiceId:null,lead_capture_popup_inventory_item_id:leadCapturePopupEnabled?leadCapturePopupInventoryItemId:null,lead_capture_popup_minimum_subtotal_cents:leadCapturePopupEnabled?leadCapturePopupMinimumSubtotal:null,lead_capture_popup_success_message:leadCapturePopupEnabled?text(data,"leadCapturePopupSuccessMessage")||null:null,lead_capture_popup_disclosure:leadCapturePopupEnabled?text(data,"leadCapturePopupDisclosure")||null:null,custom_domain:customDomain,...(domainStatus?{domain_status:domainStatus}:{}),updated_by:user.id},{onConflict:"business_id"});
  if(error){const admin=getSupabaseAdmin();if(admin&&uploadedPaths.length)await admin.storage.from("website-assets").remove(uploadedPaths);console.error("Website settings save failed",{businessId:business.id,code:error.code});redirect(target(slug,"error",error.code==="23505"?"That website URL or domain is already in use.":"Website settings could not be saved. Apply the website migration first."));}
  if(removedManagedPhotos.length){
   const admin=getSupabaseAdmin();

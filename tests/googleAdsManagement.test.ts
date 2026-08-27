@@ -35,7 +35,8 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /export async function publishGoogleAdsCampaign/);
  assert.match(file, /googleAdsRequestWithLoginFallbacks/);
  assert.match(file, /loginCustomerIds: \[input\.customerId, \.\.\.\(input\.loginCustomerIds \?\? \[\]\), null\]/);
-  assert.match(file, /googleAds:searchStream/);
+ assert.match(file, /if \(!attempts\.includes\(null\)\) attempts\.push\(null\)/);
+ assert.match(file, /googleAds:searchStream/);
  assert.match(file, /search_term_view\.search_term/);
  assert.match(file, /recordGoogleAdsBetaEvent/);
  assert.match(file, /submitGoogleAdsBetaFeedback/);
