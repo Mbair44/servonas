@@ -166,8 +166,16 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
  targetCustomerId?: string | null;
  loginCustomerIds?: Array<string | null | undefined>;
 }) {
- const attempts = [...new Set((input.loginCustomerIds ?? []).map((value) => value ? stripCustomerId(value) : "").filter(Boolean))];
- if (!attempts.length) attempts.push("");
+ const attempts: Array<string | null> = [];
+ for (const value of input.loginCustomerIds ?? []) {
+  if (value == null) {
+   if (!attempts.includes(null)) attempts.push(null);
+   continue;
+  }
+  const normalized = stripCustomerId(value);
+  if (normalized && !attempts.includes(normalized)) attempts.push(normalized);
+ }
+ if (!attempts.includes(null)) attempts.push(null);
  let lastError: Error | null = null;
  for (const loginCustomerId of attempts) {
   try {
@@ -175,7 +183,7 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
     accessToken: input.accessToken,
     method: input.method,
     customerId: input.targetCustomerId ?? input.customerId ?? null,
-    loginCustomerId: loginCustomerId || null,
+    loginCustomerId,
     body: input.body,
    });
   } catch (error) {
