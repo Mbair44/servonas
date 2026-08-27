@@ -33,6 +33,8 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /customers:listAccessibleCustomers/);
  assert.match(file, /method: "GET"/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
+ assert.match(file, /googleAdsRequestWithLoginFallbacks/);
+ assert.match(file, /loginCustomerIds: \[input\.customerId, \.\.\.\(input\.loginCustomerIds \?\? \[\]\), null\]/);
   assert.match(file, /googleAds:searchStream/);
  assert.match(file, /search_term_view\.search_term/);
  assert.match(file, /recordGoogleAdsBetaEvent/);

@@ -228,6 +228,7 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
   const published = await publishGoogleAdsCampaign({
    accessToken: connection.accessToken,
    customerId: connection.customerId,
+   loginCustomerIds: connection.customerChoices.map((customer) => customer.id),
    campaignName: campaign.campaign_name,
    adGroupName: campaign.ad_group_name,
    dailyBudgetMicros: Number(campaign.daily_budget_micros),
@@ -289,6 +290,7 @@ export async function setGoogleAdsCampaignStatusAction(slug: string, campaignId:
  await updateGoogleAdsCampaignStatus({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
+  loginCustomerIds: connection.customerChoices.map((customer) => customer.id),
   campaignId: campaign.google_campaign_id,
   status: nextStatus,
  });
@@ -312,6 +314,7 @@ export async function updateGoogleAdsBudgetAction(slug: string, campaignId: stri
  await updateGoogleAdsCampaignBudget({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
+  loginCustomerIds: connection.customerChoices.map((customer) => customer.id),
   budgetResourceName: campaign.google_campaign_budget_resource_name,
   dailyBudgetMicros: Math.round(dailyBudgetDollars * 1_000_000),
  });
