@@ -29,6 +29,20 @@ test("public business website renders the lead capture popup from loaded website
  assert.match(actions,/lead_source:"Discount Popup"/);
 });
 
+test("lead capture popup analytics include viewed and dismissed events",async()=>{
+ const [popup,route,analytics]=await Promise.all([
+  read("components/WebsiteLeadCapturePopup.tsx"),
+  read("app/api/marketing/events/route.ts"),
+  read("components/MarketingAnalytics.tsx"),
+ ]);
+ assert.match(popup,/lead_capture_popup_viewed/);
+ assert.match(popup,/lead_capture_popup_dismissed/);
+ assert.match(popup,/lead_capture_popup_submitted/);
+ assert.match(popup,/lead_capture_popup_converted/);
+ assert.match(route,/lead_capture_popup_dismissed/);
+ assert.match(analytics,/trackMarketingEvent/);
+});
+
 test("customer directory exposes a website discount lead filter",async()=>{
  const page=await read("app/app/[businessSlug]/customers/page.tsx");
  assert.match(page,/name="lead"/);

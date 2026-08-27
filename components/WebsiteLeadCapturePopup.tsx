@@ -2,6 +2,7 @@
 
 import {useActionState, useEffect, useMemo, useState} from "react";
 import type {BusinessSiteData} from "./BusinessWebsite";
+import {trackMarketingEvent} from "@/components/MarketingAnalytics";
 
 type LeadCaptureState={success?:boolean;error?:string;couponCode?:string;successMessage?:string};
 
@@ -22,6 +23,7 @@ export function WebsiteLeadCapturePopup({site,action}:{site:BusinessSiteData;act
  const popup=site.leadCapturePopup;
  const storageKey=popup.fingerprint;
  const offer=useMemo(()=>offerLabel(site),[site]);
+ const analyticsLabel=useMemo(()=>[site.name,popup.couponCode||offer].filter(Boolean).join(" | ").slice(0,120),[offer,popup.couponCode,site.name]);
 
  useEffect(()=>{
   if(!popup.enabled)return;
@@ -38,18 +40,24 @@ export function WebsiteLeadCapturePopup({site,action}:{site:BusinessSiteData;act
  },[popup.delaySeconds,popup.enabled,storageKey]);
 
  useEffect(()=>{
+  if(!popup.enabled||!open||state.success)return;
+  trackMarketingEvent("lead_capture_popup_viewed",{label:analyticsLabel,ttlMs:60_000});
+ },[analyticsLabel,open,popup.enabled,state.success]);
+
+ useEffect(()=>{
   if(state.success){
     window.localStorage.setItem(eligibleKey(storageKey),completedValue(storageKey));
+    trackMarketingEvent("lead_capture_popup_converted",{label:analyticsLabel,ttlMs:60_000});
     setOpen(true);
   }
- },[state.success,storageKey]);
+ },[analyticsLabel,state.success,storageKey]);
 
  if(!popup.enabled||!open)return null;
 
  return <div className="website-lead-popup-backdrop" role="presentation">
   <section className="website-lead-popup" role="dialog" aria-modal="true" aria-labelledby="website-lead-popup-title">
-   <button type="button" className="website-lead-popup-close" aria-label="Close offer" onClick={()=>{window.localStorage.setItem(eligibleKey(storageKey),dismissedValue(Date.now()+7*24*60*60*1000));setOpen(false);}}>×</button>
-   {!state.success?<form action={async(formData)=>{formData.set("pageUrl",window.location.href);formData.set("landingPath",`${window.location.pathname}${window.location.search}`);formData.set("referrer",document.referrer||"");const params=new URLSearchParams(window.location.search);for(const key of ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid"])formData.set(key,params.get(key)||"");await formAction(formData);}} className="website-lead-popup-form">
+   <button type="button" className="website-lead-popup-close" aria-label="Close offer" onClick={()=>{trackMarketingEvent("lead_capture_popup_dismissed",{label:analyticsLabel,elementType:"button"});window.localStorage.setItem(eligibleKey(storageKey),dismissedValue(Date.now()+7*24*60*60*1000));setOpen(false);}}>×</button>
+   {!state.success?<form action={async(formData)=>{trackMarketingEvent("lead_capture_popup_submitted",{label:analyticsLabel,elementType:"button"});formData.set("pageUrl",window.location.href);formData.set("landingPath",`${window.location.pathname}${window.location.search}`);formData.set("referrer",document.referrer||"");const params=new URLSearchParams(window.location.search);for(const key of ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid"])formData.set(key,params.get(key)||"");await formAction(formData);}} className="website-lead-popup-form">
     <span>Special offer</span>
     <h2 id="website-lead-popup-title">{popup.headline}</h2>
     <p>{popup.body}</p>
