@@ -30,10 +30,12 @@ const websiteFirstTarget=(slug:string,mode:"preview"|"domain"|"live",kind?:"succ
  return `/onboarding?${query.toString()}`;
 };
 const websiteFirstCelebrationExtra=()=>({celebrate:"1",celebrationAt:new Date().toISOString()});
-const legacyManagedDomainExtra=(stage:"search"|"details"|"registered",suggestions:string[]=[]):Record<string,string>=>({
+const legacyManagedDomainExtra=(stage:"search"|"details"|"registered",suggestions:string[]=[],domain="",status=""):Record<string,string>=>({
  domainMode:"managed",
  domainStage:stage,
  domainSuggestions:suggestions.join(","),
+ managedDomain:domain,
+ domainStatus:status,
 });
 
 function domainSuggestionCandidates(input:{domain:string;businessName?:string|null;businessSlug?:string|null;city?:string|null;state?:string|null}){
@@ -214,7 +216,7 @@ export async function checkManagedDomainAvailability(slug:string){
  await checkManagedDomainAvailabilityForWebsiteFirst(slug,{admin,user,business,domain});
 }
 
-async function checkManagedDomainAvailabilityForLegacy(slug:string,input:{admin:NonNullable<ReturnType<typeof getSupabaseAdmin>>;user:{id:string};business:{id:string;name?:string|null;city?:string|null;state?:string|null};domain:string;}){
+async function checkManagedDomainAvailabilityForLegacy(slug:string,input:{admin:NonNullable<ReturnType<typeof getSupabaseAdmin>>;user:{id:string};business:{id:string;name?:string|null;city?:string|null;state?:string|null};domain:string;persistSelection?:boolean;}){
  const {admin,user,business,domain}=input;
  const {data:existing}=await admin.from("website_domain_orders").select("status,provider_order_id").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
  if(existing?.provider_order_id||["registration_pending","registered","connected"].includes(existing?.status??""))redirect(target(slug,"error","Registration already started. Servonas is checking its status automatically.","domain",legacyManagedDomainExtra("registered")));
@@ -223,23 +225,25 @@ async function checkManagedDomainAvailabilityForLegacy(slug:string,input:{admin:
  const status=!quote.available?"unavailable":quote.purchasePrice<=standardDomainLimit()?"available":"premium_review",now=new Date().toISOString();
  const {error}=await admin.from("website_domain_orders").upsert({business_id:business.id,domain_name:domain,status,purchase_price:quote.purchasePrice,renewal_price:quote.renewalPrice,customer_purchase_price:domainRetailPrice(quote.purchasePrice),customer_renewal_price:domainRetailPrice(quote.renewalPrice),retail_markup_bps:7500,currency:"USD",registration_years:quote.years,availability_checked_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id,domain_name"});
  if(error)redirect(target(slug,"error","The availability result could not be saved. Apply the Vercel domain registration migration.","domain",legacyManagedDomainExtra("search")));
- await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
- revalidatePath(`/app/${slug}/settings/website`);
  const domainSuggestions=!quote.available||status==="premium_review"?await findAvailableManagedDomainSuggestions({domain,businessName:business.name,businessSlug:slug,city:business.city,state:business.state}):[];
- redirect(target(slug,quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.","domain",legacyManagedDomainExtra(status==="available"?"details":"search",domainSuggestions)));
+ if(input.persistSelection){
+  const {error:stateError}=await admin.from("business_website_onboarding_states").upsert({business_id:business.id,current_step:"preview",domain_preference:"need_domain",domain_name:domain,requested_domain:domain,domain_request_status:status,domain_requested_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id"});
+  if(stateError)console.error("Legacy managed domain persistence after availability failed",{businessId:business.id,slug,domain,code:stateError.code,message:stateError.message,details:stateError.details,hint:stateError.hint});
+ }else{
+  await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);
+ }
+ revalidatePath(`/app/${slug}/settings/website`);
+ redirect(target(slug,quote.available&&!status.includes("premium")?"success":"error",quote.available?(status==="available"?`${domain} is available. Review the renewal price and registration details below.`:"That is a premium domain and is not included. Choose a standard domain instead."):"That domain is no longer available. Choose another domain in website setup.","domain",legacyManagedDomainExtra(status==="available"?"details":"search",domainSuggestions,domain,status)));
 }
 
 export async function saveLegacyManagedDomainChoice(slug:string,data:FormData){
- const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ const {user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect("/app");
  const domainName=normalizeWebsiteDomain(text(data,"domainName"));
  if(!domainName)redirect(target(slug,"error","Enter a valid domain, such as yourbusiness.com.","domain",legacyManagedDomainExtra("search")));
- const now=new Date().toISOString();
- const {error}=await supabase.from("business_website_onboarding_states").upsert({business_id:business.id,current_step:"preview",domain_preference:"need_domain",domain_name:domainName,requested_domain:domainName,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id"});
- if(error)redirect(target(slug,"error","The domain choice could not be saved.","domain",legacyManagedDomainExtra("search")));
  const admin=getSupabaseAdmin();
  if(!admin)redirect(target(slug,"error","Domain registration is temporarily unavailable.","domain",legacyManagedDomainExtra("search")));
- await checkManagedDomainAvailabilityForLegacy(slug,{admin,user,business,domain:domainName});
+ await checkManagedDomainAvailabilityForLegacy(slug,{admin,user,business,domain:domainName,persistSelection:true});
 }
 
 export async function checkManagedDomainAvailabilityLegacy(slug:string){
