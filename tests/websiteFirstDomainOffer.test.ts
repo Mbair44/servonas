@@ -26,11 +26,21 @@ test("website-first availability check is authenticated, priced, and read-only",
 });
 
 test("domain requests remain separate from registered custom domains",async()=>{
- const migration=await read("supabase/migrations/20260813000200_website_first_domain_requests.sql");
- assert.match(migration,/requested_domain text/);
- assert.match(migration,/availability_check_needed/);
- assert.match(migration,/not a registered custom domain/);
- assert.doesNotMatch(migration,/business_website_settings.+custom_domain/s);
+ const [requestsMigration,registrationMigration,fixMigration]=await Promise.all([
+  read("supabase/migrations/20260813000200_website_first_domain_requests.sql"),
+  read("supabase/migrations/20260813000300_vercel_domain_registration.sql"),
+  read("supabase/migrations/20260827000300_fix_managed_domain_status_constraint.sql"),
+ ]);
+ assert.match(requestsMigration,/requested_domain text/);
+ assert.match(requestsMigration,/availability_check_needed/);
+ assert.match(requestsMigration,/not a registered custom domain/);
+ assert.doesNotMatch(requestsMigration,/business_website_settings.+custom_domain/s);
+ assert.match(registrationMigration,/'available'/);
+ assert.match(registrationMigration,/'premium_review'/);
+ assert.match(registrationMigration,/'registered'/);
+ assert.match(fixMigration,/'available'/);
+ assert.match(fixMigration,/'premium_review'/);
+ assert.match(fixMigration,/'failed'/);
 });
 
 test("publish success and internal admin expose pending requests",async()=>{
