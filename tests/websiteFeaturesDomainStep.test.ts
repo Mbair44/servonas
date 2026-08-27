@@ -39,8 +39,9 @@ test("managed domains submit through the parent website settings form",async()=>
  assert.doesNotMatch(page,/<form className="website-first-domain-entry" action=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}>/);
  assert.match(submit,/formAction,\s*formNoValidate=true/);
  assert.match(submit,/<button className="sv-button" type="submit" formAction=\{formAction\} formNoValidate=\{formNoValidate\}/);
- assert.match(actions,/business_id:business\.id,current_step:"domain",domain_preference:"need_domain"/);
+ assert.match(actions,/business_id:business\.id,current_step:"preview",domain_preference:"need_domain"/);
  assert.doesNotMatch(actions,/source:"website_settings"/);
+ assert.doesNotMatch(actions,/current_step:"domain"/);
 });
 
 test("managed pilot domains do not expose DNS setup",async()=>{
