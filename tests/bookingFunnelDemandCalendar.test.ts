@@ -14,7 +14,10 @@ test("booking funnel page includes rental date demand calendar and inspector cop
  assert.match(page, /Requested rental dates/);
  assert.match(page, /Counts below show the date customers were trying to book for, not the day they clicked/);
  assert.match(page, /marketing-demand-calendar/);
- assert.match(page, /selectedDateDetails/);
- assert.match(styles, /\.marketing-date-demand-panel/);
- assert.match(styles, /\.marketing-demand-day\.is-selected/);
+ assert.match(page, /Jump to month/);
+ assert.match(page, /availableMonths\.map/);
+  assert.match(page, /selectedDateDetails/);
+  assert.match(styles, /\.marketing-date-demand-panel/);
+ assert.match(styles, /\.marketing-demand-month-picker/);
+  assert.match(styles, /\.marketing-demand-day\.is-selected/);
 });
