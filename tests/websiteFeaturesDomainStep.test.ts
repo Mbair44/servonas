@@ -32,11 +32,20 @@ test("owned domains follow save then check connection",async()=>{
  assert.match(page,/Save your domain first/);
 });
 
+test("managed domains submit through the parent website settings form",async()=>{
+ const [page,submit]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/DomainAvailabilitySubmit.tsx")]);
+ assert.match(page,/className="website-first-domain-entry"><label>Find your \.com/);
+ assert.match(page,/DomainAvailabilitySubmit formAction=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}/);
+ assert.doesNotMatch(page,/<form className="website-first-domain-entry" action=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}>/);
+ assert.match(submit,/formAction,\s*formNoValidate=true/);
+ assert.match(submit,/<button className="sv-button" type="submit" formAction=\{formAction\} formNoValidate=\{formNoValidate\}/);
+});
+
 test("managed pilot domains do not expose DNS setup",async()=>{
  const [page,managed]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/ManagedDomainCustomerSetup.tsx")]);
  assert.match(page,/requested_domain,domain_request_status/);
  assert.match(page,/managedDomainRequest=websiteFirst\?\.domain_preference==="need_domain"/);
  assert.match(page,/ManagedDomainCustomerSetup/);
- assert.match(managed,/Check availability &amp; renewal price/);
+ assert.match(managed,/Check Availability →/);
  assert.doesNotMatch(managed,/Connect your DNS/);
 });
