@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminBusiness } from "../actions";
 import { requirePlatformAdminSession } from "@/lib/adminBusinessSetup";
+import { INDUSTRY_PROFILES } from "@/lib/onboardingProfile";
 
 export default async function NewAdminBusinessPage({
   searchParams,
@@ -9,12 +10,24 @@ export default async function NewAdminBusinessPage({
 }) {
   await requirePlatformAdminSession();
   const q = await searchParams;
+  const industryLabels: Record<string, string> = {
+    pest_control: "Pest control",
+    lawn_care: "Lawn care",
+    pool_service: "Pool service",
+    hvac: "HVAC",
+    plumbing: "Plumbing",
+    electrical: "Electrical",
+    junk_removal: "Junk removal",
+    party_rental: "Party rental",
+    equipment_rental: "Equipment rental",
+    other: "Other",
+  };
   return <main className="platform-admin-dashboard"><header><div><span className="sv-kicker">Servonas administration</span><h1>Create Business</h1><p>Create the tenant now, finish setup inside Servonas, and invite the owner only when the account is ready.</p></div><div className="crm-header-actions"><Link className="sv-button sv-secondary" href="/app/admin/businesses">Back to businesses</Link></div></header>
     {q.error && <div className="workspace-notice error">{q.error}</div>}
     <section className="workspace-panel"><form action={createAdminBusiness} className="settings-grid">
       <label>Business name<input name="businessName" required /></label>
       <label>Workspace URL<input name="slug" placeholder="junk-devils" /></label>
-      <label>Industry<input name="industry" /></label>
+      <label>Industry<select name="industry" defaultValue=""><option value="">Select an industry</option>{INDUSTRY_PROFILES.map(value => <option key={value} value={value}>{industryLabels[value] ?? value}</option>)}</select></label>
       <label>Business phone<input name="businessPhone" /></label>
       <label>Business email<input name="businessEmail" type="email" /></label>
       <label>Website or domain<input name="websiteUrl" /></label>

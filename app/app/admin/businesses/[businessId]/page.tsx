@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { businessAdminStatus, ownerAccessLabel, requirePlatformAdminSession } from "@/lib/adminBusinessSetup";
 import { sendOwnerInvitation, updateAdminBusinessDetails } from "../actions";
+import { INDUSTRY_PROFILES } from "@/lib/onboardingProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,18 @@ export default async function AdminBusinessDetailPage({
   const subscription = Array.isArray((business as any).business_platform_subscriptions) ? (business as any).business_platform_subscriptions[0] : (business as any).business_platform_subscriptions;
   const stripe = Array.isArray((business as any).business_payment_accounts) ? (business as any).business_payment_accounts[0] : (business as any).business_payment_accounts;
   const ownerName = [setup?.owner_first_name, setup?.owner_last_name].filter(Boolean).join(" ");
+  const industryLabels: Record<string, string> = {
+    pest_control: "Pest control",
+    lawn_care: "Lawn care",
+    pool_service: "Pool service",
+    hvac: "HVAC",
+    plumbing: "Plumbing",
+    electrical: "Electrical",
+    junk_removal: "Junk removal",
+    party_rental: "Party rental",
+    equipment_rental: "Equipment rental",
+    other: "Other",
+  };
   const checklist = [
     ["Business created", true],
     ["Owner information added", Boolean(setup?.owner_email)],
@@ -59,7 +72,7 @@ export default async function AdminBusinessDetailPage({
     <section className="workspace-panel"><div className="panel-title"><div><h2>Business information</h2><p>Internal admin-only setup details and owner metadata.</p></div></div><form action={updateAdminBusinessDetails} className="settings-grid">
       <input type="hidden" name="businessId" value={business.id} />
       <label>Business name<input name="businessName" defaultValue={business.name} /></label>
-      <label>Industry<input name="industry" defaultValue={(business as any).industry_profile || ""} /></label>
+      <label>Industry<select name="industry" defaultValue={(business as any).industry_profile || ""}><option value="">Select an industry</option>{INDUSTRY_PROFILES.map(value => <option key={value} value={value}>{industryLabels[value] ?? value}</option>)}</select></label>
       <label>Business phone<input name="businessPhone" defaultValue={business.phone || ""} /></label>
       <label>Business email<input name="businessEmail" defaultValue={business.email || ""} /></label>
       <label>Website or domain<input name="websiteUrl" defaultValue={(business as any).website_url || ""} /></label>

@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { invitationDeliveryMessage } from "@/lib/invitationDelivery";
 import { validWorkspaceSlug } from "@/lib/access";
+import { INDUSTRY_PROFILES, type IndustryProfile } from "@/lib/onboardingProfile";
 import {
   normalizeCustomerType,
   requirePlatformAdminSession,
@@ -20,6 +21,11 @@ function normalizeSlug(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-");
 }
 
+function normalizeIndustry(input: string) {
+  const normalized = input.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return INDUSTRY_PROFILES.includes(normalized as IndustryProfile) ? normalized : "";
+}
+
 function target(path: string, kind: "error" | "success", message: string) {
   const separator = path.includes("?") ? "&" : "?";
   return `${path}${separator}${kind}=${encodeURIComponent(message)}`;
@@ -32,6 +38,7 @@ export async function createAdminBusiness(formData: FormData) {
   const ownerFirstName = text(formData, "ownerFirstName");
   const ownerLastName = text(formData, "ownerLastName");
   const customerType = normalizeCustomerType(text(formData, "customerType"));
+  const industry = normalizeIndustry(text(formData, "industry"));
   const slug = normalizeSlug(text(formData, "slug") || businessName);
   if (businessName.length < 2 || !ownerEmail || !validWorkspaceSlug(slug)) {
     redirect(target("/app/admin/businesses/new", "error", "Business name, owner email, and a valid workspace URL are required."));
@@ -55,7 +62,7 @@ export async function createAdminBusiness(formData: FormData) {
     p_postal_code: text(formData, "postalCode") || null,
     p_service_area: text(formData, "serviceArea") || null,
     p_timezone: text(formData, "timezone") || "America/Phoenix",
-    p_industry: text(formData, "industry") || null,
+    p_industry: industry || null,
     p_customer_type: customerType,
     p_internal_admin_notes: text(formData, "internalAdminNotes") || null,
     p_created_by: user.id,
@@ -79,11 +86,12 @@ export async function createAdminBusiness(formData: FormData) {
 export async function updateAdminBusinessDetails(formData: FormData) {
   const { supabase, admin, user } = await requirePlatformAdminSession();
   const businessId = text(formData, "businessId");
+  const industry = normalizeIndustry(text(formData, "industry"));
   if (!uuid(businessId)) redirect(target("/app/admin/businesses", "error", "Invalid business."));
   const { error } = await supabase.rpc("admin_update_business_setup", {
     p_business_id: businessId,
     p_name: text(formData, "businessName") || null,
-    p_industry: text(formData, "industry") || null,
+    p_industry: industry || null,
     p_business_phone: text(formData, "businessPhone") || null,
     p_business_email: text(formData, "businessEmail") || null,
     p_website_url: text(formData, "websiteUrl") || null,
