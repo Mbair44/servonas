@@ -9,7 +9,7 @@ const models=[
  ["rental_inventory","Rental & Inventory","Delivery, pickup, availability, and physical inventory."],
  ["project_service","Project Service","Longer-running or milestone-based work. Future-ready."],
 ] as const;
-const industries=[["pest_control","Pest Control"],["lawn_care","Lawn Care"],["pool_service","Pool Service"],["hvac","HVAC"],["plumbing","Plumbing"],["electrical","Electrical"],["party_rental","Party Rental"],["equipment_rental","Equipment Rental"],["other","Other"]] as const;
+const industries=[["pest_control","Pest Control"],["lawn_care","Lawn Care"],["pool_service","Pool Service"],["hvac","HVAC"],["plumbing","Plumbing"],["electrical","Electrical"],["junk_removal","Junk Removal"],["party_rental","Party Rental"],["equipment_rental","Equipment Rental"],["other","Other"]] as const;
 export default function OnboardingBusinessProfile({businessSlug,initialModel="appointment_service",initialIndustry=""}:{businessSlug:string;initialModel?:string;initialIndustry?:string}){
  const [state,action,pending]=useActionState(saveBusinessProfile.bind(null,businessSlug),{} as BusinessProfileState);
  const [model,setModel]=useState(state.values?.operatingModel??initialModel),[industry,setIndustry]=useState(state.values?.industryProfile??initialIndustry);

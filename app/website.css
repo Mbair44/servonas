@@ -67,8 +67,34 @@ body:has(.business-site)>.sv-header,body:has(.business-site)>.sv-footer{display:
 .website-hvac .business-site-process{background:#eef6ff}.website-plumbing .business-site-process{background:#eff9ff}.website-landscaping .business-site-process{background:#eef7f0}.website-cleaning .business-site-process{background:#effbfc}.website-powerwashing .business-site-process{background:#eef8fc}
 .website-landscaping .business-site-about{background:#edf6ef}.website-cleaning .business-site-about{background:#edf9fa}.website-powerwashing .business-site-about{background:#edf8fc}.website-landscaping .business-site-industry-image,.website-cleaning .business-site-industry-image{object-fit:cover}
 .website-hvac .business-site-footer,.website-plumbing .business-site-footer,.website-landscaping .business-site-footer,.website-cleaning .business-site-footer,.website-powerwashing .business-site-footer{background:var(--site-secondary)}
+.website-junk-removal{--site-primary:#c65a12;--site-secondary:#1f2937;color:#18212f}
+.website-junk-removal .business-site-header{position:relative;border-bottom-color:#e7ddcf;background:#fffdf9}
+.website-junk-removal .business-site-brand i{border-radius:14px;background:var(--site-secondary)}
+.website-junk-removal .business-site-hero{position:relative;min-height:680px;background:linear-gradient(140deg,#fff7ee 0%,#fffdfa 52%,#f4f6f9 100%)}
+.website-junk-removal .business-site-hero>div:first-child{display:grid;align-content:center;padding-right:4vw}
+.website-junk-removal .business-site-hero>div:first-child>span,.website-junk-removal .business-site-section>header>span,.website-junk-removal .business-site-about>div>span,.website-junk-removal .business-site-contact>div>span{color:var(--site-primary)}
+.website-junk-removal .business-site-hero h1,.website-junk-removal .business-site-section h2,.website-junk-removal .business-site-about h2,.website-junk-removal .business-site-contact h2,.website-junk-removal .business-site-reviews h2{font-family:Georgia,"Times New Roman",serif}
+.website-junk-removal .business-site-hero small{margin-top:16px;color:#6b7280;font-size:.9rem;font-weight:700}
+.website-junk-removal .business-site-hero>aside{background:linear-gradient(145deg,#1f2937,#384559);color:#fff}
+.website-junk-removal .business-site-trust{grid-template-columns:repeat(4,1fr);background:#1f2937;color:#f9fafb}
+.website-junk-removal .business-site-services article{border-color:#eadfd3;box-shadow:0 16px 38px rgba(31,41,55,.06)}
+.website-junk-removal .business-site-services article>i{background:#fff1e8;color:var(--site-primary)}
+.website-junk-removal .business-site-local-trust{background:#fffaf5}
+.website-junk-removal .business-site-trust-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.website-junk-removal .business-site-process{background:#f7f2eb}
+.website-junk-removal .business-site-what-we-take,.website-junk-removal .business-site-pricing,.website-junk-removal .business-site-faq{background:#fff}
+.website-junk-removal .business-site-what-we-dont-take{background:#faf7f2}
+.website-junk-removal .business-site-pricing .business-site-services article:first-child{background:linear-gradient(180deg,#fff7ee,#fff)}
+.website-junk-removal .business-site-area-list{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+.website-junk-removal .business-site-area-list span{padding:11px 15px;border:1px solid #e7dbcf;border-radius:999px;background:#fff;font-size:.82rem;font-weight:800;color:#344054}
+.website-junk-removal .business-site-request-note{margin:0;padding:12px 14px;border:1px solid #f4d7bf;border-radius:10px;background:#fff7ed;color:#9a3412;font-size:.82rem;font-weight:700}
+.website-junk-removal .business-site-about{background:#f8f4ee}
+.website-junk-removal .business-site-reviews{background:#243244}
+.website-junk-removal .business-site-footer{background:#1f2937}
+.business-site-sticky-cta{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));left:14px;z-index:35;display:none;gap:10px;padding:10px;border:1px solid #e5d9ce;border-radius:16px;background:#fffffff2;backdrop-filter:blur(14px);box-shadow:0 20px 44px rgba(31,41,55,.14)}
+.business-site-sticky-cta a{flex:1}
 @media(max-width:1000px){.website-hvac .business-site-hero{min-height:620px}.website-hvac .business-site-hero>div:first-child{width:calc(100% - 48px);padding:72px 0 88px 24px}.website-hvac .business-site-hero>div:first-child::before{inset:28px 0 28px -18px}}
-@media(max-width:720px){.website-hvac .business-site-hero{min-height:560px}.website-hvac .business-site-hero::after{background:linear-gradient(180deg,rgba(241,247,255,.96) 0%,rgba(241,247,255,.84) 38%,rgba(241,247,255,.3) 100%)}.website-hvac .business-site-hero>div:first-child{width:calc(100% - 32px);padding:56px 0 70px 16px}.website-hvac .business-site-hero>div:first-child::before{inset:18px 0 18px -12px;border-radius:24px}}
+@media(max-width:720px){.website-hvac .business-site-hero{min-height:560px}.website-hvac .business-site-hero::after{background:linear-gradient(180deg,rgba(241,247,255,.96) 0%,rgba(241,247,255,.84) 38%,rgba(241,247,255,.3) 100%)}.website-hvac .business-site-hero>div:first-child{width:calc(100% - 32px);padding:56px 0 70px 16px}.website-hvac .business-site-hero>div:first-child::before{inset:18px 0 18px -12px;border-radius:24px}.website-junk-removal .business-site-trust,.website-junk-removal .business-site-trust-grid{grid-template-columns:1fr}.website-junk-removal .business-site-hero{min-height:auto}.website-junk-removal .business-site-hero>div:first-child{padding:56px 22px 42px}.website-junk-removal .business-site-hero>aside{min-height:300px;height:300px}.website-junk-removal .business-site-hero h1{font-size:clamp(2.9rem,12vw,4rem)}.website-junk-removal .business-site-contact{padding-bottom:122px}.business-site-sticky-cta{display:flex}}
 
 /* Rental inventory card footer: keep the price and availability action light, aligned, and touch friendly. */
 .business-site-rental-grid .rental-pricing-footer{margin-top:auto}.business-site-rental-grid .rental-pricing-footer>a{margin:0;border:0;background:var(--site-primary)}

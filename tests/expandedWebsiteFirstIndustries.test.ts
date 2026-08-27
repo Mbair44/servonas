@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
-const industries=["hvac","plumbing","landscaping","cleaning","powerwashing"] as const;
+const industries=["hvac","plumbing","landscaping","cleaning","powerwashing","junk-removal"] as const;
 
-test("four new industry landing pages preserve attribution and enter shared website-first signup",async()=>{
+test("expanded industry landing pages preserve attribution and enter shared website-first signup",async()=>{
  const config=await read("lib/websiteFirstConfig.ts");
  for(const industry of industries){
   const page=await read(`app/${industry}-website/page.tsx`);
-  assert.match(page,new RegExp(`source:\"${industry}-website\"`));
+  assert.match(page,new RegExp(`source:\\s*"${industry}-website"`));
   assert.match(page,/WebsiteIndustryLanding/);
   assert.match(page,/demoPath/);
   assert.match(config,new RegExp(`\"${industry}-website\"`));
@@ -41,8 +41,21 @@ test("migration safely expands sources and maps canonical business profiles",asy
 
 test("generated sites recognize each new website source",async()=>{
  const site=await read("components/BusinessWebsite.tsx");
- for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website"])assert.match(site,new RegExp(source));
+ for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","junk-removal-website"])assert.match(site,new RegExp(source));
  assert.match(site,/industryPresentation/);
+});
+
+test("junk removal landing and demo use quote-first positioning",async()=>{
+ const [landing,demo,site]=await Promise.all([
+  read("app/junk-removal-website/page.tsx"),
+  read("app/demo/junk-removal/page.tsx"),
+  read("components/BusinessWebsite.tsx"),
+ ]);
+ assert.match(landing,/A Junk Removal Website That Actually Brings You Jobs/);
+ assert.match(landing,/quote requests/i);
+ assert.match(demo,/Junk Devils/);
+ assert.match(site,/Get a Free Quote/);
+ assert.match(site,/What We Take/);
 });
 
 test("HVAC and plumbing demos include industry-specific photography",async()=>{
