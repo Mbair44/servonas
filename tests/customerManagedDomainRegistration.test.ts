@@ -35,5 +35,6 @@ test("existing-domain DNS connection remains separate",async()=>{
  const page=await read("app/app/[businessSlug]/settings/website/page.tsx");
  assert.match(page,/Connect your DNS/);
  assert.match(page,/connectWebsiteDomain/);
- assert.match(page,/managedDomainRequest&&websiteFirst\?\.requested_domain/);
+ assert.match(page,/effectiveManagedDomain=websiteFirst\?\.domain_preference==="need_domain"&&websiteFirst\?\.requested_domain/);
+ assert.match(page,/managedDomainRequest=Boolean\(effectiveManagedDomain\)/);
 });
