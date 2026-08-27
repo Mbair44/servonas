@@ -1,5 +1,5 @@
 export const OPERATING_MODELS=["route_service","appointment_service","rental_inventory","project_service"] as const;
-export const INDUSTRY_PROFILES=["pest_control","lawn_care","pool_service","hvac","plumbing","electrical","party_rental","equipment_rental","other"] as const;
+export const INDUSTRY_PROFILES=["pest_control","lawn_care","pool_service","hvac","plumbing","electrical","junk_removal","party_rental","equipment_rental","other"] as const;
 export type OperatingModel=typeof OPERATING_MODELS[number];
 export type IndustryProfile=typeof INDUSTRY_PROFILES[number];
 export type BusinessProfileInput={operatingModel:string;industryProfile:string;otherIndustry:string};
@@ -18,6 +18,7 @@ export function suggestedProfileDefaults(industry:string){
   hvac:{serviceName:"HVAC service call",durationMinutes:90,recurringAllowed:false},
   plumbing:{serviceName:"Plumbing service call",durationMinutes:90,recurringAllowed:false},
   electrical:{serviceName:"Electrical service call",durationMinutes:90,recurringAllowed:false},
+  junk_removal:{serviceName:"Junk removal quote",durationMinutes:90,recurringAllowed:false},
   party_rental:{serviceName:"Event rental",durationMinutes:60,recurringAllowed:false},
   equipment_rental:{serviceName:"Equipment rental",durationMinutes:60,recurringAllowed:false},
  };

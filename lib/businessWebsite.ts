@@ -138,10 +138,11 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const fallbackArea=[business.city,business.state].filter(Boolean).join(", ");
  const platformUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"");
  const bookingSlug=booking?.public_slug?String(booking.public_slug):settings.public_slug?String(settings.public_slug):business.slug?String(business.slug):null;
+ const isJunkRemoval=websiteOnboarding?.source==="junk-removal-website"||business.industry_profile==="junk_removal";
  // Party-rental websites are booking-first. Once Online Booking itself is
  // enabled, do not let a stale/omitted website checkbox hide the embedded
  // inventory calendar from the public site.
- const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||settings.booking_enabled&&booking?.enabled));
+ const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||(!isJunkRemoval&&settings.booking_enabled&&booking?.enabled)));
  let googleProfile:null|Awaited<ReturnType<typeof getGoogleBusinessProfileReviews>>=null;
  let googleRating:null|Awaited<ReturnType<typeof getGoogleBusinessRating>>=null;
  if(includeExternalReviews){
@@ -163,9 +164,9 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  return {
   bookingSlug,customDomain:settings.domain_status==="connected"&&settings.custom_domain?normalizeWebsiteDomain(String(settings.custom_domain)):null,name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",floralFontStyle:settings.floral_font_style??"elegant",floralAccentColor:settings.floral_accent_color??"#b85c7c",floralBackgroundColor:settings.floral_background_color??"#fffafc",floralPhotoLayout:settings.floral_photo_layout??"hero_right",
-  heroHeading:settings.hero_heading??`${business.name} keeps your home or business running smoothly.`,
-  heroSubheading:settings.hero_subheading??"Reliable local service, clear communication, and a team that is ready when you need help.",
-  aboutText:settings.about_text??`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`,instagramUrl:settings.instagram_url??null,
+  heroHeading:settings.hero_heading??(isJunkRemoval?"Got Junk? We’ll Make It Disappear.":`${business.name} keeps your home or business running smoothly.`),
+  heroSubheading:settings.hero_subheading??(isJunkRemoval?"Furniture, appliances, yard debris, garage cleanouts, and more. Tell us what needs to go and we’ll take care of the heavy lifting.":"Reliable local service, clear communication, and a team that is ready when you need help."),
+  aboutText:settings.about_text??(isJunkRemoval?`${business.name} helps homeowners and businesses clear out unwanted items with fast response, upfront estimates, and dependable local service.`:`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`),instagramUrl:settings.instagram_url??null,
   googleReviewUrl:googleRating?.googleMapsUri??settings.google_review_url,googleRating:googleProfile?.rating??googleRating?.rating??null,googleReviewCount:googleProfile?.reviewCount??googleRating?.reviewCount??null,googleReviews:googleProfile?.reviews.length?googleProfile.reviews.map(review=>({...review,fromGoogleProfile:true})):manualReviews,photoUrls:(settings.photo_urls??[]).filter(Boolean),photoMotionStyle:settings.photo_motion_style==="ken_burns"?"ken_burns":"static",requestEnabled:settings.request_service_enabled??true,
   bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
   announcementText:promotion?.announcement_text??null,
