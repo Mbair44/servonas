@@ -68,8 +68,8 @@ alter table public.business_website_settings
 
 alter table public.business_website_settings
  add constraint business_website_settings_lead_capture_popup_inventory_fk
- foreign key (business_id,lead_capture_popup_inventory_item_id)
- references public.inventory_items(business_id,id)
+ foreign key (lead_capture_popup_inventory_item_id)
+ references public.inventory_items(id)
  on delete set null
  not valid;
 
@@ -115,7 +115,7 @@ create table if not exists public.website_discount_leads(
  foreign key (business_id,website_id) references public.business_website_settings(business_id,id) on delete cascade,
  foreign key (business_id,customer_id) references public.customers(business_id,id) on delete set null,
  foreign key (business_id,service_id) references public.services(business_id,id) on delete set null,
- foreign key (business_id,inventory_item_id) references public.inventory_items(business_id,id) on delete set null,
+ foreign key (inventory_item_id) references public.inventory_items(id) on delete set null,
  check (email ~* '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'),
  check (offer_discount_type is null or offer_discount_type in ('fixed','percentage','custom')),
  check (offer_discount_value is null or offer_discount_value > 0),

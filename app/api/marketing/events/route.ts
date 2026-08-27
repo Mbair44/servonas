@@ -4,7 +4,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {optionalAnalyticsEnabled} from "@/lib/optionalAnalytics";
 
 const bots=/bot|crawler|spider|facebookexternalhit|googleother|headless|lighthouse|playwright|puppeteer|preview|scanner/i;
-const allowedEvents=new Set(["page_view","click","signup_completed"]);
+const allowedEvents=new Set(["page_view","click","signup_completed","lead_capture_popup_viewed","lead_capture_popup_dismissed","lead_capture_popup_submitted","lead_capture_popup_converted"]);
 const allowedElementTypes=new Set(["a","button"]);
 const timeoutMs=1200;
 
