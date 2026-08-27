@@ -3,7 +3,7 @@ import {BusinessWebsite} from "@/components/BusinessWebsite";
 import {TemporarySiteUnavailable} from "@/components/TemporarySiteUnavailable";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
 import {normalizeWebsiteDomain} from "@/lib/website";
-import {submitWebsiteRequest} from "../../[siteSlug]/actions";
+import {submitWebsiteLeadCapture, submitWebsiteRequest} from "../../[siteSlug]/actions";
 import type {Metadata} from "next";
 
 export const dynamic="force-dynamic";
@@ -22,5 +22,5 @@ export default async function CustomDomainBusinessSite({params}:{params:Promise<
  if(record.kind==="not_found")notFound();
  if(record.kind==="unavailable")return <TemporarySiteUnavailable domain={domain}/>;
  const {settings,site}=record;
- return <BusinessWebsite site={site} requestAction={submitWebsiteRequest.bind(null,settings.public_slug)}/>;
+ return <BusinessWebsite site={site} requestAction={submitWebsiteRequest.bind(null,settings.public_slug)} leadCaptureAction={submitWebsiteLeadCapture.bind(null,settings.public_slug)}/>;
 }

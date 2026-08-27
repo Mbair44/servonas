@@ -186,7 +186,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   "developer-token": developerToken,
   "Content-Type": "application/json",
  };
- const loginCustomerId = input.loginCustomerId ?? input.customerId ?? null;
+ const loginCustomerId = input.loginCustomerId === undefined ? input.customerId ?? null : input.loginCustomerId;
  if (loginCustomerId) headers["login-customer-id"] = stripCustomerId(loginCustomerId);
  const response = await fetch(`${adsApiBase}${path}`, {
   method: input.method || "POST",

@@ -311,7 +311,7 @@ export default async function GoogleAdsPage({
       </form>
      </details>
      <div className="google-ads-card-actions">
-      {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><button className="sv-button">Publish campaign</button></form> : <>
+      {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open."/></form> : <>
        <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, campaign.status === "paused" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{campaign.status === "paused" ? "Resume" : "Pause"}</button></form>
        <form className="google-ads-inline-form" action={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}>
         <label>Daily budget
