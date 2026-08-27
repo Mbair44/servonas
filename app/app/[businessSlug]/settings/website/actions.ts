@@ -235,7 +235,7 @@ export async function saveLegacyManagedDomainChoice(slug:string,data:FormData){
  const domainName=normalizeWebsiteDomain(text(data,"domainName"));
  if(!domainName)redirect(target(slug,"error","Enter a valid domain, such as yourbusiness.com.","domain",legacyManagedDomainExtra("search")));
  const now=new Date().toISOString();
- const {error}=await supabase.from("business_website_onboarding_states").upsert({business_id:business.id,source:"website_settings",current_step:"domain",domain_preference:"need_domain",domain_name:domainName,requested_domain:domainName,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id"});
+ const {error}=await supabase.from("business_website_onboarding_states").upsert({business_id:business.id,current_step:"domain",domain_preference:"need_domain",domain_name:domainName,requested_domain:domainName,domain_request_status:"availability_check_needed",domain_requested_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id"});
  if(error)redirect(target(slug,"error","The domain choice could not be saved.","domain",legacyManagedDomainExtra("search")));
  const admin=getSupabaseAdmin();
  if(!admin)redirect(target(slug,"error","Domain registration is temporarily unavailable.","domain",legacyManagedDomainExtra("search")));
