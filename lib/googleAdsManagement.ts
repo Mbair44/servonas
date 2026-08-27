@@ -115,7 +115,19 @@ async function refreshGoogleAdsAccessToken(refreshToken: string) {
  }))).access_token!;
 }
 
-async function googleAdsRequest<T>(path: string, input: { accessToken: string; method?: string; customerId?: string | null; body?: unknown }) {
+type GoogleAdsRequestInput = {
+ accessToken: string;
+ method?: string;
+ customerId?: string | null;
+ loginCustomerId?: string | null;
+ body?: unknown;
+};
+
+function googleAdsPermissionDenied(message: string, status: number) {
+ return status === 403 || /permission/i.test(message) || /authorization/i.test(message);
+}
+
+async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
  const { developerToken } = credentials();
  if (!developerToken) throw new Error("Google Ads developer token is not configured.");
  const headers: Record<string, string> = {
@@ -123,7 +135,8 @@ async function googleAdsRequest<T>(path: string, input: { accessToken: string; m
   "developer-token": developerToken,
   "Content-Type": "application/json",
  };
- if (input.customerId) headers["login-customer-id"] = stripCustomerId(input.customerId);
+ const loginCustomerId = input.loginCustomerId ?? input.customerId ?? null;
+ if (loginCustomerId) headers["login-customer-id"] = stripCustomerId(loginCustomerId);
  const response = await fetch(`${adsApiBase}${path}`, {
   method: input.method || "POST",
   headers,
@@ -147,6 +160,31 @@ async function googleAdsRequest<T>(path: string, input: { accessToken: string; m
   throw new Error(result.error?.message || `Google Ads request failed (${response.status}).`);
  }
  return result;
+}
+
+async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: GoogleAdsRequestInput & {
+ targetCustomerId?: string | null;
+ loginCustomerIds?: Array<string | null | undefined>;
+}) {
+ const attempts = [...new Set((input.loginCustomerIds ?? []).map((value) => value ? stripCustomerId(value) : "").filter(Boolean))];
+ if (!attempts.length) attempts.push("");
+ let lastError: Error | null = null;
+ for (const loginCustomerId of attempts) {
+  try {
+   return await googleAdsRequest<T>(path, {
+    accessToken: input.accessToken,
+    method: input.method,
+    customerId: input.targetCustomerId ?? input.customerId ?? null,
+    loginCustomerId: loginCustomerId || null,
+    body: input.body,
+   });
+  } catch (error) {
+   const current = error instanceof Error ? error : new Error("Google Ads request failed.");
+   lastError = current;
+   if (!googleAdsPermissionDenied(current.message, 403) || loginCustomerId === attempts.at(-1)) throw current;
+  }
+ }
+ throw lastError ?? new Error("Google Ads request failed.");
 }
 
 async function googleAdsSearchStream(customerId: string, accessToken: string, query: string) {
@@ -547,6 +585,7 @@ function mutateOperationsForCampaign(input: {
 export async function publishGoogleAdsCampaign(input: {
  accessToken: string;
  customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
  campaignName: string;
  adGroupName: string;
  dailyBudgetMicros: number;
@@ -556,8 +595,10 @@ export async function publishGoogleAdsCampaign(input: {
  headlines: string[];
  descriptions: string[];
 }) {
- const result = await googleAdsRequest<{ mutateOperationResponses?: any[] }>("/customers/" + stripCustomerId(input.customerId) + "/googleAds:mutate", {
+ const result = await googleAdsRequestWithLoginFallbacks<{ mutateOperationResponses?: any[] }>("/customers/" + stripCustomerId(input.customerId) + "/googleAds:mutate", {
   accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [input.customerId, ...(input.loginCustomerIds ?? []), null],
   body: {
    mutateOperations: mutateOperationsForCampaign(input),
    partialFailure: false,
@@ -575,9 +616,17 @@ export async function publishGoogleAdsCampaign(input: {
  };
 }
 
-export async function updateGoogleAdsCampaignStatus(input: { accessToken: string; customerId: string; campaignId: string; status: "ENABLED" | "PAUSED" }) {
- return googleAdsRequest(`/customers/${stripCustomerId(input.customerId)}/campaigns:mutate`, {
+export async function updateGoogleAdsCampaignStatus(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
+ campaignId: string;
+ status: "ENABLED" | "PAUSED";
+}) {
+ return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/campaigns:mutate`, {
   accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [input.customerId, ...(input.loginCustomerIds ?? []), null],
   body: {
    operations: [{
     update: {
@@ -590,9 +639,17 @@ export async function updateGoogleAdsCampaignStatus(input: { accessToken: string
  });
 }
 
-export async function updateGoogleAdsCampaignBudget(input: { accessToken: string; customerId: string; budgetResourceName: string; dailyBudgetMicros: number }) {
- return googleAdsRequest(`/customers/${stripCustomerId(input.customerId)}/campaignBudgets:mutate`, {
+export async function updateGoogleAdsCampaignBudget(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
+ budgetResourceName: string;
+ dailyBudgetMicros: number;
+}) {
+ return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/campaignBudgets:mutate`, {
   accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [input.customerId, ...(input.loginCustomerIds ?? []), null],
   body: {
    operations: [{
     update: {

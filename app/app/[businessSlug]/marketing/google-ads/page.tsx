@@ -23,6 +23,7 @@ import {
  updateGoogleAdsBudgetAction,
  updateGoogleAdsDraftAction,
 } from "./actions";
+import {GoogleAdsDraftSubmit} from "@/components/GoogleAdsDraftSubmit";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const microsToMoney = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(micros / 1_000_000);
@@ -267,7 +268,7 @@ export default async function GoogleAdsPage({
     <label>Destination website
      <input readOnly value={website?.custom_domain || (website?.public_slug ? `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/sites/${website.public_slug}` : `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/book/${business.slug}`)} />
     </label>
-    <div className="google-ads-form-actions"><button className="sv-button">Generate campaign draft</button></div>
+    <div className="google-ads-form-actions"><GoogleAdsDraftSubmit /></div>
    </form>
   </section>
   <section className="google-ads-campaign-grid">
