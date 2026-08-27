@@ -26,7 +26,7 @@ function target(path: string, kind: "error" | "success", message: string) {
 }
 
 export async function createAdminBusiness(formData: FormData) {
-  const { admin, user } = await requirePlatformAdminSession();
+  const { supabase, admin, user } = await requirePlatformAdminSession();
   const businessName = text(formData, "businessName");
   const ownerEmail = text(formData, "ownerEmail").toLowerCase();
   const ownerFirstName = text(formData, "ownerFirstName");
@@ -60,7 +60,7 @@ export async function createAdminBusiness(formData: FormData) {
     p_internal_admin_notes: text(formData, "internalAdminNotes") || null,
     p_created_by: user.id,
   };
-  const { data, error } = await admin.rpc("admin_create_business_setup", payload);
+  const { data, error } = await supabase.rpc("admin_create_business_setup", payload);
   if (error) {
     console.error("Admin business creation failed", { code: error.code, message: error.message });
     const message = error.code === "23505"
@@ -77,10 +77,10 @@ export async function createAdminBusiness(formData: FormData) {
 }
 
 export async function updateAdminBusinessDetails(formData: FormData) {
-  const { admin, user } = await requirePlatformAdminSession();
+  const { supabase, admin, user } = await requirePlatformAdminSession();
   const businessId = text(formData, "businessId");
   if (!uuid(businessId)) redirect(target("/app/admin/businesses", "error", "Invalid business."));
-  const { error } = await admin.rpc("admin_update_business_setup", {
+  const { error } = await supabase.rpc("admin_update_business_setup", {
     p_business_id: businessId,
     p_name: text(formData, "businessName") || null,
     p_industry: text(formData, "industry") || null,
@@ -110,7 +110,7 @@ export async function updateAdminBusinessDetails(formData: FormData) {
 }
 
 export async function sendOwnerInvitation(formData: FormData) {
-  const { admin, user } = await requirePlatformAdminSession();
+  const { supabase, admin, user } = await requirePlatformAdminSession();
   const businessId = text(formData, "businessId");
   if (!uuid(businessId)) redirect(target("/app/admin/businesses", "error", "Invalid business."));
   const { data: setup } = await admin
@@ -131,7 +131,7 @@ export async function sendOwnerInvitation(formData: FormData) {
   const outcome = !authError && authInvite?.user?.id ? "sent" : "failed";
   const ownerStatus: OwnerAccessStatus = outcome === "sent" ? "invited" : "not_invited";
   const invitedAt = outcome === "sent" ? new Date().toISOString() : null;
-  const { error: updateError } = await admin.rpc("admin_mark_owner_invitation_status", {
+  const { error: updateError } = await supabase.rpc("admin_mark_owner_invitation_status", {
     p_business_id: businessId,
     p_owner_status: ownerStatus,
     p_owner_invited_at: invitedAt,
