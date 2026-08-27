@@ -33,12 +33,14 @@ test("owned domains follow save then check connection",async()=>{
 });
 
 test("managed domains submit through the parent website settings form",async()=>{
- const [page,submit]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/DomainAvailabilitySubmit.tsx")]);
+ const [page,submit,actions]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/DomainAvailabilitySubmit.tsx"),read("app/app/[businessSlug]/settings/website/actions.ts")]);
  assert.match(page,/className="website-first-domain-entry"><label>Find your \.com/);
  assert.match(page,/DomainAvailabilitySubmit formAction=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}/);
  assert.doesNotMatch(page,/<form className="website-first-domain-entry" action=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}>/);
  assert.match(submit,/formAction,\s*formNoValidate=true/);
  assert.match(submit,/<button className="sv-button" type="submit" formAction=\{formAction\} formNoValidate=\{formNoValidate\}/);
+ assert.match(actions,/business_id:business\.id,current_step:"domain",domain_preference:"need_domain"/);
+ assert.doesNotMatch(actions,/source:"website_settings"/);
 });
 
 test("managed pilot domains do not expose DNS setup",async()=>{
