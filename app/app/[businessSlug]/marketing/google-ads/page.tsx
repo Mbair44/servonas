@@ -37,6 +37,7 @@ const billingUrl = (customerId: string | null | undefined) =>
  customerId ? `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}` : "https://ads.google.com/home/";
 
 const accountCreateUrl = "https://ads.google.com/home/";
+const industryLabel = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Business";
 
 export default async function GoogleAdsPage({
  params,
@@ -99,6 +100,7 @@ export default async function GoogleAdsPage({
   id,
   label: String((connection?.accessible_customer_labels as Record<string, unknown> | null)?.[id] ?? id),
  }));
+ const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
  const selectedCustomerId = connection?.google_ads_customer_id ?? null;
  const betaEventNames = new Set((betaEvents ?? []).map((event: any) => String(event.event_name)));
@@ -238,10 +240,11 @@ export default async function GoogleAdsPage({
    <form className="google-ads-form" action={createGoogleAdsDraftAction.bind(null, businessSlug)}>
     <label>What do you want to advertise?
      <select name="serviceTarget" defaultValue="">
-      <option value="">Choose a service or rental</option>
+      <option value="">{hasOfferOptions ? "Choose a service or rental" : `Use ${industryLabel(business.industry_profile)} business`}</option>
       {(services ?? []).map((service: any) => <option key={`service-${service.id}`} value={`service:${service.id}`}>{service.name}</option>)}
       {(inventory ?? []).map((item: any) => <option key={`inventory-${item.id}`} value={`inventory:${item.id}`}>{item.name}</option>)}
      </select>
+     {!hasOfferOptions && <small>No active services or rentals are available yet, so Servonas will draft the campaign from this business’s industry and website details.</small>}
     </label>
     <label>Where do you want customers from?
      <select name="geoTargetType" defaultValue="service_area">

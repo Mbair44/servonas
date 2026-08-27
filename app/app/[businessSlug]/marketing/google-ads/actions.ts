@@ -116,7 +116,8 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle(),
   supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
  ]);
- if (!service && !inventory) redirect(path(slug, "error", "Choose a service or rental to advertise."));
+ const hasOfferOptions = Boolean((service ?? inventory) || (kind !== "service" && kind !== "inventory"));
+ if (!service && !inventory && !hasOfferOptions && !business.industry_profile) redirect(path(slug, "error", "Add a service, rental, or business industry before generating a draft."));
  const geoTargetType = text(formData, "geoTargetType") as "service_area" | "cities" | "zip_codes" | "radius";
  const dailyBudgetDollars = numberValue(formData, "dailyBudgetDollars");
   const draft = await generateGoogleAdsDraft({
