@@ -15,6 +15,8 @@ const config: WebsiteIndustryLandingConfig = {
   eyebrow: "Websites for junk removal businesses",
   headline: "A Junk Removal Website That Actually Brings You Jobs",
   description: "Turn Facebook and Google traffic into quote requests with a junk removal website built for local trust, fast follow-up, scheduling, customers, invoices, and job workflow in one place.",
+  image: "/images/junk-removal-team-loading-truck.png",
+  imageAlt: "Two junk removal professionals loading bulky household items into a box truck in a residential driveway",
   demoPath: "/demo/junk-removal",
   services: ["Furniture Removal", "Appliance Removal", "Garage Cleanouts"],
   audiences: ["Owner-operators", "Local junk haulers", "Property cleanout crews", "Small junk removal teams"],
