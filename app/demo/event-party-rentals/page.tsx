@@ -57,6 +57,7 @@ export default async function Page({searchParams}:{searchParams:Promise<Record<s
   hours:[4,5,6,0].map(weekday=>({weekday,start:"08:00",end:"18:00"})),
   serviceAreas:["Phoenix","Scottsdale","Tempe","Mesa","Chandler","Gilbert"],
   announcementText:"Demo website only. Availability and checkout are disabled in this example.",
+  leadCapturePopup:{enabled:false,headline:"",body:"",discountType:"fixed",discountValue:null,customOffer:null,couponCode:null,ctaText:"Get my discount",delaySeconds:7,expiresAt:null,serviceId:null,inventoryItemId:null,minimumSubtotalCents:null,successMessage:"You're in! Your offer is ready.",disclosure:"",fingerprint:"demo"},
  };
  return <>
   <aside className="industry-example-banner"><span>This is a fictional example website built with Servonas.</span><Link href={`/onboarding?${query}`}>Build My Rental Website — Free</Link></aside>

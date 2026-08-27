@@ -161,6 +161,8 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  }
  const manualReviews=(Array.isArray(settings.google_reviews)?settings.google_reviews:[]).filter((review:any)=>review&&typeof review.author==="string"&&typeof review.text==="string"&&Number.isInteger(review.rating)&&review.rating>=1&&review.rating<=5).slice(0,6);
  const rentalCategoryOrder=new Map((rentalCategories??[]).map((category:any,index:number)=>[category.id,{rank:index,name:category.name}]));
+ const popupEnabled=Boolean(settings.lead_capture_popup_enabled);
+ const popupDiscountType=settings.lead_capture_popup_discount_type==="percentage"||settings.lead_capture_popup_discount_type==="custom"?"percentage"===settings.lead_capture_popup_discount_type?"percentage":"custom":"fixed";
  return {
   bookingSlug,customDomain:settings.domain_status==="connected"&&settings.custom_domain?normalizeWebsiteDomain(String(settings.custom_domain)):null,name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",floralFontStyle:settings.floral_font_style??"elegant",floralAccentColor:settings.floral_accent_color??"#b85c7c",floralBackgroundColor:settings.floral_background_color??"#fffafc",floralPhotoLayout:settings.floral_photo_layout??"hero_right",
@@ -170,14 +172,32 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   googleReviewUrl:googleRating?.googleMapsUri??settings.google_review_url,googleRating:googleProfile?.rating??googleRating?.rating??null,googleReviewCount:googleProfile?.reviewCount??googleRating?.reviewCount??null,googleReviews:googleProfile?.reviews.length?googleProfile.reviews.map(review=>({...review,fromGoogleProfile:true})):manualReviews,photoUrls:(settings.photo_urls??[]).filter(Boolean),photoMotionStyle:settings.photo_motion_style==="ken_burns"?"ken_burns":"static",requestEnabled:settings.request_service_enabled??true,
   bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
   announcementText:promotion?.announcement_text??null,
+  leadCapturePopup:{
+   enabled:popupEnabled,
+   headline:settings.lead_capture_popup_headline??`Get $25 off your first booking with ${business.name}`,
+   body:settings.lead_capture_popup_body??"Enter your email and we'll send you your discount.",
+   discountType:popupDiscountType,
+   discountValue:settings.lead_capture_popup_discount_value==null?null:Number(settings.lead_capture_popup_discount_value),
+   customOffer:settings.lead_capture_popup_custom_offer??null,
+   couponCode:settings.lead_capture_popup_coupon_code??null,
+   ctaText:settings.lead_capture_popup_cta_text??"Get my discount",
+   delaySeconds:Math.min(60,Math.max(1,Number(settings.lead_capture_popup_delay_seconds??7))),
+   expiresAt:settings.lead_capture_popup_expires_at??null,
+   serviceId:settings.lead_capture_popup_service_id??null,
+   inventoryItemId:settings.lead_capture_popup_inventory_item_id??null,
+   minimumSubtotalCents:settings.lead_capture_popup_minimum_subtotal_cents==null?null:Number(settings.lead_capture_popup_minimum_subtotal_cents),
+   successMessage:settings.lead_capture_popup_success_message??"You're in! Your discount is ready to use.",
+   disclosure:settings.lead_capture_popup_disclosure??`By submitting, you agree to receive promotional emails from ${business.name}. You can unsubscribe anytime.`,
+   fingerprint:String(settings.updated_at??settings.public_slug??business.id),
+  },
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
   rentalItems:(rentalItems??[]).sort((left:any,right:any)=>{const a=rentalCategoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=rentalCategoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||String(a.name).localeCompare(String(b.name))||String(left.name).localeCompare(String(right.name));}).map((item:any)=>{const rules=resolveRentalPricingRules({standardRentalHours:Number(booking?.standard_rental_hours??24),allowMultiDay:Boolean(booking?.allow_multi_day_rentals),additionalDayPricingType:(booking?.additional_day_pricing_type??"full_price") as AdditionalDayPricingType,additionalDayDiscountPercent:Number(booking?.additional_day_discount_percent??0),additionalDayFlatRateCents:booking?.additional_day_flat_rate_cents==null?null:Number(booking.additional_day_flat_rate_cents),maxRentalDays:booking?.max_rental_days==null?null:Number(booking.max_rental_days)},item);return{id:item.id,name:item.name,category:item.category??null,description:item.description??null,dailyPriceCents:Number(item.daily_price_cents??0),imageUrl:item.image_url??null,lengthFt:item.length_ft==null?null:Number(item.length_ft),widthFt:item.width_ft==null?null:Number(item.width_ft),heightFt:item.height_ft==null?null:Number(item.height_ft),standardRentalHours:rules.standardRentalHours,multiDayMessage:rules.allowMultiDay?rentalPricingMessage(rules):null}}),
   hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],
  };
 }
 
-const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
-const legacyPublicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout";
+const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
+const legacyPublicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
 
 const isMissingPhotoMotionStyleColumnError=(error:unknown)=>{
  const value=error as {code?:string;message?:string;details?:string;hint?:string}|null;

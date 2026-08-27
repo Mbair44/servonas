@@ -2,7 +2,7 @@ import {notFound} from "next/navigation";
 import {BusinessWebsite} from "@/components/BusinessWebsite";
 import {loadBusinessWebsiteData} from "@/lib/businessWebsite";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {submitWebsiteRequest} from "./actions";
+import {submitWebsiteLeadCapture, submitWebsiteRequest} from "./actions";
 import type {Metadata} from "next";
 
 export const dynamic="force-dynamic";
@@ -18,5 +18,5 @@ export default async function PublicBusinessSite({params}:{params:Promise<{siteS
  const {data:settings}=await db.from("business_website_settings").select("*").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!settings)notFound();
  const site=await loadBusinessWebsiteData(db,settings);if(!site)notFound();
- return <BusinessWebsite site={site} requestAction={submitWebsiteRequest.bind(null,siteSlug)}/>;
+ return <BusinessWebsite site={site} requestAction={submitWebsiteRequest.bind(null,siteSlug)} leadCaptureAction={submitWebsiteLeadCapture.bind(null,siteSlug)}/>;
 }

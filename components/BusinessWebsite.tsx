@@ -3,6 +3,7 @@ import {WebsiteRequestForm,type WebsiteRequestState} from "./WebsiteRequestForm"
 import {EmbeddedBookingFrame} from "./EmbeddedBookingFrame";
 import {WebsitePhotoSlideshow} from "./WebsitePhotoSlideshow";
 import {TenantBookingFunnelTracker} from "./TenantBookingFunnelTracker";
+import {WebsiteLeadCapturePopup} from "./WebsiteLeadCapturePopup";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
 
 export type BusinessSiteService={id:string;name:string;description:string|null;price_amount:number|null;price_label:string|null};
@@ -14,13 +15,31 @@ export type BusinessSiteData={
  heroHeading:string;heroSubheading:string;aboutText:string;instagramUrl:string|null;googleReviewUrl:string|null;googleRating:number|null;googleReviewCount:number|null;googleReviews:{author:string;rating:number;text:string;publishedAt?:string|null;fromGoogleProfile?:boolean}[];photoUrls:string[];photoMotionStyle:"static"|"ken_burns";requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
  services:BusinessSiteService[];rentalItems:BusinessSiteRentalItem[];hours:{weekday:number;start:string;end:string}[];serviceAreas:string[];
  announcementText:string|null;
+ leadCapturePopup:{
+  enabled:boolean;
+  headline:string;
+  body:string;
+  discountType:"fixed"|"percentage"|"custom";
+  discountValue:number|null;
+  customOffer:string|null;
+  couponCode:string|null;
+  ctaText:string;
+  delaySeconds:number;
+  expiresAt:string|null;
+  serviceId:string|null;
+  inventoryItemId:string|null;
+  minimumSubtotalCents:number|null;
+  successMessage:string;
+  disclosure:string;
+  fingerprint:string;
+ };
 };
 const weekdays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const time=(value:string)=>{const [hour,minute]=value.slice(0,5).split(":").map(Number);return `${hour%12||12}:${String(minute).padStart(2,"0")} ${hour>=12?"PM":"AM"}`;};
 const absolutizeUrl=(value:string)=>/^https?:\/\//i.test(value)?value:`https://servonas.com${value.startsWith("/")?"":"/"}${value}`;
 const InstagramIcon=()=> <svg className="business-site-instagram-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" strokeWidth="2"/><circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2"/><circle cx="17.4" cy="6.7" r="1.15" fill="currentColor"/></svg>;
 
-export function BusinessWebsite({site,requestAction,preview=false}:{site:BusinessSiteData;requestAction?:(state:WebsiteRequestState,data:FormData)=>Promise<WebsiteRequestState>;preview?:boolean}){
+export function BusinessWebsite({site,requestAction,leadCaptureAction,preview=false}:{site:BusinessSiteData;requestAction?:(state:WebsiteRequestState,data:FormData)=>Promise<WebsiteRequestState>;leadCaptureAction?:(state:{success?:boolean;error?:string;couponCode?:string;successMessage?:string},data:FormData)=>Promise<{success?:boolean;error?:string;couponCode?:string;successMessage?:string}>;preview?:boolean}){
  const isPartyRental=site.industryProfile==="party_rental",isPest=site.websiteSource==="pest-control-website",isDetailing=site.websiteSource==="car-detailing-website",isJunk=site.websiteSource==="junk-removal-website"||site.industryProfile==="junk_removal";
  const industryPresentation=site.websiteSource==="hvac-website"?{className:"website-hvac",eyebrow:"Heating and cooling service",cta:"Request HVAC Service",serviceLabel:"HVAC Services",serviceHeading:"Comfort solutions for every season.",image:"/images/hvac-technician-servicing-ac.png",trust:["✓ Responsive scheduling","✓ Heating and cooling expertise","✓ Clear communication","✓ Local service"],process:[["1","Choose a service","Tell us what your system needs."],["2","Request a time","Share your location and preferred schedule."],["3","Get comfortable","A local HVAC professional handles the work."]]}:site.websiteSource==="plumbing-website"?{className:"website-plumbing",eyebrow:"Dependable local plumbing",cta:"Request Plumbing Service",serviceLabel:"Plumbing Services",serviceHeading:"Solutions for leaks, drains, water heaters, and more.",image:"/images/plumbing-professional-at-work.png",trust:["✓ Responsive service","✓ Straightforward recommendations","✓ Convenient requests","✓ Local plumbing help"],process:[["1","Tell us the problem","Choose a service and share what is happening."],["2","Request a time","Provide your location and preferred schedule."],["3","Get it resolved","A plumbing professional handles the work."]]}:site.websiteSource==="landscaping-website"?{className:"website-landscaping",eyebrow:"Local landscape care",cta:"Request Landscaping",serviceLabel:"Landscaping Services",serviceHeading:"Outdoor care built around your property.",image:"/images/landscaping-professional-at-work.png",trust:["✓ Dependable scheduling","✓ Property-focused service","✓ Clear estimates","✓ Local landscape care"],process:[["1","Choose a service","Tell us what your outdoor space needs."],["2","Request an estimate","Share the property and project details."],["3","Enjoy the results","Your landscaping team handles the work."]]}:site.websiteSource==="cleaning-website"?{className:"website-cleaning",eyebrow:"A cleaner space starts here",cta:"Request Cleaning",serviceLabel:"Cleaning Services",serviceHeading:"Reliable cleaning for homes and businesses.",image:"/images/cleaning-professional-at-work.png",trust:["✓ Convenient scheduling","✓ Recurring service options","✓ Clear communication","✓ Local cleaning professionals"],process:[["1","Choose your cleaning","Select the service your space needs."],["2","Request a time","Share the location and preferred schedule."],["3","Enjoy a cleaner space","Your cleaning team handles the rest."]]}:site.websiteSource==="powerwashing-website"?{className:"website-powerwashing",eyebrow:"Exterior cleaning that stands out",cta:"Request Power Washing",serviceLabel:"Power Washing Services",serviceHeading:"Exterior cleaning for homes, concrete, and commercial properties.",image:"/images/powerwashing-professional-cleaning-driveway.png",trust:["✓ Curb-appeal focused service","✓ Clear communication","✓ Convenient scheduling","✓ Local exterior cleaning pros"],process:[["1","Choose a service","Tell us what surface or property area needs attention."],["2","Request a time","Share the address and preferred schedule."],["3","Refresh the property","Your local cleaning team handles the work."]]}:isJunk?{className:"website-junk-removal",eyebrow:"Fast • Friendly • Local",cta:"Get a Free Quote",serviceLabel:"Junk Removal Services",serviceHeading:"Fast help for bulky items, cleanouts, and unwanted junk.",image:null,trust:["✓ Easy scheduling","✓ Upfront estimates","✓ We do the lifting","✓ Residential & commercial"],process:[["1","Tell us what you’ve got","Send the details of what you need removed."],["2","Get your quote","We’ll provide an estimate and confirm the pickup."],["3","We haul it away","Our crew handles the lifting, loading, and cleanup."]]}:site.websiteSource==="floral-event-website"?{className:"website-floral-event",eyebrow:"Floral design for meaningful moments",cta:"Request a Consultation",serviceLabel:"Floral & Event Services",serviceHeading:"Thoughtful flowers and styling for every celebration.",image:"/images/floral-event-designer-at-work.png",trust:["✓ Personal design consultations","✓ Custom floral concepts","✓ Delivery and setup options","✓ Thoughtful local service"],process:[["1","Share your vision","Tell us about your date, venue, and floral ideas."],["2","Plan the details","Collaborate on flowers, styling, delivery, and setup."],["3","Celebrate beautifully","Your floral team brings the design to life."]]}:null;
  const manualRating=site.googleReviews.length?site.googleReviews.reduce((sum,review)=>sum+review.rating,0)/site.googleReviews.length:null,reviewRating=site.googleRating??manualRating;
@@ -48,6 +67,7 @@ export function BusinessWebsite({site,requestAction,preview=false}:{site:Busines
  const floralClass=site.websiteSource==="floral-event-website"?` floral-font-${site.floralFontStyle} floral-photos-${site.floralPhotoLayout}`:"";
  return <main className={`business-site template-${site.template}${isPest?" website-pest-control":""}${isDetailing?" website-car-detailing":""}${isPartyRental?" website-party-rental":""}${industryPresentation?` ${industryPresentation.className}`:""}${floralClass}`} style={{"--site-primary":site.primaryColor,"--site-secondary":site.secondaryColor,"--site-accent":site.floralAccentColor,"--site-background":site.floralBackgroundColor} as React.CSSProperties}>
   {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>} 
+  {leadCaptureAction&&site.leadCapturePopup.enabled&&!preview&&<WebsiteLeadCapturePopup site={site} action={leadCaptureAction}/>}
   {preview&&<div className="business-site-preview-bar"><span>Preview mode — this is not the public website.</span><small>Close this tab to return to Servonas.</small></div>}
   {site.announcementText&&<div className="business-site-promotion">{site.announcementText}</div>}
   {reviewRibbon}
