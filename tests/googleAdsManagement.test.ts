@@ -30,6 +30,8 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /export const googleAdsRedirectUri/);
  assert.match(file, /export async function completeGoogleAdsOauth/);
+ assert.match(file, /customers:listAccessibleCustomers/);
+ assert.match(file, /method: "GET"/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
   assert.match(file, /googleAds:searchStream/);
  assert.match(file, /search_term_view\.search_term/);
