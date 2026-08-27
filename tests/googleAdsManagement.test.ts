@@ -54,6 +54,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Google advertising budget/);
  assert.match(page, /Complete Billing with Google/);
  assert.match(page, /Send beta feedback/);
+ assert.match(page, /Use \$\{industryLabel\(business\.industry_profile\)\} business/);
+ assert.match(page, /No active services or rentals are available yet/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {
