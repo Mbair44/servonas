@@ -32,9 +32,12 @@ test("junk removal public routes are wired into the existing landing and demo ar
   assert.match(landing, /WebsiteIndustryLanding/);
   assert.match(landing, /source:\s*"junk-removal-website"/);
   assert.match(landing, /junk removal quote requests/i);
+  assert.match(landing, /junk-removal-team-loading-truck\.png/);
   assert.match(demo, /WebsiteIndustryDemo/);
   assert.match(demo, /businessName:\s*"Junk Devils"/);
   assert.match(demo, /industryProfile:\s*"junk_removal"/);
+  assert.match(demo, /junk-removal-team-loading-truck\.png/);
+  assert.match(demo, /junk-removal-garage-cleanout\.png/);
 });
 
 test("shared business website renders junk-removal-specific quote-first sections", async () => {

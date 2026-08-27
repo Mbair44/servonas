@@ -20,5 +20,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     primary: "#c65a12",
     secondary: "#1f2937",
     areas: ["Phoenix", "Glendale", "Peoria", "Surprise"],
+    photos: [
+      "/images/junk-removal-team-loading-truck.png",
+      "/images/junk-removal-garage-cleanout.png",
+    ],
   }} />;
 }
