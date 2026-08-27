@@ -36,18 +36,23 @@ test("managed domains submit through the parent website settings form",async()=>
  const [page,submit,actions]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/DomainAvailabilitySubmit.tsx"),read("app/app/[businessSlug]/settings/website/actions.ts")]);
  assert.match(page,/className="website-first-domain-entry"><label>Find your \.com/);
  assert.match(page,/DomainAvailabilitySubmit formAction=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}/);
+ assert.match(page,/legacyManagedDomain=normalizeWebsiteDomain\(String\(q\.managedDomain\?\?"\"\)\)/);
+ assert.match(page,/effectiveManagedDomain=websiteFirst\?\.domain_preference==="need_domain"&&websiteFirst\?\.requested_domain\?websiteFirst\.requested_domain:legacyDomainMode==="managed"&&legacyManagedDomain\?legacyManagedDomain:""/);
+ assert.match(page,/ManagedDomainCustomerSetup businessSlug=\{businessSlug\} domain=\{effectiveManagedDomain\} status=\{effectiveManagedDomainStatus\}/);
  assert.doesNotMatch(page,/<form className="website-first-domain-entry" action=\{saveLegacyManagedDomainChoice\.bind\(null,businessSlug\)\}>/);
  assert.match(submit,/formAction,\s*formNoValidate=true/);
  assert.match(submit,/<button className="sv-button" type="submit" formAction=\{formAction\} formNoValidate=\{formNoValidate\}/);
- assert.match(actions,/business_id:business\.id,current_step:"preview",domain_preference:"need_domain"/);
+ assert.match(actions,/await checkManagedDomainAvailabilityForLegacy\(slug,\{admin,user,business,domain:domainName,persistSelection:true\}\)/);
+ assert.match(actions,/legacyManagedDomainExtra\(status==="available"\?"details":"search",domainSuggestions,domain,status\)/);
+ assert.match(actions,/if\(input\.persistSelection\)\{/);
  assert.doesNotMatch(actions,/source:"website_settings"/);
- assert.doesNotMatch(actions,/current_step:"domain"/);
 });
 
 test("managed pilot domains do not expose DNS setup",async()=>{
  const [page,managed]=await Promise.all([read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/ManagedDomainCustomerSetup.tsx")]);
  assert.match(page,/requested_domain,domain_request_status/);
- assert.match(page,/managedDomainRequest=websiteFirst\?\.domain_preference==="need_domain"/);
+ assert.match(page,/managedDomainRequest=Boolean\(effectiveManagedDomain\)/);
+ assert.match(page,/legacyManagedDomainStatus=String\(q\.domainStatus\?\?"\"\)/);
  assert.match(page,/ManagedDomainCustomerSetup/);
  assert.match(managed,/Check Availability →/);
  assert.doesNotMatch(managed,/Connect your DNS/);
