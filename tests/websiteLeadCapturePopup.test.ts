@@ -55,6 +55,12 @@ test("lead capture popup analytics include viewed and dismissed events",async()=
  assert.match(analytics,/trackMarketingEvent/);
 });
 
+test("lead capture popup does not expose the coupon code before email submission",async()=>{
+ const popup=await read("components/WebsiteLeadCapturePopup.tsx");
+ assert.match(popup,/website-lead-popup-offer"><strong>\{offer\}<\/strong><\/div>/);
+ assert.doesNotMatch(popup,/website-lead-popup-offer\"><strong>\{offer\}<\/strong>\{popup\.couponCode/);
+});
+
 test("customer directory exposes a website discount lead filter",async()=>{
  const page=await read("app/app/[businessSlug]/customers/page.tsx");
  assert.match(page,/name="lead"/);

@@ -67,7 +67,7 @@ export function WebsiteLeadCapturePopup({site,action,preview=false}:{site:Busine
     <span>Special offer</span>
     <h2 id="website-lead-popup-title">{popup.headline}</h2>
     <p>{popup.body}</p>
-    <div className="website-lead-popup-offer"><strong>{offer}</strong>{popup.couponCode&&<code>{popup.couponCode}</code>}</div>
+    <div className="website-lead-popup-offer"><strong>{offer}</strong></div>
     {preview&&!action?<div className="business-site-form-error" role="note">Preview mode shows the popup design. Live lead capture works on the published website.</div>:state.error&&<div className="business-site-form-error" role="alert">{state.error}</div>}
     <label>Email address
      <input required name="email" type="email" autoComplete="email" maxLength={320} placeholder="you@example.com"/>
