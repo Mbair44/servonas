@@ -5,6 +5,20 @@ import { recordAssistantProviderUsage } from "./assistant/usage";
 type TokenResponse = { access_token?: string; refresh_token?: string; error?: string; error_description?: string };
 type GoogleAdsListResponse = { resourceNames?: string[] };
 type GoogleAdsSearchStreamChunk = { results?: Record<string, unknown>[]; error?: { message?: string } };
+type GoogleAdsErrorDetail = {
+ errorCode?: Record<string, unknown>;
+ message?: string;
+ trigger?: string;
+ location?: unknown;
+};
+type GoogleAdsErrorResponse = {
+ error?: {
+  code?: number;
+  message?: string;
+  status?: string;
+  details?: GoogleAdsErrorDetail[];
+ };
+};
 
 export type GoogleAdsConnectionStatus = "pending_selection" | "connected" | "reauthorization_required" | "disconnected";
 export type GoogleAdsCustomer = { id: string; label: string };
@@ -80,6 +94,31 @@ const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
 
+class GoogleAdsRequestError extends Error {
+ status: number;
+ googleStatus: string | null;
+ details: GoogleAdsErrorDetail[];
+ loginCustomerId: string | null;
+ targetCustomerId: string | null;
+
+ constructor(input: {
+  message: string;
+  status: number;
+  googleStatus?: string | null;
+  details?: GoogleAdsErrorDetail[];
+  loginCustomerId?: string | null;
+  targetCustomerId?: string | null;
+ }) {
+  super(input.message);
+  this.name = "GoogleAdsRequestError";
+  this.status = input.status;
+  this.googleStatus = input.googleStatus ?? null;
+  this.details = input.details ?? [];
+  this.loginCustomerId = input.loginCustomerId ?? null;
+  this.targetCustomerId = input.targetCustomerId ?? null;
+ }
+}
+
 function safeNumber(value: unknown) {
  const numeric = Number(value);
  return Number.isFinite(numeric) ? numeric : 0;
@@ -127,6 +166,18 @@ function googleAdsPermissionDenied(message: string, status: number) {
  return status === 403 || /permission/i.test(message) || /authorization/i.test(message);
 }
 
+export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
+ if (error instanceof GoogleAdsRequestError && googleAdsPermissionDenied(error.message, error.status)) {
+  const detail = error.details[0];
+  const detailCode = detail?.errorCode ? Object.keys(detail.errorCode)[0] : "";
+  if (/USER_PERMISSION_DENIED|ACTION_NOT_PERMITTED/i.test(`${error.googleStatus ?? ""} ${detailCode} ${error.message}`)) {
+   return "Google Ads denied this publish request. Make sure the connected Google user has admin or standard access to the selected Google Ads account, then reconnect and try again.";
+  }
+  return "Google Ads denied this publish request. Reconnect the correct Google Ads account or confirm the connected Google user has permission to manage it.";
+ }
+ return error.message;
+}
+
 async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
  const { developerToken } = credentials();
  if (!developerToken) throw new Error("Google Ads developer token is not configured.");
@@ -144,7 +195,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   cache: "no-store",
  });
  const text = await response.text();
- let result: T & { error?: { message?: string } };
+ let result: T & GoogleAdsErrorResponse;
  try {
   result = (text ? JSON.parse(text) : {}) as T & { error?: { message?: string } };
  } catch {
@@ -157,7 +208,14 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   if (response.status === 404) {
    throw new Error("Google Ads could not be reached with the configured API version. Please retry the connection.");
   }
-  throw new Error(result.error?.message || `Google Ads request failed (${response.status}).`);
+  throw new GoogleAdsRequestError({
+   message: result.error?.message || `Google Ads request failed (${response.status}).`,
+   status: response.status,
+   googleStatus: result.error?.status ?? null,
+   details: result.error?.details ?? [],
+   loginCustomerId,
+   targetCustomerId: input.customerId ?? null,
+  });
  }
  return result;
 }
@@ -189,7 +247,8 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
   } catch (error) {
    const current = error instanceof Error ? error : new Error("Google Ads request failed.");
    lastError = current;
-   if (!googleAdsPermissionDenied(current.message, 403) || loginCustomerId === attempts.at(-1)) throw current;
+   const status = current instanceof GoogleAdsRequestError ? current.status : 403;
+   if (!googleAdsPermissionDenied(current.message, status) || loginCustomerId === attempts.at(-1)) throw current;
   }
  }
  throw lastError ?? new Error("Google Ads request failed.");
