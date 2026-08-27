@@ -50,7 +50,7 @@ test("google ads service defaults to a supported api version instead of sunset v
 });
 
 test("google ads workspace uses beta positioning and separates servonas pricing from google spend", async () => {
- const [page,submit]=await Promise.all([read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("../components/GoogleAdsDraftSubmit.tsx")]);
+ const [page,submit,actions]=await Promise.all([read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("../components/GoogleAdsDraftSubmit.tsx"),read("../app/app/[businessSlug]/marketing/google-ads/actions.ts")]);
  assert.match(page, /Google Ads Beta/);
  assert.match(page, /Servonas Ads Beta/);
  assert.match(page, /Google advertising budget/);
@@ -61,6 +61,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /GoogleAdsDraftSubmit/);
  assert.match(submit, /Generating campaign draft…/);
  assert.match(submit, /Servonas is building your Google Ads draft/);
+ assert.match(actions, /isRedirectError/);
+ assert.match(actions, /if \(isRedirectError\(error\)\) throw error;/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {

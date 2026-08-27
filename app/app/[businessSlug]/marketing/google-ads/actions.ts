@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { canManageBusiness } from "@/lib/access";
 import {
  appendGoogleAdsNegativeKeyword,
@@ -253,10 +254,18 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
   if (error) redirect(path(slug, "error", "The campaign was published to Google, but Servonas could not save the resulting IDs."));
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_published", metadata: { business_slug: business.slug, google_campaign_id: published.campaignId, timestamp: new Date().toISOString() } });
   await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_campaign_published", metadata: published });
-  revalidatePath(`/app/${slug}/marketing/google-ads`);
-  redirect(path(slug, "success", "Campaign published to Google Ads."));
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Campaign published to Google Ads."));
  } catch (error) {
+  if (isRedirectError(error)) throw error;
   const message = error instanceof Error ? error.message : "Google Ads publishing failed.";
+  console.error("Google Ads publish failed", {
+   businessId: business.id,
+   businessSlug: business.slug,
+   campaignId,
+   googleAdsCustomerId: connection.customerId,
+   message,
+  });
   await supabase.from("business_google_ads_campaigns").update({
    status: "failed",
    last_error: message,
