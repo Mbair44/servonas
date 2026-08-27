@@ -56,7 +56,7 @@ export type GoogleAdsSearchTerm = {
  costMicros: number;
 };
 
-const supportedGoogleAdsVersions = new Set(["v23", "v23.1", "v23.2", "v24", "v24.1", "v24.2", "v25"]);
+const supportedGoogleAdsVersions = new Set(["v23", "v24", "v25"]);
 const configuredGoogleAdsVersion = process.env.GOOGLE_ADS_API_VERSION?.trim() || null;
 const googleAdsVersion = configuredGoogleAdsVersion && supportedGoogleAdsVersions.has(configuredGoogleAdsVersion)
  ? configuredGoogleAdsVersion

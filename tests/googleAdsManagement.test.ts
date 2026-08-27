@@ -41,6 +41,7 @@ test("google ads service defaults to a supported api version instead of sunset v
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /supportedGoogleAdsVersions/);
  assert.match(file, /"v25"/);
+ assert.doesNotMatch(file, /"v23\.1"|"v23\.2"|"v24\.1"|"v24\.2"/);
  assert.doesNotMatch(file, /process\.env\.GOOGLE_ADS_API_VERSION\?\.trim\(\) \|\| "v20"/);
 });
 

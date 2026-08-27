@@ -38,3 +38,12 @@ test("existing-domain DNS connection remains separate",async()=>{
  assert.match(page,/effectiveManagedDomain=websiteFirst\?\.domain_preference==="need_domain"&&websiteFirst\?\.requested_domain/);
  assert.match(page,/managedDomainRequest=Boolean\(effectiveManagedDomain\)/);
 });
+
+test("invitation acceptance reuses an existing employee row by email",async()=>{
+ const migration=await read("supabase/migrations/20260827000400_fix_invitation_employee_email_conflict.sql");
+ assert.match(migration,/create or replace function public\.sync_business_member_employee/);
+ assert.match(migration,/where business_id=new\.business_id\s+and lower\(email\)=v_email/);
+ assert.match(migration,/set auth_user_id=coalesce\(auth_user_id,new\.user_id\)/);
+ assert.match(migration,/if v_employee_id is null then/);
+ assert.match(migration,/on conflict\(business_id,auth_user_id\) where auth_user_id is not null/);
+});
