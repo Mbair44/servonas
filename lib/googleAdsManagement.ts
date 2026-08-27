@@ -176,7 +176,7 @@ async function googleAdsSearchStream(customerId: string, accessToken: string, qu
 async function accessibleCustomers(accessToken: string): Promise<GoogleAdsCustomer[]> {
  const list = await googleAdsRequest<GoogleAdsListResponse>("/customers:listAccessibleCustomers", {
   accessToken,
-  body: {},
+  method: "GET",
  });
  const ids = uniqueStrings((list.resourceNames ?? []).map((name) => name.split("/").pop() ?? ""));
  return ids.map((id) => ({ id, label: id }));
