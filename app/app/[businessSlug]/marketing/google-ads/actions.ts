@@ -9,6 +9,7 @@ import {
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignMetrics,
  generateGoogleAdsDraft,
+ googleAdsErrorMessage,
  loadTenantGoogleAdsAccess,
  publishGoogleAdsCampaign,
  recordGoogleAdsBetaEvent,
@@ -258,13 +259,19 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
  redirect(path(slug, "success", "Campaign published to Google Ads."));
  } catch (error) {
   if (isRedirectError(error)) throw error;
-  const message = error instanceof Error ? error.message : "Google Ads publishing failed.";
+  const message = error instanceof Error ? googleAdsErrorMessage(error) : "Google Ads publishing failed.";
   console.error("Google Ads publish failed", {
    businessId: business.id,
    businessSlug: business.slug,
    campaignId,
    googleAdsCustomerId: connection.customerId,
    message,
+   errorName: error instanceof Error ? error.name : "unknown",
+   errorStatus: error && typeof error === "object" && "status" in error ? (error as { status?: unknown }).status : null,
+   googleStatus: error && typeof error === "object" && "googleStatus" in error ? (error as { googleStatus?: unknown }).googleStatus : null,
+   loginCustomerId: error && typeof error === "object" && "loginCustomerId" in error ? (error as { loginCustomerId?: unknown }).loginCustomerId : null,
+   targetCustomerId: error && typeof error === "object" && "targetCustomerId" in error ? (error as { targetCustomerId?: unknown }).targetCustomerId : null,
+   googleDetails: error && typeof error === "object" && "details" in error ? (error as { details?: unknown }).details : null,
   });
   await supabase.from("business_google_ads_campaigns").update({
    status: "failed",
