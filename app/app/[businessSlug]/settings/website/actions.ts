@@ -227,7 +227,7 @@ async function checkManagedDomainAvailabilityForLegacy(slug:string,input:{admin:
  if(error)redirect(target(slug,"error","The availability result could not be saved. Apply the Vercel domain registration migration.","domain",legacyManagedDomainExtra("search")));
  const domainSuggestions=!quote.available||status==="premium_review"?await findAvailableManagedDomainSuggestions({domain,businessName:business.name,businessSlug:slug,city:business.city,state:business.state}):[];
  if(input.persistSelection){
-  const {error:stateError}=await admin.from("business_website_onboarding_states").upsert({business_id:business.id,current_step:"preview",domain_preference:"need_domain",domain_name:domain,requested_domain:domain,domain_request_status:status,domain_requested_at:now,updated_at:now,updated_by:user.id,created_by:user.id},{onConflict:"business_id"});
+  const {error:stateError}=await admin.from("business_website_onboarding_states").upsert({business_id:business.id,current_step:"preview",domain_preference:"need_domain",domain_name:domain,requested_domain:domain,domain_request_status:status,domain_requested_at:now,updated_at:now,updated_by:user.id},{onConflict:"business_id"});
   if(stateError)console.error("Legacy managed domain persistence after availability failed",{businessId:business.id,slug,domain,code:stateError.code,message:stateError.message,details:stateError.details,hint:stateError.hint});
  }else{
   await admin.from("business_website_onboarding_states").update({domain_request_status:status,updated_at:now,updated_by:user.id}).eq("business_id",business.id).eq("requested_domain",domain);

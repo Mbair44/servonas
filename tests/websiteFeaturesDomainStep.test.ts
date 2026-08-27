@@ -45,6 +45,8 @@ test("managed domains submit through the parent website settings form",async()=>
  assert.match(actions,/await checkManagedDomainAvailabilityForLegacy\(slug,\{admin,user,business,domain:domainName,persistSelection:true\}\)/);
  assert.match(actions,/legacyManagedDomainExtra\(status==="available"\?"details":"search",domainSuggestions,domain,status\)/);
  assert.match(actions,/if\(input\.persistSelection\)\{/);
+ assert.match(actions,/updated_by:user\.id\}\,\{onConflict:"business_id"\}\)/);
+ assert.doesNotMatch(actions,/business_website_onboarding_states"\)\.upsert\(\{[^}]*created_by:user\.id/s);
  assert.doesNotMatch(actions,/source:"website_settings"/);
 });
 
