@@ -202,10 +202,10 @@ export default async function GoogleAdsPage({
      <span>Account: {connection.google_ads_customer_id || "Not selected yet"}</span>
     </div>
     <div className="google-ads-audit-list">
-     <article><strong>Connected Google account</strong><span>{connection.google_authenticated_email || "Unavailable"}</span></article>
+     <article><strong>Connected Google account</strong><span>{connection.google_authenticated_email || "Unknown — reconnect to verify"}</span></article>
      <article><strong>Google profile name</strong><span>{connection.google_authenticated_name || "Unavailable"}</span></article>
      <article><strong>Manager account</strong><span>145-777-1276</span></article>
-     <article><strong>Target Google Ads account</strong><span>{connection.google_ads_customer_id || "Not selected yet"}</span></article>
+     <article><strong>Selected Google Ads account</strong><span>{connection.google_ads_customer_id || "Not selected yet"}</span></article>
     </div>
     {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
      <label>Google Ads account
@@ -218,7 +218,10 @@ export default async function GoogleAdsPage({
     </form>}
     {!customerChoices.length && <div className="workspace-notice warning">No Google Ads accounts were returned for this login. If you do not have one yet, create it in Google first, then reconnect it here.</div>}
     {!customerChoices.length && <div className="google-ads-connection-actions"><a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a></div>}
-    <form action={runGoogleAdsPermissionDiagnosticAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Test Google Ads access</button></form>
+    <div className="google-ads-connection-actions">
+     <a className="sv-button sv-secondary" href={`/api/google-ads/connect/${businessSlug}`}>Reconnect with another Google account</a>
+     <form action={runGoogleAdsPermissionDiagnosticAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Test Google Ads access</button></form>
+    </div>
     <form action={disconnectGoogleAds.bind(null, businessSlug)}><button className="sv-button sv-secondary">Disconnect</button></form>
     {permissionDiagnostic && <div className="workspace-panel">
      <h3>Google Ads access diagnostic</h3>

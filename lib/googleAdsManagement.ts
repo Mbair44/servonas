@@ -11,6 +11,7 @@ type GoogleAdsErrorDetail = {
  message?: string;
  trigger?: string;
  location?: unknown;
+ requestId?: string;
 };
 type GoogleAdsErrorResponse = {
  error?: {
@@ -761,7 +762,7 @@ export function createGoogleAdsOauthState(businessSlug: string, businessId: stri
  return { state: randomBytes(24).toString("base64url"), businessSlug, businessId };
 }
 
-export function googleAdsOauthUrl(state: string) {
+export function googleAdsOauthUrl(state: string, options?: { forceAccountSelection?: boolean }) {
  const { clientId } = credentials();
  if (!clientId) throw new Error("Google Ads OAuth is not configured.");
  const url = new URL(oauthBase);
@@ -770,7 +771,7 @@ export function googleAdsOauthUrl(state: string) {
  url.searchParams.set("response_type", "code");
  url.searchParams.set("scope", "https://www.googleapis.com/auth/adwords");
  url.searchParams.set("access_type", "offline");
- url.searchParams.set("prompt", "consent");
+ url.searchParams.set("prompt", options?.forceAccountSelection ? "select_account consent" : "consent");
  url.searchParams.set("state", state);
  logGoogleAdsDiagnostic("Google Ads OAuth authorization URL created", {
   stage: "google_ads_oauth_authorization_redirect",
@@ -1073,6 +1074,7 @@ async function googleAdsSearch(customerId: string, accessToken: string, query: s
 function diagnosticFailure(label: GoogleAdsPermissionDiagnosticCheck["label"], key: GoogleAdsPermissionDiagnosticCheck["key"], error: unknown): GoogleAdsPermissionDiagnosticCheck {
  const requestError = error instanceof GoogleAdsRequestError ? error : null;
  const message = error instanceof Error ? error.message : "Unknown error";
+ const requestId = typeof requestError?.details?.[0]?.requestId === "string" ? requestError.details[0].requestId : null;
  return {
   key,
   label,
@@ -1081,7 +1083,7 @@ function diagnosticFailure(label: GoogleAdsPermissionDiagnosticCheck["label"], k
   httpStatus: requestError?.status ?? null,
   googleStatus: requestError?.googleStatus ?? null,
   googleMessage: message,
-  details: [],
+  details: requestId ? [`Request ID: ${requestId}`] : [],
  };
 }
 
