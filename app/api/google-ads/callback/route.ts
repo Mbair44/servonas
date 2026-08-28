@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { canManageBusiness } from "@/lib/access";
+import { isServonasPlatformAdmin, platformAdminRole } from "@/lib/platformAccess";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { completeGoogleAdsOauth, recordGoogleAdsBetaEvent, storeGoogleAdsConnection, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
 
@@ -13,13 +15,59 @@ export async function GET(request: Request) {
  const store = await cookies();
  const raw = store.get("servonas_google_ads_oauth")?.value;
  store.delete("servonas_google_ads_oauth");
- let saved: { state: string; businessSlug: string; businessId: string } | null = null;
+ let saved: { state: string; businessSlug: string; businessId: string; actorUserId?: string | null } | null = null;
  try { saved = raw ? JSON.parse(raw) : null; } catch {}
  if (!saved || !state || state !== saved.state || !code) return NextResponse.redirect(destination(saved?.businessSlug || "", "error", "Google Ads authorization could not be verified."));
  const supabase = await createSupabaseServerClient();
  const { data: { user } } = await supabase.auth.getUser();
- const { data: membership } = user ? await supabase.from("business_members").select("role").eq("business_id", saved.businessId).eq("user_id", user.id).maybeSingle() : { data: null };
- if (!user || !membership || !["owner", "admin"].includes(membership.role)) return NextResponse.redirect(destination(saved.businessSlug, "error", "Google Ads authorization is not permitted for this workspace."));
+ console.info("Google Ads callback workspace authorization started", {
+  stage: "workspace_authorization",
+  businessId: saved.businessId,
+  businessSlug: saved.businessSlug,
+  hasSessionUser: Boolean(user),
+  hasSavedActorUserId: Boolean(saved.actorUserId),
+ });
+ if (!user) return NextResponse.redirect(destination(saved.businessSlug, "error", "Sign in to Servonas again, then reconnect Google Ads."));
+ if (saved.actorUserId && saved.actorUserId !== user.id) {
+  console.warn("Google Ads callback workspace authorization rejected", {
+   stage: "workspace_authorization",
+   businessId: saved.businessId,
+   businessSlug: saved.businessSlug,
+   reason: "initiator_mismatch",
+   sessionUserId: user.id,
+  });
+  return NextResponse.redirect(destination(saved.businessSlug, "error", "Google Ads reconnect must be completed by the Servonas user who started it. Please reconnect again."));
+ }
+ const isPlatformAdmin = isServonasPlatformAdmin(user);
+ const { data: business } = await supabase.from("businesses").select("owner_user_id").eq("id", saved.businessId).maybeSingle();
+ const { data: membership } = await supabase.from("business_members").select("role").eq("business_id", saved.businessId).eq("user_id", user.id).maybeSingle();
+ const resolvedRole = isPlatformAdmin
+  ? platformAdminRole
+  : business?.owner_user_id === user.id
+   ? "owner"
+   : typeof membership?.role === "string"
+    ? membership.role
+    : null;
+ if (!canManageBusiness(resolvedRole)) {
+  console.warn("Google Ads callback workspace authorization rejected", {
+   stage: "workspace_authorization",
+   businessId: saved.businessId,
+   businessSlug: saved.businessSlug,
+   reason: "insufficient_workspace_role",
+   resolvedRole,
+   isPlatformAdmin,
+   isOwner: business?.owner_user_id === user.id,
+  });
+  return NextResponse.redirect(destination(saved.businessSlug, "error", "Google Ads authorization is not permitted for this workspace."));
+ }
+ console.info("Google Ads callback workspace authorization completed", {
+  stage: "workspace_authorization",
+  businessId: saved.businessId,
+  businessSlug: saved.businessSlug,
+  resolvedRole,
+  isPlatformAdmin,
+  isOwner: business?.owner_user_id === user.id,
+ });
  try {
   const result = await completeGoogleAdsOauth(code, { businessId: saved.businessId, businessSlug: saved.businessSlug });
   const { data: existingConnection } = await supabase
@@ -32,6 +80,7 @@ export async function GET(request: Request) {
    userId: user.id,
    refreshToken: result.refreshToken,
    customers: result.customers,
+   rootCustomers: result.rootCustomers,
    authenticatedIdentity: result.authenticatedIdentity,
    selectedCustomerId: existingConnection?.google_ads_customer_id ?? null,
   });

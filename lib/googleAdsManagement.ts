@@ -6,6 +6,24 @@ type TokenResponse = { access_token?: string; refresh_token?: string; error?: st
 type GoogleAdsListResponse = { resourceNames?: string[] };
 type GoogleAdsSearchStreamChunk = { results?: Record<string, unknown>[]; error?: { message?: string } };
 type GoogleUserInfoResponse = { email?: string; name?: string };
+type GoogleAdsCustomerRow = {
+ customer?: {
+  id?: string | number;
+  descriptiveName?: string;
+  manager?: boolean;
+  testAccount?: boolean;
+ };
+};
+type GoogleAdsCustomerClientRow = {
+ customerClient?: {
+  id?: string | number;
+  clientCustomer?: string;
+  descriptiveName?: string;
+  level?: string | number;
+  manager?: boolean;
+  status?: string;
+ };
+};
 type GoogleAdsErrorDetail = {
  errorCode?: Record<string, unknown>;
  message?: string;
@@ -23,7 +41,16 @@ type GoogleAdsErrorResponse = {
 };
 
 export type GoogleAdsConnectionStatus = "pending_selection" | "connected" | "reauthorization_required" | "disconnected";
-export type GoogleAdsCustomer = { id: string; label: string };
+export type GoogleAdsCustomer = {
+ id: string;
+ label: string;
+ loginCustomerId: string | null;
+ managerCustomerId: string | null;
+ isManager: boolean;
+ level: number | null;
+ status: string | null;
+ source: "direct" | "manager_hierarchy";
+};
 export type GoogleAdsConnectionIdentity = {
  email: string | null;
  name: string | null;
@@ -43,6 +70,10 @@ export type GoogleAdsPermissionDiagnostic = {
  managerCustomerId: string | null;
  targetCustomerId: string | null;
  accessibleCustomers: string[];
+ accessibleRootCustomers: GoogleAdsCustomer[];
+ discoveredManagerAccounts: GoogleAdsCustomer[];
+ discoveredAdvertiserAccounts: GoogleAdsCustomer[];
+ resolvedLoginCustomerId: string | null;
  checks: GoogleAdsPermissionDiagnosticCheck[];
  classification: string;
 };
@@ -117,6 +148,7 @@ const stripCustomerId = (value: string) => value.replace(/\D/g, "");
 const configuredGoogleAdsLoginCustomerId = () => stripCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.trim() || process.env.GOOGLE_ADS_MANAGER_CUSTOMER_ID?.trim() || "") || null;
 const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
+const formatGoogleAdsCustomerLabel = (name: string | null, id: string) => `${name?.trim() || id} - ${id.slice(0, 3)}-${id.slice(3, 6)}-${id.slice(6)}`;
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
 const maxGoogleAdsHeadlines = 15;
 const maxGoogleAdsDescriptions = 4;
@@ -738,7 +770,98 @@ async function accessibleCustomers(accessToken: string): Promise<GoogleAdsCustom
   method: "GET",
  });
  const ids = uniqueStrings((list.resourceNames ?? []).map((name) => name.split("/").pop() ?? ""));
- return ids.map((id) => ({ id, label: id }));
+ return ids.map((id) => ({
+  id,
+  label: formatGoogleAdsCustomerLabel(null, id),
+  loginCustomerId: null,
+  managerCustomerId: null,
+  isManager: false,
+  level: 0,
+  status: null,
+  source: "direct",
+ }));
+}
+
+function parseGoogleAdsCustomerRow(row: Record<string, unknown> | undefined, fallbackId: string): GoogleAdsCustomer {
+ const customer = ((row as GoogleAdsCustomerRow | undefined)?.customer ?? {}) as GoogleAdsCustomerRow["customer"];
+ const id = stripCustomerId(String(customer?.id ?? fallbackId));
+ const descriptiveName = typeof customer?.descriptiveName === "string" ? customer.descriptiveName : null;
+ return {
+  id,
+  label: formatGoogleAdsCustomerLabel(descriptiveName, id),
+  loginCustomerId: null,
+  managerCustomerId: null,
+  isManager: Boolean(customer?.manager),
+  level: 0,
+  status: null,
+  source: "direct",
+ };
+}
+
+function parseGoogleAdsCustomerClientRow(row: Record<string, unknown>): GoogleAdsCustomer | null {
+ const customerClient = ((row as GoogleAdsCustomerClientRow).customerClient ?? {}) as GoogleAdsCustomerClientRow["customerClient"];
+ const id = stripCustomerId(String(customerClient?.id ?? ""));
+ if (!id) return null;
+ const descriptiveName = typeof customerClient?.descriptiveName === "string" ? customerClient.descriptiveName : null;
+ const level = Number(customerClient?.level);
+ return {
+  id,
+  label: formatGoogleAdsCustomerLabel(descriptiveName, id),
+  loginCustomerId: null,
+  managerCustomerId: null,
+  isManager: Boolean(customerClient?.manager),
+  level: Number.isFinite(level) ? level : null,
+  status: typeof customerClient?.status === "string" ? customerClient.status : null,
+  source: "manager_hierarchy",
+ };
+}
+
+function selectableAdvertiser(customer: GoogleAdsCustomer) {
+ return !customer.isManager && customer.status !== "REMOVED" && customer.status !== "CANCELED";
+}
+
+export function mergeGoogleAdsSelectableCustomers(
+ rootCustomers: GoogleAdsCustomer[],
+ hierarchyByManager: Record<string, GoogleAdsCustomer[]>,
+) {
+ const discoveredManagerAccounts = rootCustomers.filter((customer) => customer.isManager);
+ const selectableCustomers = new Map<string, GoogleAdsCustomer>();
+ for (const rootCustomer of rootCustomers) {
+  if (rootCustomer.isManager) {
+   for (const child of hierarchyByManager[rootCustomer.id] ?? []) {
+    if (!selectableAdvertiser(child)) continue;
+    const next = {
+     ...child,
+     loginCustomerId: rootCustomer.id,
+     managerCustomerId: rootCustomer.id,
+     source: "manager_hierarchy" as const,
+    };
+    if (!selectableCustomers.has(next.id)) selectableCustomers.set(next.id, next);
+   }
+   continue;
+  }
+  if (!selectableAdvertiser(rootCustomer)) continue;
+  selectableCustomers.set(rootCustomer.id, {
+   ...rootCustomer,
+   loginCustomerId: null,
+   managerCustomerId: null,
+   source: "direct",
+  });
+ }
+ return {
+  discoveredManagerAccounts,
+  selectableCustomers: [...selectableCustomers.values()].sort((a, b) => a.label.localeCompare(b.label)),
+ };
+}
+
+async function googleAdsCustomerSummary(customerId: string, accessToken: string) {
+ const result = await googleAdsSearch(customerId, accessToken, "SELECT customer.id, customer.descriptive_name, customer.manager, customer.test_account FROM customer LIMIT 1");
+ return parseGoogleAdsCustomerRow(result.results?.[0], customerId);
+}
+
+async function googleAdsManagerHierarchy(managerCustomerId: string, accessToken: string) {
+ const result = await googleAdsSearch(managerCustomerId, accessToken, "SELECT customer_client.id, customer_client.client_customer, customer_client.descriptive_name, customer_client.level, customer_client.manager, customer_client.status FROM customer_client");
+ return (result.results ?? []).map((row) => parseGoogleAdsCustomerClientRow(row)).filter(Boolean) as GoogleAdsCustomer[];
 }
 
 export async function exchangeGoogleAdsCode(code: string, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
@@ -758,8 +881,8 @@ export async function exchangeGoogleAdsCode(code: string, context: { businessId?
  });
 }
 
-export function createGoogleAdsOauthState(businessSlug: string, businessId: string) {
- return { state: randomBytes(24).toString("base64url"), businessSlug, businessId };
+export function createGoogleAdsOauthState(businessSlug: string, businessId: string, actorUserId?: string | null) {
+ return { state: randomBytes(24).toString("base64url"), businessSlug, businessId, actorUserId: actorUserId ?? null };
 }
 
 export function googleAdsOauthUrl(state: string, options?: { forceAccountSelection?: boolean }) {
@@ -937,6 +1060,7 @@ export async function storeGoogleAdsConnection(input: {
  userId: string;
  refreshToken: string;
  customers: GoogleAdsCustomer[];
+ rootCustomers?: GoogleAdsCustomer[];
  selectedCustomerId?: string | null;
  authenticatedIdentity?: GoogleAdsConnectionIdentity | null;
 }) {
@@ -953,15 +1077,20 @@ export async function storeGoogleAdsConnection(input: {
   : input.customers.length === 1
    ? input.customers[0].id
    : null;
- const { error } = await db.from("business_google_ads_connections").upsert({
+ const selectedCustomer = selected ? input.customers.find((customer) => customer.id === selected) ?? null : null;
+  const { error } = await db.from("business_google_ads_connections").upsert({
   business_id: input.businessId,
   connected_by: input.userId,
   refresh_token: input.refreshToken,
   google_authenticated_email: input.authenticatedIdentity?.email ?? null,
   google_authenticated_name: input.authenticatedIdentity?.name ?? null,
   google_ads_customer_id: selected,
+  login_customer_id: selectedCustomer?.loginCustomerId ?? null,
+  accessible_root_customer_ids: (input.rootCustomers ?? input.customers).map((customer) => customer.id),
+  accessible_root_customer_labels: Object.fromEntries((input.rootCustomers ?? input.customers).map((customer) => [customer.id, customer.label])),
   accessible_customer_ids: input.customers.map((customer) => customer.id),
   accessible_customer_labels: Object.fromEntries(input.customers.map((customer) => [customer.id, customer.label])),
+  selectable_customer_details: input.customers,
   status: selected ? "connected" : "pending_selection",
   connected_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
@@ -989,7 +1118,14 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
  });
  const token = await exchangeGoogleAdsCode(code, context);
  if (!token.refresh_token) throw new Error("Google did not provide long-term Google Ads access. Remove Servonas from Google permissions and connect again.");
- const customers = await accessibleCustomers(token.access_token!);
+ const rootCustomers = await accessibleCustomers(token.access_token!);
+ const hydratedRootCustomers = await Promise.all(rootCustomers.map((customer) => googleAdsCustomerSummary(customer.id, token.access_token!)));
+ const hierarchyByManager = Object.fromEntries(await Promise.all(
+  hydratedRootCustomers
+   .filter((customer) => customer.isManager)
+   .map(async (customer) => [customer.id, await googleAdsManagerHierarchy(customer.id, token.access_token!)] as const),
+ ));
+ const { selectableCustomers, discoveredManagerAccounts } = mergeGoogleAdsSelectableCustomers(hydratedRootCustomers, hierarchyByManager);
  const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity(token.access_token!, context);
  logGoogleAdsDiagnostic("Google Ads OAuth completion finished", {
   stage: "google_ads_oauth_completion",
@@ -999,11 +1135,13 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
   redirectUri: googleAdsRedirectUri(),
   refreshTokenReturned: Boolean(token.refresh_token),
   accessTokenReturned: Boolean(token.access_token),
-  customerCount: customers.length,
+  customerCount: selectableCustomers.length,
+  rootCustomerCount: hydratedRootCustomers.length,
+  managerCount: discoveredManagerAccounts.length,
   authenticatedEmail: authenticatedIdentity.email,
   authenticatedNamePresent: Boolean(authenticatedIdentity.name),
  });
- return { refreshToken: token.refresh_token, customers, authenticatedIdentity };
+ return { refreshToken: token.refresh_token, customers: selectableCustomers, rootCustomers: hydratedRootCustomers, authenticatedIdentity };
 }
 
 export async function loadTenantGoogleAdsAccess(businessId: string) {
@@ -1016,7 +1154,7 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
   businessSlug: null,
  });
  const { data: connection } = await db.from("business_google_ads_connections")
- .select("refresh_token,google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name")
+ .select("refresh_token,google_ads_customer_id,login_customer_id,accessible_customer_ids,accessible_customer_labels,accessible_root_customer_ids,accessible_root_customer_labels,selectable_customer_details,status,google_authenticated_email,google_authenticated_name")
   .eq("business_id", businessId)
   .maybeSingle();
  logGoogleAdsDiagnostic("Google Ads connection load completed", {
@@ -1035,14 +1173,33 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
   return {
    accessToken,
    customerId: connection.google_ads_customer_id as string | null,
+   loginCustomerId: typeof connection.login_customer_id === "string" ? connection.login_customer_id : null,
    authenticatedIdentity: {
     email: typeof connection.google_authenticated_email === "string" ? connection.google_authenticated_email : null,
     name: typeof connection.google_authenticated_name === "string" ? connection.google_authenticated_name : null,
    },
-   customerChoices: (connection.accessible_customer_ids ?? []).map((id: string) => ({
+   rootCustomerChoices: (connection.accessible_root_customer_ids ?? []).map((id: string) => ({
     id,
-    label: String((connection.accessible_customer_labels as Record<string, unknown> | null)?.[id] ?? id),
+    label: String((connection.accessible_root_customer_labels as Record<string, unknown> | null)?.[id] ?? id),
+    loginCustomerId: null,
+    managerCustomerId: null,
+    isManager: false,
+    level: 0,
+    status: null,
+    source: "direct" as const,
    })),
+   customerChoices: Array.isArray(connection.selectable_customer_details) && connection.selectable_customer_details.length
+    ? connection.selectable_customer_details as GoogleAdsCustomer[]
+    : (connection.accessible_customer_ids ?? []).map((id: string) => ({
+      id,
+      label: String((connection.accessible_customer_labels as Record<string, unknown> | null)?.[id] ?? id),
+      loginCustomerId: null,
+      managerCustomerId: null,
+      isManager: false,
+      level: 0,
+      status: null,
+      source: "direct" as const,
+     })),
    status: connection.status as GoogleAdsConnectionStatus,
   };
  } catch (error) {
@@ -1103,7 +1260,7 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
 }) {
  const connection = await loadTenantGoogleAdsAccess(input.businessId);
  if (!connection?.accessToken) throw new Error("Reconnect Google Ads before running diagnostics.");
- const managerCustomerId = stripCustomerId(input.managerCustomerId || configuredGoogleAdsLoginCustomerId() || "");
+ const managerCustomerId = stripCustomerId(input.managerCustomerId || connection.loginCustomerId || configuredGoogleAdsLoginCustomerId() || "");
  const targetCustomerId = stripCustomerId(input.targetCustomerId || connection.customerId || "");
  const checks: GoogleAdsPermissionDiagnosticCheck[] = [];
  let accessibleCustomers: string[] = [];
@@ -1126,6 +1283,9 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
  } catch (error) {
   checks.push(diagnosticFailure("Accessible customers check", "accessible_customers", error));
  }
+ const accessibleRootCustomers = connection.rootCustomerChoices ?? [];
+ const discoveredManagerAccounts = accessibleRootCustomers.filter((customer: GoogleAdsCustomer) => customer.isManager || customer.id === managerCustomerId);
+ const discoveredAdvertiserAccounts = connection.customerChoices ?? [];
  try {
   const managerResult = await googleAdsSearch(managerCustomerId, connection.accessToken, "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1");
   const row = managerResult.results?.[0] ?? {};
@@ -1179,6 +1339,10 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
   managerCustomerId: managerCustomerId || null,
   targetCustomerId: targetCustomerId || null,
   accessibleCustomers,
+  accessibleRootCustomers,
+  discoveredManagerAccounts,
+  discoveredAdvertiserAccounts,
+  resolvedLoginCustomerId: managerCustomerId || null,
   checks,
   classification: classifyGoogleAdsPermissionDiagnostic(checks),
  } satisfies GoogleAdsPermissionDiagnostic;
@@ -1188,13 +1352,15 @@ export async function updateTenantGoogleAdsSelection(businessId: string, custome
  const db = getSupabaseAdmin();
  if (!db) throw new Error("Google Ads connection storage is unavailable.");
  const { data: connection } = await db.from("business_google_ads_connections")
-  .select("accessible_customer_ids")
+  .select("selectable_customer_details")
   .eq("business_id", businessId)
   .maybeSingle();
- const available = new Set((connection?.accessible_customer_ids ?? []) as string[]);
- if (!available.has(customerId)) throw new Error("Choose a Google Ads customer that was returned by Google.");
+ const selected = Array.isArray(connection?.selectable_customer_details)
+  ? (connection.selectable_customer_details as GoogleAdsCustomer[]).find((customer) => customer.id === customerId) ?? null
+  : null;
+ if (!selected) throw new Error("Choose a Google Ads advertiser account that Servonas discovered from Google.");
  const { error } = await db.from("business_google_ads_connections")
-  .update({ google_ads_customer_id: customerId, status: "connected", updated_at: new Date().toISOString() })
+  .update({ google_ads_customer_id: customerId, login_customer_id: selected.loginCustomerId, status: "connected", updated_at: new Date().toISOString() })
   .eq("business_id", businessId);
  if (error) throw new Error("Google Ads account selection could not be saved.");
 }
@@ -1206,8 +1372,12 @@ export async function disconnectTenantGoogleAds(businessId: string) {
   .update({
    status: "disconnected",
    google_ads_customer_id: null,
+   login_customer_id: null,
    accessible_customer_ids: [],
    accessible_customer_labels: {},
+   accessible_root_customer_ids: [],
+   accessible_root_customer_labels: {},
+   selectable_customer_details: [],
    updated_at: new Date().toISOString(),
   })
   .eq("business_id", businessId);

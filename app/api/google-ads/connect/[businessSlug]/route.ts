@@ -13,7 +13,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ businessSl
  if (!canManageBusiness(role)) return NextResponse.redirect(target(businessSlug, "Only owners and administrators can connect Google Ads."));
  try {
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, eventName: "google_ads_oauth_started", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
-  const payload = createGoogleAdsOauthState(businessSlug, business.id);
+  const payload = createGoogleAdsOauthState(businessSlug, business.id, user.id);
   const store = await cookies();
   store.set("servonas_google_ads_oauth", JSON.stringify(payload), {
    httpOnly: true,
