@@ -123,6 +123,95 @@ const safeGoogleAdsFailurePayload = (details: GoogleAdsErrorDetail[] | undefined
     location: safeGoogleAdsLocation(detail.location),
    }))
   : [];
+const limitStrings = (values: unknown[], max = 5) => values.map((value) => typeof value === "string" ? value : "").filter(Boolean).slice(0, max);
+const textLengths = (values: unknown[]) => values.map((value) => typeof value === "string" ? value.length : 0);
+const safeKeywordPreview = (value: unknown) => {
+ if (!value || typeof value !== "object") return null;
+ const keyword = (value as { text?: unknown; matchType?: unknown });
+ return {
+  text: typeof keyword.text === "string" ? keyword.text : null,
+  length: typeof keyword.text === "string" ? keyword.text.length : 0,
+  matchType: typeof keyword.matchType === "string" ? keyword.matchType : null,
+ };
+};
+const summarizeCriterionOperation = (operation: unknown) => {
+ if (!operation || typeof operation !== "object") return null;
+ const create = (operation as { adGroupCriterionOperation?: { create?: { negative?: unknown; keyword?: unknown } } }).adGroupCriterionOperation?.create;
+ if (!create) return null;
+ return {
+  negative: Boolean(create.negative),
+  keyword: safeKeywordPreview(create.keyword),
+ };
+};
+const summarizeMutateValidation = (body: unknown) => {
+ if (!body || typeof body !== "object") return null;
+ const operations = Array.isArray((body as { mutateOperations?: unknown[] }).mutateOperations)
+  ? (body as { mutateOperations?: unknown[] }).mutateOperations ?? []
+  : [];
+ const campaignBudgetCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignBudgetOperation" in (operation as Record<string, unknown>)) as
+  | { campaignBudgetOperation?: { create?: { name?: unknown; amountMicros?: unknown; deliveryMethod?: unknown } } }
+  | undefined;
+ const campaignCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignOperation" in (operation as Record<string, unknown>)) as
+  | { campaignOperation?: { create?: { name?: unknown; advertisingChannelType?: unknown; status?: unknown; campaignBudget?: unknown; manualCpc?: unknown; networkSettings?: Record<string, unknown> } } }
+  | undefined;
+ const adGroupCreate = operations.find((operation) => typeof operation === "object" && operation && "adGroupOperation" in (operation as Record<string, unknown>)) as
+  | { adGroupOperation?: { create?: { name?: unknown; campaign?: unknown; status?: unknown; type?: unknown } } }
+  | undefined;
+ const adCreate = operations.find((operation) => typeof operation === "object" && operation && "adGroupAdOperation" in (operation as Record<string, unknown>)) as
+  | { adGroupAdOperation?: { create?: { adGroup?: unknown; status?: unknown; ad?: { finalUrls?: unknown[]; responsiveSearchAd?: { headlines?: Array<{ text?: unknown }>; descriptions?: Array<{ text?: unknown }> } } } } }
+  | undefined;
+ const criteria = operations.map(summarizeCriterionOperation).filter(Boolean) as Array<{ negative: boolean; keyword: { text: string | null; length: number; matchType: string | null } | null }>;
+ const positiveKeywords = criteria.filter((item) => !item.negative);
+ const negativeKeywords = criteria.filter((item) => item.negative);
+ const headlineTexts = Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.headlines)
+  ? adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.headlines?.map((asset) => typeof asset?.text === "string" ? asset.text : "")
+  : [];
+ const descriptionTexts = Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.descriptions)
+  ? adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.descriptions?.map((asset) => typeof asset?.text === "string" ? asset.text : "")
+  : [];
+ return {
+  campaignBudget: {
+   name: typeof campaignBudgetCreate?.campaignBudgetOperation?.create?.name === "string" ? campaignBudgetCreate.campaignBudgetOperation.create.name : null,
+   amountMicros: campaignBudgetCreate?.campaignBudgetOperation?.create?.amountMicros ?? null,
+   deliveryMethod: typeof campaignBudgetCreate?.campaignBudgetOperation?.create?.deliveryMethod === "string" ? campaignBudgetCreate.campaignBudgetOperation.create.deliveryMethod : null,
+  },
+  campaign: {
+   name: typeof campaignCreate?.campaignOperation?.create?.name === "string" ? campaignCreate.campaignOperation.create.name : null,
+   nameLength: typeof campaignCreate?.campaignOperation?.create?.name === "string" ? campaignCreate.campaignOperation.create.name.length : 0,
+   advertisingChannelType: typeof campaignCreate?.campaignOperation?.create?.advertisingChannelType === "string" ? campaignCreate.campaignOperation.create.advertisingChannelType : null,
+   status: typeof campaignCreate?.campaignOperation?.create?.status === "string" ? campaignCreate.campaignOperation.create.status : null,
+   campaignBudget: typeof campaignCreate?.campaignOperation?.create?.campaignBudget === "string" ? campaignCreate.campaignOperation.create.campaignBudget : null,
+   hasManualCpc: Boolean(campaignCreate?.campaignOperation?.create?.manualCpc),
+   networkSettings: campaignCreate?.campaignOperation?.create?.networkSettings ?? null,
+  },
+  adGroup: {
+   name: typeof adGroupCreate?.adGroupOperation?.create?.name === "string" ? adGroupCreate.adGroupOperation.create.name : null,
+   nameLength: typeof adGroupCreate?.adGroupOperation?.create?.name === "string" ? adGroupCreate.adGroupOperation.create.name.length : 0,
+   campaign: typeof adGroupCreate?.adGroupOperation?.create?.campaign === "string" ? adGroupCreate.adGroupOperation.create.campaign : null,
+   status: typeof adGroupCreate?.adGroupOperation?.create?.status === "string" ? adGroupCreate.adGroupOperation.create.status : null,
+   type: typeof adGroupCreate?.adGroupOperation?.create?.type === "string" ? adGroupCreate.adGroupOperation.create.type : null,
+  },
+  keywordSummary: {
+   positiveCount: positiveKeywords.length,
+   negativeCount: negativeKeywords.length,
+   samplePositiveKeywords: positiveKeywords.slice(0, 5).map((item) => item.keyword),
+   sampleNegativeKeywords: negativeKeywords.slice(0, 5).map((item) => item.keyword),
+   positiveKeywordLengths: positiveKeywords.slice(0, 5).map((item) => item.keyword?.length ?? 0),
+   negativeKeywordLengths: negativeKeywords.slice(0, 5).map((item) => item.keyword?.length ?? 0),
+  },
+  ad: {
+   finalUrls: Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.finalUrls) ? adCreate?.adGroupAdOperation?.create?.ad?.finalUrls : [],
+   adGroup: typeof adCreate?.adGroupAdOperation?.create?.adGroup === "string" ? adCreate.adGroupAdOperation.create.adGroup : null,
+   status: typeof adCreate?.adGroupAdOperation?.create?.status === "string" ? adCreate.adGroupAdOperation.create.status : null,
+   headlineCount: headlineTexts.length,
+   descriptionCount: descriptionTexts.length,
+   sampleHeadlines: limitStrings(headlineTexts),
+   sampleDescriptions: limitStrings(descriptionTexts),
+   headlineLengths: textLengths(headlineTexts),
+   descriptionLengths: textLengths(descriptionTexts),
+  },
+ };
+};
 const summarizeMutateBody = (body: unknown) => {
  if (!body || typeof body !== "object") return null;
  const source = body as {
@@ -146,6 +235,7 @@ const summarizeMutateBody = (body: unknown) => {
   headlineCount: Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.headlines) ? adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.headlines?.length : 0,
   descriptionCount: Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.descriptions) ? adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.descriptions?.length : 0,
   budgetMicros: budgetCreate?.campaignBudgetOperation?.create?.amountMicros ?? null,
+  validation: summarizeMutateValidation(body),
  };
 };
 const logGoogleAdsDiagnostic = (message: string, payload: Record<string, unknown>) => {
