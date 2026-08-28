@@ -27,18 +27,19 @@ export async function GET(request: Request) {
    userId: user.id,
    refreshToken: result.refreshToken,
    customers: result.customers,
+   authenticatedIdentity: result.authenticatedIdentity,
   });
   await writeGoogleAdsAuditLog({
    businessId: saved.businessId,
    actorUserId: user.id,
    eventType: "google_ads_connected",
-   metadata: { customerCount: result.customers.length },
+   metadata: { customerCount: result.customers.length, authenticatedEmail: result.authenticatedIdentity.email, authenticatedName: result.authenticatedIdentity.name },
   });
   await recordGoogleAdsBetaEvent({
    businessId: saved.businessId,
    actorUserId: user.id,
    eventName: "google_ads_connected",
-   metadata: { business_slug: saved.businessSlug, customer_count: result.customers.length, timestamp: new Date().toISOString() },
+   metadata: { business_slug: saved.businessSlug, customer_count: result.customers.length, authenticated_email: result.authenticatedIdentity.email, authenticated_name: result.authenticatedIdentity.name, timestamp: new Date().toISOString() },
   });
   if (!result.customers.length) {
    await recordGoogleAdsBetaEvent({

@@ -8,6 +8,7 @@ import {
   googleAdsReadyLabel,
  recordGoogleAdsBetaEvent,
   type GoogleAdsCustomer,
+  runGoogleAdsPermissionDiagnostic,
   loadTenantGoogleAdsAccess,
 } from "@/lib/googleAdsManagement";
 import {
@@ -17,6 +18,7 @@ import {
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
  refreshGoogleAdsCampaignsAction,
+ runGoogleAdsPermissionDiagnosticAction,
  selectGoogleAdsCustomer,
  submitGoogleAdsBetaFeedbackAction,
  setGoogleAdsCampaignStatusAction,
@@ -45,7 +47,7 @@ export default async function GoogleAdsPage({
  searchParams,
 }: {
  params: Promise<{ businessSlug: string }>;
- searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string }>;
+ searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string }>;
 }) {
  const { businessSlug } = await params;
  const query = await searchParams;
@@ -61,7 +63,7 @@ export default async function GoogleAdsPage({
   supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("sort_order").order("name"),
   supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
   supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle(),
-  supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status").eq("business_id", business.id).maybeSingle(),
+  supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false }),
   supabase.from("business_google_ads_audit_log").select("event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(8),
   supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
@@ -70,6 +72,7 @@ export default async function GoogleAdsPage({
 
  let connectionAccess: Awaited<ReturnType<typeof loadTenantGoogleAdsAccess>> | null = null;
  let connectionError: string | null = null;
+ let permissionDiagnostic: Awaited<ReturnType<typeof runGoogleAdsPermissionDiagnostic>> | null = null;
  let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
  if (connection?.status && connection.status !== "disconnected") {
@@ -91,6 +94,9 @@ export default async function GoogleAdsPage({
      dateFrom: from,
      dateTo: to,
     });
+   }
+   if (query.diagnostic === "access") {
+    permissionDiagnostic = await runGoogleAdsPermissionDiagnostic({ businessId: business.id });
    }
   } catch (error) {
    connectionError = error instanceof Error ? error.message : "Google Ads access could not be refreshed.";
@@ -195,6 +201,12 @@ export default async function GoogleAdsPage({
      <strong>{connection.status === "connected" ? "Connected to Google Ads" : connection.status === "pending_selection" ? "Connected, account selection needed" : "Reauthorization required"}</strong>
      <span>Account: {connection.google_ads_customer_id || "Not selected yet"}</span>
     </div>
+    <div className="google-ads-audit-list">
+     <article><strong>Connected Google account</strong><span>{connection.google_authenticated_email || "Unavailable"}</span></article>
+     <article><strong>Google profile name</strong><span>{connection.google_authenticated_name || "Unavailable"}</span></article>
+     <article><strong>Manager account</strong><span>145-777-1276</span></article>
+     <article><strong>Target Google Ads account</strong><span>{connection.google_ads_customer_id || "Not selected yet"}</span></article>
+    </div>
     {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
      <label>Google Ads account
       <select name="customerId" defaultValue={connection.google_ads_customer_id ?? ""}>
@@ -206,7 +218,28 @@ export default async function GoogleAdsPage({
     </form>}
     {!customerChoices.length && <div className="workspace-notice warning">No Google Ads accounts were returned for this login. If you do not have one yet, create it in Google first, then reconnect it here.</div>}
     {!customerChoices.length && <div className="google-ads-connection-actions"><a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a></div>}
+    <form action={runGoogleAdsPermissionDiagnosticAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Test Google Ads access</button></form>
     <form action={disconnectGoogleAds.bind(null, businessSlug)}><button className="sv-button sv-secondary">Disconnect</button></form>
+    {permissionDiagnostic && <div className="workspace-panel">
+     <h3>Google Ads access diagnostic</h3>
+     <div className="google-ads-audit-list">
+      <article><strong>Authenticated Google account</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.email || "Unavailable"}</span></article>
+      <article><strong>Google display name</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.name || "Unavailable"}</span></article>
+      <article><strong>Manager</strong><span>{permissionDiagnostic.managerCustomerId || "Unavailable"}</span></article>
+      <article><strong>Target</strong><span>{permissionDiagnostic.targetCustomerId || "Unavailable"}</span></article>
+      <article><strong>Classification</strong><span>{permissionDiagnostic.classification}</span></article>
+     </div>
+     <div className="marketing-sources-table">
+      <div><b>Check</b><b>Result</b><b>Status</b><b>Details</b></div>
+      {permissionDiagnostic.checks.map((check) => <div key={check.key}>
+       <span>{check.label}</span>
+       <span>{check.passed ? "PASS" : "FAIL"}</span>
+       <span>{check.googleStatus || check.httpStatus || "OK"}</span>
+       <span>{[check.googleMessage, ...check.details].filter(Boolean).join(" | ")}</span>
+      </div>)}
+     </div>
+     <p>Accessible customers returned by Google: {permissionDiagnostic.accessibleCustomers.length ? permissionDiagnostic.accessibleCustomers.join(", ") : "None returned"}</p>
+    </div>}
    </>}
   </section>
   <form className="workspace-panel marketing-filter-bar" action={refreshGoogleAdsCampaignsAction.bind(null, businessSlug)}>
