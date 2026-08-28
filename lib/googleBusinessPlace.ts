@@ -1,7 +1,9 @@
+import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
+
 type GooglePlaceCandidate={id?:string;displayName?:{text?:string};formattedAddress?:string};
 export type GoogleBusinessRating={rating:number;reviewCount:number;googleMapsUri:string|null};
 
-const key=()=>process.env.GOOGLE_MAPS_API_KEY?.trim()||process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+const key=()=>publicGoogleMapsApiKey();
 const replacements:Record<string,string>={avenue:"ave",street:"st",road:"rd",boulevard:"blvd",drive:"dr",lane:"ln",court:"ct",highway:"hwy",suite:"ste",north:"n",south:"s",east:"e",west:"w"};
 const clean=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
 const normalizedWords=(value:string)=>clean(value).split(" ").filter(Boolean).map(word=>replacements[word]??word);

@@ -6,6 +6,7 @@ import { submitPublicBooking } from "./actions";
 import type {Metadata} from "next";
 import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
+import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {loadPublicBookingData} from "./loadPublicBookingData";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export default async function PublicBookingPage({
   const { businessSlug } = await params;
   const query = await searchParams;
   const embedded = query.embed === "1";
+  const googleMapsApiKey=publicGoogleMapsApiKey();
   const data=await loadPublicBookingData(businessSlug);
   if (!data) notFound();
   const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
@@ -49,7 +51,7 @@ export default async function PublicBookingPage({
 
         {query.error && <div className="workspace-notice error">{query.error}</div>}
         {isPartyRental ? (
-          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} initialItemId={query.item&&rentalInventory.some(item=>item.id===query.item)?query.item:undefined} attributionSessionId={query.sv_at} initialCheckout={query.checkout==="1"} checkoutUrl={query.checkoutUrl} catalogUrl={`/book/${businessSlug}`} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
+          rentalInventory.length ? <PartyRentalBookingClient businessSlug={businessSlug} businessName={businessName ?? "this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={googleMapsApiKey} initialItemId={query.item&&rentalInventory.some(item=>item.id===query.item)?query.item:undefined} attributionSessionId={query.sv_at} initialCheckout={query.checkout==="1"} checkoutUrl={query.checkoutUrl} catalogUrl={`/book/${businessSlug}`} /> : <div className="booking-empty">No rental items are available for online booking yet.</div>
         ) : !services?.length ? (
           <div className="booking-empty">No services are available for online booking yet.</div>
         ) : (
@@ -61,7 +63,7 @@ export default async function PublicBookingPage({
             intakeQuestions={settings.intake_questions ?? []}
             businessName={businessName ?? "this business"}
             maximumDaysAhead={Number(settings.maximum_days_ahead ?? 60)}
-            googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+            googleMapsApiKey={googleMapsApiKey}
             publicSlug={businessSlug}
             timezone={settings.timezone ?? "America/Phoenix"}
           />
