@@ -22,7 +22,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ businessSl
    path: "/api/google-ads",
    maxAge: 600,
   });
-  return NextResponse.redirect(googleAdsOauthUrl(payload.state));
+  return NextResponse.redirect(googleAdsOauthUrl(payload.state, { forceAccountSelection: true }));
  } catch (error) {
   return NextResponse.redirect(target(businessSlug, error instanceof Error ? error.message : "Google Ads OAuth is not configured."));
  }
