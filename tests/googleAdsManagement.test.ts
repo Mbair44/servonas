@@ -38,6 +38,7 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /export const googleAdsRedirectUri/);
  assert.match(file, /export async function completeGoogleAdsOauth/);
+ assert.match(file, /actorUserId: actorUserId \?\? null/);
  assert.match(file, /customers:listAccessibleCustomers/);
  assert.match(file, /method: "GET"/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
@@ -51,6 +52,14 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /search_term_view\.search_term/);
  assert.match(file, /recordGoogleAdsBetaEvent/);
  assert.match(file, /submitGoogleAdsBetaFeedback/);
+});
+
+test("google ads callback authorizes the initiating servonas user and honors owner access", async () => {
+ const file = await read("../app/api/google-ads/callback/route.ts");
+ assert.match(file, /saved\.actorUserId && saved\.actorUserId !== user\.id/);
+ assert.match(file, /business\?\.owner_user_id === user\.id/);
+ assert.match(file, /canManageBusiness\(resolvedRole\)/);
+ assert.match(file, /platformAdminRole/);
 });
 
 test("google ads discovery makes child advertisers selectable under an accessible manager", () => {
