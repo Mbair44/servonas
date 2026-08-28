@@ -93,14 +93,59 @@ const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => va
 const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
+const safeGoogleAdsLocation = (value: unknown) => {
+ if (!value || typeof value !== "object") return null;
+ const fieldPathElements = Array.isArray((value as { fieldPathElements?: unknown[] }).fieldPathElements)
+  ? ((value as { fieldPathElements?: Array<{ fieldName?: unknown; index?: unknown }> }).fieldPathElements ?? []).map((element) => ({
+   fieldName: typeof element?.fieldName === "string" ? element.fieldName : null,
+   index: typeof element?.index === "number" ? element.index : null,
+  }))
+  : [];
+ return fieldPathElements.length ? { fieldPathElements } : null;
+};
 const safeGoogleAdsDetails = (details: GoogleAdsErrorDetail[] | undefined) =>
  Array.isArray(details)
   ? details.map((detail) => ({
     message: detail.message ?? null,
     trigger: detail.trigger ?? null,
     errorCodeKeys: detail.errorCode ? Object.keys(detail.errorCode) : [],
+    location: safeGoogleAdsLocation(detail.location),
    }))
   : [];
+const safeGoogleAdsFailurePayload = (details: GoogleAdsErrorDetail[] | undefined) =>
+ Array.isArray(details)
+  ? details.map((detail) => ({
+    message: detail.message ?? null,
+    trigger: detail.trigger ?? null,
+    errorCode: detail.errorCode ?? null,
+    location: safeGoogleAdsLocation(detail.location),
+   }))
+  : [];
+const summarizeMutateBody = (body: unknown) => {
+ if (!body || typeof body !== "object") return null;
+ const source = body as {
+  mutateOperations?: unknown[];
+ };
+ const operations = Array.isArray(source.mutateOperations) ? source.mutateOperations : [];
+ const operationTypes = operations.map((operation) => {
+  if (!operation || typeof operation !== "object") return "unknown";
+  return Object.keys(operation as Record<string, unknown>)[0] ?? "unknown";
+ });
+ const adCreate = operations.find((operation) => typeof operation === "object" && operation && "adGroupAdOperation" in (operation as Record<string, unknown>)) as
+  | { adGroupAdOperation?: { create?: { ad?: { finalUrls?: unknown[]; responsiveSearchAd?: { headlines?: unknown[]; descriptions?: unknown[] } } } } }
+  | undefined;
+ const budgetCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignBudgetOperation" in (operation as Record<string, unknown>)) as
+  | { campaignBudgetOperation?: { create?: { amountMicros?: unknown } } }
+  | undefined;
+ return {
+  operationTypes,
+  operationCount: operations.length,
+  finalUrls: Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.finalUrls) ? adCreate?.adGroupAdOperation?.create?.ad?.finalUrls : [],
+  headlineCount: Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.headlines) ? adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.headlines?.length : 0,
+  descriptionCount: Array.isArray(adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.descriptions) ? adCreate?.adGroupAdOperation?.create?.ad?.responsiveSearchAd?.descriptions?.length : 0,
+  budgetMicros: budgetCreate?.campaignBudgetOperation?.create?.amountMicros ?? null,
+ };
+};
 const logGoogleAdsDiagnostic = (message: string, payload: Record<string, unknown>) => {
  console.info(message, payload);
 };
@@ -280,6 +325,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   method: input.method || "POST",
   customerId: targetCustomerId,
   loginCustomerId,
+  requestSummary: summarizeMutateBody(input.body),
  });
  const response = await fetch(`${adsApiBase}${path}`, {
   method: input.method || "POST",
@@ -319,6 +365,8 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    googleStatus: result.error?.status ?? null,
    googleMessage: result.error?.message ?? null,
    googleDetails: sanitizedResult?.details ?? [],
+   googleFailureDetails: safeGoogleAdsFailurePayload(result.error?.details),
+   requestSummary: summarizeMutateBody(input.body),
    responseBody: sanitizedResult,
   });
   if (response.status === 404) {
