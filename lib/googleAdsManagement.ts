@@ -609,6 +609,7 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
  }
  if (!attempts.includes(null)) attempts.push(null);
  let lastError: Error | null = null;
+ const preferredLoginCustomerId = attempts.find((value) => value !== null) ?? null;
  for (const loginCustomerId of attempts) {
   try {
    return await googleAdsRequest<T>(path, {
@@ -622,6 +623,7 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
    const current = error instanceof Error ? error : new Error("Google Ads request failed.");
    lastError = current;
    const status = current instanceof GoogleAdsRequestError ? current.status : 403;
+   if (status === 403 && loginCustomerId && loginCustomerId === preferredLoginCustomerId) throw current;
    if (!googleAdsPermissionDenied(current.message, status) || loginCustomerId === attempts.at(-1)) throw current;
   }
  }
