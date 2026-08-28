@@ -471,6 +471,11 @@ async function logGoogleAdsMutatePhaseDiagnostics(path: string, input: GoogleAds
 
 export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
  if (error instanceof GoogleAdsRequestError && googleAdsPermissionDenied(error.message, error.status)) {
+  const managerId = error.loginCustomerId?.trim() || null;
+  const advertiserId = error.targetCustomerId?.trim() || null;
+  if (managerId && advertiserId && managerId !== advertiserId) {
+   return `Google Ads denied this publish request. Manager account ${managerId} does not currently have permission to manage advertiser ${advertiserId}. Confirm the manager link is active in Google Ads, verify the connected Google user has access to the manager account, then reconnect and try again.`;
+  }
   const detail = error.details[0];
   const detailCode = detail?.errorCode ? Object.keys(detail.errorCode)[0] : "";
   if (/USER_PERMISSION_DENIED|ACTION_NOT_PERMITTED/i.test(`${error.googleStatus ?? ""} ${detailCode} ${error.message}`)) {
