@@ -61,6 +61,17 @@ test("lead capture popup does not expose the coupon code before email submission
  assert.doesNotMatch(popup,/website-lead-popup-offer\"><strong>\{offer\}<\/strong>\{popup\.couponCode/);
 });
 
+test("lead capture popup success state sends customers to their email instead of showing the coupon on screen",async()=>{
+ const [popup,actions]=await Promise.all([
+  read("components/WebsiteLeadCapturePopup.tsx"),
+  read("app/sites/[siteSlug]/actions.ts"),
+ ]);
+ assert.match(popup,/Check your email for your discount and next steps\./);
+ assert.doesNotMatch(popup,/Use code \$\{state\.couponCode\} at checkout\./);
+ assert.doesNotMatch(popup,/Copy code/);
+ assert.match(actions,/return popupState\(undefined,true,null,website\.lead_capture_popup_success_message\|\|"Check your email for your offer\."\);/);
+});
+
 test("customer directory exposes a website discount lead filter",async()=>{
  const page=await read("app/app/[businessSlug]/customers/page.tsx");
  assert.match(page,/name="lead"/);

@@ -2,6 +2,8 @@ import Link from "next/link";
 import Stripe from "stripe";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {GoogleAdsBookingConversion} from "@/components/GoogleAdsBookingConversion";
+import {TenantMetaPixel} from "@/components/TenantMetaPixel";
+import {TenantMetaPixelPurchaseTracker} from "@/components/TenantMetaPixelPurchaseTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ export default async function SuccessPage({ searchParams }: Props) {
   let businessName = "the business";
   let homeHref = "/";
   let bookingId:string|null=null;
+  let metaPixelId:string|null=null;
 
   if (sessionId && stripeKey) {
     try {
@@ -26,7 +29,8 @@ export default async function SuccessPage({ searchParams }: Props) {
       bookingId=booking?.id??null;
       const business=booking?(Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses):null;
       businessName=business?.name||businessName;
-      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status").eq("business_id",booking.business_id).maybeSingle():{data:null};
+      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,meta_pixel_id").eq("business_id",booking.business_id).maybeSingle():{data:null};
+      metaPixelId=typeof website?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(website.meta_pixel_id.trim())?website.meta_pixel_id.trim():null;
       if(website?.status==="published")homeHref=website.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`/sites/${encodeURIComponent(website.public_slug)}`;
       else if(db&&booking?.business_id){const {data:bookingPage}=await db.from("booking_settings").select("public_slug").eq("business_id",booking.business_id).maybeSingle();if(bookingPage?.public_slug)homeHref=`/book/${encodeURIComponent(bookingPage.public_slug)}`;}
       const {data:paymentAccount}=db&&booking?.business_id?await db.from("business_payment_accounts").select("provider_account_id").eq("business_id",booking.business_id).eq("provider","stripe").maybeSingle():{data:null};
@@ -52,6 +56,7 @@ export default async function SuccessPage({ searchParams }: Props) {
 
   return (
     <main className="section alt">
+      {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
       <div className="container">
         <div className="form-card" style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
           <span className="eyebrow">{paid ? "Payment received" : "Payment verification"}</span>
@@ -60,6 +65,7 @@ export default async function SuccessPage({ searchParams }: Props) {
           {prettyDate && <p className="lead">Rental date: <strong>{prettyDate}</strong></p>}
           {paid ? (
             <>
+              {paid&&bookingId&&<TenantMetaPixelPurchaseTracker bookingId={bookingId} contentIds={String(session?.metadata?.inventory_item_ids??"").split(",").map(value=>value.trim()).filter(Boolean)} numItems={Math.max(1,Number(session?.metadata?.item_count??0))} value={totalCents>0?totalCents/100:undefined} currency={session?.currency?.toUpperCase()??"USD"}/>}
               {bookingId&&<GoogleAdsBookingConversion bookingId={bookingId} valueCents={totalCents} currency={session?.currency?.toUpperCase()??"USD"}/>} 
               <p className="lead">Non-refundable deposit paid: <strong>{money(depositCents)}</strong></p>
               {discountCents > 0 ? <p className="lead">Promotion discount: <strong>{money(discountCents)}</strong></p> : null}

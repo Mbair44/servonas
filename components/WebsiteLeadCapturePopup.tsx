@@ -81,8 +81,8 @@ export function WebsiteLeadCapturePopup({site,action,preview=false}:{site:Busine
    </form>:<div className="website-lead-popup-success" role="status">
     <span>You&apos;re in!</span>
     <h2>{state.successMessage||popup.successMessage}</h2>
-    <p>{state.couponCode?`Use code ${state.couponCode} at checkout.`:"We saved your email and your offer is ready."}</p>
-    {state.couponCode&&<div className="website-lead-popup-actions"><button type="button" className="site-secondary-button" onClick={()=>navigator.clipboard.writeText(state.couponCode!)}>Copy code</button>{site.bookingUrl&&<a className="site-primary-button" href={site.bookingUrl}>Book now</a>}</div>}
+    <p>Check your email for your discount and next steps.</p>
+    {site.bookingUrl&&<div className="website-lead-popup-actions"><a className="site-primary-button" href={site.bookingUrl}>Book now</a></div>}
    </div>}
   </section>
  </div>;

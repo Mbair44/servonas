@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect} from "react";
+import {trackMetaStandardEvent} from "./TenantMetaPixel";
 import type {MechanicalBullLandingData} from "@/lib/mechanicalBullLanding";
 import {mechanicalBullOperatorCopy} from "@/lib/mechanicalBullLanding";
 
@@ -13,7 +14,7 @@ function track(slug:string,event:string){
 export function MechanicalBullLanding({data,bookingUrl}:{data:MechanicalBullLandingData;bookingUrl:string}){
  const {item}=data;
  const scrollToBooking=(event:string)=>{track(data.bookingSlug,event);document.getElementById("bull-availability")?.scrollIntoView({behavior:"smooth",block:"start"});};
- useEffect(()=>{track(data.bookingSlug,"mechanical_bull_landing_view");},[data.bookingSlug]);
+ useEffect(()=>{track(data.bookingSlug,"mechanical_bull_landing_view");trackMetaStandardEvent("ViewContent",{content_name:item.name,content_ids:[item.id],content_type:"product",value:item.dailyPriceCents>0?item.dailyPriceCents/100:undefined,currency:item.dailyPriceCents>0?"USD":undefined},{eventKey:`view-content:${data.bookingSlug}:${item.id}:mechanical-bull`,storage:"session"});},[data.bookingSlug,item.dailyPriceCents,item.id,item.name]);
  return <main className="mechanical-bull-landing" style={{"--bull-brand":data.brandColor} as React.CSSProperties}>
   <header className="mechanical-bull-nav"><a href="#top" className="mechanical-bull-brand">{data.businessName}</a><nav><a href="#details">The Bull</a><a href="#pricing">Pricing</a><a href="#areas">Service areas</a></nav>{data.phone&&<a className="mechanical-bull-call" href={`tel:${data.phone}`}>{data.phone}</a>}<button type="button" onClick={()=>scrollToBooking("mechanical_bull_check_availability")}>Check availability</button></header>
   <section className="mechanical-bull-hero" id="top"><div><span>Mechanical bull rental</span><h1>Mechanical Bull Rental in the Phoenix East Valley</h1><p>Bring the rodeo to your party, school, church, corporate event, or celebration with a mechanical bull from {data.businessName}.</p><div className="mechanical-bull-actions"><button type="button" onClick={()=>scrollToBooking("mechanical_bull_check_availability")}>Check Availability</button><a href="#pricing" onClick={()=>track(data.bookingSlug,"mechanical_bull_view_pricing")}>View Pricing</a></div></div><div className="mechanical-bull-hero-media">{item.imageUrl?<img src={item.imageUrl} alt={`${item.name} available from ${data.businessName}`}/>:<div><b>{item.name}</b><span>Check your date below</span></div>}</div></section>

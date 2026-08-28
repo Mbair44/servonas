@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatBusinessDateTime } from "@/lib/bookingTime";
+import {TenantMetaPixelPurchaseTracker} from "@/components/TenantMetaPixelPurchaseTracker";
+import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -81,6 +83,8 @@ export default async function BookingSuccess({
     databaseFailure("confirmed job is missing appointment times", { confirmation, jobId: job.id });
   }
   const status = job.status === "confirmed" ? "Confirmed" : "Pending confirmation";
+  const {data:websiteSettings}=await supabase.from("business_website_settings").select("meta_pixel_id").eq("business_id",submission.business_id).maybeSingle();
+  const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
   const { data: signedLogo } = settings.logo_path
     ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
     : { data: null };
@@ -96,6 +100,8 @@ export default async function BookingSuccess({
   return (
     <main className="public-booking" style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}>
       <section className="public-booking-card booking-success">
+        {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
+        <TenantMetaPixelPurchaseTracker bookingId={submission.id} contentIds={[service.id]} contentName={service.name} numItems={1} />
         {bookingLogo && <img className="booking-success-logo" src={bookingLogo} alt={`${business.name} logo`}/>}
         <div className="success-check" aria-hidden="true">✓</div>
         <small>Confirmation #{job.job_number}</small>

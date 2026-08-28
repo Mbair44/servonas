@@ -11,7 +11,7 @@ import {normalizeWebsitePhone,websiteRequestErrors} from "@/lib/website";
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const popupState=(error?:string,success?:boolean,couponCode?:string|null,successMessage?:string)=>({error,success,couponCode:couponCode??undefined,successMessage});
+const popupState=(error?:string,success?:boolean,_couponCode?:string|null,successMessage?:string)=>({error,success,successMessage});
 const offerLabel=(popup:{discountType:string|null;discountValue:number|null;customOffer:string|null})=>{
  if(popup.discountType==="percentage"&&popup.discountValue!=null)return `${popup.discountValue/100}% off`;
  if(popup.discountType==="fixed"&&popup.discountValue!=null)return `$${(popup.discountValue/100).toFixed(0)} off`;
@@ -203,5 +203,5 @@ export async function submitWebsiteLeadCapture(siteSlug:string,_state:{success?:
   bookingUrl,
   expiresAt:website.lead_capture_popup_expires_at??null,
  });
- return popupState(undefined,true,sharedDiscount.couponCode,website.lead_capture_popup_success_message||"You're in! Your offer is ready.");
+ return popupState(undefined,true,null,website.lead_capture_popup_success_message||"Check your email for your offer.");
 }
