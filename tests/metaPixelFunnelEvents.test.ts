@@ -15,11 +15,21 @@ test("meta pixel helper keeps funnel events consent-aware and deduped",async()=>
 });
 
 test("rental booking flow maps view content initiate checkout and purchase to canonical public interactions",async()=>{
- const rental=await read("components/PartyRentalBookingClient.tsx");
+ const [rental,domainBookingRoute]=await Promise.all([
+  read("components/PartyRentalBookingClient.tsx"),
+  read("app/sites/domain/[domain]/booking/page.tsx"),
+ ]);
+ assert.doesNotMatch(domainBookingRoute,/trackMetaStandardEvent\("ViewContent"/);
+ assert.doesNotMatch(domainBookingRoute,/trackMetaStandardEvent\("InitiateCheckout"/);
  assert.match(rental,/trackMetaStandardEvent\("ViewContent"/);
  assert.match(rental,/eventKey:`view-content:\$\{businessSlug\}:\$\{item\.id\}`/);
+ assert.match(rental,/if\(source==="browse"\)/);
+ assert.match(rental,/onClick=\{\(\)=>noteInventoryInteraction\(item,"browse"\)\}/);
+ assert.doesNotMatch(rental,/useEffect\([^)]*trackMetaStandardEvent\("ViewContent"/s);
  assert.match(rental,/trackMetaStandardEvent\("InitiateCheckout"/);
  assert.match(rental,/eventKey:`initiate-checkout:\$\{businessSlug\}:/);
+ assert.match(rental,/function showReservationPage/);
+ assert.match(rental,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(rental,/trackMetaStandardEvent\("Purchase"/);
  assert.match(rental,/eventKey:`purchase:\$\{invoiceLaterConfirmation\.bookingId\}`/);
  assert.match(rental,/storage:"local"/);
@@ -34,6 +44,7 @@ test("public booking forms and success pages track meta purchases only on author
  ]);
  assert.match(form,/trackMetaStandardEvent\("InitiateCheckout"/);
  assert.match(form,/eventKey:`initiate-checkout:\$\{props\.publicSlug\}:\$\{serviceId\}:\$\{date\}:\$\{time\}`/);
+ assert.doesNotMatch(form,/useEffect\([^)]*trackMetaStandardEvent\("InitiateCheckout"/s);
  assert.match(bookingSuccess,/meta_pixel_id/);
  assert.match(bookingSuccess,/TenantMetaPixel pixelId=\{metaPixelId\}/);
  assert.match(bookingSuccess,/TenantMetaPixelPurchaseTracker bookingId=\{submission\.id\} contentIds=\{\[service\.id\]\}/);
