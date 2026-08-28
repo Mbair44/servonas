@@ -1,7 +1,6 @@
 "use client";
 
-import Script from "next/script";
-import {useEffect,useId,useState} from "react";
+import {useEffect,useState} from "react";
 import {usePathname,useSearchParams} from "next/navigation";
 
 const CONSENT_KEY="servonas.analytics_consent";
@@ -18,14 +17,37 @@ declare global{
 }
 
 const validPixelId=(value:string)=>PIXEL_ID_PATTERN.test(value.trim())?value.trim():null;
+const ensureMetaPixelStub=()=>{
+ if(typeof window==="undefined")return null;
+ if(typeof window.fbq==="function")return window.fbq;
+ const fbq=function(...args:any[]){
+  if(typeof fbq.callMethod==="function")fbq.callMethod(...args);
+  else fbq.queue?.push(args);
+ } as NonNullable<Window["fbq"]>;
+ fbq.queue=[];
+ fbq.loaded=true;
+ fbq.version="2.0";
+ fbq.push=(...args:any[])=>fbq.queue?.push(args)??0;
+ window.fbq=fbq;
+ if(!window._fbq)window._fbq=fbq;
+ return fbq;
+};
+const ensureMetaPixelScript=()=>{
+ if(typeof document==="undefined")return;
+ if(document.querySelector(`script[data-servonas-meta-pixel="${META_PIXEL_SRC}"]`))return;
+ const script=document.createElement("script");
+ script.async=true;
+ script.src=META_PIXEL_SRC;
+ script.setAttribute("data-servonas-meta-pixel",META_PIXEL_SRC);
+ document.head.appendChild(script);
+};
 
 export function TenantMetaPixel({pixelId}:{pixelId:string}){
  const pathname=usePathname();
  const searchParams=useSearchParams();
  const [allowed,setAllowed]=useState(false);
- const scriptId=useId();
- const normalizedPixelId=validPixelId(pixelId);
- const pageKey=`${pathname}${searchParams?.toString()?`?${searchParams.toString()}`:""}`;
+  const normalizedPixelId=validPixelId(pixelId);
+  const pageKey=`${pathname}${searchParams?.toString()?`?${searchParams.toString()}`:""}`;
 
  useEffect(()=>{
   const update=()=>setAllowed(localStorage.getItem(CONSENT_KEY)==="granted");
@@ -37,7 +59,8 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
 
  useEffect(()=>{
   if(!allowed||!normalizedPixelId||typeof window==="undefined")return;
-  const fbq=window.fbq;
+  ensureMetaPixelScript();
+  const fbq=ensureMetaPixelStub();
   if(typeof fbq!=="function")return;
   const tracked=window.__servonasMetaPixelPageViews??=[];
   if(window.__servonasMetaPixelId!==normalizedPixelId){
@@ -52,9 +75,5 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
 
  if(!allowed||!normalizedPixelId)return null;
 
- return <>
-  <Script src={META_PIXEL_SRC} strategy="afterInteractive"/>
-  <Script id={`tenant-meta-pixel-${scriptId}`} strategy="afterInteractive">{`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','${META_PIXEL_SRC}');`}</Script>
-  <noscript><img height="1" width="1" style={{display:"none"}} alt="" src={`https://www.facebook.com/tr?id=${normalizedPixelId}&ev=PageView&noscript=1`}/></noscript>
- </>;
+ return <noscript><img height="1" width="1" style={{display:"none"}} alt="" src={`https://www.facebook.com/tr?id=${normalizedPixelId}&ev=PageView&noscript=1`}/></noscript>;
 }

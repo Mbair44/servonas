@@ -38,6 +38,8 @@ test("public website loader and shell keep Meta Pixel tenant scoped and preview-
  assert.match(site,/!preview&&site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
  assert.match(component,/servonas\.analytics_consent/);
  assert.match(component,/if\(!allowed\|\|!normalizedPixelId\)return null;/);
+ assert.match(component,/ensureMetaPixelScript\(\)/);
+ assert.match(component,/ensureMetaPixelStub\(\)/);
  assert.match(component,/fbq\("init",normalizedPixelId\)/);
  assert.match(component,/fbq\("track","PageView"\)/);
  assert.match(component,/__servonasMetaPixelPageViews/);
@@ -47,6 +49,29 @@ test("tenant meta pixel only uses Servonas-owned Meta code and ignores invalid i
  const component=await read("components/TenantMetaPixel.tsx");
  assert.match(component,/PIXEL_ID_PATTERN=\/\^\[0-9\]\{8,24\}\$\//);
  assert.match(component,/connect\.facebook\.net\/en_US\/fbevents\.js/);
+ assert.match(component,/document\.createElement\("script"\)/);
+ assert.match(component,/document\.querySelector\(`script\[data-servonas-meta-pixel="\$\{META_PIXEL_SRC\}"\]`\)/);
+ assert.match(component,/if\(typeof window\.fbq==="function"\)return window\.fbq;/);
  assert.match(component,/www\.facebook\.com\/tr\?id=\$\{normalizedPixelId\}&ev=PageView&noscript=1/);
- assert.doesNotMatch(component,/dangerouslySetInnerHTML/);
+ assert.doesNotMatch(component,/next\/script/);
+});
+
+test("custom-domain public route resolves into the shared business website shell with tenant pixel support",async()=>{
+ const [domainRoute,site]=await Promise.all([
+  read("app/sites/domain/[domain]/page.tsx"),
+  read("components/BusinessWebsite.tsx"),
+ ]);
+ assert.match(domainRoute,/loadPublishedBusinessWebsiteByDomain/);
+ assert.match(domainRoute,/return <BusinessWebsite site=\{site\}/);
+ assert.match(site,/TenantMetaPixel/);
+});
+
+test("tenant meta pixel can initialize immediately after consent without a hard refresh",async()=>{
+ const component=await read("components/TenantMetaPixel.tsx");
+ assert.match(component,/const update=\(\)=>setAllowed\(localStorage\.getItem\(CONSENT_KEY\)==="granted"\)/);
+ assert.match(component,/window\.addEventListener\("storage",update\)/);
+ assert.match(component,/window\.setInterval\(update,250\)/);
+ assert.match(component,/ensureMetaPixelScript\(\);\s+const fbq=ensureMetaPixelStub\(\);/s);
+ assert.match(component,/if\(typeof fbq!=="function"\)return;/);
+  assert.match(component,/fbq\("track","PageView"\)/);
 });
