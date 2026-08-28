@@ -36,7 +36,7 @@ test("public website loader and shell keep Meta Pixel tenant scoped and preview-
  assert.match(loader,/meta_pixel_id/);
  assert.match(loader,/metaPixelId:sanitizeMetaPixelId\(settings\.meta_pixel_id\)/);
  assert.match(site,/!preview&&site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
- assert.match(component,/servonas\.analytics_consent/);
+ assert.match(component,/ANALYTICS_CONSENT_KEY/);
  assert.match(component,/if\(!allowed\|\|!normalizedPixelId\)return null;/);
  assert.match(component,/ensureMetaPixelScript\(\)/);
  assert.match(component,/ensureMetaPixelStub\(\)/);
@@ -67,11 +67,23 @@ test("custom-domain public route resolves into the shared business website shell
 });
 
 test("tenant meta pixel can initialize immediately after consent without a hard refresh",async()=>{
- const component=await read("components/TenantMetaPixel.tsx");
+ const [component,analytics,googleTag,helper]=await Promise.all([
+  read("components/TenantMetaPixel.tsx"),
+  read("components/MarketingAnalytics.tsx"),
+  read("components/ConsentAwareGoogleTag.tsx"),
+  read("lib/publicAnalytics.ts"),
+ ]);
+ assert.match(helper,/export const ANALYTICS_CONSENT_KEY="servonas\.analytics_consent"/);
+ assert.match(helper,/isServonasAnalyticsHost/);
+ assert.match(helper,/isPublicAnalyticsConsentPath/);
  assert.match(component,/const update=\(\)=>setAllowed\(localStorage\.getItem\(CONSENT_KEY\)==="granted"\)/);
  assert.match(component,/window\.addEventListener\("storage",update\)/);
  assert.match(component,/window\.setInterval\(update,250\)/);
  assert.match(component,/ensureMetaPixelScript\(\);\s+const fbq=ensureMetaPixelStub\(\);/s);
  assert.match(component,/if\(typeof fbq!=="function"\)return;/);
-  assert.match(component,/fbq\("track","PageView"\)/);
+ assert.match(component,/fbq\("track","PageView"\)/);
+ assert.match(analytics,/if\(!analyticsEnabled\|\|typeof window==="undefined"\|\|!consentSurface\(\)\|\|consent\)return null;/);
+ assert.match(analytics,/const platform=\(\)=>isServonasAnalyticsHost\(location\.hostname\)/);
+ assert.match(analytics,/const consentSurface=\(\)=>isPublicAnalyticsConsentPath\(location\.pathname\)/);
+ assert.match(googleTag,/!isServonasAnalyticsHost\(location\.hostname\)\|\|!isPublicAnalyticsConsentPath\(location\.pathname\)/);
 });
