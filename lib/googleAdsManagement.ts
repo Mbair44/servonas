@@ -390,9 +390,82 @@ type GoogleAdsRequestInput = {
  loginCustomerId?: string | null;
  body?: unknown;
 };
+type GoogleAdsMutateOperation = Record<string, unknown>;
 
 function googleAdsPermissionDenied(message: string, status: number) {
  return status === 403 || /permission/i.test(message) || /authorization/i.test(message);
+}
+
+function mutateOperationType(operation: unknown) {
+ if (!operation || typeof operation !== "object") return "unknown";
+ return Object.keys(operation as Record<string, unknown>)[0] ?? "unknown";
+}
+
+function mutateDiagnosticPhases(body: unknown) {
+ const operations = Array.isArray((body as { mutateOperations?: unknown[] } | null | undefined)?.mutateOperations)
+  ? ((body as { mutateOperations?: unknown[] }).mutateOperations ?? []) as GoogleAdsMutateOperation[]
+  : [];
+ const campaignBudgetOperation = operations.filter((operation) => mutateOperationType(operation) === "campaignBudgetOperation");
+ const campaignOperation = operations.filter((operation) => mutateOperationType(operation) === "campaignOperation");
+ const adGroupOperation = operations.filter((operation) => mutateOperationType(operation) === "adGroupOperation");
+ const adGroupCriterionOperations = operations.filter((operation) => mutateOperationType(operation) === "adGroupCriterionOperation");
+ const adGroupAdOperation = operations.filter((operation) => mutateOperationType(operation) === "adGroupAdOperation");
+ const positiveKeywordOperations = adGroupCriterionOperations.filter((operation) => !(operation as { adGroupCriterionOperation?: { create?: { negative?: unknown } } }).adGroupCriterionOperation?.create?.negative);
+ const negativeKeywordOperations = adGroupCriterionOperations.filter((operation) => Boolean((operation as { adGroupCriterionOperation?: { create?: { negative?: unknown } } }).adGroupCriterionOperation?.create?.negative));
+ return [
+  { name: "campaign_setup", operations: [...campaignBudgetOperation, ...campaignOperation] },
+  { name: "ad_group_setup", operations: [...campaignBudgetOperation, ...campaignOperation, ...adGroupOperation] },
+  { name: "keywords_only", operations: [...campaignBudgetOperation, ...campaignOperation, ...adGroupOperation, ...positiveKeywordOperations] },
+  { name: "negative_keywords", operations: [...campaignBudgetOperation, ...campaignOperation, ...adGroupOperation, ...positiveKeywordOperations, ...negativeKeywordOperations] },
+  { name: "responsive_search_ad", operations: [...campaignBudgetOperation, ...campaignOperation, ...adGroupOperation, ...positiveKeywordOperations, ...negativeKeywordOperations, ...adGroupAdOperation] },
+ ].filter((phase) => phase.operations.length > 0);
+}
+
+async function logGoogleAdsMutatePhaseDiagnostics(path: string, input: GoogleAdsRequestInput & { targetCustomerId?: string | null }) {
+ const phases = mutateDiagnosticPhases(input.body);
+ if (!phases.length) return;
+ for (const phase of phases) {
+  const startedAt = now();
+  try {
+   await googleAdsRequest(path, {
+    accessToken: input.accessToken,
+    method: input.method,
+    customerId: input.targetCustomerId ?? input.customerId ?? null,
+    loginCustomerId: input.loginCustomerId,
+    body: {
+     mutateOperations: phase.operations,
+     partialFailure: false,
+     validateOnly: true,
+    },
+   });
+   logGoogleAdsDiagnostic("Google Ads mutate phase validation completed", {
+    stage: "google_ads_mutate_phase_validation",
+    provider: "google_ads_api",
+    phase: phase.name,
+    durationMs: durationMs(startedAt),
+    customerId: input.targetCustomerId ?? input.customerId ?? null,
+    loginCustomerId: input.loginCustomerId ?? null,
+    requestSummary: stableJson(summarizeMutateBody({ mutateOperations: phase.operations })),
+    result: "ok",
+   });
+  } catch (error) {
+   const requestError = error instanceof GoogleAdsRequestError ? error : null;
+   logGoogleAdsErrorDiagnostic("Google Ads mutate phase validation failed", {
+    stage: "google_ads_mutate_phase_validation",
+    provider: "google_ads_api",
+    phase: phase.name,
+    durationMs: durationMs(startedAt),
+    customerId: input.targetCustomerId ?? input.customerId ?? null,
+    loginCustomerId: input.loginCustomerId ?? null,
+    requestSummary: stableJson(summarizeMutateBody({ mutateOperations: phase.operations })),
+    errorName: error instanceof Error ? error.name : "unknown",
+    errorStatus: requestError?.status ?? null,
+    googleStatus: requestError?.googleStatus ?? null,
+    googleDetails: stableJson(safeGoogleAdsDetails(requestError?.details)),
+   });
+   break;
+  }
+ }
 }
 
 export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
@@ -472,6 +545,16 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    requestSummary: stableJson(summarizeMutateBody(input.body)),
    responseBody: stableJson(sanitizedResult),
   });
+  if (response.status === 400 && path.includes("/googleAds:mutate")) {
+   await logGoogleAdsMutatePhaseDiagnostics(path, {
+    accessToken: input.accessToken,
+    method: input.method,
+    customerId: input.customerId ?? null,
+    targetCustomerId: input.customerId ?? null,
+    loginCustomerId,
+    body: input.body,
+   });
+  }
   if (response.status === 404) {
    throw new Error("Google Ads could not be reached with the configured API version. Please retry the connection.");
   }
