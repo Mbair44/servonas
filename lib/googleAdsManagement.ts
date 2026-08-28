@@ -152,6 +152,13 @@ const logGoogleAdsDiagnostic = (message: string, payload: Record<string, unknown
 const logGoogleAdsErrorDiagnostic = (message: string, payload: Record<string, unknown>) => {
  console.error(message, payload);
 };
+const stableJson = (value: unknown) => {
+ try {
+  return JSON.stringify(value);
+ } catch {
+  return null;
+ }
+};
 const now = () => Date.now();
 const durationMs = (startedAt: number) => Math.max(0, Date.now() - startedAt);
 
@@ -325,7 +332,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   method: input.method || "POST",
   customerId: targetCustomerId,
   loginCustomerId,
-  requestSummary: summarizeMutateBody(input.body),
+  requestSummary: stableJson(summarizeMutateBody(input.body)),
  });
  const response = await fetch(`${adsApiBase}${path}`, {
   method: input.method || "POST",
@@ -364,10 +371,10 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    googleErrorCode: result.error?.code ?? null,
    googleStatus: result.error?.status ?? null,
    googleMessage: result.error?.message ?? null,
-   googleDetails: sanitizedResult?.details ?? [],
-   googleFailureDetails: safeGoogleAdsFailurePayload(result.error?.details),
-   requestSummary: summarizeMutateBody(input.body),
-   responseBody: sanitizedResult,
+   googleDetails: stableJson(sanitizedResult?.details ?? []),
+   googleFailureDetails: stableJson(safeGoogleAdsFailurePayload(result.error?.details)),
+   requestSummary: stableJson(summarizeMutateBody(input.body)),
+   responseBody: stableJson(sanitizedResult),
   });
   if (response.status === 404) {
    throw new Error("Google Ads could not be reached with the configured API version. Please retry the connection.");
