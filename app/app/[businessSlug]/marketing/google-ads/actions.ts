@@ -14,6 +14,7 @@ import {
  loadTenantGoogleAdsAccess,
  publishGoogleAdsCampaign,
  recordGoogleAdsBetaEvent,
+ runGoogleAdsPermissionDiagnostic,
  submitGoogleAdsBetaFeedback,
  updateGoogleAdsCampaignBudget,
  updateGoogleAdsCampaignStatus,
@@ -416,4 +417,39 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, campaignCount: metrics.length } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads metrics refreshed."));
+}
+
+export async function runGoogleAdsPermissionDiagnosticAction(slug: string) {
+ const { business, user } = await context(slug);
+ const diagnostic = await runGoogleAdsPermissionDiagnostic({ businessId: business.id });
+ await writeGoogleAdsAuditLog({
+  businessId: business.id,
+  actorUserId: user.id,
+  eventType: "google_ads_permission_diagnostic_run",
+  metadata: {
+   authenticated_email: diagnostic.authenticatedGoogleAccount.email,
+   manager_customer_id: diagnostic.managerCustomerId,
+   target_customer_id: diagnostic.targetCustomerId,
+   classification: diagnostic.classification,
+   checks: diagnostic.checks.map((check) => ({
+    key: check.key,
+    passed: check.passed,
+    http_status: check.httpStatus,
+    google_status: check.googleStatus,
+    google_message: check.googleMessage,
+   })),
+  },
+ });
+ await recordGoogleAdsBetaEvent({
+  businessId: business.id,
+  actorUserId: user.id,
+  eventName: "google_ads_permission_diagnostic_run",
+  metadata: {
+   business_slug: business.slug,
+   classification: diagnostic.classification,
+   timestamp: new Date().toISOString(),
+  },
+ });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(`/app/${encodeURIComponent(slug)}/marketing/google-ads?success=${encodeURIComponent("Google Ads access diagnostic refreshed.")}&diagnostic=access`);
 }
