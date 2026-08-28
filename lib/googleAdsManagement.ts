@@ -1025,12 +1025,6 @@ function mutateOperationsForCampaign(input: {
      status: "PAUSED",
      campaignBudget: budgetTemp,
      manualCpc: {},
-     networkSettings: {
-      targetGoogleSearch: true,
-      targetSearchNetwork: true,
-      targetContentNetwork: false,
-      targetPartnerSearchNetwork: false,
-     },
     },
    },
   },
