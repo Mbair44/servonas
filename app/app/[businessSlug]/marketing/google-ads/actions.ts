@@ -10,6 +10,7 @@ import {
  fetchGoogleAdsCampaignMetrics,
  generateGoogleAdsDraft,
  googleAdsErrorMessage,
+ googleAdsPreferredLoginCustomerIds,
  loadTenantGoogleAdsAccess,
  publishGoogleAdsCampaign,
  recordGoogleAdsBetaEvent,
@@ -32,7 +33,7 @@ const numberValue = (data: FormData, key: string) => {
 };
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
 const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
-const loginCustomerIds = (choices: Array<{ id: string }>) => choices.map((customer) => customer.id);
+const loginCustomerIds = (choices: Array<{ id: string }>) => googleAdsPreferredLoginCustomerIds(choices.map((customer) => customer.id));
 const limitedLines = (data: FormData, key: string, max: number) => lines(data, key).slice(0, max);
 const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) => {
  console.info(message, payload);
