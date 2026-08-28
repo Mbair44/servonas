@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib/googleAddressComponents";
+import {trackMetaStandardEvent} from "./TenantMetaPixel";
 
 interface Service {
   id: string;
@@ -39,6 +40,9 @@ function serviceLabel(service: Service) {
   const amount = Number(service.price_amount ?? 0);
   if (amount <= 0 || service.price_label === "quote") return service.name;
   return `${service.name} · ${service.price_label === "starting_at" ? "Starting at " : ""}${money.format(amount)}`;
+}
+function selectedService(services:Service[],serviceId:string){
+  return services.find((service)=>service.id===serviceId)??null;
 }
 function isoDate(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -171,7 +175,7 @@ export default function PublicBookingForm(props: Props) {
   const refreshRequiredFields = () => setRequiredFieldsComplete(formRef.current?.checkValidity() ?? false);
 
   return (
-    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => track("booking_submitted")}>
+    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => {const service=selectedService(props.services,serviceId);track("booking_submitted");trackMetaStandardEvent("InitiateCheckout",{content_name:service?.name,content_ids:serviceId?[serviceId]:[],content_type:"product",num_items:1,value:service?.price_amount&&Number(service.price_amount)>0?Number(service.price_amount):undefined,currency:service?.price_amount&&Number(service.price_amount)>0?"USD":undefined},{eventKey:`initiate-checkout:${props.publicSlug}:${serviceId}:${date}:${time}`,storage:"session"});}}>
       <input className="honeypot" name="companyWebsite" tabIndex={-1} autoComplete="off" />
       <input type="hidden" name="requestKey" value={requestKey.current} />
       <input type="hidden" name="startsAt" value={date && time ? `${date}T${time}` : ""} />

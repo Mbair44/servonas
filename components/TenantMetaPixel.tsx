@@ -10,14 +10,40 @@ const META_PIXEL_SRC="https://connect.facebook.net/en_US/fbevents.js";
 
 declare global{
  interface Window{
-  fbq?:((...args:any[])=>void)&{callMethod?:(...args:any[])=>void;queue?:unknown[];loaded?:boolean;version?:string;push?:(...args:any[])=>number};
+ fbq?:((...args:any[])=>void)&{callMethod?:(...args:any[])=>void;queue?:unknown[];loaded?:boolean;version?:string;push?:(...args:any[])=>number};
   _fbq?:Window["fbq"];
   __servonasMetaPixelId?:string;
   __servonasMetaPixelPageViews?:string[];
+  __servonasMetaPixelEventKeys?:string[];
  }
 }
 
 const validPixelId=(value:string)=>PIXEL_ID_PATTERN.test(value.trim())?value.trim():null;
+const metaEventLimit=100;
+const pathBlocked=(pathname:string)=>pathname.startsWith("/app")||pathname.startsWith("/tech")||pathname.startsWith("/sites/preview");
+const sanitizeMetaParams=(value:Record<string,unknown>)=>Object.fromEntries(Object.entries(value).filter(([,entry])=>entry!=null&&(!Array.isArray(entry)||entry.length>0)));
+const consentGranted=()=>typeof window!=="undefined"&&window.localStorage.getItem(CONSENT_KEY)==="granted";
+const activeMetaPixelId=()=>typeof window==="undefined"?null:validPixelId(window.__servonasMetaPixelId??"");
+const rememberMetaEvent=(eventKey:string,storage:"memory"|"session"|"local"="memory")=>{
+ if(typeof window==="undefined"||!eventKey)return false;
+ const tracked=window.__servonasMetaPixelEventKeys??[];
+ if(tracked.includes(eventKey))return true;
+ window.__servonasMetaPixelEventKeys=[...tracked,eventKey].slice(-metaEventLimit);
+ if(storage==="memory")return false;
+ try{
+  const bucket=storage==="local"?window.localStorage:window.sessionStorage;
+  const raw=bucket.getItem("servonas.meta-pixel-events");
+  const keys=raw?JSON.parse(raw) as string[]:[];
+  if(keys.includes(eventKey))return true;
+  bucket.setItem("servonas.meta-pixel-events",JSON.stringify([...keys,eventKey].slice(-metaEventLimit)));
+ }catch{}
+ return false;
+};
+export function trackMetaStandardEvent(event:"ViewContent"|"InitiateCheckout"|"Purchase",params:Record<string,unknown>,options:{eventKey?:string;storage?:"memory"|"session"|"local"}={}){
+ if(typeof window==="undefined"||typeof window.fbq!=="function"||!consentGranted()||!activeMetaPixelId()||pathBlocked(window.location.pathname))return;
+ if(options.eventKey&&rememberMetaEvent(options.eventKey,options.storage))return;
+ window.fbq("track",event,sanitizeMetaParams(params));
+}
 const ensureMetaPixelStub=()=>{
  if(typeof window==="undefined")return null;
  if(typeof window.fbq==="function")return window.fbq;
@@ -68,6 +94,7 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
    fbq("init",normalizedPixelId);
    window.__servonasMetaPixelId=normalizedPixelId;
    window.__servonasMetaPixelPageViews=[];
+   window.__servonasMetaPixelEventKeys=[];
   }
   if(tracked.includes(pageKey))return;
   fbq("track","PageView");
