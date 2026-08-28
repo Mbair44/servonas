@@ -2,8 +2,9 @@
 
 import {useEffect,useState} from "react";
 import {usePathname,useSearchParams} from "next/navigation";
+import {ANALYTICS_CONSENT_KEY} from "@/lib/publicAnalytics";
 
-const CONSENT_KEY="servonas.analytics_consent";
+const CONSENT_KEY=ANALYTICS_CONSENT_KEY;
 const PIXEL_ID_PATTERN=/^[0-9]{8,24}$/;
 const META_PIXEL_SRC="https://connect.facebook.net/en_US/fbevents.js";
 

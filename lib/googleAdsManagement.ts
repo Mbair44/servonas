@@ -93,6 +93,20 @@ const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => va
 const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
+const safeGoogleAdsDetails = (details: GoogleAdsErrorDetail[] | undefined) =>
+ Array.isArray(details)
+  ? details.map((detail) => ({
+    message: detail.message ?? null,
+    trigger: detail.trigger ?? null,
+    errorCodeKeys: detail.errorCode ? Object.keys(detail.errorCode) : [],
+   }))
+  : [];
+const logGoogleAdsDiagnostic = (message: string, payload: Record<string, unknown>) => {
+ console.info(message, payload);
+};
+const logGoogleAdsErrorDiagnostic = (message: string, payload: Record<string, unknown>) => {
+ console.error(message, payload);
+};
 
 class GoogleAdsRequestError extends Error {
  status: number;
@@ -131,7 +145,21 @@ function oauthConfigured() {
 
 export const googleAdsRedirectUri = () => `${appBaseUrl}/api/google-ads/callback`;
 
-async function tokenRequest(params: URLSearchParams) {
+async function tokenRequest(params: URLSearchParams, context: { stage: string; businessId?: string | null; businessSlug?: string | null; codePresent?: boolean } = { stage: "google_ads_oauth_token_request" }) {
+ const redirectUri = params.get("redirect_uri") || null;
+ logGoogleAdsDiagnostic("Google Ads OAuth request started", {
+  stage: context.stage,
+  provider: "google_oauth",
+  businessId: context.businessId ?? null,
+  businessSlug: context.businessSlug ?? null,
+  hasAuthorizationCode: Boolean(context.codePresent),
+  hasRedirectUri: Boolean(redirectUri),
+  redirectUri,
+  googleClientIdConfigured: Boolean(credentials().clientId),
+  googleClientSecretConfigured: Boolean(credentials().clientSecret),
+  googleAdsDeveloperTokenConfigured: Boolean(credentials().developerToken),
+  grantType: params.get("grant_type") || null,
+ });
  const response = await fetch(tokenEndpoint, {
   method: "POST",
   headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -139,11 +167,42 @@ async function tokenRequest(params: URLSearchParams) {
   cache: "no-store",
  });
  const result = await response.json() as TokenResponse;
- if (!response.ok || !result.access_token) throw new Error(result.error_description || result.error || "Google Ads authorization failed.");
+ if (!response.ok || !result.access_token) {
+  logGoogleAdsErrorDiagnostic("Google Ads OAuth request failed", {
+   stage: context.stage,
+   provider: "google_oauth",
+   businessId: context.businessId ?? null,
+   businessSlug: context.businessSlug ?? null,
+   httpStatus: response.status,
+   googleError: result.error ?? null,
+   googleErrorDescription: result.error_description ?? null,
+   hasAuthorizationCode: Boolean(context.codePresent),
+   hasRedirectUri: Boolean(redirectUri),
+   redirectUri,
+   googleClientIdConfigured: Boolean(credentials().clientId),
+   googleClientSecretConfigured: Boolean(credentials().clientSecret),
+   googleAdsDeveloperTokenConfigured: Boolean(credentials().developerToken),
+   refreshTokenReturned: Boolean(result.refresh_token),
+   accessTokenReturned: Boolean(result.access_token),
+  });
+  throw new Error(result.error_description || result.error || "Google Ads authorization failed.");
+ }
+ logGoogleAdsDiagnostic("Google Ads OAuth request completed", {
+  stage: context.stage,
+  provider: "google_oauth",
+  businessId: context.businessId ?? null,
+  businessSlug: context.businessSlug ?? null,
+  httpStatus: response.status,
+  hasAuthorizationCode: Boolean(context.codePresent),
+  hasRedirectUri: Boolean(redirectUri),
+  redirectUri,
+  refreshTokenReturned: Boolean(result.refresh_token),
+  accessTokenReturned: Boolean(result.access_token),
+ });
  return result;
 }
 
-async function refreshGoogleAdsAccessToken(refreshToken: string) {
+async function refreshGoogleAdsAccessToken(refreshToken: string, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
  const { clientId, clientSecret } = credentials();
  if (!clientId || !clientSecret) throw new Error("Google Ads OAuth is not configured.");
  return (await tokenRequest(new URLSearchParams({
@@ -151,7 +210,12 @@ async function refreshGoogleAdsAccessToken(refreshToken: string) {
   client_id: clientId,
   client_secret: clientSecret,
   grant_type: "refresh_token",
- }))).access_token!;
+ }), {
+  stage: "google_ads_refresh_token_exchange",
+  businessId: context.businessId ?? null,
+  businessSlug: context.businessSlug ?? null,
+  codePresent: false,
+ })).access_token!;
 }
 
 type GoogleAdsRequestInput = {
@@ -205,6 +269,26 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   throw new Error(`Google Ads returned an invalid response (${response.status}).`);
  }
  if (!response.ok) {
+  const sanitizedResult = result?.error ? {
+   code: result.error.code ?? null,
+   message: result.error.message ?? null,
+   status: result.error.status ?? null,
+   details: safeGoogleAdsDetails(result.error.details),
+  } : null;
+  logGoogleAdsErrorDiagnostic("Google Ads API request failed", {
+   stage: "google_ads_api_request",
+   provider: "google_ads_api",
+   httpStatus: response.status,
+   requestPath: `${adsApiBase}${path}`,
+   method: input.method || "POST",
+   loginCustomerId,
+   targetCustomerId: input.customerId ?? null,
+   googleErrorCode: result.error?.code ?? null,
+   googleStatus: result.error?.status ?? null,
+   googleMessage: result.error?.message ?? null,
+   googleDetails: sanitizedResult?.details ?? [],
+   responseBody: sanitizedResult,
+  });
   if (response.status === 404) {
    throw new Error("Google Ads could not be reached with the configured API version. Please retry the connection.");
   }
@@ -287,7 +371,7 @@ async function accessibleCustomers(accessToken: string): Promise<GoogleAdsCustom
  return ids.map((id) => ({ id, label: id }));
 }
 
-export async function exchangeGoogleAdsCode(code: string) {
+export async function exchangeGoogleAdsCode(code: string, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
  const { clientId, clientSecret } = credentials();
  if (!clientId || !clientSecret) throw new Error("Google Ads OAuth is not configured.");
  return tokenRequest(new URLSearchParams({
@@ -296,7 +380,12 @@ export async function exchangeGoogleAdsCode(code: string) {
   client_secret: clientSecret,
   redirect_uri: googleAdsRedirectUri(),
   grant_type: "authorization_code",
- }));
+ }), {
+  stage: "google_ads_authorization_code_exchange",
+  businessId: context.businessId ?? null,
+  businessSlug: context.businessSlug ?? null,
+  codePresent: Boolean(code),
+ });
 }
 
 export function createGoogleAdsOauthState(businessSlug: string, businessId: string) {
@@ -314,6 +403,14 @@ export function googleAdsOauthUrl(state: string) {
  url.searchParams.set("access_type", "offline");
  url.searchParams.set("prompt", "consent");
  url.searchParams.set("state", state);
+ logGoogleAdsDiagnostic("Google Ads OAuth authorization URL created", {
+  stage: "google_ads_oauth_authorization_redirect",
+  provider: "google_oauth",
+  redirectUri: googleAdsRedirectUri(),
+  googleClientIdConfigured: Boolean(clientId),
+  googleClientSecretConfigured: Boolean(credentials().clientSecret),
+  googleAdsDeveloperTokenConfigured: Boolean(credentials().developerToken),
+ });
  return url;
 }
 
@@ -493,10 +590,28 @@ export async function storeGoogleAdsConnection(input: {
  if (error) throw new Error("Google Ads connection could not be saved. Apply the Google Ads migration.");
 }
 
-export async function completeGoogleAdsOauth(code: string) {
- const token = await exchangeGoogleAdsCode(code);
+export async function completeGoogleAdsOauth(code: string, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
+ logGoogleAdsDiagnostic("Google Ads OAuth completion started", {
+  stage: "google_ads_oauth_completion",
+  provider: "google_oauth",
+  businessId: context.businessId ?? null,
+  businessSlug: context.businessSlug ?? null,
+  hasAuthorizationCode: Boolean(code),
+  redirectUri: googleAdsRedirectUri(),
+ });
+ const token = await exchangeGoogleAdsCode(code, context);
  if (!token.refresh_token) throw new Error("Google did not provide long-term Google Ads access. Remove Servonas from Google permissions and connect again.");
  const customers = await accessibleCustomers(token.access_token!);
+ logGoogleAdsDiagnostic("Google Ads OAuth completion finished", {
+  stage: "google_ads_oauth_completion",
+  provider: "google_oauth",
+  businessId: context.businessId ?? null,
+  businessSlug: context.businessSlug ?? null,
+  redirectUri: googleAdsRedirectUri(),
+  refreshTokenReturned: Boolean(token.refresh_token),
+  accessTokenReturned: Boolean(token.access_token),
+  customerCount: customers.length,
+ });
  return { refreshToken: token.refresh_token, customers };
 }
 
@@ -509,7 +624,7 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
   .maybeSingle();
  if (!connection || connection.status === "disconnected") return null;
  try {
-  const accessToken = await refreshGoogleAdsAccessToken(connection.refresh_token);
+  const accessToken = await refreshGoogleAdsAccessToken(connection.refresh_token, { businessId });
   return {
    accessToken,
    customerId: connection.google_ads_customer_id as string | null,

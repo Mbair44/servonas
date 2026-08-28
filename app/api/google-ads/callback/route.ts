@@ -21,7 +21,7 @@ export async function GET(request: Request) {
  const { data: membership } = user ? await supabase.from("business_members").select("role").eq("business_id", saved.businessId).eq("user_id", user.id).maybeSingle() : { data: null };
  if (!user || !membership || !["owner", "admin"].includes(membership.role)) return NextResponse.redirect(destination(saved.businessSlug, "error", "Google Ads authorization is not permitted for this workspace."));
  try {
-  const result = await completeGoogleAdsOauth(code);
+  const result = await completeGoogleAdsOauth(code, { businessId: saved.businessId, businessSlug: saved.businessSlug });
   await storeGoogleAdsConnection({
    businessId: saved.businessId,
    userId: user.id,
