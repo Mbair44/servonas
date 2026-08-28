@@ -33,9 +33,17 @@ const numberValue = (data: FormData, key: string) => {
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
 const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
 const loginCustomerIds = (choices: Array<{ id: string }>) => choices.map((customer) => customer.id);
+const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) => {
+ console.info(message, payload);
+};
+const logGoogleAdsActionError = (message: string, payload: Record<string, unknown>) => {
+ console.error(message, payload);
+};
 
 async function context(slug: string) {
+ logGoogleAdsAction("Google Ads action stage", { stage: "load_business", provider: "supabase", businessSlug: slug });
  const loaded = await requireWorkspace(slug);
+ logGoogleAdsAction("Google Ads action stage complete", { stage: "load_business", provider: "supabase", businessId: loaded.business.id, businessSlug: loaded.business.slug, role: loaded.role });
  if (!canManageBusiness(loaded.role)) redirect(path(slug, "error", "Only owners and administrators can manage Google Ads."));
  return loaded;
 }
@@ -222,12 +230,17 @@ export async function updateGoogleAdsDraftAction(slug: string, campaignId: strin
 
 export async function publishGoogleAdsDraftAction(slug: string, campaignId: string) {
  const { supabase, business, user } = await context(slug);
+ logGoogleAdsAction("Google Ads action stage", { stage: "load_google_ads_connection", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId });
  const connection = await loadTenantGoogleAdsAccess(business.id);
  if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before publishing."));
+ logGoogleAdsAction("Google Ads action stage complete", { stage: "load_google_ads_connection", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId, selectedCustomerId: connection.customerId, customerChoiceCount: connection.customerChoices.length });
+ logGoogleAdsAction("Google Ads action stage", { stage: "load_campaign", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId });
  const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
  if (!campaign) redirect(path(slug, "error", "Google Ads draft not found."));
+ logGoogleAdsAction("Google Ads action stage complete", { stage: "load_campaign", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, draftStatus: campaign.status });
  try {
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_reviewed", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
+  logGoogleAdsAction("Google Ads action stage", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, loginCustomerIds: loginCustomerIds(connection.customerChoices) });
   const published = await publishGoogleAdsCampaign({
    accessToken: connection.accessToken,
    customerId: connection.customerId,
@@ -241,6 +254,7 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    headlines: Array.isArray(campaign.headlines) ? campaign.headlines.map(String) : [],
    descriptions: Array.isArray(campaign.descriptions) ? campaign.descriptions.map(String) : [],
   });
+  logGoogleAdsAction("Google Ads action stage complete", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleCampaignId: published.campaignId, adGroupId: published.adGroupId });
   const { error } = await supabase.from("business_google_ads_campaigns").update({
    google_campaign_id: published.campaignId,
    google_campaign_budget_resource_name: published.campaignBudgetResourceName,
@@ -252,18 +266,23 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    updated_by: user.id,
    updated_at: new Date().toISOString(),
   }).eq("business_id", business.id).eq("id", campaignId);
-  if (error) redirect(path(slug, "error", "The campaign was published to Google, but Servonas could not save the resulting IDs."));
+ if (error) redirect(path(slug, "error", "The campaign was published to Google, but Servonas could not save the resulting IDs."));
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_published", metadata: { business_slug: business.slug, google_campaign_id: published.campaignId, timestamp: new Date().toISOString() } });
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_campaign_published", metadata: published });
- revalidatePath(`/app/${slug}/marketing/google-ads`);
- redirect(path(slug, "success", "Campaign published to Google Ads."));
+ await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_campaign_published", metadata: published });
+  revalidatePath(`/app/${slug}/marketing/google-ads`);
+  logGoogleAdsAction("Google Ads action redirect", { stage: "complete", provider: "next_redirect", businessId: business.id, businessSlug: business.slug, campaignId, outcome: "success", location: path(slug, "success", "Campaign published to Google Ads.") });
+  redirect(path(slug, "success", "Campaign published to Google Ads."));
  } catch (error) {
   if (isRedirectError(error)) throw error;
   const message = error instanceof Error ? googleAdsErrorMessage(error) : "Google Ads publishing failed.";
-  console.error("Google Ads publish failed", {
+  logGoogleAdsActionError("Google Ads publish failed", {
    businessId: business.id,
    businessSlug: business.slug,
    campaignId,
+   stage: "google_ads_campaign_publish",
+   provider: "google_ads_api",
+   caught: true,
+   willRedirect303: true,
    googleAdsCustomerId: connection.customerId,
    message,
    errorName: error instanceof Error ? error.name : "unknown",
@@ -295,6 +314,7 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    });
   }
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_publish_failed", metadata: { business_slug: business.slug, reason: message, timestamp: new Date().toISOString() } });
+  logGoogleAdsAction("Google Ads action redirect", { stage: "complete", provider: "next_redirect", businessId: business.id, businessSlug: business.slug, campaignId, outcome: "error", location: path(slug, "error", message), reason: message });
   redirect(path(slug, "error", message));
  }
 }
