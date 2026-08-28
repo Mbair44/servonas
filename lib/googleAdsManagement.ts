@@ -94,6 +94,7 @@ const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
 const maxGoogleAdsHeadlines = 15;
 const maxGoogleAdsDescriptions = 4;
+const normalizeKeywordText = (value: string) => value.trim().replace(/^["'[\](){}]+|["'[\](){}]+$/g, "").replace(/\s+/g, " ");
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
 const safeGoogleAdsLocation = (value: unknown) => {
  if (!value || typeof value !== "object") return null;
@@ -279,6 +280,8 @@ class GoogleAdsRequestError extends Error {
  }
 }
 const limitGoogleAdsTextAssets = (values: string[], max: number) => uniqueStrings(values).slice(0, max);
+const normalizeGoogleAdsKeywords = (values: string[]) =>
+ uniqueStrings(values.map(normalizeKeywordText).filter(Boolean));
 
 function safeNumber(value: unknown) {
  const numeric = Number(value);
@@ -958,7 +961,7 @@ function mutateOperationsForCampaign(input: {
     },
    },
   },
-  ...input.keywords.map((keyword) => ({
+  ...normalizeGoogleAdsKeywords(input.keywords).map((keyword) => ({
    adGroupCriterionOperation: {
     create: {
      adGroup: adGroupTemp,
@@ -967,7 +970,7 @@ function mutateOperationsForCampaign(input: {
     },
    },
   })),
-  ...input.negativeKeywords.map((keyword) => ({
+  ...normalizeGoogleAdsKeywords(input.negativeKeywords).map((keyword) => ({
    adGroupCriterionOperation: {
     create: {
      adGroup: adGroupTemp,
