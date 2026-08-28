@@ -89,6 +89,7 @@ const credentials = () => ({
 const monthStart = (value: string) => `${value.slice(0, 7)}-01`;
 const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "service";
 const stripCustomerId = (value: string) => value.replace(/\D/g, "");
+const configuredGoogleAdsLoginCustomerId = () => stripCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.trim() || process.env.GOOGLE_ADS_MANAGER_CUSTOMER_ID?.trim() || "") || null;
 const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
@@ -478,6 +479,18 @@ export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
   return "Google Ads denied this publish request. Reconnect the correct Google Ads account or confirm the connected Google user has permission to manage it.";
  }
  return error.message;
+}
+
+export function googleAdsPreferredLoginCustomerIds(values: Array<string | null | undefined>) {
+ const preferred = configuredGoogleAdsLoginCustomerId();
+ const ordered = preferred ? [preferred, ...values] : values;
+ const next: string[] = [];
+ for (const value of ordered) {
+  if (!value) continue;
+  const normalized = stripCustomerId(value);
+  if (normalized && !next.includes(normalized)) next.push(normalized);
+ }
+ return next;
 }
 
 async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
@@ -1024,7 +1037,6 @@ function mutateOperationsForCampaign(input: {
      advertisingChannelType: "SEARCH",
      status: "PAUSED",
      campaignBudget: budgetTemp,
-     manualCpc: {},
     },
    },
   },
