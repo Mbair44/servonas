@@ -103,10 +103,16 @@ export default async function GoogleAdsPage({
   }
  }
 
- const customerChoices: GoogleAdsCustomer[] = (connection?.accessible_customer_ids ?? []).map((id: string) => ({
+ const customerChoices: GoogleAdsCustomer[] = connectionAccess?.customerChoices ?? ((connection?.accessible_customer_ids ?? []).map((id: string) => ({
   id,
   label: String((connection?.accessible_customer_labels as Record<string, unknown> | null)?.[id] ?? id),
- }));
+  loginCustomerId: null,
+  managerCustomerId: null,
+  isManager: false,
+  level: 0,
+  status: null,
+  source: "direct" as const,
+ })));
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
  const selectedCustomerId = connection?.google_ads_customer_id ?? null;
@@ -206,6 +212,7 @@ export default async function GoogleAdsPage({
      <article><strong>Google profile name</strong><span>{connection.google_authenticated_name || "Unavailable"}</span></article>
      <article><strong>Manager account</strong><span>145-777-1276</span></article>
      <article><strong>Selected Google Ads account</strong><span>{connection.google_ads_customer_id || "Not selected yet"}</span></article>
+     <article><strong>Resolved login customer</strong><span>{connectionAccess?.loginCustomerId || "Direct advertiser access"}</span></article>
     </div>
     {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
      <label>Google Ads account
@@ -230,6 +237,7 @@ export default async function GoogleAdsPage({
       <article><strong>Google display name</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.name || "Unavailable"}</span></article>
       <article><strong>Manager</strong><span>{permissionDiagnostic.managerCustomerId || "Unavailable"}</span></article>
       <article><strong>Target</strong><span>{permissionDiagnostic.targetCustomerId || "Unavailable"}</span></article>
+      <article><strong>Resolved login customer</strong><span>{permissionDiagnostic.resolvedLoginCustomerId || "Direct advertiser access"}</span></article>
       <article><strong>Classification</strong><span>{permissionDiagnostic.classification}</span></article>
      </div>
      <div className="marketing-sources-table">
@@ -241,7 +249,10 @@ export default async function GoogleAdsPage({
        <span>{[check.googleMessage, ...check.details].filter(Boolean).join(" | ")}</span>
       </div>)}
      </div>
-     <p>Accessible customers returned by Google: {permissionDiagnostic.accessibleCustomers.length ? permissionDiagnostic.accessibleCustomers.join(", ") : "None returned"}</p>
+     <p>Accessible root customers: {permissionDiagnostic.accessibleRootCustomers.length ? permissionDiagnostic.accessibleRootCustomers.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
+     <p>Discovered manager accounts: {permissionDiagnostic.discoveredManagerAccounts.length ? permissionDiagnostic.discoveredManagerAccounts.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
+     <p>Discovered advertiser/client accounts: {permissionDiagnostic.discoveredAdvertiserAccounts.length ? permissionDiagnostic.discoveredAdvertiserAccounts.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
+     <p>`customers:listAccessibleCustomers` returned: {permissionDiagnostic.accessibleCustomers.length ? permissionDiagnostic.accessibleCustomers.join(", ") : "None returned"}</p>
     </div>}
    </>}
   </section>

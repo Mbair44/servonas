@@ -32,6 +32,7 @@ export async function GET(request: Request) {
    userId: user.id,
    refreshToken: result.refreshToken,
    customers: result.customers,
+   rootCustomers: result.rootCustomers,
    authenticatedIdentity: result.authenticatedIdentity,
    selectedCustomerId: existingConnection?.google_ads_customer_id ?? null,
   });
