@@ -92,6 +92,8 @@ const stripCustomerId = (value: string) => value.replace(/\D/g, "");
 const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
+const maxGoogleAdsHeadlines = 15;
+const maxGoogleAdsDescriptions = 4;
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
 const safeGoogleAdsLocation = (value: unknown) => {
  if (!value || typeof value !== "object") return null;
@@ -186,6 +188,7 @@ class GoogleAdsRequestError extends Error {
   this.targetCustomerId = input.targetCustomerId ?? null;
  }
 }
+const limitGoogleAdsTextAssets = (values: string[], max: number) => uniqueStrings(values).slice(0, max);
 
 function safeNumber(value: unknown) {
  const numeric = Number(value);
@@ -919,7 +922,11 @@ export async function publishGoogleAdsCampaign(input: {
   targetCustomerId: input.customerId,
   loginCustomerIds: [input.customerId, ...(input.loginCustomerIds ?? []), null],
   body: {
-   mutateOperations: mutateOperationsForCampaign(input),
+   mutateOperations: mutateOperationsForCampaign({
+    ...input,
+    headlines: limitGoogleAdsTextAssets(input.headlines, maxGoogleAdsHeadlines),
+    descriptions: limitGoogleAdsTextAssets(input.descriptions, maxGoogleAdsDescriptions),
+   }),
    partialFailure: false,
    validateOnly: false,
   },

@@ -7,6 +7,7 @@ import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 import {TemporarySiteUnavailable} from "@/components/TemporarySiteUnavailable";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
+import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {normalizeWebsiteDomain} from "@/lib/website";
 import {submitPublicBooking} from "@/app/book/[businessSlug]/actions";
 import {loadPublicBookingData} from "@/app/book/[businessSlug]/loadPublicBookingData";
@@ -31,6 +32,7 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
  if(!bookingSlug)notFound();
  const query=await searchParams;
  const embedded=query.embed==="1";
+ const googleMapsApiKey=publicGoogleMapsApiKey();
  const data=await loadPublicBookingData(bookingSlug);
  if(!data)notFound();
  const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
@@ -47,11 +49,11 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
 
     {query.error&&<div className="workspace-notice error">{query.error}</div>}
     {isPartyRental?(
-     rentalInventory.length?<PartyRentalBookingClient businessSlug={bookingSlug} businessName={businessName??"this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} initialItemId={query.item&&rentalInventory.some(item=>item.id===query.item)?query.item:undefined} attributionSessionId={query.sv_at} initialCheckout={query.checkout==="1"} checkoutUrl={query.checkoutUrl??"/booking/checkout"} catalogUrl="/booking"/>:<div className="booking-empty">No rental items are available for online booking yet.</div>
+     rentalInventory.length?<PartyRentalBookingClient businessSlug={bookingSlug} businessName={businessName??"this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={googleMapsApiKey} initialItemId={query.item&&rentalInventory.some(item=>item.id===query.item)?query.item:undefined} attributionSessionId={query.sv_at} initialCheckout={query.checkout==="1"} checkoutUrl={query.checkoutUrl??"/booking/checkout"} catalogUrl="/booking"/>:<div className="booking-empty">No rental items are available for online booking yet.</div>
     ):!services?.length?(
      <div className="booking-empty">No services are available for online booking yet.</div>
     ):(
-     <PublicBookingForm action={submitPublicBooking.bind(null,bookingSlug)} services={services} schedule={schedule} collectAddress={Boolean(settings.collect_address)} intakeQuestions={settings.intake_questions??[]} businessName={businessName??"this business"} maximumDaysAhead={Number(settings.maximum_days_ahead??60)} googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} publicSlug={bookingSlug} timezone={settings.timezone??"America/Phoenix"}/>
+     <PublicBookingForm action={submitPublicBooking.bind(null,bookingSlug)} services={services} schedule={schedule} collectAddress={Boolean(settings.collect_address)} intakeQuestions={settings.intake_questions??[]} businessName={businessName??"this business"} maximumDaysAhead={Number(settings.maximum_days_ahead??60)} googleMapsApiKey={googleMapsApiKey} publicSlug={bookingSlug} timezone={settings.timezone??"America/Phoenix"}/>
     )}
    </section>
    <footer>{embedded?<>Powered by <b>Servonas</b></>:<>Powered by <b>Servonas</b> · <Link href={`/book/${bookingSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${bookingSlug}/terms`}>Text Messaging Terms</Link></>}</footer>

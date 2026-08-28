@@ -33,6 +33,7 @@ const numberValue = (data: FormData, key: string) => {
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
 const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
 const loginCustomerIds = (choices: Array<{ id: string }>) => choices.map((customer) => customer.id);
+const limitedLines = (data: FormData, key: string, max: number) => lines(data, key).slice(0, max);
 const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) => {
  console.info(message, payload);
 };
@@ -205,8 +206,8 @@ export async function updateGoogleAdsDraftAction(slug: string, campaignId: strin
  const { supabase, business, user } = await context(slug);
  const keywords = lines(formData, "keywords");
  const negatives = lines(formData, "negativeKeywords");
- const headlines = lines(formData, "headlines");
- const descriptions = lines(formData, "descriptions");
+ const headlines = limitedLines(formData, "headlines", 15);
+ const descriptions = limitedLines(formData, "descriptions", 4);
  const budgetDollars = numberValue(formData, "dailyBudgetDollars");
  const { error } = await supabase.from("business_google_ads_campaigns").update({
   campaign_name: text(formData, "campaignName"),
