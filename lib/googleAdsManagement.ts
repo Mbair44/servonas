@@ -107,6 +107,8 @@ const logGoogleAdsDiagnostic = (message: string, payload: Record<string, unknown
 const logGoogleAdsErrorDiagnostic = (message: string, payload: Record<string, unknown>) => {
  console.error(message, payload);
 };
+const now = () => Date.now();
+const durationMs = (startedAt: number) => Math.max(0, Date.now() - startedAt);
 
 class GoogleAdsRequestError extends Error {
  status: number;
@@ -147,9 +149,12 @@ export const googleAdsRedirectUri = () => `${appBaseUrl}/api/google-ads/callback
 
 async function tokenRequest(params: URLSearchParams, context: { stage: string; businessId?: string | null; businessSlug?: string | null; codePresent?: boolean } = { stage: "google_ads_oauth_token_request" }) {
  const redirectUri = params.get("redirect_uri") || null;
+ const startedAt = now();
  logGoogleAdsDiagnostic("Google Ads OAuth request started", {
   stage: context.stage,
   provider: "google_oauth",
+  endpointHost: "oauth2.googleapis.com",
+  endpointPath: "/token",
   businessId: context.businessId ?? null,
   businessSlug: context.businessSlug ?? null,
   hasAuthorizationCode: Boolean(context.codePresent),
@@ -171,9 +176,12 @@ async function tokenRequest(params: URLSearchParams, context: { stage: string; b
   logGoogleAdsErrorDiagnostic("Google Ads OAuth request failed", {
    stage: context.stage,
    provider: "google_oauth",
+   endpointHost: "oauth2.googleapis.com",
+   endpointPath: "/token",
    businessId: context.businessId ?? null,
    businessSlug: context.businessSlug ?? null,
    httpStatus: response.status,
+   durationMs: durationMs(startedAt),
    googleError: result.error ?? null,
    googleErrorDescription: result.error_description ?? null,
    hasAuthorizationCode: Boolean(context.codePresent),
@@ -184,15 +192,24 @@ async function tokenRequest(params: URLSearchParams, context: { stage: string; b
    googleAdsDeveloperTokenConfigured: Boolean(credentials().developerToken),
    refreshTokenReturned: Boolean(result.refresh_token),
    accessTokenReturned: Boolean(result.access_token),
+   responseBody: {
+    error: result.error ?? null,
+    error_description: result.error_description ?? null,
+    access_token_returned: Boolean(result.access_token),
+    refresh_token_returned: Boolean(result.refresh_token),
+   },
   });
   throw new Error(result.error_description || result.error || "Google Ads authorization failed.");
  }
  logGoogleAdsDiagnostic("Google Ads OAuth request completed", {
   stage: context.stage,
   provider: "google_oauth",
+  endpointHost: "oauth2.googleapis.com",
+  endpointPath: "/token",
   businessId: context.businessId ?? null,
   businessSlug: context.businessSlug ?? null,
   httpStatus: response.status,
+  durationMs: durationMs(startedAt),
   hasAuthorizationCode: Boolean(context.codePresent),
   hasRedirectUri: Boolean(redirectUri),
   redirectUri,
@@ -245,6 +262,9 @@ export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
 async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
  const { developerToken } = credentials();
  if (!developerToken) throw new Error("Google Ads developer token is not configured.");
+ const startedAt = now();
+ const requestUrl = `${adsApiBase}${path}`;
+ const targetCustomerId = input.customerId ?? null;
  const headers: Record<string, string> = {
   Authorization: `Bearer ${input.accessToken}`,
   "developer-token": developerToken,
@@ -252,6 +272,15 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
  };
  const loginCustomerId = input.loginCustomerId === undefined ? input.customerId ?? null : input.loginCustomerId;
  if (loginCustomerId) headers["login-customer-id"] = stripCustomerId(loginCustomerId);
+ logGoogleAdsDiagnostic("Google Ads API request started", {
+  stage: "google_ads_api_request",
+  provider: "google_ads_api",
+  endpointHost: "googleads.googleapis.com",
+  endpointPath: path,
+  method: input.method || "POST",
+  customerId: targetCustomerId,
+  loginCustomerId,
+ });
  const response = await fetch(`${adsApiBase}${path}`, {
   method: input.method || "POST",
   headers,
@@ -278,9 +307,12 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   logGoogleAdsErrorDiagnostic("Google Ads API request failed", {
    stage: "google_ads_api_request",
    provider: "google_ads_api",
+   endpointHost: "googleads.googleapis.com",
+   endpointPath: path,
    httpStatus: response.status,
-   requestPath: `${adsApiBase}${path}`,
+   requestPath: requestUrl,
    method: input.method || "POST",
+   durationMs: durationMs(startedAt),
    loginCustomerId,
    targetCustomerId: input.customerId ?? null,
    googleErrorCode: result.error?.code ?? null,
@@ -301,6 +333,17 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    targetCustomerId: input.customerId ?? null,
   });
  }
+ logGoogleAdsDiagnostic("Google Ads API request completed", {
+  stage: "google_ads_api_request",
+  provider: "google_ads_api",
+  endpointHost: "googleads.googleapis.com",
+  endpointPath: path,
+  method: input.method || "POST",
+  httpStatus: response.status,
+  durationMs: durationMs(startedAt),
+  customerId: targetCustomerId,
+  loginCustomerId,
+ });
  return result;
 }
 
@@ -571,6 +614,12 @@ export async function storeGoogleAdsConnection(input: {
 }) {
  const db = getSupabaseAdmin();
  if (!db) throw new Error("Google Ads connection storage is unavailable.");
+ logGoogleAdsDiagnostic("Google Ads connection persistence started", {
+  stage: "persist_connection",
+  provider: "supabase",
+  businessId: input.businessId,
+  businessSlug: null,
+ });
  const selected = input.selectedCustomerId && input.customers.some((customer) => customer.id === input.selectedCustomerId)
   ? input.selectedCustomerId
   : input.customers.length === 1
@@ -588,6 +637,15 @@ export async function storeGoogleAdsConnection(input: {
   updated_at: new Date().toISOString(),
  }, { onConflict: "business_id" });
  if (error) throw new Error("Google Ads connection could not be saved. Apply the Google Ads migration.");
+ logGoogleAdsDiagnostic("Google Ads connection persistence completed", {
+  stage: "persist_connection",
+  provider: "supabase",
+  status: 201,
+  businessId: input.businessId,
+  businessSlug: null,
+  customerCount: input.customers.length,
+  selectedCustomerId: selected,
+ });
 }
 
 export async function completeGoogleAdsOauth(code: string, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
@@ -618,10 +676,26 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
 export async function loadTenantGoogleAdsAccess(businessId: string) {
  const db = getSupabaseAdmin();
  if (!db) throw new Error("Google Ads access is unavailable.");
+ logGoogleAdsDiagnostic("Google Ads connection load started", {
+  stage: "load_google_ads_connection",
+  provider: "supabase",
+  businessId,
+  businessSlug: null,
+ });
  const { data: connection } = await db.from("business_google_ads_connections")
-  .select("refresh_token,google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status")
+ .select("refresh_token,google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status")
   .eq("business_id", businessId)
   .maybeSingle();
+ logGoogleAdsDiagnostic("Google Ads connection load completed", {
+  stage: "load_google_ads_connection",
+  provider: "supabase",
+  status: 200,
+  businessId,
+  businessSlug: null,
+  connectionStatus: connection?.status ?? "disconnected",
+  hasRefreshToken: Boolean(connection?.refresh_token),
+  selectedCustomerId: connection?.google_ads_customer_id ?? null,
+ });
  if (!connection || connection.status === "disconnected") return null;
  try {
   const accessToken = await refreshGoogleAdsAccessToken(connection.refresh_token, { businessId });
@@ -635,6 +709,14 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
    status: connection.status as GoogleAdsConnectionStatus,
   };
  } catch (error) {
+  logGoogleAdsErrorDiagnostic("Google Ads connection refresh failed", {
+   stage: "update_connection_status",
+   provider: "supabase",
+   businessId,
+   businessSlug: null,
+   status: 400,
+   error: error instanceof Error ? error.message : "Google Ads authorization expired.",
+  });
   await db.from("business_google_ads_connections")
    .update({ status: "reauthorization_required", updated_at: new Date().toISOString() })
    .eq("business_id", businessId);
@@ -917,12 +999,27 @@ export async function writeGoogleAdsAuditLog(input: {
 }) {
  const db = getSupabaseAdmin();
  if (!db) return;
+ logGoogleAdsDiagnostic("Google Ads audit log write started", {
+  stage: "audit_event",
+  provider: "supabase",
+  businessId: input.businessId,
+  businessSlug: null,
+  eventType: input.eventType,
+ });
  await db.from("business_google_ads_audit_log").insert({
   business_id: input.businessId,
   campaign_id: input.campaignId ?? null,
   actor_user_id: input.actorUserId ?? null,
   event_type: input.eventType,
   metadata: input.metadata ?? {},
+ });
+ logGoogleAdsDiagnostic("Google Ads audit log write completed", {
+  stage: "audit_event",
+  provider: "supabase",
+  status: 201,
+  businessId: input.businessId,
+  businessSlug: null,
+  eventType: input.eventType,
  });
 }
 
@@ -935,6 +1032,13 @@ export async function recordGoogleAdsBetaEvent(input: {
 }) {
  const db = getSupabaseAdmin();
  if (!db) return;
+ logGoogleAdsDiagnostic("Google Ads beta event write started", {
+  stage: "audit_event",
+  provider: "supabase",
+  businessId: input.businessId,
+  businessSlug: typeof input.metadata?.business_slug === "string" ? input.metadata.business_slug : null,
+  eventName: input.eventName,
+ });
  const { error } = await db.from("business_google_ads_beta_events").insert({
   business_id: input.businessId,
   actor_user_id: input.actorUserId ?? null,
@@ -942,7 +1046,15 @@ export async function recordGoogleAdsBetaEvent(input: {
   event_name: input.eventName,
   metadata: input.metadata ?? {},
  });
- if (error) console.error("Google Ads beta analytics could not be recorded", { businessId: input.businessId, eventName: input.eventName, code: error.code });
+ if (error) console.error("Google Ads beta analytics could not be recorded", { stage: "audit_event", provider: "supabase", businessId: input.businessId, businessSlug: typeof input.metadata?.business_slug === "string" ? input.metadata.business_slug : null, eventName: input.eventName, code: error.code });
+ else logGoogleAdsDiagnostic("Google Ads beta event write completed", {
+  stage: "audit_event",
+  provider: "supabase",
+  status: 201,
+  businessId: input.businessId,
+  businessSlug: typeof input.metadata?.business_slug === "string" ? input.metadata.business_slug : null,
+  eventName: input.eventName,
+ });
 }
 
 export async function submitGoogleAdsBetaFeedback(input: {
