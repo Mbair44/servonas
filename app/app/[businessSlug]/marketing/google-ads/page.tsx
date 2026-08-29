@@ -119,12 +119,14 @@ export default async function GoogleAdsPage({
  const selectedCustomerId = connection?.google_ads_customer_id ?? null;
  const discoveryRetryAt = connection?.account_discovery_retry_after_at ?? null;
  const discoveryRateLimited = Number(connection?.account_discovery_last_http_status ?? 0) === 429 && connection?.account_discovery_last_google_status === "RESOURCE_EXHAUSTED";
+ const selectedAccountVerified = connection?.status === "account_access_verified";
+ const setupConnected = Boolean(connection?.status && connection.status !== "disconnected" && connection.status !== "reauthorization_required");
  const betaEventNames = new Set((betaEvents ?? []).map((event: any) => String(event.event_name)));
  const billingReady = betaEventNames.has("google_ads_billing_ready") || publishedCampaigns.length > 0;
  const latestFeedback = betaFeedback?.[0] ?? null;
  const businessInfoReady = Boolean(business.name && business.email && (business.city || business.state));
  const landingPageReady = Boolean(website?.custom_domain || website?.public_slug);
- const setupReady = Boolean(connection?.status && connection.status !== "disconnected");
+ const setupReady = setupConnected;
  const metricsTotals = publishedCampaigns.reduce((totals: { spendMicros: number; impressions: number; clicks: number; conversions: number }, campaign: any) => {
   const metric = campaign.google_campaign_id ? metricsByCampaignId.get(String(campaign.google_campaign_id)) : null;
   if (!metric) return totals;
@@ -159,7 +161,7 @@ export default async function GoogleAdsPage({
   {query.error && <div className="workspace-notice error">{query.error}</div>}
   {query.success && <div className="workspace-notice success">{query.success}</div>}
   {connectionError && <div className="workspace-notice error">{connectionError}</div>}
-  {discoveryRateLimited && <div className="workspace-notice warning">Google Ads connected, but Google temporarily limited account lookup. Try refreshing accounts in a few minutes.{discoveryRetryAt ? ` Retry after ${new Date(discoveryRetryAt).toLocaleString()}.` : ""}</div>}
+  {discoveryRateLimited && <div className="workspace-notice warning">{selectedAccountVerified ? "Google Ads is connected. Account list refresh is temporarily limited by Google, but the selected account is still accessible." : "Google Ads connected, but Google temporarily limited account lookup. Try Refresh accounts later."}{discoveryRetryAt ? ` Retry after ${new Date(discoveryRetryAt).toLocaleString()}.` : ""}</div>}
   {googleAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Google Ads is not fully configured. Add `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, and `GOOGLE_ADS_DEVELOPER_TOKEN` before connecting tenants.</div>}
   <section className="workspace-panel google-ads-beta-hero">
    <div>
@@ -208,7 +210,12 @@ export default async function GoogleAdsPage({
    </div>
    {!connection || connection.status === "disconnected" ? <div className="google-ads-connection-actions"><a className="sv-button" href={`/api/google-ads/connect/${businessSlug}`}>Connect Google Ads</a></div> : <>
     <div className="google-ads-connection-state">
-     <strong>{connection.status === "connected" ? "Connected to Google Ads" : connection.status === "pending_selection" ? "Connected, account selection needed" : "Reauthorization required"}</strong>
+     <strong>{
+      connection.status === "account_access_verified" ? "Connected to Google Ads, selected account verified"
+      : connection.status === "account_selected" ? "Connected to Google Ads"
+      : connection.status === "oauth_connected" || connection.status === "account_discovery_pending" || connection.status === "account_discovery_rate_limited" ? "Connected, account selection needed"
+      : "Reauthorization required"
+     }</strong>
      <span>Account: {connection.google_ads_customer_id || "Not selected yet"}</span>
     </div>
     <div className="google-ads-audit-list">

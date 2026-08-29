@@ -67,6 +67,20 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /resourceNames: list\.resourceNames \?\? \[\]/);
  assert.match(file, /const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity\(token\.access_token!, token\.id_token \?\? null, context\)/);
  assert.match(file, /Direct advertiser access checks passed/);
+ assert.match(file, /"oauth_connected"/);
+ assert.match(file, /"account_discovery_pending"/);
+ assert.match(file, /"account_discovery_rate_limited"/);
+ assert.match(file, /"account_selected"/);
+ assert.match(file, /"account_access_verified"/);
+ assert.match(file, /async function validateSelectedGoogleAdsCustomerDirect/);
+ assert.match(file, /stage: "google_ads_selected_customer_direct_validation"/);
+ assert.match(file, /status: input\.status \?\? "oauth_connected"/);
+ assert.match(file, /status: selected \? "account_selected" : "account_discovery_pending"/);
+ assert.match(file, /status: nextStatus/);
+ assert.match(file, /selectedCustomerDirectAccessVerified/);
+ assert.match(file, /requestId: requestError\.requestId/);
+ assert.match(file, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
+ assert.match(file, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
 });
 
 test("google ads callback authorizes the initiating servonas user and honors owner access", async () => {
@@ -77,11 +91,14 @@ test("google ads callback authorizes the initiating servonas user and honors own
  assert.match(file, /platformAdminRole/);
  assert.match(file, /persistGoogleAdsOauthConnection/);
  assert.match(file, /discoverGoogleAdsAccounts/);
+ assert.match(file, /status: "oauth_connected"/);
+ assert.match(file, /businessSlug: saved\.businessSlug/);
+ assert.match(file, /const message = discovery\.userMessage/);
  assert.match(file, /Google Ads OAuth completion finished/);
  assert.match(file, /rootCustomerCount: discovery\.rootCustomers\.length/);
  assert.match(file, /managerCount: discovery\.rootCustomers\.filter\(\(customer\) => customer\.isManager\)\.length/);
  assert.match(file, /redirectUri: googleAdsRedirectUri\(\)/);
- assert.match(file, /Google Ads connected, but Google temporarily limited account lookup/);
+ assert.match(file, /const message = discovery\.userMessage/);
 });
 
 test("google ads discovery makes child advertisers selectable under an accessible manager", () => {
@@ -165,6 +182,11 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /const source = selected\?\.loginCustomerId \? \[selected\.loginCustomerId\] : \[\]/);
  assert.match(page, /Refresh Google Ads accounts/);
  assert.match(page, /account_discovery_retry_after_at/);
+ assert.match(page, /selectedAccountVerified/);
+ assert.match(page, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
+ assert.match(page, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
+ assert.match(page, /connection\.status === "account_access_verified"/);
+ assert.match(page, /connection\.status === "oauth_connected" \|\| connection\.status === "account_discovery_pending" \|\| connection\.status === "account_discovery_rate_limited"/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {

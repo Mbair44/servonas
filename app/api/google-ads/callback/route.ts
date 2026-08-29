@@ -75,10 +75,11 @@ export async function GET(request: Request) {
    userId: user.id,
    refreshToken: result.refreshToken,
    authenticatedIdentity: result.authenticatedIdentity,
-   status: "pending_selection",
+   status: "oauth_connected",
   });
   const discovery = await discoverGoogleAdsAccounts({
    businessId: saved.businessId,
+   businessSlug: saved.businessSlug,
    userId: user.id,
    accessToken: result.accessToken,
    authenticatedEmail: result.authenticatedIdentity.email,
@@ -111,7 +112,16 @@ export async function GET(request: Request) {
    businessId: saved.businessId,
    actorUserId: user.id,
    eventName: discovery.ok ? "google_ads_connected" : "google_ads_connected_discovery_pending",
-   metadata: { business_slug: saved.businessSlug, customer_count: discovery.customers.length, authenticated_email: result.authenticatedIdentity.email, authenticated_name: result.authenticatedIdentity.name, timestamp: new Date().toISOString() },
+   metadata: {
+    business_slug: saved.businessSlug,
+    customer_count: discovery.customers.length,
+    authenticated_email: result.authenticatedIdentity.email,
+    authenticated_name: result.authenticatedIdentity.name,
+    discovery_status: discovery.status,
+    selected_customer_id: discovery.selectedCustomerId,
+    selected_customer_direct_access_verified: discovery.selectedCustomerDirectAccessVerified,
+    timestamp: new Date().toISOString(),
+   },
   });
   if (discovery.ok && !discovery.customers.length) {
    await recordGoogleAdsBetaEvent({
@@ -121,11 +131,7 @@ export async function GET(request: Request) {
     metadata: { business_slug: saved.businessSlug, timestamp: new Date().toISOString() },
     });
   }
-  const message = !discovery.ok
-   ? "Google Ads connected, but Google temporarily limited account lookup. Try refreshing accounts in a few minutes."
-   : discovery.customers.length === 1
-    ? `Google Ads connected. Account ${discovery.customers[0].label} is ready.`
-    : "Google Ads connected. Select which Google Ads account this business should use.";
+  const message = discovery.userMessage;
   return NextResponse.redirect(destination(saved.businessSlug, "success", message));
  } catch (error) {
   return NextResponse.redirect(destination(saved.businessSlug, "error", error instanceof Error ? error.message : "Google Ads connection failed."));
