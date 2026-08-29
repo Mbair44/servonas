@@ -34,6 +34,13 @@ test("google ads account hierarchy migration stores login customer and discovere
  assert.match(migration, /selectable_customer_details jsonb/);
 });
 
+test("google ads discovery cache migration stores retry metadata for quota-limited account lookup", async () => {
+ const migration = await read("../supabase/migrations/20260828000400_google_ads_discovery_cache.sql");
+ assert.match(migration, /account_discovery_retry_after_at timestamptz/);
+ assert.match(migration, /account_discovery_last_http_status integer/);
+ assert.match(migration, /account_discovery_last_request_id text/);
+});
+
 test("google ads service includes oauth, publish, metrics, and search-term helpers", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /export const googleAdsRedirectUri/);
@@ -60,6 +67,9 @@ test("google ads callback authorizes the initiating servonas user and honors own
  assert.match(file, /business\?\.owner_user_id === user\.id/);
  assert.match(file, /canManageBusiness\(resolvedRole\)/);
  assert.match(file, /platformAdminRole/);
+ assert.match(file, /persistGoogleAdsOauthConnection/);
+ assert.match(file, /discoverGoogleAdsAccounts/);
+ assert.match(file, /Google Ads connected, but Google temporarily limited account lookup/);
 });
 
 test("google ads discovery makes child advertisers selectable under an accessible manager", () => {
@@ -120,6 +130,9 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(submit, /Servonas is building your Google Ads draft/);
  assert.match(actions, /isRedirectError/);
  assert.match(actions, /if \(isRedirectError\(error\)\) throw error;/);
+ assert.match(actions, /refreshGoogleAdsAccountsAction/);
+ assert.match(page, /Refresh Google Ads accounts/);
+ assert.match(page, /account_discovery_retry_after_at/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {

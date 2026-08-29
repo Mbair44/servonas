@@ -6,6 +6,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { canManageBusiness } from "@/lib/access";
 import {
  appendGoogleAdsNegativeKeyword,
+ discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignMetrics,
  generateGoogleAdsDraft,
@@ -60,6 +61,34 @@ export async function selectGoogleAdsCustomer(slug: string, formData: FormData) 
  await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_customer_selected", metadata: { customerId } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads account selected."));
+}
+
+export async function refreshGoogleAdsAccountsAction(slug: string) {
+ const { business, user } = await context(slug);
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ if (!connection) redirect(path(slug, "error", "Reconnect Google Ads before refreshing accounts."));
+ const result = await discoverGoogleAdsAccounts({
+  businessId: business.id,
+  userId: user.id,
+  authenticatedEmail: connection.authenticatedIdentity?.email ?? null,
+  authenticatedName: connection.authenticatedIdentity?.name ?? null,
+  force: true,
+  maxAttempts: 2,
+ });
+ await recordGoogleAdsBetaEvent({
+  businessId: business.id,
+  actorUserId: user.id,
+  eventName: "google_ads_accounts_refreshed",
+  metadata: {
+   business_slug: business.slug,
+   customer_count: result.customers.length,
+   rate_limited: !result.ok,
+   retry_after_at: result.retryAfterAt,
+   timestamp: new Date().toISOString(),
+  },
+ });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, result.ok ? "success" : "error", result.ok ? "Google Ads accounts refreshed." : "Google Ads connected, but Google temporarily limited account lookup. Try refreshing accounts in a few minutes."));
 }
 
 export async function disconnectGoogleAds(slug: string) {

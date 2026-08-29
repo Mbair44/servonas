@@ -39,6 +39,15 @@ type GoogleAdsErrorResponse = {
   details?: GoogleAdsErrorDetail[];
  };
 };
+type GoogleAdsDiscoveryState = {
+ lastSuccessfulAt: string | null;
+ lastAttemptedAt: string | null;
+ retryAfterAt: string | null;
+ lastHttpStatus: number | null;
+ lastGoogleStatus: string | null;
+ lastMessage: string | null;
+ lastRequestId: string | null;
+};
 
 export type GoogleAdsConnectionStatus = "pending_selection" | "connected" | "reauthorization_required" | "disconnected";
 export type GoogleAdsCustomer = {
@@ -54,6 +63,11 @@ export type GoogleAdsCustomer = {
 export type GoogleAdsConnectionIdentity = {
  email: string | null;
  name: string | null;
+};
+export type GoogleAdsOauthCompletionResult = {
+ refreshToken: string;
+ accessToken: string;
+ authenticatedIdentity: GoogleAdsConnectionIdentity;
 };
 export type GoogleAdsPermissionDiagnosticCheck = {
  key: "accessible_customers" | "manager_query" | "target_query_through_manager" | "manager_hierarchy";
@@ -319,6 +333,8 @@ class GoogleAdsRequestError extends Error {
  details: GoogleAdsErrorDetail[];
  loginCustomerId: string | null;
  targetCustomerId: string | null;
+ retryAfterSeconds: number | null;
+ requestId: string | null;
 
  constructor(input: {
   message: string;
@@ -327,6 +343,8 @@ class GoogleAdsRequestError extends Error {
   details?: GoogleAdsErrorDetail[];
   loginCustomerId?: string | null;
   targetCustomerId?: string | null;
+  retryAfterSeconds?: number | null;
+  requestId?: string | null;
  }) {
   super(input.message);
   this.name = "GoogleAdsRequestError";
@@ -335,11 +353,27 @@ class GoogleAdsRequestError extends Error {
   this.details = input.details ?? [];
   this.loginCustomerId = input.loginCustomerId ?? null;
   this.targetCustomerId = input.targetCustomerId ?? null;
+  this.retryAfterSeconds = input.retryAfterSeconds ?? null;
+  this.requestId = input.requestId ?? null;
  }
 }
 const limitGoogleAdsTextAssets = (values: string[], max: number) => uniqueStrings(values).slice(0, max);
 const normalizeGoogleAdsKeywords = (values: string[]) =>
  uniqueStrings(values.map(normalizeKeywordText).filter(Boolean));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const parseRetryAfterSeconds = (value: string | null) => {
+ if (!value) return null;
+ const trimmed = value.trim();
+ const numeric = Number(trimmed);
+ if (Number.isFinite(numeric) && numeric >= 0) return Math.round(numeric);
+ const date = Date.parse(trimmed);
+ return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : null;
+};
+const isoAfterSeconds = (seconds: number | null) => seconds != null ? new Date(Date.now() + seconds * 1000).toISOString() : null;
+const googleAdsRequestId = (response: Response, details: GoogleAdsErrorDetail[] | undefined) =>
+ response.headers.get("request-id")
+ || response.headers.get("x-request-id")
+ || (typeof details?.[0]?.requestId === "string" ? details[0].requestId : null);
 
 function safeNumber(value: unknown) {
  const numeric = Number(value);
@@ -643,6 +677,8 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   throw new Error(`Google Ads returned an invalid response (${response.status}).`);
  }
  if (!response.ok) {
+  const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get("retry-after"));
+  const requestId = googleAdsRequestId(response, result.error?.details);
   const sanitizedResult = result?.error ? {
    code: result.error.code ?? null,
    message: result.error.message ?? null,
@@ -663,6 +699,9 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    googleErrorCode: result.error?.code ?? null,
    googleStatus: result.error?.status ?? null,
    googleMessage: result.error?.message ?? null,
+   requestId,
+   retryAfterSeconds,
+   retryAfterAt: isoAfterSeconds(retryAfterSeconds),
    googleDetails: stableJson(sanitizedResult?.details ?? []),
    googleFailureDetails: stableJson(safeGoogleAdsFailurePayload(result.error?.details)),
    requestSummary: stableJson(summarizeMutateBody(input.body)),
@@ -688,6 +727,8 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    details: result.error?.details ?? [],
    loginCustomerId,
    targetCustomerId: input.customerId ?? null,
+   retryAfterSeconds,
+   requestId,
   });
  }
  logGoogleAdsDiagnostic("Google Ads API request completed", {
@@ -780,6 +821,126 @@ async function accessibleCustomers(accessToken: string): Promise<GoogleAdsCustom
   status: null,
   source: "direct",
  }));
+}
+
+function isRetryableGoogleAdsReadError(error: unknown) {
+ return error instanceof GoogleAdsRequestError && error.status === 429 && error.googleStatus === "RESOURCE_EXHAUSTED";
+}
+
+async function accessibleCustomersWithBackoff(accessToken: string, options: { maxAttempts?: number } = {}): Promise<GoogleAdsCustomer[]> {
+ const maxAttempts = Math.max(1, options.maxAttempts ?? 2);
+ let attempt = 0;
+ let delayMs = 1000;
+ let lastError: unknown = null;
+ while (attempt < maxAttempts) {
+  try {
+   return await accessibleCustomers(accessToken);
+  } catch (error) {
+   lastError = error;
+   attempt += 1;
+   if (!isRetryableGoogleAdsReadError(error) || attempt >= maxAttempts) throw error;
+   const retryAfterSeconds = (error as GoogleAdsRequestError).retryAfterSeconds;
+   if (retryAfterSeconds != null && retryAfterSeconds > 0) throw error;
+   await sleep(delayMs);
+   delayMs *= 2;
+  }
+ }
+ throw lastError instanceof Error ? lastError : new Error("Google Ads accessible customer lookup failed.");
+}
+
+export async function persistGoogleAdsOauthConnection(input: {
+ businessId: string;
+ userId: string;
+ refreshToken: string;
+ authenticatedIdentity?: GoogleAdsConnectionIdentity | null;
+ status?: GoogleAdsConnectionStatus;
+}) {
+ const db = getSupabaseAdmin();
+ if (!db) throw new Error("Google Ads connection storage is unavailable.");
+ const nowIso = new Date().toISOString();
+ const { error } = await db.from("business_google_ads_connections").upsert({
+  business_id: input.businessId,
+  connected_by: input.userId,
+  refresh_token: input.refreshToken,
+  google_authenticated_email: input.authenticatedIdentity?.email ?? null,
+  google_authenticated_name: input.authenticatedIdentity?.name ?? null,
+  status: input.status ?? "pending_selection",
+  updated_at: nowIso,
+  connected_at: nowIso,
+ }, { onConflict: "business_id" });
+ if (error) throw new Error("Google Ads connection could not be saved. Apply the Google Ads migration.");
+}
+
+export async function discoverGoogleAdsAccounts(input: {
+ businessId: string;
+ userId?: string | null;
+ accessToken?: string;
+ authenticatedEmail?: string | null;
+ authenticatedName?: string | null;
+ force?: boolean;
+ maxAttempts?: number;
+}) {
+  const db = getSupabaseAdmin();
+ if (!db) throw new Error("Google Ads access is unavailable.");
+ const { data: connection } = await db.from("business_google_ads_connections")
+  .select("connected_by,refresh_token,google_ads_customer_id,account_discovery_retry_after_at,google_authenticated_email,google_authenticated_name")
+  .eq("business_id", input.businessId)
+  .maybeSingle();
+ if (!connection?.refresh_token && !input.accessToken) throw new Error("Reconnect Google Ads before refreshing accounts.");
+ const retryAfterAt = typeof connection?.account_discovery_retry_after_at === "string" ? connection.account_discovery_retry_after_at : null;
+ if (!input.force && retryAfterAt && new Date(retryAfterAt).getTime() > Date.now()) {
+  return { ok: false as const, rateLimited: true, retryAfterAt, customers: [] as GoogleAdsCustomer[], rootCustomers: [] as GoogleAdsCustomer[] };
+ }
+ const accessToken = input.accessToken ?? await refreshGoogleAdsAccessToken(connection!.refresh_token, { businessId: input.businessId });
+ const nowIso = new Date().toISOString();
+ try {
+  const rootCustomers = await accessibleCustomersWithBackoff(accessToken, { maxAttempts: input.maxAttempts ?? 2 });
+  const hydratedRootCustomers = await Promise.all(rootCustomers.map((customer) => googleAdsCustomerSummary(customer.id, accessToken)));
+  const hierarchyByManager = Object.fromEntries(await Promise.all(
+   hydratedRootCustomers.filter((customer) => customer.isManager).map(async (customer) => [customer.id, await googleAdsManagerHierarchy(customer.id, accessToken)] as const),
+  ));
+  const { selectableCustomers } = mergeGoogleAdsSelectableCustomers(hydratedRootCustomers, hierarchyByManager);
+  const selectedCustomerId = typeof connection?.google_ads_customer_id === "string" ? connection.google_ads_customer_id : null;
+  await storeGoogleAdsConnection({
+   businessId: input.businessId,
+   userId: input.userId ?? connection?.connected_by ?? "",
+   refreshToken: connection?.refresh_token ?? "",
+   customers: selectableCustomers,
+   rootCustomers: hydratedRootCustomers,
+   selectedCustomerId,
+   authenticatedIdentity: { email: input.authenticatedEmail ?? connection?.google_authenticated_email ?? null, name: input.authenticatedName ?? connection?.google_authenticated_name ?? null },
+  });
+  return { ok: true as const, rateLimited: false, retryAfterAt: null, customers: selectableCustomers, rootCustomers: hydratedRootCustomers };
+ } catch (error) {
+  if (isRetryableGoogleAdsReadError(error)) {
+   const requestError = error as GoogleAdsRequestError;
+   const retryAfter = requestError.retryAfterSeconds ?? 300;
+   const nextRetryAt = isoAfterSeconds(retryAfter);
+   logGoogleAdsErrorDiagnostic("Google Ads account discovery rate limited", {
+    stage: "google_ads_account_discovery",
+    endpoint: "/customers:listAccessibleCustomers",
+    authenticatedGoogleEmail: input.authenticatedEmail ?? connection?.google_authenticated_email ?? null,
+    httpStatus: requestError.status,
+    googleStatus: requestError.googleStatus,
+    message: requestError.message,
+    requestId: requestError.requestId,
+    retryAfterSeconds: requestError.retryAfterSeconds,
+    retryAfterAt: nextRetryAt,
+   });
+   await db.from("business_google_ads_connections").update({
+    status: "pending_selection",
+    account_discovery_last_attempted_at: nowIso,
+    account_discovery_retry_after_at: nextRetryAt,
+    account_discovery_last_http_status: requestError.status,
+    account_discovery_last_google_status: requestError.googleStatus,
+    account_discovery_last_message: requestError.message,
+    account_discovery_last_request_id: requestError.requestId,
+    updated_at: nowIso,
+   }).eq("business_id", input.businessId);
+   return { ok: false as const, rateLimited: true, retryAfterAt: nextRetryAt, customers: [] as GoogleAdsCustomer[], rootCustomers: [] as GoogleAdsCustomer[] };
+  }
+  throw error;
+ }
 }
 
 function parseGoogleAdsCustomerRow(row: Record<string, unknown> | undefined, fallbackId: string): GoogleAdsCustomer {
@@ -1092,6 +1253,13 @@ export async function storeGoogleAdsConnection(input: {
   accessible_customer_labels: Object.fromEntries(input.customers.map((customer) => [customer.id, customer.label])),
   selectable_customer_details: input.customers,
   status: selected ? "connected" : "pending_selection",
+  account_discovery_last_successful_at: input.customers.length ? new Date().toISOString() : null,
+  account_discovery_last_attempted_at: new Date().toISOString(),
+  account_discovery_retry_after_at: null,
+  account_discovery_last_http_status: input.customers.length ? 200 : null,
+  account_discovery_last_google_status: null,
+  account_discovery_last_message: null,
+  account_discovery_last_request_id: null,
   connected_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
  }, { onConflict: "business_id" });
@@ -1118,14 +1286,6 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
  });
  const token = await exchangeGoogleAdsCode(code, context);
  if (!token.refresh_token) throw new Error("Google did not provide long-term Google Ads access. Remove Servonas from Google permissions and connect again.");
- const rootCustomers = await accessibleCustomers(token.access_token!);
- const hydratedRootCustomers = await Promise.all(rootCustomers.map((customer) => googleAdsCustomerSummary(customer.id, token.access_token!)));
- const hierarchyByManager = Object.fromEntries(await Promise.all(
-  hydratedRootCustomers
-   .filter((customer) => customer.isManager)
-   .map(async (customer) => [customer.id, await googleAdsManagerHierarchy(customer.id, token.access_token!)] as const),
- ));
- const { selectableCustomers, discoveredManagerAccounts } = mergeGoogleAdsSelectableCustomers(hydratedRootCustomers, hierarchyByManager);
  const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity(token.access_token!, context);
  logGoogleAdsDiagnostic("Google Ads OAuth completion finished", {
   stage: "google_ads_oauth_completion",
@@ -1135,13 +1295,13 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
   redirectUri: googleAdsRedirectUri(),
   refreshTokenReturned: Boolean(token.refresh_token),
   accessTokenReturned: Boolean(token.access_token),
-  customerCount: selectableCustomers.length,
-  rootCustomerCount: hydratedRootCustomers.length,
-  managerCount: discoveredManagerAccounts.length,
+  customerCount: 0,
+  rootCustomerCount: 0,
+  managerCount: 0,
   authenticatedEmail: authenticatedIdentity.email,
   authenticatedNamePresent: Boolean(authenticatedIdentity.name),
  });
- return { refreshToken: token.refresh_token, customers: selectableCustomers, rootCustomers: hydratedRootCustomers, authenticatedIdentity };
+ return { refreshToken: token.refresh_token, accessToken: token.access_token!, authenticatedIdentity };
 }
 
 export async function loadTenantGoogleAdsAccess(businessId: string) {
@@ -1154,7 +1314,7 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
   businessSlug: null,
  });
  const { data: connection } = await db.from("business_google_ads_connections")
- .select("refresh_token,google_ads_customer_id,login_customer_id,accessible_customer_ids,accessible_customer_labels,accessible_root_customer_ids,accessible_root_customer_labels,selectable_customer_details,status,google_authenticated_email,google_authenticated_name")
+ .select("refresh_token,google_ads_customer_id,login_customer_id,accessible_customer_ids,accessible_customer_labels,accessible_root_customer_ids,accessible_root_customer_labels,selectable_customer_details,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id")
   .eq("business_id", businessId)
   .maybeSingle();
  logGoogleAdsDiagnostic("Google Ads connection load completed", {
@@ -1198,9 +1358,18 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
       isManager: false,
       level: 0,
       status: null,
-      source: "direct" as const,
+     source: "direct" as const,
      })),
    status: connection.status as GoogleAdsConnectionStatus,
+   discoveryState: {
+    lastSuccessfulAt: typeof connection.account_discovery_last_successful_at === "string" ? connection.account_discovery_last_successful_at : null,
+    lastAttemptedAt: typeof connection.account_discovery_last_attempted_at === "string" ? connection.account_discovery_last_attempted_at : null,
+    retryAfterAt: typeof connection.account_discovery_retry_after_at === "string" ? connection.account_discovery_retry_after_at : null,
+    lastHttpStatus: Number.isFinite(Number(connection.account_discovery_last_http_status)) ? Number(connection.account_discovery_last_http_status) : null,
+    lastGoogleStatus: typeof connection.account_discovery_last_google_status === "string" ? connection.account_discovery_last_google_status : null,
+    lastMessage: typeof connection.account_discovery_last_message === "string" ? connection.account_discovery_last_message : null,
+    lastRequestId: typeof connection.account_discovery_last_request_id === "string" ? connection.account_discovery_last_request_id : null,
+   } satisfies GoogleAdsDiscoveryState,
   };
  } catch (error) {
   logGoogleAdsErrorDiagnostic("Google Ads connection refresh failed", {

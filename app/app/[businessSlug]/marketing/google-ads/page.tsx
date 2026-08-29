@@ -17,6 +17,7 @@ import {
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
+ refreshGoogleAdsAccountsAction,
  refreshGoogleAdsCampaignsAction,
  runGoogleAdsPermissionDiagnosticAction,
  selectGoogleAdsCustomer,
@@ -63,7 +64,7 @@ export default async function GoogleAdsPage({
   supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("sort_order").order("name"),
   supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
   supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle(),
-  supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name").eq("business_id", business.id).maybeSingle(),
+  supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false }),
   supabase.from("business_google_ads_audit_log").select("event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(8),
   supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
@@ -116,6 +117,8 @@ export default async function GoogleAdsPage({
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
  const selectedCustomerId = connection?.google_ads_customer_id ?? null;
+ const discoveryRetryAt = connection?.account_discovery_retry_after_at ?? null;
+ const discoveryRateLimited = Number(connection?.account_discovery_last_http_status ?? 0) === 429 && connection?.account_discovery_last_google_status === "RESOURCE_EXHAUSTED";
  const betaEventNames = new Set((betaEvents ?? []).map((event: any) => String(event.event_name)));
  const billingReady = betaEventNames.has("google_ads_billing_ready") || publishedCampaigns.length > 0;
  const latestFeedback = betaFeedback?.[0] ?? null;
@@ -156,6 +159,7 @@ export default async function GoogleAdsPage({
   {query.error && <div className="workspace-notice error">{query.error}</div>}
   {query.success && <div className="workspace-notice success">{query.success}</div>}
   {connectionError && <div className="workspace-notice error">{connectionError}</div>}
+  {discoveryRateLimited && <div className="workspace-notice warning">Google Ads connected, but Google temporarily limited account lookup. Try refreshing accounts in a few minutes.{discoveryRetryAt ? ` Retry after ${new Date(discoveryRetryAt).toLocaleString()}.` : ""}</div>}
   {googleAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Google Ads is not fully configured. Add `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, and `GOOGLE_ADS_DEVELOPER_TOKEN` before connecting tenants.</div>}
   <section className="workspace-panel google-ads-beta-hero">
    <div>
@@ -224,7 +228,7 @@ export default async function GoogleAdsPage({
      <button className="sv-button sv-secondary">Save account</button>
     </form>}
     {!customerChoices.length && <div className="workspace-notice warning">No Google Ads accounts were returned for this login. If you do not have one yet, create it in Google first, then reconnect it here.</div>}
-    {!customerChoices.length && <div className="google-ads-connection-actions"><a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a></div>}
+    <div className="google-ads-connection-actions"><form action={refreshGoogleAdsAccountsAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Refresh Google Ads accounts</button></form>{!customerChoices.length && <a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a>}</div>
     <div className="google-ads-connection-actions">
      <a className="sv-button sv-secondary" href={`/api/google-ads/connect/${businessSlug}`}>Reconnect with another Google account</a>
      <form action={runGoogleAdsPermissionDiagnosticAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Test Google Ads access</button></form>

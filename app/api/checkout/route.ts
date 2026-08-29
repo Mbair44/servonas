@@ -169,6 +169,7 @@ export async function POST(request: Request) {
       await Promise.allSettled([
         snapshotBookingAttribution(supabase,{businessId:business.id,bookingId:booking.booking_id,sessionId}),
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"booking_started",bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length},bookingTotalCents:totalCents,currency:"USD"}),
+        recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"checkout_started",bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length,source:"server_booking_created"},bookingTotalCents:totalCents,currency:"USD"}),
       ]);
     }
     if(!onlinePaymentsReady||depositCents===0){
@@ -185,7 +186,10 @@ export async function POST(request: Request) {
       if(!emailResult.ok)console.error("Invoice-later rental confirmation email was not delivered",{bookingId:booking.booking_id,reason:emailResult.error});
       const businessEmailResult=await sendRentalBookingBusinessNotification(booking.booking_id,jobId);
       if(!businessEmailResult.ok)console.error("Invoice-later rental business notification was not delivered",{bookingId:booking.booking_id,reason:businessEmailResult.error});
-      if(business)await recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId, event:"booking_completed",eventKey:`${booking.booking_id}:booking_completed`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{payment_mode:"invoice_later",item_count:orderedItems.length},bookingTotalCents:totalCents,amountPaidCents:0,currency:"USD"});
+      if(business)await Promise.allSettled([
+        recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId,event:"booking_completed",eventKey:`${booking.booking_id}:booking_completed`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{payment_mode:"invoice_later",item_count:orderedItems.length},bookingTotalCents:totalCents,amountPaidCents:0,currency:"USD"}),
+        recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId,event:"lead_submitted",eventKey:`${booking.booking_id}:lead_submitted`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{payment_mode:"invoice_later",item_count:orderedItems.length},bookingTotalCents:totalCents,currency:"USD"}),
+      ]);
       return NextResponse.json({paymentMode:"invoice_later",bookingId:booking.booking_id,bookingNumber:booking.booking_number});
     }
     const stripe = new Stripe(stripeKey!);
