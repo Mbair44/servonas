@@ -49,7 +49,14 @@ type GoogleAdsDiscoveryState = {
  lastRequestId: string | null;
 };
 
-export type GoogleAdsConnectionStatus = "pending_selection" | "connected" | "reauthorization_required" | "disconnected";
+export type GoogleAdsConnectionStatus =
+ "oauth_connected"
+ | "account_discovery_pending"
+ | "account_discovery_rate_limited"
+ | "account_selected"
+ | "account_access_verified"
+ | "reauthorization_required"
+ | "disconnected";
 export type GoogleAdsCustomer = {
  id: string;
  label: string;
@@ -68,6 +75,21 @@ export type GoogleAdsOauthCompletionResult = {
  refreshToken: string;
  accessToken: string;
  authenticatedIdentity: GoogleAdsConnectionIdentity;
+};
+type GoogleAdsDiscoveryResult = {
+ ok: boolean;
+ rateLimited: boolean;
+ retryAfterAt: string | null;
+ customers: GoogleAdsCustomer[];
+ rootCustomers: GoogleAdsCustomer[];
+ selectedCustomerPreserved: boolean;
+ selectedCustomerDirectAccessVerified: boolean;
+ selectedCustomerId: string | null;
+ status: GoogleAdsConnectionStatus;
+ userMessage: string;
+ requestId: string | null;
+ googleStatus: string | null;
+ googleMessage: string | null;
 };
 export type GoogleAdsPermissionDiagnosticCheck = {
  key: "accessible_customers" | "manager_query" | "target_query_through_manager" | "manager_hierarchy";
@@ -904,32 +926,95 @@ export async function persistGoogleAdsOauthConnection(input: {
   refresh_token: input.refreshToken,
   google_authenticated_email: input.authenticatedIdentity?.email ?? null,
   google_authenticated_name: input.authenticatedIdentity?.name ?? null,
-  status: input.status ?? "pending_selection",
+  status: input.status ?? "oauth_connected",
   updated_at: nowIso,
   connected_at: nowIso,
  }, { onConflict: "business_id" });
  if (error) throw new Error("Google Ads connection could not be saved. Apply the Google Ads migration.");
 }
 
+async function validateSelectedGoogleAdsCustomerDirect(input: {
+ accessToken: string;
+ customerId: string;
+ businessId: string;
+ businessSlug?: string | null;
+}) {
+ const startedAt = now();
+ try {
+  const result = await googleAdsSearch(
+   input.customerId,
+   input.accessToken,
+   "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1",
+   null,
+  );
+  logGoogleAdsDiagnostic("Google Ads selected customer direct validation completed", {
+   stage: "google_ads_selected_customer_direct_validation",
+   provider: "google_ads_api",
+   businessId: input.businessId,
+   businessSlug: input.businessSlug ?? null,
+   customerId: input.customerId,
+   loginCustomerId: null,
+   httpStatus: 200,
+   durationMs: durationMs(startedAt),
+   resultCount: Array.isArray(result.results) ? result.results.length : 0,
+  });
+  return true;
+ } catch (error) {
+  const requestError = error instanceof GoogleAdsRequestError ? error : null;
+  logGoogleAdsErrorDiagnostic("Google Ads selected customer direct validation failed", {
+   stage: "google_ads_selected_customer_direct_validation",
+   provider: "google_ads_api",
+   businessId: input.businessId,
+   businessSlug: input.businessSlug ?? null,
+   customerId: input.customerId,
+   loginCustomerId: null,
+   httpStatus: requestError?.status ?? null,
+   googleStatus: requestError?.googleStatus ?? null,
+   googleMessage: error instanceof Error ? error.message : "Unknown error",
+   requestId: requestError?.requestId ?? null,
+   durationMs: durationMs(startedAt),
+  });
+  return false;
+ }
+}
+
 export async function discoverGoogleAdsAccounts(input: {
  businessId: string;
+ businessSlug?: string | null;
  userId?: string | null;
  accessToken?: string;
  authenticatedEmail?: string | null;
  authenticatedName?: string | null;
  force?: boolean;
  maxAttempts?: number;
-}) {
+}): Promise<GoogleAdsDiscoveryResult> {
   const db = getSupabaseAdmin();
  if (!db) throw new Error("Google Ads access is unavailable.");
  const { data: connection } = await db.from("business_google_ads_connections")
-  .select("connected_by,refresh_token,google_ads_customer_id,account_discovery_retry_after_at,google_authenticated_email,google_authenticated_name")
+ .select("connected_by,refresh_token,google_ads_customer_id,account_discovery_retry_after_at,google_authenticated_email,google_authenticated_name")
   .eq("business_id", input.businessId)
   .maybeSingle();
  if (!connection?.refresh_token && !input.accessToken) throw new Error("Reconnect Google Ads before refreshing accounts.");
  const retryAfterAt = typeof connection?.account_discovery_retry_after_at === "string" ? connection.account_discovery_retry_after_at : null;
  if (!input.force && retryAfterAt && new Date(retryAfterAt).getTime() > Date.now()) {
-  return { ok: false as const, rateLimited: true, retryAfterAt, customers: [] as GoogleAdsCustomer[], rootCustomers: [] as GoogleAdsCustomer[] };
+  const selectedCustomerId = typeof connection?.google_ads_customer_id === "string" ? connection.google_ads_customer_id : null;
+  return {
+   ok: false,
+   rateLimited: true,
+   retryAfterAt,
+   customers: [],
+   rootCustomers: [],
+   selectedCustomerPreserved: Boolean(selectedCustomerId),
+   selectedCustomerDirectAccessVerified: false,
+   selectedCustomerId,
+   status: selectedCustomerId ? "account_selected" : "account_discovery_rate_limited",
+   userMessage: selectedCustomerId
+    ? "Google Ads is connected. Account list refresh is temporarily limited by Google, but the selected account is still available."
+    : "Google Ads connected, but Google temporarily limited account lookup. Try Refresh accounts later.",
+   requestId: null,
+   googleStatus: "RESOURCE_EXHAUSTED",
+   googleMessage: "Google account discovery is temporarily rate limited.",
+  };
  }
  const accessToken = input.accessToken ?? await refreshGoogleAdsAccessToken(connection!.refresh_token, { businessId: input.businessId });
  const nowIso = new Date().toISOString();
@@ -950,14 +1035,49 @@ export async function discoverGoogleAdsAccounts(input: {
    selectedCustomerId,
    authenticatedIdentity: { email: input.authenticatedEmail ?? connection?.google_authenticated_email ?? null, name: input.authenticatedName ?? connection?.google_authenticated_name ?? null },
   });
-  return { ok: true as const, rateLimited: false, retryAfterAt: null, customers: selectableCustomers, rootCustomers: hydratedRootCustomers };
+  return {
+   ok: true,
+   rateLimited: false,
+   retryAfterAt: null,
+   customers: selectableCustomers,
+   rootCustomers: hydratedRootCustomers,
+   selectedCustomerPreserved: Boolean(selectedCustomerId && selectableCustomers.some((customer) => customer.id === selectedCustomerId)),
+   selectedCustomerDirectAccessVerified: false,
+   selectedCustomerId,
+   status: selectedCustomerId
+    ? (selectableCustomers.some((customer) => customer.id === selectedCustomerId) ? "account_selected" : "account_discovery_pending")
+    : (selectableCustomers.length === 1 ? "account_selected" : "account_discovery_pending"),
+   userMessage: selectableCustomers.length === 1
+    ? `Google Ads connected. Account ${selectableCustomers[0].label} is ready.`
+    : "Google Ads connected. Select which Google Ads account this business should use.",
+   requestId: null,
+   googleStatus: null,
+   googleMessage: null,
+  };
  } catch (error) {
   if (isRetryableGoogleAdsReadError(error)) {
    const requestError = error as GoogleAdsRequestError;
    const retryAfter = requestError.retryAfterSeconds ?? 300;
    const nextRetryAt = isoAfterSeconds(retryAfter);
+   const selectedCustomerId = typeof connection?.google_ads_customer_id === "string" ? connection.google_ads_customer_id : null;
+   const selectedCustomerDirectAccessVerified = selectedCustomerId
+    ? await validateSelectedGoogleAdsCustomerDirect({
+      accessToken,
+      customerId: selectedCustomerId,
+      businessId: input.businessId,
+      businessSlug: input.businessSlug ?? null,
+     })
+    : false;
+   const nextStatus: GoogleAdsConnectionStatus = selectedCustomerDirectAccessVerified
+    ? "account_access_verified"
+    : selectedCustomerId
+     ? "account_selected"
+     : "account_discovery_rate_limited";
    logGoogleAdsErrorDiagnostic("Google Ads account discovery rate limited", {
     stage: "google_ads_account_discovery",
+    provider: "google_ads_api",
+    businessId: input.businessId,
+    businessSlug: input.businessSlug ?? null,
     endpoint: "/customers:listAccessibleCustomers",
     authenticatedGoogleEmail: input.authenticatedEmail ?? connection?.google_authenticated_email ?? null,
     httpStatus: requestError.status,
@@ -968,7 +1088,7 @@ export async function discoverGoogleAdsAccounts(input: {
     retryAfterAt: nextRetryAt,
    });
    await db.from("business_google_ads_connections").update({
-    status: "pending_selection",
+    status: nextStatus,
     account_discovery_last_attempted_at: nowIso,
     account_discovery_retry_after_at: nextRetryAt,
     account_discovery_last_http_status: requestError.status,
@@ -977,7 +1097,25 @@ export async function discoverGoogleAdsAccounts(input: {
     account_discovery_last_request_id: requestError.requestId,
     updated_at: nowIso,
    }).eq("business_id", input.businessId);
-   return { ok: false as const, rateLimited: true, retryAfterAt: nextRetryAt, customers: [] as GoogleAdsCustomer[], rootCustomers: [] as GoogleAdsCustomer[] };
+   return {
+    ok: false,
+    rateLimited: true,
+    retryAfterAt: nextRetryAt,
+    customers: [],
+    rootCustomers: [],
+    selectedCustomerPreserved: Boolean(selectedCustomerId),
+    selectedCustomerDirectAccessVerified,
+    selectedCustomerId,
+    status: nextStatus,
+    userMessage: selectedCustomerDirectAccessVerified
+     ? "Google Ads is connected. Account list refresh is temporarily limited by Google, but the selected account is still accessible."
+     : selectedCustomerId
+      ? "Google Ads is connected. Account list refresh is temporarily limited by Google, and the selected account could not be revalidated yet."
+      : "Google Ads connected, but Google temporarily limited account lookup. Try Refresh accounts later.",
+    requestId: requestError.requestId,
+    googleStatus: requestError.googleStatus,
+    googleMessage: requestError.message,
+   };
   }
   throw error;
  }
@@ -1293,7 +1431,7 @@ export async function storeGoogleAdsConnection(input: {
   accessible_customer_ids: input.customers.map((customer) => customer.id),
   accessible_customer_labels: Object.fromEntries(input.customers.map((customer) => [customer.id, customer.label])),
   selectable_customer_details: input.customers,
-  status: selected ? "connected" : "pending_selection",
+  status: selected ? "account_selected" : "account_discovery_pending",
   account_discovery_last_successful_at: input.customers.length ? new Date().toISOString() : null,
   account_discovery_last_attempted_at: new Date().toISOString(),
   account_discovery_retry_after_at: null,
@@ -1589,7 +1727,12 @@ export async function updateTenantGoogleAdsSelection(businessId: string, custome
   : null;
  if (!selected) throw new Error("Choose a Google Ads advertiser account that Servonas discovered from Google.");
  const { error } = await db.from("business_google_ads_connections")
-  .update({ google_ads_customer_id: customerId, login_customer_id: selected.loginCustomerId, status: "connected", updated_at: new Date().toISOString() })
+  .update({
+   google_ads_customer_id: customerId,
+   login_customer_id: selected.loginCustomerId,
+   status: selected.loginCustomerId ? "account_selected" : "account_access_verified",
+   updated_at: new Date().toISOString(),
+  })
   .eq("business_id", businessId);
  if (error) throw new Error("Google Ads account selection could not be saved.");
 }
