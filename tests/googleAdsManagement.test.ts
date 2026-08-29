@@ -45,7 +45,7 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /export const googleAdsRedirectUri/);
  assert.match(file, /export async function completeGoogleAdsOauth/);
- assert.match(file, /actorUserId: actorUserId \?\? null/);
+  assert.match(file, /actorUserId: actorUserId \?\? null/);
  assert.match(file, /customers:listAccessibleCustomers/);
  assert.match(file, /method: "GET"/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
@@ -59,6 +59,14 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /search_term_view\.search_term/);
  assert.match(file, /recordGoogleAdsBetaEvent/);
  assert.match(file, /submitGoogleAdsBetaFeedback/);
+ assert.match(file, /const googleAdsOauthScopes = \["https:\/\/www\.googleapis\.com\/auth\/adwords", "openid", "email", "profile"\]/);
+ assert.match(file, /url\.searchParams\.set\("scope", googleAdsOauthScopes\.join\(" "\)\)/);
+ assert.match(file, /id_token\?: string/);
+ assert.match(file, /identitySource: "id_token"/);
+ assert.match(file, /identitySource: "userinfo"/);
+ assert.match(file, /resourceNames: list\.resourceNames \?\? \[\]/);
+ assert.match(file, /const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity\(token\.access_token!, token\.id_token \?\? null, context\)/);
+ assert.match(file, /Direct advertiser access checks passed/);
 });
 
 test("google ads callback authorizes the initiating servonas user and honors owner access", async () => {
@@ -69,6 +77,10 @@ test("google ads callback authorizes the initiating servonas user and honors own
  assert.match(file, /platformAdminRole/);
  assert.match(file, /persistGoogleAdsOauthConnection/);
  assert.match(file, /discoverGoogleAdsAccounts/);
+ assert.match(file, /Google Ads OAuth completion finished/);
+ assert.match(file, /rootCustomerCount: discovery\.rootCustomers\.length/);
+ assert.match(file, /managerCount: discovery\.rootCustomers\.filter\(\(customer\) => customer\.isManager\)\.length/);
+ assert.match(file, /redirectUri: googleAdsRedirectUri\(\)/);
  assert.match(file, /Google Ads connected, but Google temporarily limited account lookup/);
 });
 
@@ -108,6 +120,24 @@ test("google ads discovery deduplicates direct and hierarchy children without se
  assert.deepEqual(result.selectableCustomers.map((customer) => customer.id), ["1742890521"]);
 });
 
+test("google ads direct advertisers stay direct even when a manager also exists", () => {
+ const result = mergeGoogleAdsSelectableCustomers(
+  [
+   { id: "1457771276", label: "Servonas - 145-777-1276", loginCustomerId: null, managerCustomerId: null, isManager: true, level: 0, status: null, source: "direct" },
+   { id: "1742890521", label: "Copper State Bounce - 174-289-0521", loginCustomerId: null, managerCustomerId: null, isManager: false, level: 0, status: null, source: "direct" },
+  ],
+  {
+   "1457771276": [
+    { id: "1742890521", label: "Copper State Bounce - 174-289-0521", loginCustomerId: null, managerCustomerId: null, isManager: false, level: 1, status: "ENABLED", source: "manager_hierarchy" },
+   ],
+  },
+ );
+ const customer = result.selectableCustomers.find((entry) => entry.id === "1742890521");
+ assert.equal(customer?.loginCustomerId ?? null, null);
+ assert.equal(customer?.managerCustomerId ?? null, null);
+ assert.equal(customer?.source ?? null, "direct");
+});
+
 test("google ads service defaults to a supported api version instead of sunset v20", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /supportedGoogleAdsVersions/);
@@ -131,6 +161,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /isRedirectError/);
  assert.match(actions, /if \(isRedirectError\(error\)\) throw error;/);
  assert.match(actions, /refreshGoogleAdsAccountsAction/);
+ assert.match(actions, /const selected = selectedCustomerId \? choices\.find\(\(customer\) => customer\.id === selectedCustomerId\) \?\? null : null/);
+ assert.match(actions, /const source = selected\?\.loginCustomerId \? \[selected\.loginCustomerId\] : \[\]/);
  assert.match(page, /Refresh Google Ads accounts/);
  assert.match(page, /account_discovery_retry_after_at/);
 });
