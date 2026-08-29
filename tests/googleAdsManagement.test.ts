@@ -141,3 +141,23 @@ test("google ads admin reporting page surfaces beta adoption data", async () => 
  assert.match(page, /Business rollout view/);
  assert.match(page, /Recent beta events/);
 });
+
+test("marketing funnel page preserves date controls plus requested dates and rental-item analytics", async () => {
+ const [page, css] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/funnel/page.tsx"),
+  read("../app/globals.css"),
+ ]);
+ assert.match(page, /name="from"/);
+ assert.match(page, /name="to"/);
+ assert.match(page, /name="source"/);
+ assert.match(page, /Update report/);
+ assert.match(page, /Quick filters/);
+ assert.match(page, /Requested rental dates/);
+ assert.match(page, /Jump to month/);
+ assert.match(page, /Most-clicked rental items/);
+ assert.match(page, /Customer journey/);
+ assert.match(page, /Servonas insights/);
+ assert.match(page, /Traffic source performance/);
+ assert.match(css, /marketing-requested-dates-layout/);
+ assert.match(css, /marketing-rental-item-cards/);
+});
