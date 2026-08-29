@@ -14,19 +14,25 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
  const parts=[body.sessionId,body.event];
  switch(body.event){
  case "landing_page_view":
+ case "landing_view":
   return `${body.sessionId}:landing:${clean(body.path,1000)}`;
  case "inventory_item_view":
+ case "inventory_view":
+ case "service_view":
  case "inventory_item_clicked":
+ case "booking_cta_click":
  case "check_availability_clicked":
  case "reserve_clicked":
  case "item_added_to_cart":
   parts.push(clean(body.inventoryItemId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.interaction_source??""));
   break;
  case "availability_check_started":
+ case "availability_check":
   parts.push(clean(body.path,1000),String(metadata.source_flow??""));
   break;
  case "event_date_selected":
  case "event_date_changed":
+ case "date_selected":
   parts.push(clean(body.inventoryItemId,100)||"none",String(metadata.date??""),String(metadata.range_end??""),String(metadata.source_flow??""));
   break;
  case "rental_availability_checked":
@@ -37,6 +43,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
   break;
  case "booking_started":
  case "customer_info_entered":
+ case "lead_submitted":
  case "checkout_started":
   parts.push(clean(body.path,1000),String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""));
   break;

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { canManageBusiness } from "@/lib/access";
 import { isServonasPlatformAdmin, platformAdminRole } from "@/lib/platformAccess";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { completeGoogleAdsOauth, recordGoogleAdsBetaEvent, storeGoogleAdsConnection, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
+import { completeGoogleAdsOauth, discoverGoogleAdsAccounts, persistGoogleAdsOauthConnection, recordGoogleAdsBetaEvent, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
 
 const destination = (slug: string, kind: "success" | "error", message: string) =>
  new URL(`/app/${encodeURIComponent(slug)}/marketing/google-ads?${kind}=${encodeURIComponent(message)}`, process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com");
@@ -70,43 +70,46 @@ export async function GET(request: Request) {
  });
  try {
   const result = await completeGoogleAdsOauth(code, { businessId: saved.businessId, businessSlug: saved.businessSlug });
-  const { data: existingConnection } = await supabase
-   .from("business_google_ads_connections")
-   .select("google_ads_customer_id")
-   .eq("business_id", saved.businessId)
-   .maybeSingle();
-  await storeGoogleAdsConnection({
+  await persistGoogleAdsOauthConnection({
    businessId: saved.businessId,
    userId: user.id,
    refreshToken: result.refreshToken,
-   customers: result.customers,
-   rootCustomers: result.rootCustomers,
    authenticatedIdentity: result.authenticatedIdentity,
-   selectedCustomerId: existingConnection?.google_ads_customer_id ?? null,
+   status: "pending_selection",
+  });
+  const discovery = await discoverGoogleAdsAccounts({
+   businessId: saved.businessId,
+   userId: user.id,
+   accessToken: result.accessToken,
+   authenticatedEmail: result.authenticatedIdentity.email,
+   authenticatedName: result.authenticatedIdentity.name,
+   maxAttempts: 1,
   });
   await writeGoogleAdsAuditLog({
    businessId: saved.businessId,
    actorUserId: user.id,
    eventType: "google_ads_connected",
-   metadata: { customerCount: result.customers.length, authenticatedEmail: result.authenticatedIdentity.email, authenticatedName: result.authenticatedIdentity.name },
+   metadata: { discovery_completed: discovery.ok, customerCount: discovery.customers.length, authenticatedEmail: result.authenticatedIdentity.email, authenticatedName: result.authenticatedIdentity.name },
   });
   await recordGoogleAdsBetaEvent({
    businessId: saved.businessId,
    actorUserId: user.id,
-   eventName: "google_ads_connected",
-   metadata: { business_slug: saved.businessSlug, customer_count: result.customers.length, authenticated_email: result.authenticatedIdentity.email, authenticated_name: result.authenticatedIdentity.name, timestamp: new Date().toISOString() },
+   eventName: discovery.ok ? "google_ads_connected" : "google_ads_connected_discovery_pending",
+   metadata: { business_slug: saved.businessSlug, customer_count: discovery.customers.length, authenticated_email: result.authenticatedIdentity.email, authenticated_name: result.authenticatedIdentity.name, timestamp: new Date().toISOString() },
   });
-  if (!result.customers.length) {
+  if (discovery.ok && !discovery.customers.length) {
    await recordGoogleAdsBetaEvent({
     businessId: saved.businessId,
     actorUserId: user.id,
     eventName: "google_ads_account_missing",
     metadata: { business_slug: saved.businessSlug, timestamp: new Date().toISOString() },
-   });
+    });
   }
-  const message = result.customers.length === 1
-   ? `Google Ads connected. Account ${result.customers[0].label} is ready.`
-   : "Google Ads connected. Select which Google Ads account this business should use.";
+  const message = !discovery.ok
+   ? "Google Ads connected, but Google temporarily limited account lookup. Try refreshing accounts in a few minutes."
+   : discovery.customers.length === 1
+    ? `Google Ads connected. Account ${discovery.customers[0].label} is ready.`
+    : "Google Ads connected. Select which Google Ads account this business should use.";
   return NextResponse.redirect(destination(saved.businessSlug, "success", message));
  } catch (error) {
   return NextResponse.redirect(destination(saved.businessSlug, "error", error instanceof Error ? error.message : "Google Ads connection failed."));

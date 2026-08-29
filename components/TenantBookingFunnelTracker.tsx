@@ -11,23 +11,30 @@ const analyticsEnabled=publicBookingFunnelEnabled();
 const sessionTouchIntervalMs=15*60*1000;
 const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
  landing_page_view:60_000,
+ landing_view:60_000,
+ service_view:60_000,
  inventory_item_view:60_000,
+ inventory_view:60_000,
  inventory_item_clicked:60_000,
+ booking_cta_click:15_000,
  availability_check_started:15_000,
+ availability_check:15_000,
  check_availability_clicked:15_000,
  event_date_selected:5_000,
  event_date_changed:5_000,
+ date_selected:5_000,
  rental_availability_checked:5_000,
  rental_available:5_000,
  rental_unavailable:5_000,
  available_inventory_viewed:5_000,
  booking_started:15_000,
  customer_info_entered:10_000,
+ lead_submitted:10_000,
  checkout_started:15_000,
  reserve_clicked:5_000,
  item_added_to_cart:5_000,
 };
-const criticalEvents=new Set<BookingFunnelEvent>(["booking_started","customer_info_entered","checkout_started","reserve_clicked","item_added_to_cart"]);
+const criticalEvents=new Set<BookingFunnelEvent>(["booking_started","customer_info_entered","checkout_started","reserve_clicked","item_added_to_cart","lead_submitted","payment_completed"]);
 type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;referrer:string;lastSessionSyncAt?:number};
 const stored=(slug:string):Stored=>{
  const existing=localStorage.getItem(key(slug));if(existing){try{const value=JSON.parse(existing) as Stored;if(value.sessionId)return value;}catch{/* replace malformed storage */}}
