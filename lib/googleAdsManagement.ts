@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { recordAssistantProviderUsage } from "./assistant/usage";
 
-type TokenResponse = { access_token?: string; refresh_token?: string; error?: string; error_description?: string };
+type TokenResponse = { access_token?: string; refresh_token?: string; id_token?: string; error?: string; error_description?: string };
 type GoogleAdsListResponse = { resourceNames?: string[] };
 type GoogleAdsSearchStreamChunk = { results?: Record<string, unknown>[]; error?: { message?: string } };
 type GoogleUserInfoResponse = { email?: string; name?: string };
@@ -149,6 +149,7 @@ const adsApiBase = `https://googleads.googleapis.com/${googleAdsVersion}`;
 const oauthBase = "https://accounts.google.com/o/oauth2/v2/auth";
 const tokenEndpoint = "https://oauth2.googleapis.com/token";
 const googleUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo";
+const googleAdsOauthScopes = ["https://www.googleapis.com/auth/adwords", "openid", "email", "profile"];
 
 const credentials = () => ({
  clientId: process.env.GOOGLE_ADS_CLIENT_ID?.trim() || process.env.GOOGLE_BUSINESS_CLIENT_ID?.trim(),
@@ -475,8 +476,36 @@ async function refreshGoogleAdsAccessToken(refreshToken: string, context: { busi
  })).access_token!;
 }
 
-async function fetchGoogleAdsAuthenticatedIdentity(accessToken: string, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
+function parseJwtPayload(token: string) {
+ const [, payload] = token.split(".");
+ if (!payload) return null;
+ try {
+  const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+  const parsed = JSON.parse(json) as { email?: unknown; name?: unknown };
+  return {
+   email: typeof parsed.email === "string" ? parsed.email.trim() || null : null,
+   name: typeof parsed.name === "string" ? parsed.name.trim() || null : null,
+  } satisfies GoogleAdsConnectionIdentity;
+ } catch {
+  return null;
+ }
+}
+
+async function fetchGoogleAdsAuthenticatedIdentity(accessToken: string, idToken?: string | null, context: { businessId?: string | null; businessSlug?: string | null } = {}) {
  const startedAt = now();
+ const claims = idToken ? parseJwtPayload(idToken) : null;
+ if (claims?.email || claims?.name) {
+  logGoogleAdsDiagnostic("Google Ads OAuth identity resolved from ID token", {
+   stage: "google_ads_identity_lookup",
+   provider: "google_oauth",
+   businessId: context.businessId ?? null,
+   businessSlug: context.businessSlug ?? null,
+   identitySource: "id_token",
+   hasEmail: Boolean(claims.email),
+   hasName: Boolean(claims.name),
+  });
+  return claims;
+ }
  try {
   const response = await fetch(googleUserInfoEndpoint, {
    headers: { Authorization: `Bearer ${accessToken}` },
@@ -493,6 +522,7 @@ async function fetchGoogleAdsAuthenticatedIdentity(accessToken: string, context:
     durationMs: durationMs(startedAt),
     googleError: result.error ?? null,
     googleErrorDescription: result.error_description ?? null,
+    identitySource: "userinfo",
    });
    return { email: null, name: null };
   }
@@ -503,6 +533,7 @@ async function fetchGoogleAdsAuthenticatedIdentity(accessToken: string, context:
    businessSlug: context.businessSlug ?? null,
    httpStatus: response.status,
    durationMs: durationMs(startedAt),
+   identitySource: "userinfo",
    hasEmail: Boolean(result.email),
    hasName: Boolean(result.name),
   });
@@ -518,6 +549,7 @@ async function fetchGoogleAdsAuthenticatedIdentity(accessToken: string, context:
    businessSlug: context.businessSlug ?? null,
    error: error instanceof Error ? error.message : "unknown",
    durationMs: durationMs(startedAt),
+   identitySource: "userinfo",
   });
   return { email: null, name: null };
  }
@@ -811,6 +843,14 @@ async function accessibleCustomers(accessToken: string): Promise<GoogleAdsCustom
   method: "GET",
  });
  const ids = uniqueStrings((list.resourceNames ?? []).map((name) => name.split("/").pop() ?? ""));
+ logGoogleAdsDiagnostic("Google Ads accessible customers discovered", {
+  stage: "google_ads_account_discovery",
+  provider: "google_ads_api",
+  endpointPath: "/customers:listAccessibleCustomers",
+  resourceNames: list.resourceNames ?? [],
+  customerIds: ids,
+  customerCount: ids.length,
+ });
  return ids.map((id) => ({
   id,
   label: formatGoogleAdsCustomerLabel(null, id),
@@ -1053,7 +1093,7 @@ export function googleAdsOauthUrl(state: string, options?: { forceAccountSelecti
  url.searchParams.set("client_id", clientId);
  url.searchParams.set("redirect_uri", googleAdsRedirectUri());
  url.searchParams.set("response_type", "code");
- url.searchParams.set("scope", "https://www.googleapis.com/auth/adwords");
+ url.searchParams.set("scope", googleAdsOauthScopes.join(" "));
  url.searchParams.set("access_type", "offline");
  url.searchParams.set("prompt", options?.forceAccountSelection ? "select_account consent" : "consent");
  url.searchParams.set("state", state);
@@ -1061,6 +1101,7 @@ export function googleAdsOauthUrl(state: string, options?: { forceAccountSelecti
   stage: "google_ads_oauth_authorization_redirect",
   provider: "google_oauth",
   redirectUri: googleAdsRedirectUri(),
+  scopes: googleAdsOauthScopes,
   googleClientIdConfigured: Boolean(clientId),
   googleClientSecretConfigured: Boolean(credentials().clientSecret),
   googleAdsDeveloperTokenConfigured: Boolean(credentials().developerToken),
@@ -1286,21 +1327,7 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
  });
  const token = await exchangeGoogleAdsCode(code, context);
  if (!token.refresh_token) throw new Error("Google did not provide long-term Google Ads access. Remove Servonas from Google permissions and connect again.");
- const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity(token.access_token!, context);
- logGoogleAdsDiagnostic("Google Ads OAuth completion finished", {
-  stage: "google_ads_oauth_completion",
-  provider: "google_oauth",
-  businessId: context.businessId ?? null,
-  businessSlug: context.businessSlug ?? null,
-  redirectUri: googleAdsRedirectUri(),
-  refreshTokenReturned: Boolean(token.refresh_token),
-  accessTokenReturned: Boolean(token.access_token),
-  customerCount: 0,
-  rootCustomerCount: 0,
-  managerCount: 0,
-  authenticatedEmail: authenticatedIdentity.email,
-  authenticatedNamePresent: Boolean(authenticatedIdentity.name),
- });
+ const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity(token.access_token!, token.id_token ?? null, context);
  return { refreshToken: token.refresh_token, accessToken: token.access_token!, authenticatedIdentity };
 }
 
@@ -1416,6 +1443,7 @@ function diagnosticFailure(label: GoogleAdsPermissionDiagnosticCheck["label"], k
 function classifyGoogleAdsPermissionDiagnostic(checks: GoogleAdsPermissionDiagnosticCheck[]) {
  const byKey = Object.fromEntries(checks.map((check) => [check.key, check])) as Record<GoogleAdsPermissionDiagnosticCheck["key"], GoogleAdsPermissionDiagnosticCheck | undefined>;
  if (!byKey.accessible_customers?.passed) return "OAuth identity problem or Google Ads API access problem";
+ if (byKey.target_query_through_manager?.passed && !byKey.manager_query?.passed) return "Direct advertiser access checks passed. Remaining failures are likely manager-link or mutate-specific.";
  if (!byKey.manager_query?.passed) return "OAuth identity does not have usable access to the Servonas manager account or developer-token/API authorization is blocked";
  if (!byKey.manager_hierarchy?.passed) return "Servonas manager account cannot see the target advertiser in its manager hierarchy";
  if (!byKey.target_query_through_manager?.passed) return "Manager hierarchy or OAuth user permissions do not allow access to the target advertiser through the Servonas manager";
@@ -1455,6 +1483,38 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
  const accessibleRootCustomers = connection.rootCustomerChoices ?? [];
  const discoveredManagerAccounts = accessibleRootCustomers.filter((customer: GoogleAdsCustomer) => customer.isManager || customer.id === managerCustomerId);
  const discoveredAdvertiserAccounts = connection.customerChoices ?? [];
+ let directAccessPassed = false;
+ try {
+  const directTargetResult = await googleAdsSearch(targetCustomerId, connection.accessToken, "SELECT customer.id, customer.descriptive_name, customer.manager, customer.test_account FROM customer LIMIT 1");
+  const row = directTargetResult.results?.[0] ?? {};
+  directAccessPassed = true;
+  checks.push({
+   key: "target_query_through_manager",
+   label: "Direct advertiser query",
+   passed: true,
+   provider: "google_ads_api",
+   httpStatus: 200,
+   googleStatus: null,
+   googleMessage: null,
+   details: [stableJson(row) ?? "Direct advertiser query returned a row."],
+  });
+ } catch (error) {
+  checks.push(diagnosticFailure("Direct advertiser query", "target_query_through_manager", error));
+ }
+ if (!managerCustomerId) {
+  return {
+   authenticatedGoogleAccount: connection.authenticatedIdentity ?? { email: null, name: null },
+   managerCustomerId: null,
+   targetCustomerId: targetCustomerId || null,
+   accessibleCustomers,
+   accessibleRootCustomers,
+   discoveredManagerAccounts,
+   discoveredAdvertiserAccounts,
+   resolvedLoginCustomerId: null,
+   checks,
+   classification: classifyGoogleAdsPermissionDiagnostic(checks),
+  } satisfies GoogleAdsPermissionDiagnostic;
+ }
  try {
   const managerResult = await googleAdsSearch(managerCustomerId, connection.accessToken, "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1");
   const row = managerResult.results?.[0] ?? {};
@@ -1511,7 +1571,7 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
   accessibleRootCustomers,
   discoveredManagerAccounts,
   discoveredAdvertiserAccounts,
-  resolvedLoginCustomerId: managerCustomerId || null,
+  resolvedLoginCustomerId: directAccessPassed && !connection.loginCustomerId ? null : managerCustomerId || null,
   checks,
   classification: classifyGoogleAdsPermissionDiagnostic(checks),
  } satisfies GoogleAdsPermissionDiagnostic;

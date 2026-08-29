@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { canManageBusiness } from "@/lib/access";
 import { isServonasPlatformAdmin, platformAdminRole } from "@/lib/platformAccess";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { completeGoogleAdsOauth, discoverGoogleAdsAccounts, persistGoogleAdsOauthConnection, recordGoogleAdsBetaEvent, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
+import { completeGoogleAdsOauth, discoverGoogleAdsAccounts, googleAdsRedirectUri, persistGoogleAdsOauthConnection, recordGoogleAdsBetaEvent, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
 
 const destination = (slug: string, kind: "success" | "error", message: string) =>
  new URL(`/app/${encodeURIComponent(slug)}/marketing/google-ads?${kind}=${encodeURIComponent(message)}`, process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com");
@@ -84,6 +84,22 @@ export async function GET(request: Request) {
    authenticatedEmail: result.authenticatedIdentity.email,
    authenticatedName: result.authenticatedIdentity.name,
    maxAttempts: 1,
+  });
+  console.info("Google Ads OAuth completion finished", {
+   stage: "google_ads_oauth_completion",
+   provider: "google_oauth",
+   businessId: saved.businessId,
+   businessSlug: saved.businessSlug,
+   redirectUri: googleAdsRedirectUri(),
+   refreshTokenReturned: true,
+   accessTokenReturned: true,
+   rootCustomerCount: discovery.rootCustomers.length,
+   customerCount: discovery.customers.length,
+   managerCount: discovery.rootCustomers.filter((customer) => customer.isManager).length,
+   authenticatedEmail: result.authenticatedIdentity.email,
+   authenticatedNamePresent: Boolean(result.authenticatedIdentity.name),
+   discoveryCompleted: discovery.ok,
+   discoveryRateLimited: discovery.rateLimited,
   });
   await writeGoogleAdsAuditLog({
    businessId: saved.businessId,

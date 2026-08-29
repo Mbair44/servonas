@@ -35,7 +35,11 @@ const numberValue = (data: FormData, key: string) => {
 };
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
 const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
-const loginCustomerIds = (choices: Array<{ id: string }>) => googleAdsPreferredLoginCustomerIds(choices.map((customer) => customer.id));
+const loginCustomerIds = (choices: Array<{ id: string; loginCustomerId?: string | null }>, selectedCustomerId?: string | null) => {
+ const selected = selectedCustomerId ? choices.find((customer) => customer.id === selectedCustomerId) ?? null : null;
+ const source = selected?.loginCustomerId ? [selected.loginCustomerId] : [];
+ return googleAdsPreferredLoginCustomerIds(source);
+};
 const limitedLines = (data: FormData, key: string, max: number) => lines(data, key).slice(0, max);
 const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) => {
  console.info(message, payload);
@@ -272,11 +276,11 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
  logGoogleAdsAction("Google Ads action stage complete", { stage: "load_campaign", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, draftStatus: campaign.status });
  try {
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_reviewed", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
-  logGoogleAdsAction("Google Ads action stage", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, loginCustomerIds: loginCustomerIds(connection.customerChoices) });
+  logGoogleAdsAction("Google Ads action stage", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, loginCustomerIds: loginCustomerIds(connection.customerChoices, connection.customerId) });
   const published = await publishGoogleAdsCampaign({
    accessToken: connection.accessToken,
    customerId: connection.customerId,
-   loginCustomerIds: loginCustomerIds(connection.customerChoices),
+   loginCustomerIds: loginCustomerIds(connection.customerChoices, connection.customerId),
    campaignName: campaign.campaign_name,
    adGroupName: campaign.ad_group_name,
    dailyBudgetMicros: Number(campaign.daily_budget_micros),
@@ -359,7 +363,7 @@ export async function setGoogleAdsCampaignStatusAction(slug: string, campaignId:
  await updateGoogleAdsCampaignStatus({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
-  loginCustomerIds: loginCustomerIds(connection.customerChoices),
+  loginCustomerIds: loginCustomerIds(connection.customerChoices, campaign.google_ads_customer_id),
   campaignId: campaign.google_campaign_id,
   status: nextStatus,
  });
@@ -383,7 +387,7 @@ export async function updateGoogleAdsBudgetAction(slug: string, campaignId: stri
  await updateGoogleAdsCampaignBudget({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
-  loginCustomerIds: loginCustomerIds(connection.customerChoices),
+  loginCustomerIds: loginCustomerIds(connection.customerChoices, campaign.google_ads_customer_id),
   budgetResourceName: campaign.google_campaign_budget_resource_name,
   dailyBudgetMicros: Math.round(dailyBudgetDollars * 1_000_000),
  });
