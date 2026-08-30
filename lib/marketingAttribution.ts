@@ -46,12 +46,20 @@ export type FunnelEventRow={
  booking_attribution_sessions?:AttributionSessionLike|AttributionSessionLike[]|null;
 };
 
+export type AttributedBookingRow={
+ booking_id:string;
+ status:string|null;
+ total_cents:number|null;
+ booking_attribution_snapshots?:AttributionSessionLike|AttributionSessionLike[]|null;
+};
+
 export type MarketingSourceSummary={
  source:MarketingSource;
  visits:number;
  engaged:number;
  conversionStarted:number;
  leadsOrBookings:number;
+ bookings:number;
  customers:number;
  revenueCents:number;
  spendCents:number|null;
@@ -187,42 +195,44 @@ export interface MarketingSpendProvider{
  getSpendBySource(input:{businessId:string;from:string;to:string}):Promise<Partial<Record<MarketingSource,number|null>>>;
 }
 
-export function buildSourcePerformanceReport(events:FunnelEventRow[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
- const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;booking:Set<string>;revenue:number;revenueBookings:Set<string>}>();
+function bookingCountsForAnalytics(status:string|null|undefined){
+ return status==="confirmed"||status==="paid";
+}
+
+export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
+ const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;booking:Set<string>;revenue:number;}>();
  for(const row of events){
   const session=Array.isArray(row.booking_attribution_sessions)?row.booking_attribution_sessions[0]:row.booking_attribution_sessions;
   const source=normalizeMarketingSource(session);
   const sessionId=row.attribution_session_id||`${source}:anonymous`;
-  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0,revenueBookings:new Set()};
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
   const canonical=canonicalEventName(String(row.event_name));
   const eventSet=bucket.detailed.get(canonical)??new Set<string>();
   eventSet.add(sessionId);
   bucket.detailed.set(canonical,eventSet);
   if(row.customer_id)bucket.customer.add(row.customer_id);
-  if(canonical==="booking_completed"&&row.booking_id)bucket.booking.add(row.booking_id);
-  const revenueBookingId=row.booking_id??null;
-  if(canonical==="payment_completed"){
-   if(revenueBookingId&&!bucket.revenueBookings.has(revenueBookingId)){
-    bucket.revenue+=Number(row.amount_paid_cents??row.booking_total_cents??0);
-    bucket.revenueBookings.add(revenueBookingId);
-   }
-  }else if(canonical==="booking_completed"&&Number(row.booking_total_cents??0)>0&&Number(row.amount_paid_cents??0)===0){
-   if(revenueBookingId&&!bucket.revenueBookings.has(revenueBookingId)){
-    bucket.revenue+=Number(row.booking_total_cents??0);
-    bucket.revenueBookings.add(revenueBookingId);
-   }
-  }
+  sourceBuckets.set(source,bucket);
+ }
+ for(const row of bookings){
+  if(!bookingCountsForAnalytics(row.status))continue;
+  const session=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
+  const source=normalizeMarketingSource(session);
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
+  bucket.booking.add(row.booking_id);
+  bucket.revenue+=Math.max(0,Number(row.total_cents??0));
   sourceBuckets.set(source,bucket);
  }
 
  const summaries=(marketingSources.map((source)=>{
-  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0,revenueBookings:new Set()};
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
   const detailedCounts=Object.fromEntries([...bucket.detailed.entries()].map(([key,value])=>[key,value.size])) as Record<string,number>;
   const visits=detailedCounts.landing_view??0;
   const engaged=(detailedCounts.service_view??0)+(detailedCounts.inventory_view??0);
   const conversionStarted=(detailedCounts.booking_cta_click??0)+(detailedCounts.availability_check??0)+(detailedCounts.date_selected??0)+(detailedCounts.checkout_started??0);
-  const leadsOrBookings=(detailedCounts.lead_submitted??0)+(detailedCounts.booking_completed??0);
-  const customers=bucket.customer.size||detailedCounts.booking_completed||0;
+  const bookings=bucket.booking.size;
+  detailedCounts.booking_completed=bookings;
+  const leadsOrBookings=(detailedCounts.lead_submitted??0)+bookings;
+  const customers=bucket.customer.size||bookings||0;
   const spendCents=spendBySource[source]??null;
   const revenueCents=bucket.revenue;
   const roas=spendCents&&spendCents>0?revenueCents/spendCents:null;
@@ -233,7 +243,7 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],spendBySour
    const dropOffRate=index===0?null:(previous>0?Math.max(0,1-count/previous):null);
    return {key:step.key,label:step.label,count,progressFromPrevious,dropOffRate};
   });
-  const summary:MarketingSourceSummary={source,visits,engaged,conversionStarted,leadsOrBookings,customers,revenueCents,spendCents,roas,detailedCounts,stepCounts,insight:"",sampleStrength:sampleStrength(visits)};
+  const summary:MarketingSourceSummary={source,visits,engaged,conversionStarted,leadsOrBookings,bookings,customers,revenueCents,spendCents,roas,detailedCounts,stepCounts,insight:"",sampleStrength:sampleStrength(visits)};
   summary.insight=buildMarketingInsight(summary);
   return summary;
  }).filter((item)=>item.visits||item.engaged||item.leadsOrBookings||item.revenueCents||item.spendCents!=null));
