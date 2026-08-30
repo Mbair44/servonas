@@ -2,7 +2,7 @@ import type {SupabaseClient} from "@supabase/supabase-js";
 
 export const bookingFunnelEvents=["landing_page_view","inventory_item_view","inventory_item_clicked","check_availability_clicked","availability_date_selected","booking_started","customer_info_entered","checkout_started","booking_completed","availability_check_started","event_date_selected","available_inventory_viewed","rental_viewed","rental_availability_checked","rental_available","rental_unavailable","reserve_clicked","item_added_to_cart","event_date_changed","unavailable_alternative_clicked","landing_view","service_view","inventory_view","booking_cta_click","availability_check","date_selected","lead_submitted","payment_completed"] as const;
 export type BookingFunnelEvent=typeof bookingFunnelEvents[number];
-export const attributionKeys=["gclid","gbraid","wbraid","utm_source","utm_medium","utm_campaign","utm_content","utm_term"] as const;
+export const attributionKeys=["gclid","gbraid","wbraid","fbclid","utm_source","utm_medium","utm_campaign","utm_content","utm_term"] as const;
 export type AttributionValues=Partial<Record<typeof attributionKeys[number],string>>;
 
 export const bookingFunnelEventAliases={
@@ -37,9 +37,9 @@ export async function recordBookingFunnelEvent(db:SupabaseClient,input:{business
 
 export async function snapshotBookingAttribution(db:SupabaseClient,input:{businessId:string;bookingId:string;sessionId?:string|null}){
  if(!validSessionId(input.sessionId))return;
- const {data:session,error}=await db.from("booking_attribution_sessions").select("id,gclid,gbraid,wbraid,utm_source,utm_medium,utm_campaign,utm_content,utm_term").eq("business_id",input.businessId).eq("id",input.sessionId).maybeSingle();
+ const {data:session,error}=await db.from("booking_attribution_sessions").select("id,first_landing_url,first_landing_path,first_referrer,gclid,gbraid,wbraid,fbclid,utm_source,utm_medium,utm_campaign,utm_content,utm_term").eq("business_id",input.businessId).eq("id",input.sessionId).maybeSingle();
  if(error||!session)return;
- await db.from("booking_attribution_snapshots").upsert({booking_id:input.bookingId,business_id:input.businessId,attribution_session_id:session.id,gclid:session.gclid,gbraid:session.gbraid,wbraid:session.wbraid,utm_source:session.utm_source,utm_medium:session.utm_medium,utm_campaign:session.utm_campaign,utm_content:session.utm_content,utm_term:session.utm_term,updated_at:new Date().toISOString()},{onConflict:"booking_id"});
+ await db.from("booking_attribution_snapshots").upsert({booking_id:input.bookingId,business_id:input.businessId,attribution_session_id:session.id,first_landing_url:session.first_landing_url,first_landing_path:session.first_landing_path,first_referrer:session.first_referrer,gclid:session.gclid,gbraid:session.gbraid,wbraid:session.wbraid,fbclid:session.fbclid,utm_source:session.utm_source,utm_medium:session.utm_medium,utm_campaign:session.utm_campaign,utm_content:session.utm_content,utm_term:session.utm_term,updated_at:new Date().toISOString()},{onConflict:"booking_id"});
 }
 
 export function attributionFromSearch(search:URLSearchParams):AttributionValues { return Object.fromEntries(attributionKeys.map(key=>[key,clean(search.get(key))]).filter(([,value])=>Boolean(value))) as AttributionValues; }

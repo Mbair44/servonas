@@ -1,6 +1,7 @@
 import {NextResponse} from "next/server";
 import {attributionKeys,bookingFunnelEvents,validSessionId,type AttributionValues,type BookingFunnelEvent} from "@/lib/bookingFunnel";
 import {bookingFunnelEnabled} from "@/lib/optionalAnalytics";
+import {normalizeMarketingSource} from "@/lib/marketingAttribution";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {unstable_cache} from "next/cache";
 
@@ -9,7 +10,9 @@ const clean=(value:unknown,max=1000)=>typeof value==="string"?value.trim().slice
 const allowed=new Set<string>(bookingFunnelEvents.filter((event)=>event!=="booking_completed"&&event!=="payment_completed"));
 const safeMetadata=(value:unknown)=>{if(!value||typeof value!=="object"||Array.isArray(value))return {};const out:Record<string,string|number|boolean|null>={};for(const [key,item] of Object.entries(value as Record<string,unknown>)){if(!/^[a-z][a-z0-9_]{0,60}$/i.test(key))continue;if(typeof item==="string")out[key]=clean(item,200);else if(typeof item==="number"&&Number.isFinite(item))out[key]=item;else if(typeof item==="boolean"||item===null)out[key]=item;}return out;};
 const legacyClickConstraint=(error:{code?:string;message?:string;details?:string}|null)=>Boolean(error?.code==="23514"&&(error.message?.includes("booking_funnel_events_event_name_check")||error.details?.includes("booking_funnel_events_event_name_check")));
-const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryItemId?:string;metadata?:object})=>{
+const diagnosticsEnabled=()=>process.env.BOOKING_FUNNEL_DIAGNOSTICS==="1";
+const logStage=(message:string,details:Record<string,unknown>)=>{if(diagnosticsEnabled())console.info(message,details);};
+const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryItemId?:string;serviceId?:string;metadata?:object})=>{
  const metadata=safeMetadata(body.metadata);
  const parts=[body.sessionId,body.event];
  switch(body.event){
@@ -24,7 +27,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
  case "check_availability_clicked":
  case "reserve_clicked":
  case "item_added_to_cart":
-  parts.push(clean(body.inventoryItemId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.interaction_source??""));
+  parts.push(clean(body.inventoryItemId,100)||"none",clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.interaction_source??""));
   break;
  case "availability_check_started":
  case "availability_check":
@@ -33,7 +36,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
  case "event_date_selected":
  case "event_date_changed":
  case "date_selected":
-  parts.push(clean(body.inventoryItemId,100)||"none",String(metadata.date??""),String(metadata.range_end??""),String(metadata.source_flow??""));
+  parts.push(clean(body.inventoryItemId,100)||"none",clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.range_end??""),String(metadata.source_flow??""));
   break;
  case "rental_availability_checked":
  case "rental_available":
@@ -45,7 +48,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
  case "customer_info_entered":
  case "lead_submitted":
  case "checkout_started":
-  parts.push(clean(body.path,1000),String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""));
+  parts.push(clean(body.path,1000),clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""));
   break;
  default:
   return null;
@@ -58,7 +61,7 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
  if(!bookingFunnelEnabled())return new NextResponse(null,{status:204});
  const purpose=request.headers.get("purpose")||request.headers.get("x-middleware-prefetch")||"",ua=request.headers.get("user-agent")||"";
  if(/prefetch/i.test(purpose)||bots.test(ua))return new NextResponse(null,{status:204});
- const body=await request.json().catch(()=>null) as {sessionId?:string;event?:string;path?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;metadata?:object;touchSession?:boolean}|null;
+ const body=await request.json().catch(()=>null) as {sessionId?:string;event?:string;path?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;serviceId?:string;metadata?:object;touchSession?:boolean}|null;
  if(!body||!validSessionId(body.sessionId)||!body.event||!allowed.has(body.event))return NextResponse.json({error:"Invalid analytics event."},{status:400});
  const sessionId=body.sessionId as string,event=body.event as string;
  const db=getSupabaseAdmin();if(!db)return new NextResponse(null,{status:204});
@@ -68,21 +71,24 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
   const attribution=body.attribution??{},first:Record<string,unknown>={id:sessionId,business_id:businessId,first_landing_url:clean(body.landingUrl,2000)||null,first_landing_path:clean(body.path,1000)||null,first_referrer:clean(body.referrer,2000)||null,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()};
   for(const key of attributionKeys)first[key]=clean(attribution[key],500)||null;
   const sessionRow={...first,business_id:businessId};
- const {error:sessionError}=await db.from("booking_attribution_sessions").upsert(sessionRow,{onConflict:"business_id,id"});
-  if(sessionError){console.error("Booking attribution session save failed",{businessId,code:sessionError.code});return new NextResponse(null,{status:204});}
+  const {error:sessionError}=await db.from("booking_attribution_sessions").upsert(sessionRow,{onConflict:"business_id,id"});
+  if(sessionError){console.error("Booking attribution session save failed",{stage:"session_upsert",businessId,businessSlug,event,code:sessionError.code});return new NextResponse(null,{status:204});}
+  logStage("Booking funnel session upsert completed",{stage:"session_upsert",businessId,businessSlug,sessionId,event,source:normalizeMarketingSource(attribution),hasGclid:Boolean(attribution.gclid||attribution.gbraid||attribution.wbraid),hasFbclid:Boolean(attribution.fbclid),touchSession:true});
  }
  const metadata=safeMetadata(body.metadata);
  const inventoryItemId=clean(body.inventoryItemId,100)||null;
- const eventKey=eventKeyFor({sessionId,event,path:body.path,inventoryItemId:body.inventoryItemId,metadata});
- const row={business_id:businessId,attribution_session_id:sessionId,event_name:event as BookingFunnelEvent,inventory_item_id:inventoryItemId,event_key:eventKey,metadata};
+ const serviceId=clean(body.serviceId,100)||clean(metadata.service_id,100)||null;
+ const eventKey=eventKeyFor({sessionId,event,path:body.path,inventoryItemId:body.inventoryItemId,serviceId:body.serviceId,metadata});
+ const row={business_id:businessId,attribution_session_id:sessionId,event_name:event as BookingFunnelEvent,inventory_item_id:inventoryItemId,service_id:serviceId,event_key:eventKey,metadata};
  const {error}=await db.from("booking_funnel_events").insert(row);
  if(error&&error.code!=="23505"){
   if(event==="inventory_item_clicked"&&legacyClickConstraint(error)){
    const fallbackMetadata={...metadata,click_intent:true,original_event:event};
-   const fallbackEventKey=eventKeyFor({sessionId,event:"inventory_item_view",path:body.path,inventoryItemId:body.inventoryItemId,metadata:fallbackMetadata});
+   const fallbackEventKey=eventKeyFor({sessionId,event:"inventory_item_view",path:body.path,inventoryItemId:body.inventoryItemId,serviceId:body.serviceId,metadata:fallbackMetadata});
    const {error:fallbackError}=await db.from("booking_funnel_events").insert({...row,event_name:"inventory_item_view",event_key:fallbackEventKey,metadata:fallbackMetadata});
-   if(fallbackError&&fallbackError.code!=="23505")console.error("Booking funnel click fallback save failed",{businessId,event,code:fallbackError.code});
-  }else console.error("Booking funnel event save failed",{businessId,event,code:error.code});
+   if(fallbackError&&fallbackError.code!=="23505")console.error("Booking funnel click fallback save failed",{stage:"event_insert_fallback",businessId,businessSlug,event,inventoryItemId,serviceId,code:fallbackError.code});
+  }else console.error("Booking funnel event save failed",{stage:"event_insert",businessId,businessSlug,event,inventoryItemId,serviceId,code:error.code,source:normalizeMarketingSource(body.attribution)});
  }
+ if(!error||error.code==="23505")logStage("Booking funnel event insert completed",{stage:"event_insert",businessId,businessSlug,sessionId,event,inventoryItemId,serviceId,deduped:error?.code==="23505",source:normalizeMarketingSource(body.attribution),hasGclid:Boolean(body.attribution?.gclid||body.attribution?.gbraid||body.attribution?.wbraid),hasFbclid:Boolean(body.attribution?.fbclid)});
  return new NextResponse(null,{status:204});
 }

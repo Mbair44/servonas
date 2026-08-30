@@ -104,7 +104,7 @@ export default function PublicBookingForm(props: Props) {
     setLoadingAvailability(true);
     setAvailabilityError("");
     track("calendar_viewed", { month: start.slice(0, 7) });
-    trackBookingFunnel(props.publicSlug,"service_view",{metadata:{service_id:serviceId}});
+    trackBookingFunnel(props.publicSlug,"service_view",{serviceId,metadata:{service_id:serviceId}});
     fetch(`/api/public-booking/${props.publicSlug}/availability?serviceId=${encodeURIComponent(serviceId)}&start=${start}&end=${end}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Availability could not be loaded.");
@@ -177,7 +177,7 @@ export default function PublicBookingForm(props: Props) {
   const refreshRequiredFields = () => setRequiredFieldsComplete(formRef.current?.checkValidity() ?? false);
 
   return (
-    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => {const service=selectedService(props.services,serviceId);track("booking_submitted");trackBookingFunnel(props.publicSlug,"booking_cta_click",{metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"checkout_started",{metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"lead_submitted",{metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackMetaStandardEvent("InitiateCheckout",{content_name:service?.name,content_ids:serviceId?[serviceId]:[],content_type:"product",num_items:1,value:service?.price_amount&&Number(service.price_amount)>0?Number(service.price_amount):undefined,currency:service?.price_amount&&Number(service.price_amount)>0?"USD":undefined},{eventKey:`initiate-checkout:${props.publicSlug}:${serviceId}:${date}:${time}`,storage:"session"});}}>
+    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => {const service=selectedService(props.services,serviceId);track("booking_submitted");trackBookingFunnel(props.publicSlug,"booking_cta_click",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"checkout_started",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"lead_submitted",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackMetaStandardEvent("InitiateCheckout",{content_name:service?.name,content_ids:serviceId?[serviceId]:[],content_type:"product",num_items:1,value:service?.price_amount&&Number(service.price_amount)>0?Number(service.price_amount):undefined,currency:service?.price_amount&&Number(service.price_amount)>0?"USD":undefined},{eventKey:`initiate-checkout:${props.publicSlug}:${serviceId}:${date}:${time}`,storage:"session"});}}>
       <input className="honeypot" name="companyWebsite" tabIndex={-1} autoComplete="off" />
       <input type="hidden" name="requestKey" value={requestKey.current} />
       <input type="hidden" name="startsAt" value={date && time ? `${date}T${time}` : ""} />
@@ -193,7 +193,7 @@ export default function PublicBookingForm(props: Props) {
       <p className="booking-required-note wide"><span>*</span> Required fields</p>
 
       <label className="wide"><span className="booking-field-title">Service <span className="booking-required" aria-hidden="true">*</span></span>
-        <select name="serviceId" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setDate(""); if(event.target.value)trackBookingFunnel(props.publicSlug,"service_view",{metadata:{service_id:event.target.value}}); }}>
+        <select name="serviceId" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setDate(""); if(event.target.value)trackBookingFunnel(props.publicSlug,"service_view",{serviceId:event.target.value,metadata:{service_id:event.target.value}}); }}>
           <option value="" disabled>Choose a service</option>
           {props.services.map((service) => <option value={service.id} key={service.id}>{serviceLabel(service)}</option>)}
         </select>
@@ -215,7 +215,7 @@ export default function PublicBookingForm(props: Props) {
               if (!day) return <span key={`blank-${index}`} />;
               const value = isoDate(month.getFullYear(), month.getMonth(), day);
               const enabled = (availability[value]?.length ?? 0) > 0;
-              return <button type="button" key={value} disabled={!enabled} aria-label={`${value}${enabled ? "" : ", unavailable"}`} aria-pressed={date === value} className={date === value ? "selected" : ""} onClick={() => { setDate(value); trackBookingFunnel(props.publicSlug,"availability_check",{metadata:{service_id:serviceId,date:value}}); trackBookingFunnel(props.publicSlug,"date_selected",{metadata:{service_id:serviceId,date:value}}); }}>{day}</button>;
+              return <button type="button" key={value} disabled={!enabled} aria-label={`${value}${enabled ? "" : ", unavailable"}`} aria-pressed={date === value} className={date === value ? "selected" : ""} onClick={() => { setDate(value); trackBookingFunnel(props.publicSlug,"availability_check",{serviceId,metadata:{service_id:serviceId,date:value}}); trackBookingFunnel(props.publicSlug,"date_selected",{serviceId,metadata:{service_id:serviceId,date:value}}); }}>{day}</button>;
             })}
           </div>}
         {fieldError("startsAt")}
@@ -224,7 +224,7 @@ export default function PublicBookingForm(props: Props) {
       <fieldset className="booking-times wide" disabled={!date || loadingAvailability}>
         <legend>Available times <span className="booking-required" aria-hidden="true">*</span></legend>
         {!date ? <p>Choose an available date.</p> : availableTimes.length ? (
-          <div className="booking-time-grid">{availableTimes.map((value) => <button type="button" className={time === value ? "selected" : ""} aria-pressed={time === value} key={value} onClick={() => { setTime(value); track("time_selected", { date, time: value }); trackBookingFunnel(props.publicSlug,"date_selected",{metadata:{service_id:serviceId,date,time:value}}); }}>{timeLabel(value)}</button>)}</div>
+          <div className="booking-time-grid">{availableTimes.map((value) => <button type="button" className={time === value ? "selected" : ""} aria-pressed={time === value} key={value} onClick={() => { setTime(value); track("time_selected", { date, time: value }); trackBookingFunnel(props.publicSlug,"date_selected",{serviceId,metadata:{service_id:serviceId,date,time:value}}); }}>{timeLabel(value)}</button>)}</div>
         ) : <p>No appointment times remain on this date.</p>}
         <small>Times shown in {props.timezone.replace("_", " ")}.</small>
       </fieldset>
