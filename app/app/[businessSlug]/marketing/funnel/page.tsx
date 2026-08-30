@@ -4,6 +4,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { acquisitionDateRange } from "@/lib/acquisitionReporting";
 import {
+  type AttributedBookingRow,
   buildSourcePerformanceReport,
   labelForSource,
   marketingSources,
@@ -196,18 +197,25 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   if (!canManageBusiness(role)) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can view marketing analytics.</div></section></main>;
   const window = acquisitionDateRange(q.range, q.from, q.to, new Date(), business.timezone);
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
-  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse] = await Promise.all([
+  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse] = await Promise.all([
     supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new GoogleAdsSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
     supabase.from("booking_attribution_snapshots").select("booking_id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid").eq("business_id", business.id),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
   ]);
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
   }
   const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source));
-  const report = buildSourcePerformanceReport(events, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>);
+  const attributedBookings = ((bookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; booking_attribution_snapshots?: unknown }>).map((row) => ({
+    booking_id: row.id,
+    status: row.status,
+    total_cents: row.total_cents,
+    booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
+  })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots) === source);
+  const report = buildSourcePerformanceReport(events, attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>);
   const itemNames = new Map(((inventoryResponse.data ?? []) as Array<{ id: string; name: string | null }>).map((item) => [item.id, item.name?.trim() || "Rental item"]));
   const bookingSourceMap = new Map<string, MarketingSource>();
   for (const row of snapshotsResponse.data ?? []) {

@@ -6,7 +6,7 @@ import {unstable_cache} from "next/cache";
 
 const bots=/bot|crawler|spider|facebookexternalhit|googleother|headless|lighthouse|playwright|puppeteer/i;
 const clean=(value:unknown,max=1000)=>typeof value==="string"?value.trim().slice(0,max):"";
-const allowed=new Set<string>(bookingFunnelEvents);
+const allowed=new Set<string>(bookingFunnelEvents.filter((event)=>event!=="booking_completed"&&event!=="payment_completed"));
 const safeMetadata=(value:unknown)=>{if(!value||typeof value!=="object"||Array.isArray(value))return {};const out:Record<string,string|number|boolean|null>={};for(const [key,item] of Object.entries(value as Record<string,unknown>)){if(!/^[a-z][a-z0-9_]{0,60}$/i.test(key))continue;if(typeof item==="string")out[key]=clean(item,200);else if(typeof item==="number"&&Number.isFinite(item))out[key]=item;else if(typeof item==="boolean"||item===null)out[key]=item;}return out;};
 const legacyClickConstraint=(error:{code?:string;message?:string;details?:string}|null)=>Boolean(error?.code==="23514"&&(error.message?.includes("booking_funnel_events_event_name_check")||error.details?.includes("booking_funnel_events_event_name_check")));
 const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryItemId?:string;metadata?:object})=>{

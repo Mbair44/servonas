@@ -72,6 +72,7 @@ export async function GET(request: Request) {
   const result = await completeGoogleAdsOauth(code, { businessId: saved.businessId, businessSlug: saved.businessSlug });
   await persistGoogleAdsOauthConnection({
    businessId: saved.businessId,
+   businessSlug: saved.businessSlug,
    userId: user.id,
    refreshToken: result.refreshToken,
    authenticatedIdentity: result.authenticatedIdentity,
@@ -84,6 +85,7 @@ export async function GET(request: Request) {
    accessToken: result.accessToken,
    authenticatedEmail: result.authenticatedIdentity.email,
    authenticatedName: result.authenticatedIdentity.name,
+   force: true,
    maxAttempts: 1,
   });
   console.info("Google Ads OAuth completion finished", {
@@ -94,6 +96,8 @@ export async function GET(request: Request) {
    redirectUri: googleAdsRedirectUri(),
    refreshTokenReturned: true,
    accessTokenReturned: true,
+   selectedCustomerId: discovery.selectedCustomerId,
+   connectionStatus: discovery.status,
    rootCustomerCount: discovery.rootCustomers.length,
    customerCount: discovery.customers.length,
    managerCount: discovery.rootCustomers.filter((customer) => customer.isManager).length,
@@ -101,6 +105,8 @@ export async function GET(request: Request) {
    authenticatedNamePresent: Boolean(result.authenticatedIdentity.name),
    discoveryCompleted: discovery.ok,
    discoveryRateLimited: discovery.rateLimited,
+   discoveryAttempted: true,
+   directValidationAttempted: Boolean(discovery.selectedCustomerId) && discovery.rateLimited,
   });
   await writeGoogleAdsAuditLog({
    businessId: saved.businessId,

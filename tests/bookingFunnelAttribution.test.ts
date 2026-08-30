@@ -22,20 +22,76 @@ test("builds source funnel counts, revenue, and roas from the existing event str
   {attribution_session_id:"s1",event_name:"inventory_view",booking_attribution_sessions:{utm_source:"facebook"}},
   {attribution_session_id:"s1",event_name:"availability_check",booking_attribution_sessions:{utm_source:"facebook"}},
   {attribution_session_id:"s1",event_name:"checkout_started",booking_attribution_sessions:{utm_source:"facebook"}},
-  {attribution_session_id:"s1",event_name:"booking_completed",booking_id:"b1",booking_total_cents:32500,booking_attribution_sessions:{utm_source:"facebook"}},
-  {attribution_session_id:"s1",event_name:"payment_completed",booking_id:"b1",amount_paid_cents:32500,booking_attribution_sessions:{utm_source:"facebook"}},
   {attribution_session_id:"s2",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-2"}},
+ ],[
+  {booking_id:"b1",status:"confirmed",total_cents:32500,booking_attribution_snapshots:{utm_source:"facebook"}},
  ],{facebook:1800,google_ads:8400});
  const facebook=report.summaries.find((row)=>row.source==="facebook");
  const googleAds=report.summaries.find((row)=>row.source==="google_ads");
  assert.ok(facebook);
  assert.equal(facebook.visits,1);
  assert.equal(facebook.engaged,1);
+ assert.equal(facebook.bookings,1);
  assert.equal(facebook.detailedCounts.booking_completed,1);
  assert.equal(facebook.revenueCents,32500);
  assert.equal(facebook.roas?.toFixed(1),"18.1");
  assert.ok(googleAds);
  assert.equal(googleAds.visits,1);
+});
+
+test("does not count synthetic booking completion events without a persisted booking",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"availability_check",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"checkout_started",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"booking_completed",booking_id:"phantom",booking_total_cents:null,booking_attribution_sessions:{gclid:"click-1"}},
+ ]);
+ const googleAds=report.summaries.find((row)=>row.source==="google_ads");
+ assert.ok(googleAds);
+ assert.equal(googleAds.visits,1);
+ assert.equal(googleAds.detailedCounts.availability_check,1);
+ assert.equal(googleAds.bookings,0);
+ assert.equal(googleAds.detailedCounts.booking_completed,0);
+ assert.equal(googleAds.revenueCents,0);
+});
+
+test("does not count a Facebook browse-only visitor as a booking",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook"}},
+  {attribution_session_id:"s1",event_name:"inventory_view",booking_attribution_sessions:{utm_source:"facebook"}},
+ ]);
+ const facebook=report.summaries.find((row)=>row.source==="facebook");
+ assert.ok(facebook);
+ assert.equal(facebook.visits,1);
+ assert.equal(facebook.bookings,0);
+ assert.equal(facebook.revenueCents,0);
+});
+
+test("does not count abandoned checkout as a booking until the persisted booking is confirmed",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook"}},
+  {attribution_session_id:"s1",event_name:"checkout_started",booking_attribution_sessions:{utm_source:"facebook"}},
+ ],[
+  {booking_id:"b1",status:"pending_payment",total_cents:41000,booking_attribution_snapshots:{utm_source:"facebook"}},
+ ]);
+ const facebook=report.summaries.find((row)=>row.source==="facebook");
+ assert.ok(facebook);
+ assert.equal(facebook.bookings,0);
+ assert.equal(facebook.revenueCents,0);
+});
+
+test("replayed completion events do not double-count one persisted booking",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"booking_completed",booking_id:"b1",booking_total_cents:25000,booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"booking_completed",booking_id:"b1",booking_total_cents:25000,booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"payment_completed",booking_id:"b1",amount_paid_cents:25000,booking_attribution_sessions:{gclid:"click-1"}},
+ ],[
+  {booking_id:"b1",status:"confirmed",total_cents:25000,booking_attribution_snapshots:{gclid:"click-1"}},
+ ]);
+ const googleAds=report.summaries.find((row)=>row.source==="google_ads");
+ assert.equal(googleAds?.bookings,1);
+ assert.equal(googleAds?.revenueCents,25000);
 });
 
 test("returns insufficient-data insight under the visit threshold",()=>{
