@@ -274,8 +274,8 @@ const summarizeMutateValidation = (body: unknown) => {
  const campaignBudgetCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignBudgetOperation" in (operation as Record<string, unknown>)) as
   | { campaignBudgetOperation?: { create?: { name?: unknown; amountMicros?: unknown; deliveryMethod?: unknown } } }
   | undefined;
- const campaignCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignOperation" in (operation as Record<string, unknown>)) as
-  | { campaignOperation?: { create?: { name?: unknown; advertisingChannelType?: unknown; status?: unknown; campaignBudget?: unknown; manualCpc?: unknown; campaignBiddingStrategy?: unknown; networkSettings?: Record<string, unknown> } } }
+  const campaignCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignOperation" in (operation as Record<string, unknown>)) as
+  | { campaignOperation?: { create?: { name?: unknown; advertisingChannelType?: unknown; status?: unknown; campaignBudget?: unknown; manualCpc?: unknown; campaignBiddingStrategy?: unknown; containsEuPoliticalAdvertising?: unknown; networkSettings?: Record<string, unknown> } } }
   | undefined;
  const adGroupCreate = operations.find((operation) => typeof operation === "object" && operation && "adGroupOperation" in (operation as Record<string, unknown>)) as
   | { adGroupOperation?: { create?: { name?: unknown; campaign?: unknown; status?: unknown; type?: unknown } } }
@@ -307,6 +307,7 @@ const summarizeMutateValidation = (body: unknown) => {
    biddingStrategyType: campaignCreate?.campaignOperation?.create?.manualCpc ? "MANUAL_CPC" : campaignCreate?.campaignOperation?.create?.campaignBiddingStrategy ? "CUSTOM" : null,
    hasManualCpc: Boolean(campaignCreate?.campaignOperation?.create?.manualCpc),
    campaignBiddingStrategy: campaignCreate?.campaignOperation?.create?.campaignBiddingStrategy ?? null,
+   containsEuPoliticalAdvertising: typeof campaignCreate?.campaignOperation?.create?.containsEuPoliticalAdvertising === "string" ? campaignCreate.campaignOperation.create.containsEuPoliticalAdvertising : null,
    networkSettings: campaignCreate?.campaignOperation?.create?.networkSettings ?? null,
   },
   adGroup: {
@@ -2041,6 +2042,7 @@ function mutateOperationsForCampaign(input: {
      status: "PAUSED",
      campaignBudget: budgetTemp,
      manualCpc: {},
+     containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
     },
    },
   },
