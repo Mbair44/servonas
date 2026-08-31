@@ -72,6 +72,7 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /mutationAttempt: 1/);
  assert.match(file, /biddingStrategyType: campaignCreate\?\.campaignOperation\?\.create\?\.manualCpc \? "MANUAL_CPC"/);
  assert.match(file, /hasManualCpc: Boolean\(campaignCreate\?\.campaignOperation\?\.create\?\.manualCpc\)/);
+ assert.match(file, /containsEuPoliticalAdvertising: typeof campaignCreate\?\.campaignOperation\?\.create\?\.containsEuPoliticalAdvertising === "string"/);
  assert.match(file, /googleAds:searchStream/);
  assert.match(file, /customer_client/);
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
@@ -296,6 +297,7 @@ test("google ads invalid campaign publish stays bounded, keeps direct mode, and 
  assert.match(file, /Google Ads rejected this campaign setup: \$\{detail\.message\}/);
  assert.match(file, /if \(!input\.suppressFailureDiagnostics && response\.status === 400 && path\.includes\("\/googleAds:mutate"\)\) \{/);
  assert.match(file, /manualCpc: \{\}/);
+ assert.match(file, /containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"/);
  assert.match(file, /validateOnly: true/);
 });
 
@@ -313,8 +315,14 @@ test("google ads atomic mutate assigns temp resource names before cross-resource
 
 test("google ads search campaign includes manual cpc bidding in the actual mutate payload", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
- assert.match(file, /campaignOperation:\s*{\s*create:\s*{\s*resourceName: campaignTemp,[\s\S]*advertisingChannelType: "SEARCH",[\s\S]*campaignBudget: budgetTemp,[\s\S]*manualCpc: \{\},/s);
+ assert.match(file, /campaignOperation:\s*{\s*create:\s*{\s*resourceName: campaignTemp,[\s\S]*advertisingChannelType: "SEARCH",[\s\S]*campaignBudget: budgetTemp,[\s\S]*manualCpc: \{\},[\s\S]*containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",/s);
  assert.doesNotMatch(file, /campaignOperation:\s*{\s*create:\s*{[\s\S]*advertisingChannelType: "SEARCH"[\s\S]*campaignBudget: budgetTemp,\s*}\s*,/s);
+});
+
+test("google ads search campaign explicitly declares non-political EU advertising status", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"/);
+ assert.doesNotMatch(file, /containsEuPoliticalAdvertising: "CONTAINS_EU_POLITICAL_ADVERTISING"/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {
