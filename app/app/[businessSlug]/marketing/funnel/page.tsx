@@ -309,7 +309,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="workspace-panel marketing-sources-panel">
       <header><div><h2>Traffic source performance</h2><p>Choose a traffic source above to update the funnel, requested rental dates, most-clicked rentals, bookings, revenue, and insights.</p></div></header>
-      <div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{report.summaries.map((row) => <div key={row.source}><span>{labelForSource(row.source)}</span><span>{row.visits}</span><span>{row.engaged}</span><span>{row.detailedCounts.booking_cta_click ?? 0}</span><span>{row.detailedCounts.booking_completed ?? 0}</span><span>{money(row.revenueCents)}</span></div>)}</div>
+      <div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{report.summaries.map((row) => <div key={row.source}><span>{labelForSource(row.source)}</span><span>{row.visits}</span><span>{row.engaged}</span><span>{row.detailedCounts.booking_cta_click ?? 0}</span><span>{row.detailedCounts.booking_completed ?? 0}</span><span>{money(row.revenueCents)}</span></div>)}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_cta_click ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
     </section>
 
     <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">
