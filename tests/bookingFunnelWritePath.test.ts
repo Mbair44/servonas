@@ -25,6 +25,16 @@ test("booking tracker payload can carry service identifiers for service funnels"
  assert.match(requestForm,/trackBookingFunnel\(businessSlug,"service_view",\{serviceId:event\.target\.value/);
 });
 
+test("booking tracker decorates both embedded and full booking URLs with the stored attribution session and params",async()=>{
+ const tracker=await read("components/TenantBookingFunnelTracker.tsx");
+ assert.match(tracker,/const bookingPathFor=\(slug:string\)=>`\/book\/\$\{encodeURIComponent\(slug\)\}`;/);
+ assert.match(tracker,/const bookingCheckoutPathFor=\(slug:string\)=>`\$\{bookingPathFor\(slug\)\}\/booking`;/);
+ assert.match(tracker,/pathname===bookingPathFor\(slug\)\|\|pathname===bookingCheckoutPathFor\(slug\)\|\|pathname==="\/booking"\|\|pathname==="\/booking\/checkout"/);
+ assert.match(tracker,/if\(!url\.searchParams\.has\("sv_at"\)\)url\.searchParams\.set\("sv_at",state\.sessionId\);/);
+ assert.match(tracker,/for\(const \[key,value\] of Object\.entries\(state\.attribution\)\)if\(value&&!url\.searchParams\.has\(key\)\)url\.searchParams\.set\(key,value\);/);
+ assert.match(tracker,/querySelectorAll<HTMLAnchorElement\|HTMLIFrameElement>\("a\[href\],iframe\[src\]"\)/);
+});
+
 test("booking attribution migration preserves fbclid and immutable landing metadata on snapshots",async()=>{
  const migration=await read("supabase/migrations/20260830000100_booking_funnel_meta_attribution_backfill.sql");
  const funnelPage=await read("app/app/[businessSlug]/marketing/funnel/page.tsx");

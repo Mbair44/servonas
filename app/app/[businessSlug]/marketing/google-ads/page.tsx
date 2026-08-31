@@ -28,6 +28,7 @@ import {
  updateGoogleAdsDraftAction,
 } from "./actions";
 import { GoogleAdsDraftSubmit } from "@/components/GoogleAdsDraftSubmit";
+import { GoogleAdsPageLoadingOverlay } from "@/components/GoogleAdsPageLoadingOverlay";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const microsToMoney = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(micros / 1_000_000);
@@ -316,6 +317,7 @@ export default async function GoogleAdsPage({
  });
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page google-ads-page">
+  <GoogleAdsPageLoadingOverlay />
   <header className="marketing-analytics-header">
    <div>
     <span className="sv-kicker">Marketing</span>
