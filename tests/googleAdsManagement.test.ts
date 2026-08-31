@@ -90,9 +90,12 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /Google Ads campaign status query started/);
  assert.match(file, /Google Ads campaign status query completed/);
  assert.match(file, /Google Ads campaign status query failed/);
+ assert.match(file, /Google Ads campaign status query falling back/);
+ assert.match(file, /Google Ads campaign status fallback failed/);
  assert.match(file, /queryResultCount: snapshots\.length/);
  assert.match(file, /googleCampaignStatus: snapshot\.status/);
  assert.match(file, /servingStatus: snapshot\.primaryStatus/);
+ assert.match(file, /issuesAvailable: snapshot\.issuesAvailable/);
  assert.match(file, /syncFailureReason:/);
  assert.match(file, /customer_client/);
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
@@ -282,6 +285,7 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Removed/);
  assert.match(page, /Sync unavailable/);
  assert.match(page, /Status sync unavailable/);
+ assert.match(page, /Unavailable from Google/);
  assert.match(page, /Google campaign status could not be refreshed right now/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
  assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
@@ -308,9 +312,11 @@ test("google ads status sync stores and reuses the published google campaign res
 test("google ads campaign status sync uses the persisted google campaign id lookup and reads paused enabled removed states", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /SELECT campaign\.id, campaign\.resource_name, campaign\.status, campaign\.primary_status, campaign\.primary_status_reasons FROM campaign WHERE campaign\.id IN/);
+ assert.match(file, /SELECT campaign\.id, campaign\.resource_name, campaign\.status, campaign\.primary_status FROM campaign WHERE campaign\.id IN/);
  assert.match(file, /status: String\(readGoogleAdsField<unknown>\(campaign, "status", "status"\) \?\? "UNKNOWN"\)/);
  assert.match(file, /campaignResourceName: typeof readGoogleAdsField<unknown>\(campaign, "resourceName", "resource_name"\) === "string"/);
  assert.match(file, /primaryStatus: typeof readGoogleAdsField<unknown>\(campaign, "primaryStatus", "primary_status"\) === "string"/);
+ assert.match(file, /issuesAvailable,\s*}\s*satisfies GoogleAdsCampaignStatusSnapshot/);
 });
 
 test("google ads page derives pause resume controls from synced google campaign status and treats missing status as sync unavailable", async () => {
