@@ -41,6 +41,18 @@ test("google ads discovery cache migration stores retry metadata for quota-limit
  assert.match(migration, /account_discovery_last_request_id text/);
 });
 
+test("google ads schema sync migration widens connection statuses and backfills missing connection columns", async () => {
+ const migration = await read("../supabase/migrations/20260831000100_google_ads_connection_status_schema_sync.sql");
+ assert.match(migration, /drop constraint if exists business_google_ads_connections_status_check/);
+ assert.match(migration, /'oauth_connected'/);
+ assert.match(migration, /'account_discovery_pending'/);
+ assert.match(migration, /'account_discovery_rate_limited'/);
+ assert.match(migration, /'account_selected'/);
+ assert.match(migration, /'account_access_verified'/);
+ assert.match(migration, /add column if not exists google_authenticated_email text/);
+ assert.match(migration, /add column if not exists selectable_customer_details jsonb not null default '\[\]'::jsonb/);
+});
+
 test("google ads service includes oauth, publish, metrics, and search-term helpers", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /export const googleAdsRedirectUri/);
@@ -81,6 +93,13 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /reason: "cached_discovery_valid"/);
  assert.match(file, /stage: "google_ads_connection_persist_start"/);
  assert.match(file, /stage: "google_ads_connection_persist_complete"/);
+ assert.match(file, /stage: "google_ads_connection_persist_failed"/);
+ assert.match(file, /table: "business_google_ads_connections"/);
+ assert.match(file, /operation: "upsert"/);
+ assert.match(file, /supabaseCode: input\.error\.code \?\? null/);
+ assert.match(file, /supabaseMessage: input\.error\.message \?\? null/);
+ assert.match(file, /supabaseDetails: input\.error\.details \?\? null/);
+ assert.match(file, /supabaseHint: input\.error\.hint \?\? null/);
  assert.match(file, /status: input\.status \?\? "oauth_connected"/);
  assert.match(file, /status: selected \? "account_selected" : "account_discovery_pending"/);
  assert.match(file, /status: nextStatus/);
@@ -88,6 +107,10 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /requestId: requestError\.requestId/);
  assert.match(file, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
  assert.match(file, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
+ assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*access_token/);
+ assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*refresh_token/);
+ assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*authorization code/);
+ assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*id_token/);
 });
 
 test("google ads callback authorizes the initiating servonas user and honors owner access", async () => {
