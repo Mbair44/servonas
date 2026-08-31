@@ -251,9 +251,17 @@ const safeGoogleAdsFailurePayload = (details: GoogleAdsErrorDetail[] | undefined
   errorCodeCategory: detail.errorCodeCategory,
   errorCodeKey: detail.errorCodeKey,
   errorCodeValue: detail.errorCodeValue,
-  location: detail.location,
-  requestId: detail.requestId,
+ location: detail.location,
+ requestId: detail.requestId,
  }));
+const normalizeGoogleAdsDate = (value: string) => {
+ const trimmed = value.trim();
+ if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+ if (/^\d{8}$/.test(trimmed)) return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;
+ throw new Error(`Invalid Google Ads date: ${value}`);
+};
+const googleAdsCustomDateRangeFilter = (dateFrom: string, dateTo: string) =>
+ `segments.date BETWEEN '${normalizeGoogleAdsDate(dateFrom)}' AND '${normalizeGoogleAdsDate(dateTo)}'`;
 const limitStrings = (values: unknown[], max = 5) => values.map((value) => typeof value === "string" ? value : "").filter(Boolean).slice(0, max);
 const textLengths = (values: unknown[]) => values.map((value) => typeof value === "string" ? value.length : 0);
 const safeKeywordPreview = (value: unknown) => {
@@ -2295,11 +2303,11 @@ export async function updateGoogleAdsCampaignBudget(input: {
 }
 
 export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string; customerId: string; dateFrom: string; dateTo: string; businessId?: string | null }) {
- const range = `${input.dateFrom.replaceAll("-", "")},${input.dateTo.replaceAll("-", "")}`;
+ const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
  const results = await googleAdsSearchStream(
   input.customerId,
   input.accessToken,
-  `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.ctr, metrics.average_cpc, metrics.cost_micros, metrics.conversions, metrics.cost_per_conversion FROM campaign WHERE campaign.status != 'REMOVED' DURING CUSTOM_DATE_RANGE [${range}]`,
+  `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.ctr, metrics.average_cpc, metrics.cost_micros, metrics.conversions, metrics.cost_per_conversion FROM campaign WHERE campaign.status != 'REMOVED' AND ${dateFilter}`,
   undefined,
   { stage: "google_ads_campaign_metrics_query", requestType: "campaign_metrics", businessId: input.businessId ?? null },
  );
@@ -2437,11 +2445,11 @@ export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: strin
 export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string; businessId?: string | null }) {
  if (!input.campaignIds.length) return [] as GoogleAdsSearchTerm[];
  const ids = input.campaignIds.map((value) => stripCustomerId(value)).filter(Boolean).join(",");
- const range = `${input.dateFrom.replaceAll("-", "")},${input.dateTo.replaceAll("-", "")}`;
+ const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
  const results = await googleAdsSearchStream(
   input.customerId,
   input.accessToken,
-  `SELECT campaign.id, search_term_view.search_term, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM search_term_view WHERE campaign.id IN (${ids}) DURING CUSTOM_DATE_RANGE [${range}]`,
+  `SELECT campaign.id, search_term_view.search_term, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM search_term_view WHERE campaign.id IN (${ids}) AND ${dateFilter}`,
   undefined,
   { stage: "google_ads_search_terms_query", requestType: "search_terms", businessId: input.businessId ?? null },
  );
