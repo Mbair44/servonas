@@ -7,6 +7,11 @@ test("captures Google click IDs and UTMs without retaining unrelated query value
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
  assert.deepEqual(values,{gclid:"click-1",utm_source:"google",utm_medium:"cpc",utm_campaign:"summer"});
 });
+
+test("captures fbclid alongside other first-touch attribution fields",()=>{
+ const values=attributionFromSearch(new URLSearchParams("fbclid=meta-click-1&utm_source=facebook&utm_campaign=fall"));
+ assert.deepEqual(values,{fbclid:"meta-click-1",utm_source:"facebook",utm_campaign:"fall"});
+});
 test("accepts only UUID anonymous attribution session identifiers",()=>{
  assert.equal(validSessionId("9c95b508-72a0-4e01-9c24-2a86bf1f4eb3"),true);
  assert.equal(validSessionId("other-business-session"),false);
@@ -14,6 +19,11 @@ test("accepts only UUID anonymous attribution session identifiers",()=>{
 
 test("normalizes preserved first-touch Google Ads attribution",()=>{
  assert.equal(normalizeMarketingSource({gclid:"click-1",utm_source:"facebook",first_referrer:"https://facebook.com"}),"google_ads");
+});
+
+test("normalizes fbclid-backed Meta visits even when referrer is missing",()=>{
+ assert.equal(normalizeMarketingSource({fbclid:"meta-click-1"}),"facebook");
+ assert.equal(normalizeMarketingSource({fbclid:"meta-click-1",utm_source:"instagram"}),"instagram");
 });
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{
@@ -98,4 +108,13 @@ test("returns insufficient-data insight under the visit threshold",()=>{
  const report=buildSourcePerformanceReport(Array.from({length:24},(_,index)=>({attribution_session_id:`s${index}`,event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook"}})));
  const facebook=report.summaries.find((row)=>row.source==="facebook");
  assert.equal(facebook?.insight,"Not enough traffic yet to make a reliable recommendation.");
+});
+
+test("classifies booking revenue from snapshot referrer-only attribution",()=>{
+ const report=buildSourcePerformanceReport([],[
+  {booking_id:"b1",status:"confirmed",total_cents:15000,booking_attribution_snapshots:{first_referrer:"https://m.facebook.com/"}},
+ ]);
+ const facebook=report.summaries.find((row)=>row.source==="facebook");
+ assert.equal(facebook?.bookings,1);
+ assert.equal(facebook?.revenueCents,15000);
 });

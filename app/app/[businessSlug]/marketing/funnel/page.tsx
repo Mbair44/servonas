@@ -12,7 +12,8 @@ import {
   type FunnelEventRow,
   type MarketingSource,
 } from "@/lib/marketingAttribution";
-import { GoogleAdsSpendProvider } from "@/lib/marketingSpend";
+import { MultiPlatformSpendProvider } from "@/lib/marketingSpend";
+import { buildRoasCardModel, loadAdPlatformStatuses } from "@/lib/adPlatform";
 
 const money = (cents: number | null) => cents == null ? "Ad spend not connected" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const percent = (value: number | null) => value == null ? "—" : `${Math.round(value * 100)}%`;
@@ -198,12 +199,12 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const window = acquisitionDateRange(q.range, q.from, q.to, new Date(), business.timezone);
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse] = await Promise.all([
-    supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
-    new GoogleAdsSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
+    supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
+    new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
-    supabase.from("booking_attribution_snapshots").select("booking_id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid").eq("business_id", business.id),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
+    supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
   ]);
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
@@ -231,12 +232,14 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const insights = buildInsights(report, requestedDates, itemRows, business.timezone, source);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
   const totalSpend = source === "all" ? report.totals.spendCents : Number(spendBySource[source] ?? 0);
+  const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to);
+  const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: report.totals.revenueCents, roas: report.totals.roas });
   const stepLookup = new Map((report.summaries[0]?.stepCounts ?? []).map((step) => [step.key, step]));
   const cells = buildRequestedDateCells(selectedMonth, requestedDates.totals);
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page">
     <header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, when they need it, and which sources are producing bookings.</p><small>{business.name}</small></div></header>
-    <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav>
+    <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link><Link href={`/app/${businessSlug}/marketing/meta-ads`}>Meta Ads</Link></nav>
     <section className="workspace-panel marketing-filter-panel">
       <form className="marketing-filter-bar" method="get">
         <label>From<input type="date" name="from" defaultValue={window.from.slice(0, 10)} /></label>
@@ -262,7 +265,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <article className="workspace-panel"><span>Booking starts / leads</span><strong>{report.totals.leadsOrBookings}</strong><small>Visitors progressing into the flow</small></article>
       <article className="workspace-panel"><span>Bookings</span><strong>{totalBookings}</strong><small>Completed bookings during this period</small></article>
       <article className="workspace-panel"><span>Revenue</span><strong>{money(report.totals.revenueCents)}</strong><small>Attributed booking value</small></article>
-      <article className="workspace-panel"><span>Ad spend / ROAS</span><strong>{totalSpend ? `${money(totalSpend)} / ${report.totals.roas != null ? `${report.totals.roas.toFixed(1)}x` : "—"}` : "Ad spend not connected"}</strong><small>Existing Servonas attribution system</small></article>
+      <article className="workspace-panel"><span>Ad spend / ROAS</span><strong>{roasCard.headline}</strong><small>{roasCard.detail}</small></article>
     </section>
 
     <section className="workspace-panel">
@@ -293,6 +296,11 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     <section className="workspace-panel marketing-sources-panel">
       <header><div><h2>Traffic source performance</h2><p>Choose a traffic source above to update the funnel, requested rental dates, most-clicked rentals, bookings, revenue, and insights.</p></div></header>
       <div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{report.summaries.map((row) => <div key={row.source}><span>{labelForSource(row.source)}</span><span>{row.visits}</span><span>{row.engaged}</span><span>{row.detailedCounts.booking_cta_click ?? 0}</span><span>{row.detailedCounts.booking_completed ?? 0}</span><span>{money(row.revenueCents)}</span></div>)}</div>
+    </section>
+
+    <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">
+      {adPlatformStatuses.map((status) => <article className="workspace-panel" key={status.provider}><span>{status.providerLabel}</span><strong>{money(status.spendCents)}</strong><small>{status.state === "connected_with_data" ? `Last sync ${status.lastSuccessfulSyncAt ? new Date(status.lastSuccessfulSyncAt).toLocaleString() : "available"}` : status.state.replaceAll("_"," ")}</small></article>)}
+      <article className="workspace-panel"><span>Total paid ad spend</span><strong>{money(adPlatformStatuses.reduce((sum,row)=>sum+row.spendCents,0))}</strong><small>Google Ads + Meta Ads</small></article>
     </section>
 
     <section className="workspace-panel">

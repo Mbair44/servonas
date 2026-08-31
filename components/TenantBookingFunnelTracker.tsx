@@ -36,12 +36,13 @@ const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
 };
 const criticalEvents=new Set<BookingFunnelEvent>(["booking_started","customer_info_entered","checkout_started","reserve_clicked","item_added_to_cart","lead_submitted","payment_completed"]);
 type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;referrer:string;lastSessionSyncAt?:number};
+type TrackBookingFunnelOptions={inventoryItemId?:string;serviceId?:string;metadata?:Record<string,unknown>};
 const stored=(slug:string):Stored=>{
  const existing=localStorage.getItem(key(slug));if(existing){try{const value=JSON.parse(existing) as Stored;if(value.sessionId)return value;}catch{/* replace malformed storage */}}
  const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search)),landingUrl:location.href,referrer:document.referrer,lastSessionSyncAt:0};localStorage.setItem(key(slug),JSON.stringify(value));return value;
 };
-const eventFingerprint=(event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>})=>JSON.stringify([event,options.inventoryItemId??null,options.metadata??{}]);
-const shouldSkipEvent=(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>})=>{
+const eventFingerprint=(event:BookingFunnelEvent,options:TrackBookingFunnelOptions)=>JSON.stringify([event,options.inventoryItemId??null,options.serviceId??null,options.metadata??{}]);
+const shouldSkipEvent=(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions)=>{
  const ttl=eventTtlMs[event];
  if(!ttl||typeof window==="undefined")return false;
  const fingerprint=eventFingerprint(event,options);
@@ -72,7 +73,7 @@ const logDebug=(slug:string,event:BookingFunnelEvent,message:string,details:Reco
  if(!debugEnabled())return;
  console.info("[Servonas booking funnel]",{slug,event,message,...details});
 };
-const payloadFor=(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>},touchSession:boolean)=>{
+const payloadFor=(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions,touchSession:boolean)=>{
  const state=stored(slug);
  return {
   sessionId:state.sessionId,
@@ -82,6 +83,7 @@ const payloadFor=(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?
   referrer:state.referrer,
   attribution:state.attribution,
   inventoryItemId:options.inventoryItemId,
+  serviceId:options.serviceId,
   metadata:options.metadata??{},
   touchSession,
  };
@@ -100,7 +102,7 @@ const postWithBeacon=(slug:string,event:BookingFunnelEvent,payload:ReturnType<ty
 };
 
 export function bookingAttributionSession(slug:string){if(typeof window==="undefined")return "";return stored(slug).sessionId;}
-export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:{inventoryItemId?:string;metadata?:Record<string,unknown>}={}){
+export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions={}){
  if(!analyticsEnabled||typeof window==="undefined"){logDebug(slug,event,"skipped",{reason:"analytics_disabled_or_server"});return;}
  if(shouldSkipEvent(slug,event,options)){logDebug(slug,event,"skipped",{reason:"deduped"});return;}
  const state=stored(slug),now=Date.now(),touchSession=event==="landing_page_view"||!state.lastSessionSyncAt||now-state.lastSessionSyncAt>=sessionTouchIntervalMs;
