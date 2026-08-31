@@ -59,6 +59,7 @@ type CampaignCardViewModel = {
  effectivePrimaryStatus: string | null;
  primaryStatusReasons: string[];
  statusSyncUnavailable: boolean;
+ issuesAvailable: boolean;
  effectiveCardStatus: "published" | "paused" | "issue" | "failed" | "queued" | "removed" | string;
  statusLabel: string;
 };
@@ -79,6 +80,7 @@ function buildCampaignViewModels(
     ? campaign.google_campaign_primary_status_reasons.map(String)
     : [];
   const statusSyncUnavailable = Boolean(campaign.google_campaign_id) && !effectiveGoogleStatus;
+  const issuesAvailable = googleStatus?.issuesAvailable !== false;
   const hasIssue = Boolean(
    effectiveGoogleStatus === "REMOVED"
    || (effectivePrimaryStatus && !["ELIGIBLE", "LIMITED"].includes(effectivePrimaryStatus))
@@ -111,6 +113,7 @@ function buildCampaignViewModels(
    effectivePrimaryStatus,
    primaryStatusReasons,
    statusSyncUnavailable,
+   issuesAvailable,
    effectiveCardStatus,
    statusLabel,
   } satisfies CampaignCardViewModel;
@@ -429,7 +432,7 @@ export default async function GoogleAdsPage({
 
   {hasCampaigns && <section className="google-ads-primary-stack">
    <section className="google-ads-campaign-grid">
-    {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, effectiveCardStatus, statusLabel }) => <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
+    {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, issuesAvailable, effectiveCardStatus, statusLabel }) => <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
      <header>
       <div>
        <span className="sv-kicker">Campaign</span>
@@ -445,7 +448,7 @@ export default async function GoogleAdsPage({
       <div><dt>Google campaign ID</dt><dd>{campaign.google_campaign_id ?? "Draft only"}</dd></div>
       <div><dt>Google status</dt><dd>{campaign.google_campaign_id ? (effectiveGoogleStatus ?? "Sync unavailable") : "Draft only"}</dd></div>
       <div><dt>Serving status</dt><dd>{campaign.google_campaign_id ? (effectivePrimaryStatus ? friendlyPrimaryStatus(effectivePrimaryStatus) : "Sync unavailable") : "Draft only"}</dd></div>
-      <div><dt>Issues</dt><dd>{campaign.google_campaign_id ? (statusSyncUnavailable ? "Status sync unavailable" : primaryStatusReasons.length ? primaryStatusReasons.map(friendlyIssue).join(", ") : "None reported") : "Draft only"}</dd></div>
+      <div><dt>Issues</dt><dd>{campaign.google_campaign_id ? (statusSyncUnavailable ? "Status sync unavailable" : primaryStatusReasons.length ? primaryStatusReasons.map(friendlyIssue).join(", ") : !issuesAvailable ? "Unavailable from Google" : "None reported") : "Draft only"}</dd></div>
       <div><dt>Last synced</dt><dd>{campaign.last_sync_at ? new Date(campaign.last_sync_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "Not synced yet"}</dd></div>
       <div><dt>Impressions</dt><dd>{metric?.impressions ?? "—"}</dd></div>
       <div><dt>Clicks</dt><dd>{metric?.clicks ?? "—"}</dd></div>
