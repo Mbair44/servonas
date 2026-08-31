@@ -264,6 +264,10 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /account_discovery_retry_after_at/);
  assert.match(page, /selectedAccountVerified/);
  assert.match(page, /fetchGoogleAdsCampaignStatuses/);
+ assert.match(page, /Google Ads setup complete/);
+ assert.match(page, /Manage connection/);
+ assert.match(page, /Create another campaign/);
+ assert.match(page, /Build your first campaign/);
  assert.match(page, /Published — Paused/);
  assert.match(page, /Published — Active/);
  assert.match(page, /Published — Has issue/);
@@ -276,8 +280,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Pause campaign/);
  assert.match(page, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
  assert.match(page, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
- assert.match(page, /connection\.status === "account_access_verified"/);
- assert.match(page, /connection\.status === "oauth_connected" \|\| connection\.status === "account_discovery_pending" \|\| connection\.status === "account_discovery_rate_limited"/);
+ assert.match(page, /connection\?\.status === "account_access_verified"/);
+ assert.match(page, /connection\?\.status === "oauth_connected" \|\| connection\?\.status === "account_discovery_pending" \|\| connection\?\.status === "account_discovery_rate_limited"/);
 });
 
 test("google ads status sync stores and reuses the published google campaign resource name", async () => {
