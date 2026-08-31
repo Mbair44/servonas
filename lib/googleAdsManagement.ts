@@ -1715,7 +1715,7 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
 }) {
  const connection = await loadTenantGoogleAdsAccess(input.businessId);
  if (!connection?.accessToken) throw new Error("Reconnect Google Ads before running diagnostics.");
- const selectedCustomer = connection.customerChoices.find((customer) => customer.id === connection.customerId) ?? null;
+ const selectedCustomer = connection.customerChoices.find((customer: GoogleAdsCustomer) => customer.id === connection.customerId) ?? null;
  const configuredManagerCustomerId = stripCustomerId(configuredGoogleAdsLoginCustomerId() || "");
  const candidateManagerCustomerId = stripCustomerId(
   input.managerCustomerId

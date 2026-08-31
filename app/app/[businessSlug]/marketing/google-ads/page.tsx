@@ -116,11 +116,11 @@ export default async function GoogleAdsPage({
  })));
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
- const selectedCustomerId = connection?.google_ads_customer_id ?? null;
- const selectedCustomer = customerChoices.find((customer) => customer.id === selectedCustomerId) ?? null;
- const validatedManagerLabel = selectedCustomer?.loginCustomerId
-  ? customerChoices.find((customer) => customer.id === selectedCustomer.loginCustomerId)?.label
-   ?? connectionAccess?.rootCustomerChoices?.find((customer) => customer.id === selectedCustomer.loginCustomerId)?.label
+const selectedCustomerId = connection?.google_ads_customer_id ?? null;
+const selectedCustomer = customerChoices.find((customer) => customer.id === selectedCustomerId) ?? null;
+const validatedManagerLabel = selectedCustomer?.loginCustomerId
+  ? customerChoices.find((customer: GoogleAdsCustomer) => customer.id === selectedCustomer.loginCustomerId)?.label
+   ?? connectionAccess?.rootCustomerChoices?.find((customer: GoogleAdsCustomer) => customer.id === selectedCustomer.loginCustomerId)?.label
    ?? selectedCustomer.loginCustomerId
   : null;
  const discoveryRetryAt = connection?.account_discovery_retry_after_at ?? null;
