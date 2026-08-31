@@ -150,6 +150,9 @@ export default async function GoogleAdsPage({
 
  let connectionAccess: Awaited<ReturnType<typeof loadTenantGoogleAdsAccess>> | null = null;
  let connectionError: string | null = null;
+ let metricsError: string | null = null;
+ let statusError: string | null = null;
+ let searchTermsError: string | null = null;
  let permissionDiagnostic: Awaited<ReturnType<typeof runGoogleAdsPermissionDiagnostic>> | null = null;
  let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
  let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
@@ -158,28 +161,43 @@ export default async function GoogleAdsPage({
   try {
    connectionAccess = await loadTenantGoogleAdsAccess(business.id);
    if (connectionAccess?.customerId) {
-    const metrics = await fetchGoogleAdsCampaignMetrics({
-     accessToken: connectionAccess.accessToken,
-     customerId: connectionAccess.customerId,
-     dateFrom: from,
-     dateTo: to,
-    });
-    metricsByCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
+    try {
+     const metrics = await fetchGoogleAdsCampaignMetrics({
+      accessToken: connectionAccess.accessToken,
+      customerId: connectionAccess.customerId,
+      dateFrom: from,
+      dateTo: to,
+      businessId: business.id,
+     });
+     metricsByCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
+    } catch (error) {
+     metricsError = error instanceof Error ? error.message : "Campaign metrics could not be loaded.";
+    }
     const publishedIds = (campaigns ?? []).map((campaign: any) => String(campaign.google_campaign_id ?? "")).filter(Boolean);
-    const campaignStatuses = await fetchGoogleAdsCampaignStatuses({
-     accessToken: connectionAccess.accessToken,
-     customerId: connectionAccess.customerId,
-     campaignIds: publishedIds,
-     loginCustomerId: connectionAccess.loginCustomerId,
-    });
-    campaignStatusesByCampaignId = new Map(campaignStatuses.map((row) => [row.campaignId, row]));
-    topSearchTerms = await fetchGoogleAdsSearchTerms({
-     accessToken: connectionAccess.accessToken,
-     customerId: connectionAccess.customerId,
-     campaignIds: publishedIds,
-     dateFrom: from,
-     dateTo: to,
-    });
+    try {
+     const campaignStatuses = await fetchGoogleAdsCampaignStatuses({
+      accessToken: connectionAccess.accessToken,
+      customerId: connectionAccess.customerId,
+      campaignIds: publishedIds,
+      loginCustomerId: connectionAccess.loginCustomerId,
+      businessId: business.id,
+     });
+     campaignStatusesByCampaignId = new Map(campaignStatuses.map((row) => [row.campaignId, row]));
+    } catch (error) {
+     statusError = error instanceof Error ? error.message : "Campaign status could not be loaded.";
+    }
+    try {
+     topSearchTerms = await fetchGoogleAdsSearchTerms({
+      accessToken: connectionAccess.accessToken,
+      customerId: connectionAccess.customerId,
+      campaignIds: publishedIds,
+      dateFrom: from,
+      dateTo: to,
+      businessId: business.id,
+     });
+    } catch (error) {
+     searchTermsError = error instanceof Error ? error.message : "Search terms could not be loaded.";
+    }
    }
    if (query.diagnostic === "access") {
     permissionDiagnostic = await runGoogleAdsPermissionDiagnostic({ businessId: business.id });
@@ -492,6 +510,7 @@ export default async function GoogleAdsPage({
    </section>
    <section className="workspace-panel google-ads-performance">
     <header><div><h2>Performance</h2><p>Track spend, traffic, and conversions for the selected reporting window.</p></div></header>
+    {metricsError && <div className="workspace-notice warning">Performance metrics are temporarily unavailable. {metricsError}</div>}
     <form className="marketing-filter-bar" action={refreshGoogleAdsCampaignsAction.bind(null, businessSlug)}>
      <div className="marketing-filter-group">
       <label>From<input type="date" name="from" defaultValue={from} /></label>
@@ -598,6 +617,7 @@ export default async function GoogleAdsPage({
   <section className="marketing-secondary-grid">
    <article className="workspace-panel">
     <h2>Search terms</h2>
+    {searchTermsError && <div className="workspace-notice warning">Search terms are temporarily unavailable. {searchTermsError}</div>}
     {topSearchTerms.length ? <div className="marketing-sources-table"><div><b>Term</b><b>Clicks</b><b>CTR</b><b>Conversions</b><b>Cost</b></div>{topSearchTerms.slice(0, 8).map((term) => <div key={`${term.campaignId}:${term.term}`}><span>{term.term}</span><span>{term.clicks}</span><span>{term.ctr.toFixed(1)}%</span><span>{term.conversions}</span><span>{microsToMoney(term.costMicros)}</span></div>)}</div> : <div className="google-ads-compact-empty"><strong>Search terms are not ready yet.</strong><p>Search terms will appear after Google records traffic for this campaign.</p></div>}
    </article>
    <article className="workspace-panel">

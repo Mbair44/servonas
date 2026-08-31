@@ -106,6 +106,7 @@ async function syncPublishedGoogleAdsCampaignStatuses(input: {
   customerId: mutationAccess.targetCustomerId ?? input.selectedCustomerId ?? "",
   campaignIds: eligibleCampaigns.map((campaign) => String(campaign.google_campaign_id ?? "")),
   loginCustomerId: mutationAccess.resolvedLoginCustomerId,
+  businessId: input.businessId,
  });
  const snapshotByCampaignId = new Map(snapshots.map((snapshot) => [snapshot.campaignId, snapshot]));
  for (const campaign of eligibleCampaigns) {
@@ -556,7 +557,7 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  if (!connection?.customerId) redirect(path(slug, "error", "Connect Google Ads first."));
  const dateFrom = text(formData, "from");
  const dateTo = text(formData, "to");
- const metrics = await fetchGoogleAdsCampaignMetrics({ accessToken: connection.accessToken, customerId: connection.customerId, dateFrom, dateTo });
+ const metrics = await fetchGoogleAdsCampaignMetrics({ accessToken: connection.accessToken, customerId: connection.customerId, dateFrom, dateTo, businessId: business.id });
  const byCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
  const { data: campaigns } = await supabase.from("business_google_ads_campaigns").select("id,google_campaign_id,google_ads_customer_id,status").eq("business_id", business.id).in("status", ["published", "paused", "archived"]);
  const syncedStatuses = await syncPublishedGoogleAdsCampaignStatuses({

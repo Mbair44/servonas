@@ -87,6 +87,10 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /campaign\.primary_status/);
  assert.match(file, /campaign\.primary_status_reasons/);
  assert.match(file, /readGoogleAdsField/);
+ assert.match(file, /extractGoogleAdsErrorPayload/);
+ assert.match(file, /requestType: context\.requestType/);
+ assert.match(file, /businessId: context\.businessId \?\? null/);
+ assert.match(file, /gaql: query/);
  assert.match(file, /Google Ads campaign status query started/);
  assert.match(file, /Google Ads campaign status query completed/);
  assert.match(file, /Google Ads campaign status query failed/);
@@ -326,6 +330,18 @@ test("google ads page derives pause resume controls from synced google campaign 
  assert.match(page, /effectiveGoogleStatus \?\? "Sync unavailable"/);
  assert.match(page, /statusSyncUnavailable \? "Status sync unavailable"/);
  assert.match(page, /!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED"/);
+});
+
+test("google ads page handles secondary reporting query failures without crashing the entire page", async () => {
+ const page = await read("../app/app/[businessSlug]/marketing/google-ads/page.tsx");
+ assert.match(page, /let metricsError: string \| null = null/);
+ assert.match(page, /let statusError: string \| null = null/);
+ assert.match(page, /let searchTermsError: string \| null = null/);
+ assert.match(page, /metricsError = error instanceof Error \? error\.message : "Campaign metrics could not be loaded\."/);
+ assert.match(page, /statusError = error instanceof Error \? error\.message : "Campaign status could not be loaded\."/);
+ assert.match(page, /searchTermsError = error instanceof Error \? error\.message : "Search terms could not be loaded\."/);
+ assert.match(page, /Performance metrics are temporarily unavailable\./);
+ assert.match(page, /Search terms are temporarily unavailable\./);
 });
 
 test("google ads mutation resolver prefers proven direct advertiser access over associated manager metadata", async () => {
