@@ -2023,6 +2023,7 @@ function mutateOperationsForCampaign(input: {
   {
    campaignBudgetOperation: {
     create: {
+     resourceName: budgetTemp,
      name: `${input.campaignName} Budget`,
      amountMicros: String(input.dailyBudgetMicros),
      deliveryMethod: "STANDARD",
@@ -2032,6 +2033,7 @@ function mutateOperationsForCampaign(input: {
   {
    campaignOperation: {
     create: {
+     resourceName: campaignTemp,
      name: input.campaignName,
      advertisingChannelType: "SEARCH",
      status: "PAUSED",
@@ -2042,6 +2044,7 @@ function mutateOperationsForCampaign(input: {
   {
    adGroupOperation: {
     create: {
+     resourceName: adGroupTemp,
      name: input.adGroupName,
      campaign: campaignTemp,
      status: "ENABLED",
