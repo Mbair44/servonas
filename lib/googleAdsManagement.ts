@@ -1715,7 +1715,14 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
 }) {
  const connection = await loadTenantGoogleAdsAccess(input.businessId);
  if (!connection?.accessToken) throw new Error("Reconnect Google Ads before running diagnostics.");
- const managerCustomerId = stripCustomerId(input.managerCustomerId || connection.loginCustomerId || configuredGoogleAdsLoginCustomerId() || "");
+ const selectedCustomer = connection.customerChoices.find((customer) => customer.id === connection.customerId) ?? null;
+ const configuredManagerCustomerId = stripCustomerId(configuredGoogleAdsLoginCustomerId() || "");
+ const candidateManagerCustomerId = stripCustomerId(
+  input.managerCustomerId
+  || connection.loginCustomerId
+  || selectedCustomer?.loginCustomerId
+  || "",
+ );
  const targetCustomerId = stripCustomerId(input.targetCustomerId || connection.customerId || "");
  const checks: GoogleAdsPermissionDiagnosticCheck[] = [];
  let accessibleCustomers: string[] = [];
@@ -1759,7 +1766,24 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
  } catch (error) {
   checks.push(diagnosticFailure("Direct advertiser query", "target_query_through_manager", error));
  }
+ const managerCustomerId = directAccessPassed
+  ? (candidateManagerCustomerId && candidateManagerCustomerId !== targetCustomerId ? candidateManagerCustomerId : "")
+  : (candidateManagerCustomerId || configuredManagerCustomerId);
  if (!managerCustomerId) {
+  return {
+   authenticatedGoogleAccount: connection.authenticatedIdentity ?? { email: null, name: null },
+   managerCustomerId: null,
+   targetCustomerId: targetCustomerId || null,
+   accessibleCustomers,
+   accessibleRootCustomers,
+   discoveredManagerAccounts,
+   discoveredAdvertiserAccounts,
+   resolvedLoginCustomerId: null,
+   checks,
+   classification: classifyGoogleAdsPermissionDiagnostic(checks),
+  } satisfies GoogleAdsPermissionDiagnostic;
+ }
+ if (directAccessPassed && !candidateManagerCustomerId) {
   return {
    authenticatedGoogleAccount: connection.authenticatedIdentity ?? { email: null, name: null },
    managerCustomerId: null,
@@ -1821,15 +1845,16 @@ export async function runGoogleAdsPermissionDiagnostic(input: {
  } catch (error) {
   checks.push(diagnosticFailure("Manager hierarchy", "manager_hierarchy", error));
  }
+ const validatedManagerAccess = checks.find((check) => check.key === "manager_query")?.passed === true;
  return {
   authenticatedGoogleAccount: connection.authenticatedIdentity ?? { email: null, name: null },
-  managerCustomerId: managerCustomerId || null,
+  managerCustomerId: validatedManagerAccess ? managerCustomerId || null : null,
   targetCustomerId: targetCustomerId || null,
   accessibleCustomers,
   accessibleRootCustomers,
   discoveredManagerAccounts,
   discoveredAdvertiserAccounts,
-  resolvedLoginCustomerId: directAccessPassed && !connection.loginCustomerId ? null : managerCustomerId || null,
+  resolvedLoginCustomerId: directAccessPassed ? null : (validatedManagerAccess ? managerCustomerId || null : null),
   checks,
   classification: classifyGoogleAdsPermissionDiagnostic(checks),
  } satisfies GoogleAdsPermissionDiagnostic;

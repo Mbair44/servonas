@@ -117,6 +117,12 @@ export default async function GoogleAdsPage({
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
  const selectedCustomerId = connection?.google_ads_customer_id ?? null;
+ const selectedCustomer = customerChoices.find((customer) => customer.id === selectedCustomerId) ?? null;
+ const validatedManagerLabel = selectedCustomer?.loginCustomerId
+  ? customerChoices.find((customer) => customer.id === selectedCustomer.loginCustomerId)?.label
+   ?? connectionAccess?.rootCustomerChoices?.find((customer) => customer.id === selectedCustomer.loginCustomerId)?.label
+   ?? selectedCustomer.loginCustomerId
+  : null;
  const discoveryRetryAt = connection?.account_discovery_retry_after_at ?? null;
  const discoveryRateLimited = Number(connection?.account_discovery_last_http_status ?? 0) === 429 && connection?.account_discovery_last_google_status === "RESOURCE_EXHAUSTED";
  const selectedAccountVerified = connection?.status === "account_access_verified";
@@ -221,8 +227,9 @@ export default async function GoogleAdsPage({
     <div className="google-ads-audit-list">
      <article><strong>Connected Google account</strong><span>{connection.google_authenticated_email || "Unknown — reconnect to verify"}</span></article>
      <article><strong>Google profile name</strong><span>{connection.google_authenticated_name || "Unavailable"}</span></article>
-     <article><strong>Manager account</strong><span>145-777-1276</span></article>
+     <article><strong>Access mode</strong><span>{validatedManagerLabel ? "Manager account" : "Direct advertiser access"}</span></article>
      <article><strong>Selected Google Ads account</strong><span>{connection.google_ads_customer_id || "Not selected yet"}</span></article>
+     {validatedManagerLabel && <article><strong>Validated manager account</strong><span>{validatedManagerLabel}</span></article>}
      <article><strong>Resolved login customer</strong><span>{connectionAccess?.loginCustomerId || "Direct advertiser access"}</span></article>
     </div>
     {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
@@ -246,6 +253,7 @@ export default async function GoogleAdsPage({
      <div className="google-ads-audit-list">
       <article><strong>Authenticated Google account</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.email || "Unavailable"}</span></article>
       <article><strong>Google display name</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.name || "Unavailable"}</span></article>
+      <article><strong>Access mode</strong><span>{permissionDiagnostic.resolvedLoginCustomerId ? "Manager account" : "Direct advertiser access"}</span></article>
       <article><strong>Manager</strong><span>{permissionDiagnostic.managerCustomerId || "Unavailable"}</span></article>
       <article><strong>Target</strong><span>{permissionDiagnostic.targetCustomerId || "Unavailable"}</span></article>
       <article><strong>Resolved login customer</strong><span>{permissionDiagnostic.resolvedLoginCustomerId || "Direct advertiser access"}</span></article>

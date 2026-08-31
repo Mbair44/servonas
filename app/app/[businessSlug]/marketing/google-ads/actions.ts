@@ -35,10 +35,37 @@ const numberValue = (data: FormData, key: string) => {
 };
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
 const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
-const loginCustomerIds = (choices: Array<{ id: string; loginCustomerId?: string | null }>, selectedCustomerId?: string | null) => {
+const resolvedMutationAccess = (
+ status: string | null | undefined,
+ choices: Array<{ id: string; loginCustomerId?: string | null }>,
+ selectedCustomerId?: string | null,
+) => {
  const selected = selectedCustomerId ? choices.find((customer) => customer.id === selectedCustomerId) ?? null : null;
- const source = selected?.loginCustomerId ? [selected.loginCustomerId] : [];
- return googleAdsPreferredLoginCustomerIds(source);
+ if (status === "account_access_verified") {
+  return {
+   targetCustomerId: selectedCustomerId ?? null,
+   resolvedAccessMode: "direct" as const,
+   resolvedLoginCustomerId: null,
+   loginCustomerIds: googleAdsPreferredLoginCustomerIds([]),
+   reason: "selected_customer_direct_access_previously_validated",
+  };
+ }
+ if (selected?.loginCustomerId) {
+  return {
+   targetCustomerId: selectedCustomerId ?? null,
+   resolvedAccessMode: "manager" as const,
+   resolvedLoginCustomerId: selected.loginCustomerId,
+   loginCustomerIds: googleAdsPreferredLoginCustomerIds([selected.loginCustomerId]),
+   reason: "selected_customer_manager_login_customer_validated_during_account_discovery",
+  };
+ }
+ return {
+  targetCustomerId: selectedCustomerId ?? null,
+  resolvedAccessMode: "direct" as const,
+  resolvedLoginCustomerId: null,
+  loginCustomerIds: googleAdsPreferredLoginCustomerIds([]),
+  reason: selected ? "selected_customer_has_no_validated_manager_login_customer" : "selected_customer_not_found_in_discovered_choices",
+ };
 };
 const limitedLines = (data: FormData, key: string, max: number) => lines(data, key).slice(0, max);
 const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) => {
@@ -276,11 +303,23 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
  logGoogleAdsAction("Google Ads action stage complete", { stage: "load_campaign", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, draftStatus: campaign.status });
  try {
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_reviewed", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
-  logGoogleAdsAction("Google Ads action stage", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, loginCustomerIds: loginCustomerIds(connection.customerChoices, connection.customerId) });
+  const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, connection.customerId);
+  logGoogleAdsAction("Google Ads action stage", {
+   stage: "google_ads_campaign_publish",
+   provider: "google_ads_api",
+   businessId: business.id,
+   businessSlug: business.slug,
+   campaignId,
+   targetCustomerId: mutationAccess.targetCustomerId,
+   resolvedAccessMode: mutationAccess.resolvedAccessMode,
+   resolvedLoginCustomerId: mutationAccess.resolvedLoginCustomerId,
+   loginCustomerIds: mutationAccess.loginCustomerIds,
+   reason: mutationAccess.reason,
+  });
   const published = await publishGoogleAdsCampaign({
    accessToken: connection.accessToken,
    customerId: connection.customerId,
-   loginCustomerIds: loginCustomerIds(connection.customerChoices, connection.customerId),
+   loginCustomerIds: mutationAccess.loginCustomerIds,
    campaignName: campaign.campaign_name,
    adGroupName: campaign.ad_group_name,
    dailyBudgetMicros: Number(campaign.daily_budget_micros),
@@ -360,10 +399,11 @@ export async function setGoogleAdsCampaignStatusAction(slug: string, campaignId:
  const connection = await loadTenantGoogleAdsAccess(business.id);
  const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("google_campaign_id,google_ads_customer_id").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
  if (!connection?.customerId || !campaign?.google_campaign_id) redirect(path(slug, "error", "The published campaign could not be found."));
+ const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
  await updateGoogleAdsCampaignStatus({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
-  loginCustomerIds: loginCustomerIds(connection.customerChoices, campaign.google_ads_customer_id),
+  loginCustomerIds: mutationAccess.loginCustomerIds,
   campaignId: campaign.google_campaign_id,
   status: nextStatus,
  });
@@ -384,10 +424,11 @@ export async function updateGoogleAdsBudgetAction(slug: string, campaignId: stri
  const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_budget_resource_name").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
  const dailyBudgetDollars = numberValue(formData, "dailyBudgetDollars");
  if (!campaign?.google_campaign_budget_resource_name || !connection?.accessToken) redirect(path(slug, "error", "The published campaign budget could not be updated."));
+ const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
  await updateGoogleAdsCampaignBudget({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
-  loginCustomerIds: loginCustomerIds(connection.customerChoices, campaign.google_ads_customer_id),
+  loginCustomerIds: mutationAccess.loginCustomerIds,
   budgetResourceName: campaign.google_campaign_budget_resource_name,
   dailyBudgetMicros: Math.round(dailyBudgetDollars * 1_000_000),
  });

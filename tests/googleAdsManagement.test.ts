@@ -107,6 +107,9 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /requestId: requestError\.requestId/);
  assert.match(file, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
  assert.match(file, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
+ assert.match(file, /const configuredManagerCustomerId = stripCustomerId\(configuredGoogleAdsLoginCustomerId\(\) \|\| ""\)/);
+ assert.match(file, /const managerCustomerId = directAccessPassed/);
+ assert.match(file, /resolvedLoginCustomerId: directAccessPassed \? null/);
  assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*access_token/);
  assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*refresh_token/);
  assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*authorization code/);
@@ -190,6 +193,18 @@ test("google ads direct advertisers stay direct even when a manager also exists"
  assert.equal(customer?.source ?? null, "direct");
 });
 
+test("google ads diagnostic keeps direct advertiser mode when an associated manager is not selected for login", async () => {
+ const [file, page] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(file, /if \(directAccessPassed && !candidateManagerCustomerId\) \{/);
+ assert.match(file, /managerCustomerId: null/);
+ assert.match(file, /resolvedLoginCustomerId: null/);
+ assert.match(page, /<article><strong>Access mode<\/strong><span>\{validatedManagerLabel \? "Manager account" : "Direct advertiser access"\}<\/span><\/article>/);
+ assert.doesNotMatch(page, /<article><strong>Manager account<\/strong><span>145-777-1276<\/span><\/article>/);
+});
+
 test("google ads service defaults to a supported api version instead of sunset v20", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /supportedGoogleAdsVersions/);
@@ -214,7 +229,10 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /if \(isRedirectError\(error\)\) throw error;/);
  assert.match(actions, /refreshGoogleAdsAccountsAction/);
  assert.match(actions, /const selected = selectedCustomerId \? choices\.find\(\(customer\) => customer\.id === selectedCustomerId\) \?\? null : null/);
- assert.match(actions, /const source = selected\?\.loginCustomerId \? \[selected\.loginCustomerId\] : \[\]/);
+ assert.match(actions, /const mutationAccess = resolvedMutationAccess\(connection\.status, connection\.customerChoices, connection\.customerId\)/);
+ assert.match(actions, /resolvedAccessMode: mutationAccess\.resolvedAccessMode/);
+ assert.match(actions, /resolvedLoginCustomerId: mutationAccess\.resolvedLoginCustomerId/);
+ assert.match(actions, /reason: mutationAccess\.reason/);
  assert.match(page, /Refresh Google Ads accounts/);
  assert.match(page, /account_discovery_retry_after_at/);
  assert.match(page, /selectedAccountVerified/);
@@ -222,6 +240,29 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
  assert.match(page, /connection\.status === "account_access_verified"/);
  assert.match(page, /connection\.status === "oauth_connected" \|\| connection\.status === "account_discovery_pending" \|\| connection\.status === "account_discovery_rate_limited"/);
+});
+
+test("google ads mutation resolver prefers proven direct advertiser access over associated manager metadata", async () => {
+ const actions = await read("../app/app/[businessSlug]/marketing/google-ads/actions.ts");
+ assert.match(actions, /if \(status === "account_access_verified"\) \{/);
+ assert.match(actions, /resolvedAccessMode: "direct"/);
+ assert.match(actions, /resolvedLoginCustomerId: null/);
+ assert.match(actions, /loginCustomerIds: googleAdsPreferredLoginCustomerIds\(\[\]\)/);
+ assert.match(actions, /reason: "selected_customer_direct_access_previously_validated"/);
+});
+
+test("google ads mutation resolver uses validated manager login customer when the selected advertiser requires one", async () => {
+ const actions = await read("../app/app/[businessSlug]/marketing/google-ads/actions.ts");
+ assert.match(actions, /if \(selected\?\.loginCustomerId\) \{/);
+ assert.match(actions, /resolvedAccessMode: "manager"/);
+ assert.match(actions, /resolvedLoginCustomerId: selected\.loginCustomerId/);
+ assert.match(actions, /loginCustomerIds: googleAdsPreferredLoginCustomerIds\(\[selected\.loginCustomerId\]\)/);
+});
+
+test("google ads publish path does not blindly force associated manager login ids", async () => {
+ const actions = await read("../app/app/[businessSlug]/marketing/google-ads/actions.ts");
+ assert.doesNotMatch(actions, /loginCustomerIds\(connection\.customerChoices, connection\.customerId\)/);
+ assert.doesNotMatch(actions, /loginCustomerIds\(connection\.customerChoices, campaign\.google_ads_customer_id\)/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {
