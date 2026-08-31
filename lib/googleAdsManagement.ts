@@ -474,6 +474,19 @@ function readGoogleAdsField<T>(record: Record<string, unknown> | undefined, came
  return (record[camelKey] ?? record[snakeKey]) as T | undefined;
 }
 
+function extractGoogleAdsErrorPayload(value: unknown): GoogleAdsErrorResponse["error"] | null {
+ if (!value || typeof value !== "object") return null;
+ if (Array.isArray(value)) {
+  for (const entry of value) {
+   if (entry && typeof entry === "object" && "error" in entry) {
+    return ((entry as { error?: GoogleAdsErrorResponse["error"] }).error ?? null) as GoogleAdsErrorResponse["error"] | null;
+   }
+  }
+  return null;
+ }
+ return "error" in value ? (((value as { error?: GoogleAdsErrorResponse["error"] }).error) ?? null) : null;
+}
+
 function oauthConfigured() {
  const { clientId, clientSecret, developerToken } = credentials();
  return Boolean(clientId && clientSecret && developerToken);
@@ -958,11 +971,31 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
  throw lastError ?? new Error("Google Ads request failed.");
 }
 
-async function googleAdsSearchStream(customerId: string, accessToken: string, query: string, loginCustomerId?: string | null) {
+async function googleAdsSearchStream(
+ customerId: string,
+ accessToken: string,
+ query: string,
+ loginCustomerId?: string | null,
+ context: { stage: string; requestType: string; businessId?: string | null } = { stage: "google_ads_search_stream", requestType: "google_ads_search_stream" },
+) {
  const { developerToken } = credentials();
  if (!developerToken) throw new Error("Google Ads developer token is not configured.");
  const normalizedLoginCustomerId = loginCustomerId?.trim() ? stripCustomerId(loginCustomerId) : null;
- const response = await fetch(`${adsApiBase}/customers/${stripCustomerId(customerId)}/googleAds:searchStream`, {
+ const endpointPath = `/customers/${stripCustomerId(customerId)}/googleAds:searchStream`;
+ const startedAt = now();
+ logGoogleAdsDiagnostic("Google Ads API request started", {
+  stage: context.stage,
+  provider: "google_ads_api",
+  endpointHost: "googleads.googleapis.com",
+  endpointPath,
+  method: "POST",
+  targetCustomerId: customerId,
+  loginCustomerId: normalizedLoginCustomerId,
+  requestType: context.requestType,
+  businessId: context.businessId ?? null,
+  gaql: query,
+ });
+ const response = await fetch(`${adsApiBase}${endpointPath}`, {
   method: "POST",
   headers: {
    Authorization: `Bearer ${accessToken}`,
@@ -974,13 +1007,60 @@ async function googleAdsSearchStream(customerId: string, accessToken: string, qu
   cache: "no-store",
  });
  const text = await response.text();
- let chunks: GoogleAdsSearchStreamChunk[] = [];
+ let parsed: unknown = [];
  try {
-  chunks = (text ? JSON.parse(text) : []) as GoogleAdsSearchStreamChunk[];
+  parsed = text ? JSON.parse(text) : [];
  } catch {
   throw new Error(`Google Ads returned an invalid report response (${response.status}).`);
  }
- if (!response.ok) throw new Error(chunks[0]?.error?.message || `Google Ads report request failed (${response.status}).`);
+ const chunks = Array.isArray(parsed) ? parsed as GoogleAdsSearchStreamChunk[] : [];
+ const errorPayload = extractGoogleAdsErrorPayload(parsed);
+ if (!response.ok) {
+  const details = errorPayload?.details ?? [];
+  const requestId = googleAdsRequestId(response, details);
+  logGoogleAdsErrorDiagnostic("Google Ads API request failed", {
+   stage: context.stage,
+   provider: "google_ads_api",
+   endpointHost: "googleads.googleapis.com",
+   endpointPath,
+   httpStatus: response.status,
+   method: "POST",
+   targetCustomerId: customerId,
+   loginCustomerId: normalizedLoginCustomerId,
+   requestType: context.requestType,
+   businessId: context.businessId ?? null,
+   gaql: query,
+   googleStatus: errorPayload?.status ?? null,
+   googleMessage: errorPayload?.message ?? chunks[0]?.error?.message ?? null,
+   googleDetails: safeGoogleAdsDetails(details),
+   requestId,
+   durationMs: durationMs(startedAt),
+  });
+  throw new GoogleAdsRequestError({
+   message: errorPayload?.message ?? chunks[0]?.error?.message ?? `Google Ads report request failed (${response.status}).`,
+   status: response.status,
+   googleStatus: errorPayload?.status ?? null,
+   details,
+   loginCustomerId: normalizedLoginCustomerId,
+   targetCustomerId: customerId,
+   requestId,
+  });
+ }
+ logGoogleAdsDiagnostic("Google Ads API request completed", {
+  stage: context.stage,
+  provider: "google_ads_api",
+  endpointHost: "googleads.googleapis.com",
+  endpointPath,
+  httpStatus: response.status,
+  method: "POST",
+  targetCustomerId: customerId,
+  loginCustomerId: normalizedLoginCustomerId,
+  requestType: context.requestType,
+  businessId: context.businessId ?? null,
+  gaql: query,
+  resultCount: chunks.flatMap((chunk) => chunk.results ?? []).length,
+  durationMs: durationMs(startedAt),
+ });
  return chunks.flatMap((chunk) => chunk.results ?? []);
 }
 
@@ -2214,12 +2294,14 @@ export async function updateGoogleAdsCampaignBudget(input: {
  });
 }
 
-export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string; customerId: string; dateFrom: string; dateTo: string }) {
+export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string; customerId: string; dateFrom: string; dateTo: string; businessId?: string | null }) {
  const range = `${input.dateFrom.replaceAll("-", "")},${input.dateTo.replaceAll("-", "")}`;
  const results = await googleAdsSearchStream(
   input.customerId,
   input.accessToken,
   `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.ctr, metrics.average_cpc, metrics.cost_micros, metrics.conversions, metrics.cost_per_conversion FROM campaign WHERE campaign.status != 'REMOVED' DURING CUSTOM_DATE_RANGE [${range}]`,
+  undefined,
+  { stage: "google_ads_campaign_metrics_query", requestType: "campaign_metrics", businessId: input.businessId ?? null },
  );
  return results.map((row) => {
   const campaign = row.campaign as Record<string, unknown> | undefined;
@@ -2238,7 +2320,7 @@ export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string
  }).filter((row) => row.campaignId);
 }
 
-export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: string; customerId: string; campaignIds: string[]; loginCustomerId?: string | null }) {
+export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: string; customerId: string; campaignIds: string[]; loginCustomerId?: string | null; businessId?: string | null }) {
  if (!input.campaignIds.length) return [] as GoogleAdsCampaignStatusSnapshot[];
  const ids = uniqueStrings(input.campaignIds.map(stripCustomerId).filter(Boolean));
  if (!ids.length) return [] as GoogleAdsCampaignStatusSnapshot[];
@@ -2280,6 +2362,7 @@ export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: strin
    input.accessToken,
    query,
    input.loginCustomerId ?? undefined,
+   { stage: "google_ads_campaign_status_query", requestType: "campaign_status", businessId: input.businessId ?? null },
   );
   const snapshots = buildSnapshots(results, issuesAvailable);
   logGoogleAdsDiagnostic("Google Ads campaign status query completed", {
@@ -2351,7 +2434,7 @@ export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: strin
  }
 }
 
-export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string }) {
+export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string; businessId?: string | null }) {
  if (!input.campaignIds.length) return [] as GoogleAdsSearchTerm[];
  const ids = input.campaignIds.map((value) => stripCustomerId(value)).filter(Boolean).join(",");
  const range = `${input.dateFrom.replaceAll("-", "")},${input.dateTo.replaceAll("-", "")}`;
@@ -2359,6 +2442,8 @@ export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; cu
   input.customerId,
   input.accessToken,
   `SELECT campaign.id, search_term_view.search_term, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM search_term_view WHERE campaign.id IN (${ids}) DURING CUSTOM_DATE_RANGE [${range}]`,
+  undefined,
+  { stage: "google_ads_search_terms_query", requestType: "search_terms", businessId: input.businessId ?? null },
  );
  return results.map((row) => {
   const campaign = row.campaign as Record<string, unknown> | undefined;
