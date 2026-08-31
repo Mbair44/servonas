@@ -275,7 +275,7 @@ const summarizeMutateValidation = (body: unknown) => {
   | { campaignBudgetOperation?: { create?: { name?: unknown; amountMicros?: unknown; deliveryMethod?: unknown } } }
   | undefined;
  const campaignCreate = operations.find((operation) => typeof operation === "object" && operation && "campaignOperation" in (operation as Record<string, unknown>)) as
-  | { campaignOperation?: { create?: { name?: unknown; advertisingChannelType?: unknown; status?: unknown; campaignBudget?: unknown; manualCpc?: unknown; networkSettings?: Record<string, unknown> } } }
+  | { campaignOperation?: { create?: { name?: unknown; advertisingChannelType?: unknown; status?: unknown; campaignBudget?: unknown; manualCpc?: unknown; campaignBiddingStrategy?: unknown; networkSettings?: Record<string, unknown> } } }
   | undefined;
  const adGroupCreate = operations.find((operation) => typeof operation === "object" && operation && "adGroupOperation" in (operation as Record<string, unknown>)) as
   | { adGroupOperation?: { create?: { name?: unknown; campaign?: unknown; status?: unknown; type?: unknown } } }
@@ -304,7 +304,9 @@ const summarizeMutateValidation = (body: unknown) => {
    advertisingChannelType: typeof campaignCreate?.campaignOperation?.create?.advertisingChannelType === "string" ? campaignCreate.campaignOperation.create.advertisingChannelType : null,
    status: typeof campaignCreate?.campaignOperation?.create?.status === "string" ? campaignCreate.campaignOperation.create.status : null,
    campaignBudget: typeof campaignCreate?.campaignOperation?.create?.campaignBudget === "string" ? campaignCreate.campaignOperation.create.campaignBudget : null,
+   biddingStrategyType: campaignCreate?.campaignOperation?.create?.manualCpc ? "MANUAL_CPC" : campaignCreate?.campaignOperation?.create?.campaignBiddingStrategy ? "CUSTOM" : null,
    hasManualCpc: Boolean(campaignCreate?.campaignOperation?.create?.manualCpc),
+   campaignBiddingStrategy: campaignCreate?.campaignOperation?.create?.campaignBiddingStrategy ?? null,
    networkSettings: campaignCreate?.campaignOperation?.create?.networkSettings ?? null,
   },
   adGroup: {
@@ -2032,12 +2034,13 @@ function mutateOperationsForCampaign(input: {
   },
   {
    campaignOperation: {
-    create: {
+   create: {
      resourceName: campaignTemp,
      name: input.campaignName,
      advertisingChannelType: "SEARCH",
      status: "PAUSED",
      campaignBudget: budgetTemp,
+     manualCpc: {},
     },
    },
   },

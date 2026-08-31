@@ -70,6 +70,8 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /validateOnly: true/);
  assert.match(file, /publishAttempt: 1/);
  assert.match(file, /mutationAttempt: 1/);
+ assert.match(file, /biddingStrategyType: campaignCreate\?\.campaignOperation\?\.create\?\.manualCpc \? "MANUAL_CPC"/);
+ assert.match(file, /hasManualCpc: Boolean\(campaignCreate\?\.campaignOperation\?\.create\?\.manualCpc\)/);
  assert.match(file, /googleAds:searchStream/);
  assert.match(file, /customer_client/);
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
@@ -293,6 +295,8 @@ test("google ads invalid campaign publish stays bounded, keeps direct mode, and 
  assert.match(file, /if \(error instanceof GoogleAdsRequestError && error\.status === 400 && error\.googleStatus === "INVALID_ARGUMENT"\) \{/);
  assert.match(file, /Google Ads rejected this campaign setup: \$\{detail\.message\}/);
  assert.match(file, /if \(!input\.suppressFailureDiagnostics && response\.status === 400 && path\.includes\("\/googleAds:mutate"\)\) \{/);
+ assert.match(file, /manualCpc: \{\}/);
+ assert.match(file, /validateOnly: true/);
 });
 
 test("google ads atomic mutate assigns temp resource names before cross-resource references", async () => {
@@ -305,6 +309,12 @@ test("google ads atomic mutate assigns temp resource names before cross-resource
  assert.match(file, /adGroupOperation:\s*{\s*create:\s*{\s*resourceName: adGroupTemp,[\s\S]*campaign: campaignTemp,/s);
  assert.match(file, /adGroupCriterionOperation:\s*{\s*create:\s*{\s*adGroup: adGroupTemp,/s);
  assert.match(file, /adGroupAdOperation:\s*{\s*create:\s*{\s*adGroup: adGroupTemp,/s);
+});
+
+test("google ads search campaign includes manual cpc bidding in the actual mutate payload", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /campaignOperation:\s*{\s*create:\s*{\s*resourceName: campaignTemp,[\s\S]*advertisingChannelType: "SEARCH",[\s\S]*campaignBudget: budgetTemp,[\s\S]*manualCpc: \{\},/s);
+ assert.doesNotMatch(file, /campaignOperation:\s*{\s*create:\s*{[\s\S]*advertisingChannelType: "SEARCH"[\s\S]*campaignBudget: budgetTemp,\s*}\s*,/s);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {
