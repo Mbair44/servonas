@@ -65,6 +65,11 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /loginCustomerIds: \[\.\.\.\(input\.loginCustomerIds \?\? \[\]\), null\]/);
  assert.match(file, /if \(!attempts\.includes\(null\)\) attempts\.push\(null\)/);
  assert.match(file, /const loginCustomerId = input\.loginCustomerId === undefined \? null : input\.loginCustomerId/);
+ assert.match(file, /suppressFailureDiagnostics\?: boolean/);
+ assert.match(file, /payloadFingerprint/);
+ assert.match(file, /validateOnly: true/);
+ assert.match(file, /publishAttempt: 1/);
+ assert.match(file, /mutationAttempt: 1/);
  assert.match(file, /googleAds:searchStream/);
  assert.match(file, /customer_client/);
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
@@ -270,6 +275,24 @@ test("google ads publish path does not blindly force associated manager login id
  assert.doesNotMatch(file, /const preferred = configuredGoogleAdsLoginCustomerId\(\)/);
  assert.doesNotMatch(file, /input\.loginCustomerId === undefined \? input\.customerId \?\? null : input\.loginCustomerId/);
  assert.doesNotMatch(file, /loginCustomerIds: \[\.\.\.\(input\.loginCustomerIds \?\? \[\]\), input\.customerId, null\]/);
+});
+
+test("google ads invalid campaign publish stays bounded, keeps direct mode, and surfaces validation details", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /if \(!input\.suppressFailureDiagnostics && response\.status === 400 && path\.includes\("\/googleAds:mutate"\)\) \{/);
+ assert.match(file, /const maxPhaseAttempts = 3/);
+ assert.match(file, /const attemptedPayloads = new Set<string>\(\)/);
+ assert.match(file, /if \(attemptedPayloads\.has\(fingerprint\)\) continue;/);
+ assert.match(file, /suppressFailureDiagnostics: true/);
+ assert.match(file, /validateOnly: true/);
+ assert.match(file, /mutationAttempt: 1/);
+ assert.match(file, /mutationAttempt: 2/);
+ assert.match(file, /payloadFingerprint: requestFingerprint/);
+ assert.match(file, /operationCount: requestSummary\?\.operationCount \?\? null/);
+ assert.match(file, /operationTypes: requestSummary\?\.operationTypes \?\? \[\]/);
+ assert.match(file, /if \(error instanceof GoogleAdsRequestError && error\.status === 400 && error\.googleStatus === "INVALID_ARGUMENT"\) \{/);
+ assert.match(file, /Google Ads rejected this campaign setup: \$\{detail\.message\}/);
+ assert.match(file, /if \(!input\.suppressFailureDiagnostics && response\.status === 400 && path\.includes\("\/googleAds:mutate"\)\) \{/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {

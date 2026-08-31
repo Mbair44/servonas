@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { recordAssistantProviderUsage } from "./assistant/usage";
 
@@ -30,6 +30,12 @@ type GoogleAdsErrorDetail = {
  trigger?: string;
  location?: unknown;
  requestId?: string;
+ errors?: Array<{
+  errorCode?: Record<string, unknown>;
+  message?: string;
+  trigger?: string;
+  location?: unknown;
+ }>;
 };
 type GoogleAdsErrorResponse = {
  error?: {
@@ -191,6 +197,7 @@ const maxGoogleAdsHeadlines = 15;
 const maxGoogleAdsDescriptions = 4;
 const normalizeKeywordText = (value: string) => value.trim().replace(/^["'[\](){}]+|["'[\](){}]+$/g, "").replace(/\s+/g, " ");
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
+const payloadFingerprint = (value: unknown) => createHash("sha1").update(JSON.stringify(value ?? null)).digest("hex").slice(0, 12);
 const safeGoogleAdsLocation = (value: unknown) => {
  if (!value || typeof value !== "object") return null;
  const fieldPathElements = Array.isArray((value as { fieldPathElements?: unknown[] }).fieldPathElements)
@@ -201,24 +208,44 @@ const safeGoogleAdsLocation = (value: unknown) => {
   : [];
  return fieldPathElements.length ? { fieldPathElements } : null;
 };
+const extractGoogleAdsFailureEntries = (details: GoogleAdsErrorDetail[] | undefined) => {
+ if (!Array.isArray(details)) return [];
+ return details.flatMap((detail) => {
+  const nestedErrors = Array.isArray(detail.errors) && detail.errors.length ? detail.errors : [detail];
+  return nestedErrors.map((entry) => {
+   const errorCodeKey = entry.errorCode ? Object.keys(entry.errorCode)[0] ?? null : null;
+   return {
+    message: entry.message ?? detail.message ?? null,
+    trigger: entry.trigger ?? detail.trigger ?? null,
+    errorCodeCategory: errorCodeKey ? errorCodeKey.replace(/Error$/u, "") : null,
+    errorCodeKey,
+    errorCodeValue: errorCodeKey && entry.errorCode ? jsonText(entry.errorCode[errorCodeKey]) || null : null,
+    location: safeGoogleAdsLocation(entry.location ?? detail.location),
+    requestId: typeof detail.requestId === "string" ? detail.requestId : null,
+   };
+  });
+ });
+};
 const safeGoogleAdsDetails = (details: GoogleAdsErrorDetail[] | undefined) =>
- Array.isArray(details)
-  ? details.map((detail) => ({
-    message: detail.message ?? null,
-    trigger: detail.trigger ?? null,
-    errorCodeKeys: detail.errorCode ? Object.keys(detail.errorCode) : [],
-    location: safeGoogleAdsLocation(detail.location),
-   }))
-  : [];
+ extractGoogleAdsFailureEntries(details).map((detail) => ({
+  message: detail.message,
+  trigger: detail.trigger,
+  errorCodeCategory: detail.errorCodeCategory,
+  errorCodeKey: detail.errorCodeKey,
+  errorCodeValue: detail.errorCodeValue,
+  location: detail.location,
+  requestId: detail.requestId,
+ }));
 const safeGoogleAdsFailurePayload = (details: GoogleAdsErrorDetail[] | undefined) =>
- Array.isArray(details)
-  ? details.map((detail) => ({
-    message: detail.message ?? null,
-    trigger: detail.trigger ?? null,
-    errorCode: detail.errorCode ?? null,
-    location: safeGoogleAdsLocation(detail.location),
-   }))
-  : [];
+ extractGoogleAdsFailureEntries(details).map((detail) => ({
+  message: detail.message,
+  trigger: detail.trigger,
+  errorCodeCategory: detail.errorCodeCategory,
+  errorCodeKey: detail.errorCodeKey,
+  errorCodeValue: detail.errorCodeValue,
+  location: detail.location,
+  requestId: detail.requestId,
+ }));
 const limitStrings = (values: unknown[], max = 5) => values.map((value) => typeof value === "string" ? value : "").filter(Boolean).slice(0, max);
 const textLengths = (values: unknown[]) => values.map((value) => typeof value === "string" ? value.length : 0);
 const safeKeywordPreview = (value: unknown) => {
@@ -606,6 +633,9 @@ type GoogleAdsRequestInput = {
  customerId?: string | null;
  loginCustomerId?: string | null;
  body?: unknown;
+ suppressFailureDiagnostics?: boolean;
+ publishAttempt?: number | null;
+ mutationAttempt?: number | null;
 };
 type GoogleAdsMutateOperation = Record<string, unknown>;
 
@@ -641,7 +671,16 @@ function mutateDiagnosticPhases(body: unknown) {
 async function logGoogleAdsMutatePhaseDiagnostics(path: string, input: GoogleAdsRequestInput & { targetCustomerId?: string | null }) {
  const phases = mutateDiagnosticPhases(input.body);
  if (!phases.length) return;
+ const attemptedPayloads = new Set<string>();
+ const maxPhaseAttempts = 3;
+ let phaseAttempt = 0;
  for (const phase of phases) {
+  if (phaseAttempt >= maxPhaseAttempts) break;
+  const summary = summarizeMutateBody({ mutateOperations: phase.operations });
+  const fingerprint = payloadFingerprint(summary);
+  if (attemptedPayloads.has(fingerprint)) continue;
+  attemptedPayloads.add(fingerprint);
+  phaseAttempt += 1;
   const startedAt = now();
   try {
    await googleAdsRequest(path, {
@@ -654,31 +693,44 @@ async function logGoogleAdsMutatePhaseDiagnostics(path: string, input: GoogleAds
      partialFailure: false,
      validateOnly: true,
     },
+    suppressFailureDiagnostics: true,
+    publishAttempt: input.publishAttempt ?? 1,
+    mutationAttempt: phaseAttempt,
    });
    logGoogleAdsDiagnostic("Google Ads mutate phase validation completed", {
     stage: "google_ads_mutate_phase_validation",
     provider: "google_ads_api",
     phase: phase.name,
+    publishAttempt: input.publishAttempt ?? 1,
+    mutationAttempt: phaseAttempt,
+    operationCount: phase.operations.length,
+    operationTypes: phase.operations.map(mutateOperationType),
+    payloadFingerprint: fingerprint,
     durationMs: durationMs(startedAt),
     customerId: input.targetCustomerId ?? input.customerId ?? null,
     loginCustomerId: input.loginCustomerId ?? null,
-    requestSummary: stableJson(summarizeMutateBody({ mutateOperations: phase.operations })),
+    requestSummary: stableJson(summary),
     result: "ok",
    });
   } catch (error) {
    const requestError = error instanceof GoogleAdsRequestError ? error : null;
    logGoogleAdsErrorDiagnostic("Google Ads mutate phase validation failed", {
-    stage: "google_ads_mutate_phase_validation",
-    provider: "google_ads_api",
-    phase: phase.name,
-    durationMs: durationMs(startedAt),
-    customerId: input.targetCustomerId ?? input.customerId ?? null,
-    loginCustomerId: input.loginCustomerId ?? null,
-    requestSummary: stableJson(summarizeMutateBody({ mutateOperations: phase.operations })),
-    errorName: error instanceof Error ? error.name : "unknown",
-    errorStatus: requestError?.status ?? null,
-    googleStatus: requestError?.googleStatus ?? null,
-    googleDetails: stableJson(safeGoogleAdsDetails(requestError?.details)),
+     stage: "google_ads_mutate_phase_validation",
+     provider: "google_ads_api",
+     phase: phase.name,
+     publishAttempt: input.publishAttempt ?? 1,
+     mutationAttempt: phaseAttempt,
+     operationCount: phase.operations.length,
+     operationTypes: phase.operations.map(mutateOperationType),
+     payloadFingerprint: fingerprint,
+     durationMs: durationMs(startedAt),
+     customerId: input.targetCustomerId ?? input.customerId ?? null,
+     loginCustomerId: input.loginCustomerId ?? null,
+     requestSummary: stableJson(summary),
+     errorName: error instanceof Error ? error.name : "unknown",
+     errorStatus: requestError?.status ?? null,
+     googleStatus: requestError?.googleStatus ?? null,
+     googleDetails: stableJson(safeGoogleAdsDetails(requestError?.details)),
    });
    break;
   }
@@ -698,6 +750,16 @@ export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
    return "Google Ads denied this publish request. Make sure the connected Google user has admin or standard access to the selected Google Ads account, then reconnect and try again.";
   }
   return "Google Ads denied this publish request. Reconnect the correct Google Ads account or confirm the connected Google user has permission to manage it.";
+ }
+ if (error instanceof GoogleAdsRequestError && error.status === 400 && error.googleStatus === "INVALID_ARGUMENT") {
+  const detail = safeGoogleAdsFailurePayload(error.details)[0];
+  const fieldPath = detail?.location?.fieldPathElements?.map((entry) => entry.fieldName).filter(Boolean).join(".") || null;
+  const detailCode = [detail?.errorCodeCategory, detail?.errorCodeValue].filter(Boolean).join(".");
+  if (detail?.message) {
+   return fieldPath
+    ? `Google Ads rejected this campaign setup: ${detail.message} (${fieldPath}).`
+    : `Google Ads rejected this campaign setup: ${detail.message}${detailCode ? ` (${detailCode})` : ""}.`;
+  }
  }
  return error.message;
 }
@@ -725,15 +787,22 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
  };
  const loginCustomerId = input.loginCustomerId === undefined ? null : input.loginCustomerId;
  if (loginCustomerId) headers["login-customer-id"] = stripCustomerId(loginCustomerId);
+ const requestSummary = summarizeMutateBody(input.body);
+ const requestFingerprint = payloadFingerprint(requestSummary);
  logGoogleAdsDiagnostic("Google Ads API request started", {
   stage: "google_ads_api_request",
   provider: "google_ads_api",
   endpointHost: "googleads.googleapis.com",
   endpointPath: path,
   method: input.method || "POST",
+  publishAttempt: input.publishAttempt ?? null,
+  mutationAttempt: input.mutationAttempt ?? null,
+  operationCount: requestSummary?.operationCount ?? null,
+  operationTypes: requestSummary?.operationTypes ?? [],
+  payloadFingerprint: requestFingerprint,
   customerId: targetCustomerId,
   loginCustomerId,
-  requestSummary: stableJson(summarizeMutateBody(input.body)),
+  requestSummary: stableJson(requestSummary),
  });
  const response = await fetch(`${adsApiBase}${path}`, {
   method: input.method || "POST",
@@ -768,6 +837,11 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    httpStatus: response.status,
    requestPath: requestUrl,
    method: input.method || "POST",
+   publishAttempt: input.publishAttempt ?? null,
+   mutationAttempt: input.mutationAttempt ?? null,
+   operationCount: requestSummary?.operationCount ?? null,
+   operationTypes: requestSummary?.operationTypes ?? [],
+   payloadFingerprint: requestFingerprint,
    durationMs: durationMs(startedAt),
    loginCustomerId,
    targetCustomerId: input.customerId ?? null,
@@ -779,10 +853,10 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
    retryAfterAt: isoAfterSeconds(retryAfterSeconds),
    googleDetails: stableJson(sanitizedResult?.details ?? []),
    googleFailureDetails: stableJson(safeGoogleAdsFailurePayload(result.error?.details)),
-   requestSummary: stableJson(summarizeMutateBody(input.body)),
+   requestSummary: stableJson(requestSummary),
    responseBody: stableJson(sanitizedResult),
   });
-  if (response.status === 400 && path.includes("/googleAds:mutate")) {
+  if (!input.suppressFailureDiagnostics && response.status === 400 && path.includes("/googleAds:mutate")) {
    await logGoogleAdsMutatePhaseDiagnostics(path, {
     accessToken: input.accessToken,
     method: input.method,
@@ -790,6 +864,8 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
     targetCustomerId: input.customerId ?? null,
     loginCustomerId,
     body: input.body,
+    suppressFailureDiagnostics: true,
+    publishAttempt: input.publishAttempt ?? 1,
    });
   }
   if (response.status === 404) {
@@ -812,6 +888,11 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   endpointHost: "googleads.googleapis.com",
   endpointPath: path,
   method: input.method || "POST",
+  publishAttempt: input.publishAttempt ?? null,
+  mutationAttempt: input.mutationAttempt ?? null,
+  operationCount: requestSummary?.operationCount ?? null,
+  operationTypes: requestSummary?.operationTypes ?? [],
+  payloadFingerprint: requestFingerprint,
   httpStatus: response.status,
   durationMs: durationMs(startedAt),
   customerId: targetCustomerId,
@@ -2017,19 +2098,35 @@ export async function publishGoogleAdsCampaign(input: {
  headlines: string[];
  descriptions: string[];
 }) {
+ const mutateOperations = mutateOperationsForCampaign({
+  ...input,
+  headlines: limitGoogleAdsTextAssets(input.headlines, maxGoogleAdsHeadlines),
+  descriptions: limitGoogleAdsTextAssets(input.descriptions, maxGoogleAdsDescriptions),
+ });
+ await googleAdsRequestWithLoginFallbacks("/customers/" + stripCustomerId(input.customerId) + "/googleAds:mutate", {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: {
+   mutateOperations,
+   partialFailure: false,
+   validateOnly: true,
+  },
+  publishAttempt: 1,
+  mutationAttempt: 1,
+ });
  const result = await googleAdsRequestWithLoginFallbacks<{ mutateOperationResponses?: any[] }>("/customers/" + stripCustomerId(input.customerId) + "/googleAds:mutate", {
   accessToken: input.accessToken,
   targetCustomerId: input.customerId,
   loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: {
-   mutateOperations: mutateOperationsForCampaign({
-    ...input,
-    headlines: limitGoogleAdsTextAssets(input.headlines, maxGoogleAdsHeadlines),
-    descriptions: limitGoogleAdsTextAssets(input.descriptions, maxGoogleAdsDescriptions),
-   }),
+   mutateOperations,
    partialFailure: false,
    validateOnly: false,
   },
+  suppressFailureDiagnostics: true,
+  publishAttempt: 1,
+  mutationAttempt: 2,
  });
  const responses = result.mutateOperationResponses ?? [];
  const campaignBudget = responses.find((row) => row.campaignBudgetResult?.resourceName)?.campaignBudgetResult?.resourceName ?? null;
