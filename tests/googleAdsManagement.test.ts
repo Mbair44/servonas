@@ -287,6 +287,12 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Manage connection/);
  assert.match(page, /Create another campaign/);
  assert.match(page, /Build your first campaign/);
+ assert.match(page, /Campaign is on — Google is reviewing your ads/);
+ assert.match(page, /Campaign is active and eligible to serve/);
+ assert.match(page, /Campaign is paused/);
+ assert.match(page, /Manage campaign/);
+ assert.match(page, /Performance/);
+ assert.match(page, /Technical details/);
  assert.match(page, /Published — Paused/);
  assert.match(page, /Published — Active/);
  assert.match(page, /Published — Has issue/);
@@ -295,6 +301,10 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Status sync unavailable/);
  assert.match(page, /Unavailable from Google/);
  assert.match(page, /Google campaign status could not be refreshed right now/);
+ assert.match(page, /google-ads-status-callout/);
+ assert.match(page, /google-ads-overview-grid/);
+ assert.match(page, /google-ads-manage-panel/);
+ assert.match(page, /google-ads-performance-block/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
  assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
  assert.match(page, /<div><dt>Issues<\/dt><dd>/);
@@ -343,6 +353,11 @@ test("google ads page derives pause resume controls from synced google campaign 
  assert.match(page, /effectiveGoogleStatus \?\? "Sync unavailable"/);
  assert.match(page, /statusSyncUnavailable \? "Status sync unavailable"/);
  assert.match(page, /!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED"/);
+ assert.match(page, /tone: "review"/);
+ assert.match(page, /tone: "healthy"/);
+ assert.match(page, /tone: "paused"/);
+ assert.match(page, /Campaign is on — Google is reviewing your ads/);
+ assert.match(page, /Performance data will appear after your ads begin serving\./);
 });
 
 test("google ads page handles secondary reporting query failures without crashing the entire page", async () => {
@@ -355,6 +370,16 @@ test("google ads page handles secondary reporting query failures without crashin
  assert.match(page, /searchTermsError = error instanceof Error \? error\.message : "Search terms could not be loaded\."/);
  assert.match(page, /Performance metrics are temporarily unavailable\./);
  assert.match(page, /Search terms are temporarily unavailable\./);
+});
+
+test("google ads page formats last synced in business local time with relative context", async () => {
+ const page = await read("../app/app/[businessSlug]/marketing/google-ads/page.tsx");
+ assert.match(page, /const formatTimestamp = \(value: string \| null \| undefined, timeZone\?: string \| null\) => \{/);
+ assert.match(page, /timeZone: timeZone \|\| undefined/);
+ assert.match(page, /timeZoneName: "short"/);
+ assert.match(page, /const syncedAt = formatTimestamp\(campaign\.last_sync_at, business\.timezone\)/);
+ assert.match(page, /<strong>\{syncedAt\.relative\}<\/strong><small>\{syncedAt\.absolute\}<\/small>/);
+ assert.doesNotMatch(page, /new Date\(campaign\.last_sync_at\)\.toLocaleString/);
 });
 
 test("google ads mutation resolver prefers proven direct advertiser access over associated manager metadata", async () => {
