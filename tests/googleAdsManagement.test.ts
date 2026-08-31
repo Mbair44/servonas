@@ -295,6 +295,18 @@ test("google ads invalid campaign publish stays bounded, keeps direct mode, and 
  assert.match(file, /if \(!input\.suppressFailureDiagnostics && response\.status === 400 && path\.includes\("\/googleAds:mutate"\)\) \{/);
 });
 
+test("google ads atomic mutate assigns temp resource names before cross-resource references", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /const budgetTemp = `\$\{resourceName\("campaignBudgets", customerId\)\}\/-1`/);
+ assert.match(file, /const campaignTemp = `\$\{resourceName\("campaigns", customerId\)\}\/-2`/);
+ assert.match(file, /const adGroupTemp = `\$\{resourceName\("adGroups", customerId\)\}\/-3`/);
+ assert.match(file, /campaignBudgetOperation:\s*{\s*create:\s*{\s*resourceName: budgetTemp,/s);
+ assert.match(file, /campaignOperation:\s*{\s*create:\s*{\s*resourceName: campaignTemp,[\s\S]*campaignBudget: budgetTemp,/s);
+ assert.match(file, /adGroupOperation:\s*{\s*create:\s*{\s*resourceName: adGroupTemp,[\s\S]*campaign: campaignTemp,/s);
+ assert.match(file, /adGroupCriterionOperation:\s*{\s*create:\s*{\s*adGroup: adGroupTemp,/s);
+ assert.match(file, /adGroupAdOperation:\s*{\s*create:\s*{\s*adGroup: adGroupTemp,/s);
+});
+
 test("google ads admin reporting page surfaces beta adoption data", async () => {
  const page = await read("../app/app/admin/marketing/google-ads/page.tsx");
  assert.match(page, /Google Ads beta/);
