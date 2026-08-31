@@ -136,7 +136,7 @@ export async function getAccessibleMetaAdAccounts(input: { accessToken?: string 
   const accounts: MetaAdsAccount[] = [];
   let next: string | null = "/me/adaccounts?fields=id,account_id,name,account_status,business{id}&limit=100";
   while (next) {
-    const response = await metaFetch<MetaAccountResponse>(next, {
+    const response: MetaAccountResponse = await metaFetch<MetaAccountResponse>(next, {
       accessToken,
       stage: "meta_ads_account_discovery",
       businessId: input.businessId,
@@ -204,7 +204,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
     let rowsSynced = 0;
     let next: string | null = `/${accountId}/insights?fields=campaign_id,campaign_name,campaign_status,adset_id,adset_name,adset_status,ad_id,ad_name,ad_status,date_start,spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values&level=ad&time_increment=1&limit=100&time_range[since]=${since}&time_range[until]=${until}`;
     while (next) {
-      const response = await metaFetch<MetaAccountResponse>(next, {
+      const response: MetaAccountResponse = await metaFetch<MetaAccountResponse>(next, {
         accessToken,
         stage: "meta_ads_sync_insights",
         businessId: input.businessId,
