@@ -157,6 +157,13 @@ export type GoogleAdsCampaignMetrics = {
  costPerConversionMicros: number;
  status: string;
 };
+export type GoogleAdsCampaignStatusSnapshot = {
+ campaignId: string;
+ campaignResourceName: string | null;
+ status: string;
+ primaryStatus: string | null;
+ primaryStatusReasons: string[];
+};
 export type GoogleAdsSearchTerm = {
  campaignId: string;
  term: string;
@@ -454,6 +461,11 @@ const googleAdsRequestId = (response: Response, details: GoogleAdsErrorDetail[] 
 function safeNumber(value: unknown) {
  const numeric = Number(value);
  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function safeStringArray(value: unknown) {
+ if (!Array.isArray(value)) return [];
+ return value.map((entry) => typeof entry === "string" ? entry : "").filter(Boolean);
 }
 
 function oauthConfigured() {
@@ -940,14 +952,16 @@ async function googleAdsRequestWithLoginFallbacks<T>(path: string, input: Google
  throw lastError ?? new Error("Google Ads request failed.");
 }
 
-async function googleAdsSearchStream(customerId: string, accessToken: string, query: string) {
+async function googleAdsSearchStream(customerId: string, accessToken: string, query: string, loginCustomerId?: string | null) {
  const { developerToken } = credentials();
  if (!developerToken) throw new Error("Google Ads developer token is not configured.");
+ const normalizedLoginCustomerId = loginCustomerId?.trim() ? stripCustomerId(loginCustomerId) : null;
  const response = await fetch(`${adsApiBase}/customers/${stripCustomerId(customerId)}/googleAds:searchStream`, {
   method: "POST",
   headers: {
    Authorization: `Bearer ${accessToken}`,
    "developer-token": developerToken,
+   ...(normalizedLoginCustomerId ? { "login-customer-id": normalizedLoginCustomerId } : {}),
    "Content-Type": "application/json",
   },
   body: JSON.stringify({ query }),
@@ -2142,6 +2156,7 @@ export async function publishGoogleAdsCampaign(input: {
  const adGroup = responses.find((row) => row.adGroupResult?.resourceName)?.adGroupResult?.resourceName ?? null;
  return {
   campaignBudgetResourceName: typeof campaignBudget === "string" ? campaignBudget : null,
+  campaignResourceName: typeof campaign === "string" ? campaign : null,
   campaignId: typeof campaign === "string" ? campaign.split("/").pop() ?? null : null,
   adGroupId: typeof adGroup === "string" ? adGroup.split("/").pop() ?? null : null,
  };
@@ -2214,6 +2229,29 @@ export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string
    costPerConversionMicros: safeNumber(metrics?.costPerConversion),
    status: String(campaign?.status ?? "UNKNOWN"),
   } satisfies GoogleAdsCampaignMetrics;
+ }).filter((row) => row.campaignId);
+}
+
+export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: string; customerId: string; campaignIds: string[]; loginCustomerId?: string | null }) {
+ if (!input.campaignIds.length) return [] as GoogleAdsCampaignStatusSnapshot[];
+ const ids = uniqueStrings(input.campaignIds.map(stripCustomerId).filter(Boolean));
+ if (!ids.length) return [] as GoogleAdsCampaignStatusSnapshot[];
+ const results = await googleAdsSearchStream(
+  input.customerId,
+  input.accessToken,
+  `SELECT campaign.id, campaign.resource_name, campaign.status, campaign.primary_status, campaign.primary_status_reasons FROM campaign WHERE campaign.id IN (${ids.join(",")})`,
+  input.loginCustomerId ?? undefined,
+ );
+ return results.map((row) => {
+  const campaign = row.campaign as Record<string, unknown> | undefined;
+  const primaryStatusReasons = safeStringArray(campaign?.primaryStatusReasons ?? campaign?.primaryStatusReasonsList ?? []);
+  return {
+   campaignId: String(campaign?.id ?? ""),
+   campaignResourceName: typeof campaign?.resourceName === "string" ? campaign.resourceName : null,
+   status: String(campaign?.status ?? "UNKNOWN"),
+   primaryStatus: typeof campaign?.primaryStatus === "string" ? campaign.primaryStatus : null,
+   primaryStatusReasons,
+  } satisfies GoogleAdsCampaignStatusSnapshot;
  }).filter((row) => row.campaignId);
 }
 
