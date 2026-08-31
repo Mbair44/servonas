@@ -377,6 +377,11 @@ test("google ads page formats last synced in business local time with relative c
  assert.match(page, /const formatTimestamp = \(value: string \| null \| undefined, timeZone\?: string \| null\) => \{/);
  assert.match(page, /timeZone: timeZone \|\| undefined/);
  assert.match(page, /timeZoneName: "short"/);
+ assert.match(page, /year: "numeric"/);
+ assert.match(page, /month: "short"/);
+ assert.match(page, /day: "numeric"/);
+ assert.match(page, /hour: "numeric"/);
+ assert.match(page, /minute: "2-digit"/);
  assert.match(page, /const syncedAt = formatTimestamp\(campaign\.last_sync_at, business\.timezone\)/);
  assert.match(page, /<strong>\{syncedAt\.relative\}<\/strong><small>\{syncedAt\.absolute\}<\/small>/);
  assert.doesNotMatch(page, /new Date\(campaign\.last_sync_at\)\.toLocaleString/);

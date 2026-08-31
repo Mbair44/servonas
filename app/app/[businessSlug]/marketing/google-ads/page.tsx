@@ -65,8 +65,11 @@ const formatTimestamp = (value: string | null | undefined, timeZone?: string | n
  else if (delta >= relativeHours) relative = `${Math.round(delta / relativeHours)} hour${Math.round(delta / relativeHours) === 1 ? "" : "s"} ago`;
  else if (delta >= relativeMinutes) relative = `${Math.round(delta / relativeMinutes)} min ago`;
  const formatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
   timeZone: timeZone || undefined,
   timeZoneName: "short",
  });

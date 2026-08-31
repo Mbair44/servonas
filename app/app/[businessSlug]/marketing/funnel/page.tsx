@@ -14,6 +14,7 @@ import {
 } from "@/lib/marketingAttribution";
 import { MultiPlatformSpendProvider } from "@/lib/marketingSpend";
 import { buildRoasCardModel, loadAdPlatformStatuses } from "@/lib/adPlatform";
+import { resolveAiInsights, buildPreviousPeriodReport } from "@/lib/aiInsights";
 
 const money = (cents: number | null) => cents == null ? "Ad spend not connected" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const percent = (value: number | null) => value == null ? "—" : `${Math.round(value * 100)}%`;
@@ -177,16 +178,6 @@ function buildRentalItemAnalytics(events: FunnelEventRow[], bookingItems: Bookin
   return [...rows.values()].sort((left, right) => right.views - left.views || right.datePicks - left.datePicks || right.bookings - left.bookings || left.name.localeCompare(right.name));
 }
 
-function buildInsights(report: ReturnType<typeof buildSourcePerformanceReport>, requestedDates: ReturnType<typeof buildRequestedDateAnalytics>, items: ReturnType<typeof buildRentalItemAnalytics>, timezone: string, source: SourceFilter) {
-  const list: string[] = [];
-  if (report.totals.visits < 25) list.push(`Not enough ${source === "all" ? "traffic" : sourceLabel(source).toLowerCase()} yet to make a reliable recommendation.`);
-  const strongestSource = [...report.summaries].sort((left, right) => right.revenueCents - left.revenueCents || right.visits - left.visits)[0];
-  if (strongestSource) list.push(strongestSource.insight);
-  if (items[0]?.views) list.push(`${items[0].name} is receiving the most interest in this report window.`);
-  if (requestedDates.busiestDate) list.push(`${formatLongDate(requestedDates.busiestDate, timezone)} is currently your most-requested rental date.`);
-  return [...new Set(list)].slice(0, 3);
-}
-
 function sourceLabel(source: SourceFilter) {
   return source === "all" ? "All traffic" : labelForSource(source);
 }
@@ -198,13 +189,24 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   if (!canManageBusiness(role)) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can view marketing analytics.</div></section></main>;
   const window = acquisitionDateRange(q.range, q.from, q.to, new Date(), business.timezone);
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
-  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse] = await Promise.all([
+  const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
+  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse] = await Promise.all([
     supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
     supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
     supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
+    supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
+    supabase.from("business_website_settings").select("status,custom_domain,public_slug,request_service_enabled,booking_enabled").eq("business_id", business.id).maybeSingle(),
+    supabase.from("booking_settings").select("enabled,public_slug").eq("business_id", business.id).maybeSingle(),
+    supabase.from("business_payment_accounts").select("onboarding_status,charges_enabled,payouts_enabled,details_submitted").eq("business_id", business.id).eq("provider", "stripe").maybeSingle(),
+    supabase.from("website_service_requests").select("id,lead_status,created_at").eq("business_id", business.id).order("created_at", { ascending: true }).limit(20),
+    supabase.from("estimates").select("id,status,created_at,updated_at").eq("business_id", business.id).eq("is_deleted", false).in("status", ["sent", "viewed"]).order("created_at", { ascending: true }).limit(20),
+    supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
+    supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
+    supabase.from("business_google_ads_campaigns").select("id,status,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
   ]);
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
@@ -229,7 +231,15 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const selectedMonth = /^\d{4}-\d{2}$/.test(q.month ?? "") ? q.month! : (requestedDates.busiestDate?.slice(0, 7) ?? monthValue(new Date()));
   const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(q.date ?? "") ? q.date! : (requestedDates.busiestDate ?? `${selectedMonth}-01`);
   const dateDetail = requestedDates.detail(selectedDate);
-  const insights = buildInsights(report, requestedDates, itemRows, business.timezone, source);
+  const previousEvents = ((previousEventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source));
+  const previousAttributedBookings = ((previousBookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; booking_attribution_snapshots?: unknown }>).map((row) => ({
+    booking_id: row.id,
+    status: row.status,
+    total_cents: row.total_cents,
+    booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
+  })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots) === source);
+  const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {});
+  const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
   const totalSpend = source === "all" ? report.totals.spendCents : Number(spendBySource[source] ?? 0);
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to);
@@ -258,6 +268,85 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     return [key, { key, label, count, progressFromPrevious, dropOffRate }] as const;
   }));
   const cells = buildRequestedDateCells(selectedMonth, requestedDates.totals);
+
+  const googleCampaignSnapshots = ((googleCampaignsResponse.data ?? []) as Array<{
+    google_campaign_id?: string | number | null;
+    google_campaign_status?: string | null;
+    google_campaign_primary_status?: string | null;
+    google_campaign_primary_status_reasons?: string[] | null;
+  }>).filter((campaign) => campaign.google_campaign_id).map((campaign) => ({
+      status: campaign.google_campaign_status ?? null,
+      primaryStatus: campaign.google_campaign_primary_status ?? null,
+      primaryStatusReasons: Array.isArray(campaign.google_campaign_primary_status_reasons) ? campaign.google_campaign_primary_status_reasons.map(String) : [],
+      impressions: 0,
+      clicks: 0,
+      ctr: null,
+      averageCpcMicros: null,
+      conversions: 0,
+    }));
+
+  async function loadInsights() {
+    return resolveAiInsights({
+      businessId: business.id,
+      businessSlug,
+      industryProfile: business.industry_profile ?? null,
+      businessName: business.name ?? null,
+      businessEmail: business.email ?? null,
+      businessPhone: business.phone ?? null,
+      addressLine1: business.address_line1 ?? null,
+      city: business.city ?? null,
+      state: business.state ?? null,
+      timezone: business.timezone ?? null,
+      website: {
+        status: (websiteResponse.data as { status?: string | null } | null)?.status ?? null,
+        customDomain: (websiteResponse.data as { custom_domain?: string | null } | null)?.custom_domain ?? null,
+        publicSlug: (websiteResponse.data as { public_slug?: string | null } | null)?.public_slug ?? null,
+        requestServiceEnabled: Boolean((websiteResponse.data as { request_service_enabled?: boolean | null } | null)?.request_service_enabled),
+        bookingEnabled: Boolean((websiteResponse.data as { booking_enabled?: boolean | null } | null)?.booking_enabled),
+      },
+      booking: {
+        enabled: Boolean((bookingSettingsResponse.data as { enabled?: boolean | null } | null)?.enabled),
+        publicSlug: (bookingSettingsResponse.data as { public_slug?: string | null } | null)?.public_slug ?? null,
+      },
+      payments: paymentResponse.data ? {
+        onboardingStatus: (paymentResponse.data as { onboarding_status?: string | null }).onboarding_status ?? null,
+        chargesEnabled: Boolean((paymentResponse.data as { charges_enabled?: boolean | null }).charges_enabled),
+        payoutsEnabled: Boolean((paymentResponse.data as { payouts_enabled?: boolean | null }).payouts_enabled),
+        detailsSubmitted: Boolean((paymentResponse.data as { details_submitted?: boolean | null }).details_submitted),
+      } : null,
+      googleAds: {
+        connected: Boolean((googleConnectionResponse.data as { status?: string | null } | null)?.status && (googleConnectionResponse.data as { status?: string | null } | null)?.status !== "disconnected"),
+        campaignCount: ((googleCampaignsResponse.data ?? []) as unknown[]).length,
+        campaigns: googleCampaignSnapshots,
+      },
+      funnel: {
+        visits: report.totals.visits,
+        engaged: report.totals.engaged,
+        bookingStarts: aggregatedStepCounts.get("booking_cta_click") ?? 0,
+        checkoutStarts: aggregatedStepCounts.get("checkout_started") ?? 0,
+        leads: aggregatedStepCounts.get("lead_submitted") ?? 0,
+        bookings: totalBookings,
+        revenueCents: report.totals.revenueCents,
+        periodLabel: sourceLabel(source).toLowerCase() === "all traffic" ? "this reporting window" : `this reporting window from ${sourceLabel(source)}`,
+        previousVisits: previousTotals.visits,
+        previousBookingStarts: previousTotals.bookingStarts,
+        previousBookings: previousTotals.bookings,
+      },
+      websiteLeads: {
+        newCount: ((websiteRequestsResponse.data ?? []) as Array<{ lead_status?: string | null }>).filter((row) => (row.lead_status ?? "new") === "new").length,
+        oldestNewCreatedAt: (((websiteRequestsResponse.data ?? []) as Array<{ lead_status?: string | null; created_at?: string | null }>).find((row) => (row.lead_status ?? "new") === "new")?.created_at ?? null),
+      },
+      estimates: {
+        awaitingResponseCount: (estimatesResponse.data ?? []).length,
+        oldestAwaitingResponseAt: ((estimatesResponse.data ?? []) as Array<{ created_at?: string | null }>)[0]?.created_at ?? null,
+      },
+      invoices: {
+        overdueCount: (invoicesResponse.data ?? []).length,
+        overdueAmountCents: ((invoicesResponse.data ?? []) as Array<{ balance_due_cents?: number | null }>).reduce((sum, row) => sum + Math.max(0, Number(row.balance_due_cents ?? 0)), 0),
+      },
+    });
+  }
+  const aiInsights = await loadInsights();
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page">
     <header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, when they need it, and which sources are producing bookings.</p><small>{business.name}</small></div></header>
@@ -290,9 +379,50 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <article className="workspace-panel"><span>Ad spend / ROAS</span><strong>{roasCard.headline}</strong><small>{roasCard.detail}</small></article>
     </section>
 
-    <section className="workspace-panel">
-      <header><div><h2>Servonas insights</h2><p>Deterministic recommendations based on the selected reporting window.</p></div></header>
-      <div className="marketing-conversion-list">{insights.map((insight) => <div key={insight}><dt>Insight</dt><dd>{insight}</dd></div>)}</div>
+    <section className="workspace-panel marketing-ai-panel">
+      <header><div><h2>AI Insights</h2><p>Servonas looks across your business and highlights what deserves your attention.</p></div></header>
+      <div className="marketing-ai-insights-head">
+        <strong>{aiInsights.focus.length} thing{aiInsights.focus.length === 1 ? "" : "s"} to focus on</strong>
+        <small>{aiInsights.cache.hit ? "Using cached insight snapshot" : "Fresh insight snapshot"} · Rule engine v1</small>
+      </div>
+      <div className="marketing-ai-insight-grid">
+        {aiInsights.focus.map((insight) => <article className={`marketing-ai-insight-card is-${insight.priority}`} key={insight.id}>
+          <header>
+            <span className={`marketing-ai-insight-badge is-${insight.priority}`}>{insight.priority === "positive" ? "Good news" : `${insight.priority} priority`}</span>
+            <strong>{insight.title}</strong>
+          </header>
+          <p>{insight.simpleSummary}</p>
+          <dl className="marketing-ai-insight-copy">
+            <div><dt>Why this matters</dt><dd>{insight.whyItMatters}</dd></div>
+            <div><dt>What to do next</dt><dd>{insight.recommendedAction}</dd></div>
+            {insight.educationalExplanation ? <div><dt>What this means</dt><dd>{insight.educationalExplanation}</dd></div> : null}
+          </dl>
+          <footer>
+            <span>{insight.source.replaceAll("_", " ")}</span>
+            <Link className="sv-button sv-secondary" href={insight.actionHref}>{insight.actionLabel}</Link>
+          </footer>
+          {role === "platform_admin" && <details className="marketing-ai-insight-debug">
+            <summary>Insight diagnostics</summary>
+            <pre>{JSON.stringify({ type: insight.type, source: insight.source, priority: insight.priority, confidence: insight.confidence, evidence: insight.evidence, ruleVersion: insight.ruleVersion, aiGenerated: insight.aiGenerated }, null, 2)}</pre>
+          </details>}
+        </article>)}
+      </div>
+      {aiInsights.more.length ? <details className="marketing-ai-more">
+        <summary>More insights</summary>
+        <div className="marketing-ai-insight-grid">
+          {aiInsights.more.map((insight) => <article className={`marketing-ai-insight-card is-${insight.priority}`} key={insight.id}>
+            <header>
+              <span className={`marketing-ai-insight-badge is-${insight.priority}`}>{insight.priority === "positive" ? "Good news" : `${insight.priority} priority`}</span>
+              <strong>{insight.title}</strong>
+            </header>
+            <p>{insight.simpleSummary}</p>
+            <footer>
+              <span>{insight.source.replaceAll("_", " ")}</span>
+              <Link className="sv-button sv-secondary" href={insight.actionHref}>{insight.actionLabel}</Link>
+            </footer>
+          </article>)}
+        </div>
+      </details> : null}
     </section>
 
     <section className="workspace-panel">
