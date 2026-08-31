@@ -88,6 +88,9 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /campaign\.primary_status_reasons/);
  assert.match(file, /readGoogleAdsField/);
  assert.match(file, /extractGoogleAdsErrorPayload/);
+ assert.match(file, /const normalizeGoogleAdsDate = \(value: string\)/);
+ assert.match(file, /const googleAdsCustomDateRangeFilter = \(dateFrom: string, dateTo: string\)/);
+ assert.match(file, /segments\.date BETWEEN/);
  assert.match(file, /requestType: context\.requestType/);
  assert.match(file, /businessId: context\.businessId \?\? null/);
  assert.match(file, /gaql: query/);
@@ -105,6 +108,7 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
  assert.match(file, /login_customer_id/);
  assert.match(file, /search_term_view\.search_term/);
+ assert.doesNotMatch(file, /CUSTOM_DATE_RANGE/);
  assert.match(file, /recordGoogleAdsBetaEvent/);
  assert.match(file, /submitGoogleAdsBetaFeedback/);
  assert.match(file, /const googleAdsOauthScopes = \["https:\/\/www\.googleapis\.com\/auth\/adwords", "openid", "email", "profile"\]/);
@@ -321,6 +325,15 @@ test("google ads campaign status sync uses the persisted google campaign id look
  assert.match(file, /campaignResourceName: typeof readGoogleAdsField<unknown>\(campaign, "resourceName", "resource_name"\) === "string"/);
  assert.match(file, /primaryStatus: typeof readGoogleAdsField<unknown>\(campaign, "primaryStatus", "primary_status"\) === "string"/);
  assert.match(file, /issuesAvailable,\s*}\s*satisfies GoogleAdsCampaignStatusSnapshot/);
+});
+
+test("google ads reporting queries use valid custom date range GAQL", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /segments\.date BETWEEN '\$\{normalizeGoogleAdsDate\(dateFrom\)\}' AND '\$\{normalizeGoogleAdsDate\(dateTo\)\}'/);
+ assert.match(file, /SELECT campaign\.id, campaign\.name, campaign\.status, metrics\.impressions, metrics\.clicks, metrics\.ctr, metrics\.average_cpc, metrics\.cost_micros, metrics\.conversions, metrics\.cost_per_conversion FROM campaign WHERE campaign\.status != 'REMOVED' AND \$\{dateFilter\}/);
+ assert.match(file, /SELECT campaign\.id, search_term_view\.search_term, metrics\.impressions, metrics\.clicks, metrics\.ctr, metrics\.conversions, metrics\.cost_micros FROM search_term_view WHERE campaign\.id IN \(\$\{ids\}\) AND \$\{dateFilter\}/);
+ assert.ok(file.includes("if (/^\\d{8}$/.test(trimmed)) return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;"));
+ assert.doesNotMatch(file, /DURING CUSTOM_DATE_RANGE/);
 });
 
 test("google ads page derives pause resume controls from synced google campaign status and treats missing status as sync unavailable", async () => {
