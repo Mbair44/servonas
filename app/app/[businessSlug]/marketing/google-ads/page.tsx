@@ -34,6 +34,9 @@ const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "curren
 const microsToMoney = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(micros / 1_000_000);
 const validDate = (value: string | undefined) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 const monthStart = (value: string) => `${value.slice(0, 8)}01`;
+const relativeMinutes = 60_000;
+const relativeHours = 60 * relativeMinutes;
+const relativeDays = 24 * relativeHours;
 
 function items(value: unknown) {
  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
@@ -52,10 +55,138 @@ const friendlyGoogleCampaignStatus = (status: string | null | undefined) => {
 };
 const friendlyPrimaryStatus = (status: string | null | undefined) => status ? status.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Unknown";
 const friendlyIssue = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+const formatTimestamp = (value: string | null | undefined, timeZone?: string | null) => {
+ if (!value) return { relative: "Not synced yet", absolute: null };
+ const date = new Date(value);
+ if (Number.isNaN(date.getTime())) return { relative: "Not synced yet", absolute: null };
+ const delta = Date.now() - date.getTime();
+ let relative = "Just now";
+ if (delta >= relativeDays) relative = `${Math.round(delta / relativeDays)} day${Math.round(delta / relativeDays) === 1 ? "" : "s"} ago`;
+ else if (delta >= relativeHours) relative = `${Math.round(delta / relativeHours)} hour${Math.round(delta / relativeHours) === 1 ? "" : "s"} ago`;
+ else if (delta >= relativeMinutes) relative = `${Math.round(delta / relativeMinutes)} min ago`;
+ const formatter = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: timeZone || undefined,
+  timeZoneName: "short",
+ });
+ return {
+  relative,
+  absolute: formatter.format(date),
+ };
+};
+
+type CampaignMetricRow = Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number];
+type CampaignStatusRow = Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number];
+
+type CampaignSummaryTone = "healthy" | "review" | "paused" | "issue" | "warning";
+type CampaignSummary = {
+ tone: CampaignSummaryTone;
+ badge: string;
+ headline: string;
+ supporting: string;
+ technicalStatus: string;
+ issueLabel: string;
+ performanceHint: string | null;
+};
+
+function buildCampaignSummary(input: {
+ effectiveGoogleStatus: string | null;
+ effectivePrimaryStatus: string | null;
+ primaryStatusReasons: string[];
+ statusSyncUnavailable: boolean;
+ issuesAvailable: boolean;
+ hasMetrics: boolean;
+}) {
+ const issueLabel = input.statusSyncUnavailable
+  ? "Status sync unavailable"
+  : input.primaryStatusReasons.length
+   ? input.primaryStatusReasons.map(friendlyIssue).join(", ")
+   : !input.issuesAvailable
+    ? "Unavailable from Google"
+    : "None reported";
+ const technicalStatus = `Google status: ${input.effectiveGoogleStatus ?? "Sync unavailable"}${input.effectiveGoogleStatus ? ` • Serving status: ${input.effectivePrimaryStatus ? friendlyPrimaryStatus(input.effectivePrimaryStatus) : "Sync unavailable"}` : ""}`;
+ if (input.statusSyncUnavailable) {
+  return {
+   tone: "warning",
+   badge: "Sync unavailable",
+   headline: "Campaign is published — status could not be refreshed",
+   supporting: "Servonas could not confirm the latest Google Ads status right now. Refresh again to update the live state.",
+   technicalStatus,
+   issueLabel,
+   performanceHint: null,
+  } satisfies CampaignSummary;
+ }
+ if (input.effectiveGoogleStatus === "PAUSED") {
+  return {
+   tone: "paused",
+   badge: "Paused",
+   headline: "Campaign is paused",
+   supporting: "Google still has the campaign, but it is intentionally not serving until you resume it.",
+   technicalStatus,
+   issueLabel,
+   performanceHint: "Performance data will stay flat while the campaign is paused.",
+  } satisfies CampaignSummary;
+ }
+ if (input.effectiveGoogleStatus === "REMOVED") {
+  return {
+   tone: "issue",
+   badge: "Removed",
+   headline: "Campaign was removed from Google Ads",
+   supporting: "This campaign is no longer eligible to run. Review the draft or create a new campaign if you want to relaunch.",
+   technicalStatus,
+   issueLabel,
+   performanceHint: null,
+  } satisfies CampaignSummary;
+ }
+ const reasonSet = new Set(input.primaryStatusReasons);
+ if (reasonSet.has("MOST_ADS_UNDER_REVIEW") || input.effectivePrimaryStatus === "PENDING") {
+  return {
+   tone: "review",
+   badge: "Pending review",
+   headline: "Campaign is on — Google is reviewing your ads",
+   supporting: "Your campaign is enabled, but ads will not begin serving until Google finishes reviewing them.",
+   technicalStatus,
+   issueLabel,
+   performanceHint: "Performance data will appear after your ads begin serving.",
+  } satisfies CampaignSummary;
+ }
+ if (input.effectivePrimaryStatus === "ELIGIBLE" && input.effectiveGoogleStatus === "ENABLED") {
+  return {
+   tone: "healthy",
+   badge: "Active",
+   headline: "Campaign is active and eligible to serve",
+   supporting: "Google has approved the campaign to run. Use the performance section below to watch traffic and conversions.",
+   technicalStatus,
+   issueLabel,
+   performanceHint: input.hasMetrics ? null : "Performance data will appear once the campaign starts collecting activity.",
+  } satisfies CampaignSummary;
+ }
+ if (input.effectivePrimaryStatus === "LIMITED") {
+  return {
+   tone: "review",
+   badge: "Limited",
+   headline: "Campaign is on, but delivery is limited",
+   supporting: "Google can see the campaign, but something is limiting how often it can serve.",
+   technicalStatus,
+   issueLabel,
+   performanceHint: input.hasMetrics ? null : "Performance data may stay light until the limitation is cleared.",
+  } satisfies CampaignSummary;
+ }
+ return {
+  tone: "issue",
+  badge: "Needs attention",
+  headline: "Campaign needs attention before it can fully perform",
+  supporting: "Review the Google serving state and issue details below to see what is blocking or limiting delivery.",
+  technicalStatus,
+  issueLabel,
+  performanceHint: input.hasMetrics ? null : "Performance data will appear after the campaign becomes eligible to serve.",
+ } satisfies CampaignSummary;
+}
 
 type CampaignCardViewModel = {
  campaign: any;
- metric: Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number] | null;
+ metric: CampaignMetricRow | null;
  effectiveGoogleStatus: string | null;
  effectivePrimaryStatus: string | null;
  primaryStatusReasons: string[];
@@ -63,12 +194,13 @@ type CampaignCardViewModel = {
  issuesAvailable: boolean;
  effectiveCardStatus: "published" | "paused" | "issue" | "failed" | "queued" | "removed" | string;
  statusLabel: string;
+ summary: CampaignSummary;
 };
 
 function buildCampaignViewModels(
  campaigns: any[] | null | undefined,
- metricsByCampaignId: Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>,
- campaignStatusesByCampaignId: Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>,
+ metricsByCampaignId: Map<string, CampaignMetricRow>,
+ campaignStatusesByCampaignId: Map<string, CampaignStatusRow>,
 ) {
  return (campaigns ?? []).map((campaign) => {
   const metric = campaign.google_campaign_id ? metricsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null;
@@ -101,12 +233,20 @@ function buildCampaignViewModels(
   const statusLabel = !campaign.google_campaign_id
    ? campaign.status === "failed"
     ? "Failed"
-    : "Draft"
+   : "Draft"
    : effectiveGoogleStatus === "REMOVED"
     ? "Removed"
     : hasIssue && effectiveGoogleStatus !== "ENABLED" && effectiveGoogleStatus !== "PAUSED"
      ? "Published — Has issue"
      : friendlyGoogleCampaignStatus(effectiveGoogleStatus);
+  const summary = buildCampaignSummary({
+   effectiveGoogleStatus,
+   effectivePrimaryStatus,
+   primaryStatusReasons,
+   statusSyncUnavailable,
+   issuesAvailable,
+   hasMetrics: Boolean(metric && (metric.impressions || metric.clicks || metric.conversions || metric.costMicros)),
+  });
   return {
    campaign,
    metric,
@@ -117,6 +257,7 @@ function buildCampaignViewModels(
    issuesAvailable,
    effectiveCardStatus,
    statusLabel,
+   summary,
   } satisfies CampaignCardViewModel;
  });
 }
@@ -452,7 +593,9 @@ export default async function GoogleAdsPage({
 
   {hasCampaigns && <section className="google-ads-primary-stack">
    <section className="google-ads-campaign-grid">
-    {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, issuesAvailable, effectiveCardStatus, statusLabel }) => <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
+    {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, issuesAvailable, effectiveCardStatus, statusLabel, summary }) => {
+     const syncedAt = formatTimestamp(campaign.last_sync_at, business.timezone);
+     return <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
      <header>
       <div>
        <span className="sv-kicker">Campaign</span>
@@ -461,39 +604,84 @@ export default async function GoogleAdsPage({
       </div>
       <span className={`campaign-status ${effectiveCardStatus === "published" ? "sent" : effectiveCardStatus === "paused" ? "skipped" : effectiveCardStatus === "issue" || effectiveCardStatus === "failed" || effectiveCardStatus === "removed" ? "failed" : "queued"}`}>{statusLabel}</span>
      </header>
-     <dl className="google-ads-facts">
-      <div><dt>Budget</dt><dd>{microsToMoney(Number(campaign.daily_budget_micros))}/day</dd></div>
-      <div><dt>Monthly estimate</dt><dd>{money(Number(campaign.monthly_budget_estimate_cents ?? 0))}</dd></div>
-      <div><dt>Destination</dt><dd>{campaign.destination_url}</dd></div>
-      <div><dt>Google campaign ID</dt><dd>{campaign.google_campaign_id ?? "Draft only"}</dd></div>
-      <div><dt>Google status</dt><dd>{campaign.google_campaign_id ? (effectiveGoogleStatus ?? "Sync unavailable") : "Draft only"}</dd></div>
-      <div><dt>Serving status</dt><dd>{campaign.google_campaign_id ? (effectivePrimaryStatus ? friendlyPrimaryStatus(effectivePrimaryStatus) : "Sync unavailable") : "Draft only"}</dd></div>
-      <div><dt>Issues</dt><dd>{campaign.google_campaign_id ? (statusSyncUnavailable ? "Status sync unavailable" : primaryStatusReasons.length ? primaryStatusReasons.map(friendlyIssue).join(", ") : !issuesAvailable ? "Unavailable from Google" : "None reported") : "Draft only"}</dd></div>
-      <div><dt>Last synced</dt><dd>{campaign.last_sync_at ? new Date(campaign.last_sync_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "Not synced yet"}</dd></div>
-      <div><dt>Impressions</dt><dd>{metric?.impressions ?? "—"}</dd></div>
-      <div><dt>Clicks</dt><dd>{metric?.clicks ?? "—"}</dd></div>
-      <div><dt>CTR</dt><dd>{metric ? `${metric.ctr.toFixed(1)}%` : "—"}</dd></div>
-      <div><dt>Avg CPC</dt><dd>{metric ? microsToMoney(metric.averageCpcMicros) : "—"}</dd></div>
-      <div><dt>Conversions</dt><dd>{metric?.conversions ?? "—"}</dd></div>
-      <div><dt>CPL</dt><dd>{metric?.conversions ? microsToMoney(metric.costPerConversionMicros) : "—"}</dd></div>
-     </dl>
+     <section className={`google-ads-status-callout is-${summary.tone}`} aria-label="Campaign status summary">
+      <div>
+       <span className="google-ads-status-eyebrow">{summary.badge}</span>
+       <h3>{summary.headline}</h3>
+       <p>{summary.supporting}</p>
+      </div>
+      <div className="google-ads-status-meta">
+       <strong>{summary.technicalStatus}</strong>
+       <span>Issues: {summary.issueLabel}</span>
+      </div>
+     </section>
+     <section className="google-ads-overview-grid" aria-label="Campaign overview">
+      <article className="google-ads-overview-stat">
+       <span>Daily budget</span>
+       <strong>{microsToMoney(Number(campaign.daily_budget_micros))}/day</strong>
+      </article>
+      <article className="google-ads-overview-stat">
+       <span>Monthly estimate</span>
+       <strong>{money(Number(campaign.monthly_budget_estimate_cents ?? 0))}</strong>
+      </article>
+      <article className="google-ads-overview-stat google-ads-overview-destination">
+       <span>Destination</span>
+       <strong>{campaign.destination_url}</strong>
+      </article>
+     </section>
+     <section className="google-ads-manage-panel" aria-label="Manage campaign">
+      <div className="google-ads-section-heading">
+       <div>
+        <h3>Manage campaign</h3>
+        <p>Pause or resume the campaign, adjust the budget, and refine traffic quality.</p>
+       </div>
+      </div>
+      <div className="google-ads-manage-grid-compact">
+       <div className="google-ads-manage-actions">
+        {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form> : <>
+         {!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" && <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, effectiveGoogleStatus === "PAUSED" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{effectiveGoogleStatus === "PAUSED" ? "Resume campaign" : "Pause campaign"}</button></form>}
+         <form className="google-ads-budget-inline" action={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}>
+          <label>Daily budget
+           <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} />
+          </label>
+          <button className="sv-button sv-secondary">Update budget</button>
+         </form>
+        </>}
+       </div>
+       {campaign.status !== "draft" && campaign.google_ad_group_id && <form className="google-ads-negative-inline" action={addGoogleAdsNegativeKeywordAction.bind(null, businessSlug, campaign.id)}>
+        <label>Add negative keyword<input name="keyword" placeholder="free" /></label>
+        <button className="sv-button sv-secondary">Add</button>
+       </form>}
+      </div>
+     </section>
+     <section className="google-ads-performance-block" aria-label="Campaign performance">
+      <div className="google-ads-section-heading">
+       <div>
+        <h3>Performance</h3>
+        <p>{summary.performanceHint ?? "Track how many people are seeing, clicking, and converting from this campaign."}</p>
+       </div>
+      </div>
+      <dl className="google-ads-facts google-ads-performance-facts">
+       <div><dt>Impressions</dt><dd>{metric?.impressions ?? "—"}</dd></div>
+       <div><dt>Clicks</dt><dd>{metric?.clicks ?? "—"}</dd></div>
+       <div><dt>CTR</dt><dd>{metric ? `${metric.ctr.toFixed(1)}%` : "—"}</dd></div>
+       <div><dt>Avg CPC</dt><dd>{metric ? microsToMoney(metric.averageCpcMicros) : "—"}</dd></div>
+       <div><dt>Conversions</dt><dd>{metric?.conversions ?? "—"}</dd></div>
+       <div><dt>CPL</dt><dd>{metric?.conversions ? microsToMoney(metric.costPerConversionMicros) : "—"}</dd></div>
+      </dl>
+     </section>
+     <details className="google-ads-technical-details">
+      <summary>Technical details</summary>
+      <dl className="google-ads-facts google-ads-technical-facts">
+       <div><dt>Google campaign ID</dt><dd>{campaign.google_campaign_id ?? "Draft only"}</dd></div>
+       <div><dt>Google status</dt><dd>{campaign.google_campaign_id ? (effectiveGoogleStatus ?? "Sync unavailable") : "Draft only"}</dd></div>
+       <div><dt>Serving status</dt><dd>{campaign.google_campaign_id ? (effectivePrimaryStatus ? friendlyPrimaryStatus(effectivePrimaryStatus) : "Sync unavailable") : "Draft only"}</dd></div>
+       <div><dt>Issues</dt><dd>{campaign.google_campaign_id ? (statusSyncUnavailable ? "Status sync unavailable" : primaryStatusReasons.length ? primaryStatusReasons.map(friendlyIssue).join(", ") : !issuesAvailable ? "Unavailable from Google" : "None reported") : "Draft only"}</dd></div>
+       <div><dt>Last synced</dt><dd>{syncedAt.absolute ? <><strong>{syncedAt.relative}</strong><small>{syncedAt.absolute}</small></> : "Not synced yet"}</dd></div>
+      </dl>
+     </details>
      {statusSyncUnavailable && <div className="workspace-notice warning">Google campaign status could not be refreshed right now. Use Refresh metrics and try again.</div>}
      {campaign.last_error && <div className="workspace-notice error">{campaign.last_error}</div>}
-     <div className="google-ads-card-actions">
-      {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form> : <>
-       {!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" && <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, effectiveGoogleStatus === "PAUSED" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{effectiveGoogleStatus === "PAUSED" ? "Resume campaign" : "Pause campaign"}</button></form>}
-       <form className="google-ads-inline-form" action={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}>
-        <label>Daily budget
-         <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} />
-        </label>
-        <button className="sv-button sv-secondary">Update budget</button>
-       </form>
-      </>}
-     </div>
-     {campaign.status !== "draft" && campaign.google_ad_group_id && <form className="google-ads-inline-form" action={addGoogleAdsNegativeKeywordAction.bind(null, businessSlug, campaign.id)}>
-      <label>Add negative keyword<input name="keyword" placeholder="free" /></label>
-      <button className="sv-button sv-secondary">Add</button>
-     </form>}
      <details className="google-ads-draft-editor">
       <summary>Review and edit campaign draft</summary>
       <form className="google-ads-form" action={updateGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}>
@@ -508,7 +696,8 @@ export default async function GoogleAdsPage({
        <div className="google-ads-form-actions"><button className="sv-button sv-secondary">Save changes</button></div>
       </form>
      </details>
-    </article>)}
+    </article>;
+    })}
    </section>
    <section className="workspace-panel google-ads-performance">
     <header><div><h2>Performance</h2><p>Track spend, traffic, and conversions for the selected reporting window.</p></div></header>
