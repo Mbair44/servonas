@@ -234,7 +234,29 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const totalSpend = source === "all" ? report.totals.spendCents : Number(spendBySource[source] ?? 0);
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to);
   const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: report.totals.revenueCents, roas: report.totals.roas });
-  const stepLookup = new Map((report.summaries[0]?.stepCounts ?? []).map((step) => [step.key, step]));
+  const aggregatedStepCounts = new Map<string, number>();
+  for (const summary of report.summaries) {
+    for (const step of summary.stepCounts) {
+      aggregatedStepCounts.set(step.key, (aggregatedStepCounts.get(step.key) ?? 0) + step.count);
+    }
+  }
+  const journeySteps = [
+    ["landing_view", "Visits"],
+    ["engaged", "Item / service views"],
+    ["booking_cta_click", "Booking starts"],
+    ["availability_check", "Availability checks"],
+    ["date_selected", "Date selections"],
+    ["checkout_started", "Checkout starts"],
+    ["booking_completed", "Bookings"],
+  ] as const;
+  const journeyStepLookup = new Map(journeySteps.map(([key, label], index) => {
+    const count = aggregatedStepCounts.get(key) ?? 0;
+    const previousKey = index > 0 ? journeySteps[index - 1]?.[0] ?? null : null;
+    const previousCount = previousKey ? (aggregatedStepCounts.get(previousKey) ?? 0) : 0;
+    const progressFromPrevious = index === 0 ? null : (previousCount > 0 ? count / previousCount : null);
+    const dropOffRate = index === 0 ? null : (previousCount > 0 ? Math.max(0, 1 - count / previousCount) : null);
+    return [key, { key, label, count, progressFromPrevious, dropOffRate }] as const;
+  }));
   const cells = buildRequestedDateCells(selectedMonth, requestedDates.totals);
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page">
@@ -277,16 +299,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <header><div><h2>Customer journey</h2><p>Track how visitors move from visit to booking and revenue.</p></div></header>
       <div className="marketing-sources-table">
         <div><b>Step</b><b>Count</b><b>Progress</b><b>Drop-off</b></div>
-        {[
-          ["landing_view", "Visits"],
-          ["engaged", "Item / service views"],
-          ["booking_cta_click", "Booking starts"],
-          ["availability_check", "Availability checks"],
-          ["date_selected", "Date selections"],
-          ["checkout_started", "Checkout starts"],
-          ["booking_completed", "Bookings"],
-        ].map(([key, label], index) => {
-          const step = stepLookup.get(key) ?? { count: 0, progressFromPrevious: index === 0 ? null : 0, dropOffRate: index === 0 ? null : 0 };
+        {journeySteps.map(([key, label], index) => {
+          const step = journeyStepLookup.get(key) ?? { count: 0, progressFromPrevious: index === 0 ? null : null, dropOffRate: index === 0 ? null : null };
           return <div key={key}><span>{label}</span><span>{step.count}</span><span>{percent(step.progressFromPrevious)}</span><span>{percent(step.dropOffRate)}</span></div>;
         })}
         <div><span>Revenue</span><span>{money(report.totals.revenueCents)}</span><span>—</span><span>—</span></div>
