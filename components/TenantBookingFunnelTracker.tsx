@@ -41,6 +41,18 @@ const stored=(slug:string):Stored=>{
  const existing=localStorage.getItem(key(slug));if(existing){try{const value=JSON.parse(existing) as Stored;if(value.sessionId)return value;}catch{/* replace malformed storage */}}
  const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search)),landingUrl:location.href,referrer:document.referrer,lastSessionSyncAt:0};localStorage.setItem(key(slug),JSON.stringify(value));return value;
 };
+const bookingPathFor=(slug:string)=>`/book/${encodeURIComponent(slug)}`;
+const bookingCheckoutPathFor=(slug:string)=>`${bookingPathFor(slug)}/booking`;
+const isBookingUrl=(url:URL,slug:string)=>{
+ const pathname=url.pathname.replace(/\/$/,"")||"/";
+ return pathname===bookingPathFor(slug)||pathname===bookingCheckoutPathFor(slug)||pathname==="/booking"||pathname==="/booking/checkout";
+};
+const applyStoredAttribution=(url:URL,slug:string)=>{
+ const state=stored(slug);
+ if(!url.searchParams.has("sv_at"))url.searchParams.set("sv_at",state.sessionId);
+ for(const [key,value] of Object.entries(state.attribution))if(value&&!url.searchParams.has(key))url.searchParams.set(key,value);
+ return url;
+};
 const eventFingerprint=(event:BookingFunnelEvent,options:TrackBookingFunnelOptions)=>JSON.stringify([event,options.inventoryItemId??null,options.serviceId??null,options.metadata??{}]);
 const shouldSkipEvent=(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions)=>{
  const ttl=eventTtlMs[event];
@@ -102,6 +114,7 @@ const postWithBeacon=(slug:string,event:BookingFunnelEvent,payload:ReturnType<ty
 };
 
 export function bookingAttributionSession(slug:string){if(typeof window==="undefined")return "";return stored(slug).sessionId;}
+export function bookingAttributionValues(slug:string):AttributionValues{if(typeof window==="undefined")return {};return {...stored(slug).attribution};}
 export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions={}){
  if(!analyticsEnabled||typeof window==="undefined"){logDebug(slug,event,"skipped",{reason:"analytics_disabled_or_server"});return;}
  if(shouldSkipEvent(slug,event,options)){logDebug(slug,event,"skipped",{reason:"deduped"});return;}
@@ -115,7 +128,7 @@ export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:
 export function TenantBookingFunnelTracker({businessSlug,initialSessionId}:{businessSlug:string;initialSessionId?:string}){
  const sent=useRef(false);
  useEffect(()=>{if(!analyticsEnabled)return;if(initialSessionId&&/^[0-9a-f-]{36}$/i.test(initialSessionId)){const current=stored(businessSlug);localStorage.setItem(key(businessSlug),JSON.stringify({...current,sessionId:initialSessionId}));}if(sent.current)return;sent.current=true;trackBookingFunnel(businessSlug,"landing_page_view");
-  const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>(`a[href*="/book/${businessSlug}"],iframe[src*="/book/${businessSlug}"]`).forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(url.searchParams.has("sv_at"))return;url.searchParams.set("sv_at",bookingAttributionSession(businessSlug));element.setAttribute(attribute,url.toString());}catch{/* external link remains usable */}});
+  const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(!isBookingUrl(url,businessSlug))return;element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* external link remains usable */}});
   rewrite();const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});return()=>observer.disconnect();
  },[businessSlug,initialSessionId]);
  if(!analyticsEnabled)return null;
