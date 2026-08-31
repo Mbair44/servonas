@@ -3,6 +3,7 @@ import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import {
+ fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
   fetchGoogleAdsSearchTerms,
   googleAdsReadyLabel,
@@ -42,6 +43,14 @@ const billingUrl = (customerId: string | null | undefined) =>
 
 const accountCreateUrl = "https://ads.google.com/home/";
 const industryLabel = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Business";
+const friendlyGoogleCampaignStatus = (status: string | null | undefined) => {
+ if (status === "ENABLED") return "Published — Active";
+ if (status === "PAUSED") return "Published — Paused";
+ if (status === "REMOVED") return "Removed";
+ return "Published";
+};
+const friendlyPrimaryStatus = (status: string | null | undefined) => status ? status.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Unknown";
+const friendlyIssue = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default async function GoogleAdsPage({
  params,
@@ -75,6 +84,7 @@ export default async function GoogleAdsPage({
  let connectionError: string | null = null;
  let permissionDiagnostic: Awaited<ReturnType<typeof runGoogleAdsPermissionDiagnostic>> | null = null;
  let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
+ let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
  if (connection?.status && connection.status !== "disconnected") {
   try {
@@ -88,6 +98,13 @@ export default async function GoogleAdsPage({
     });
     metricsByCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
     const publishedIds = (campaigns ?? []).map((campaign: any) => String(campaign.google_campaign_id ?? "")).filter(Boolean);
+    const campaignStatuses = await fetchGoogleAdsCampaignStatuses({
+     accessToken: connectionAccess.accessToken,
+     customerId: connectionAccess.customerId,
+     campaignIds: publishedIds,
+     loginCustomerId: connectionAccess.loginCustomerId,
+    });
+    campaignStatusesByCampaignId = new Map(campaignStatuses.map((row) => [row.campaignId, row]));
     topSearchTerms = await fetchGoogleAdsSearchTerms({
      accessToken: connectionAccess.accessToken,
      customerId: connectionAccess.customerId,
@@ -340,6 +357,39 @@ const validatedManagerLabel = selectedCustomer?.loginCustomerId
   <section className="google-ads-campaign-grid">
    {(campaigns ?? []).map((campaign: any) => {
     const metric = campaign.google_campaign_id ? metricsByCampaignId.get(String(campaign.google_campaign_id)) : null;
+    const googleStatus = campaign.google_campaign_id ? campaignStatusesByCampaignId.get(String(campaign.google_campaign_id)) : null;
+    const effectiveGoogleStatus = googleStatus?.status ?? campaign.google_campaign_status ?? null;
+    const effectivePrimaryStatus = googleStatus?.primaryStatus ?? campaign.google_campaign_primary_status ?? null;
+    const primaryStatusReasons = Array.isArray(googleStatus?.primaryStatusReasons)
+     ? googleStatus.primaryStatusReasons
+     : Array.isArray(campaign.google_campaign_primary_status_reasons)
+      ? campaign.google_campaign_primary_status_reasons.map(String)
+      : [];
+    const hasIssue = Boolean(
+     effectiveGoogleStatus === "REMOVED"
+     || (effectivePrimaryStatus && !["ELIGIBLE", "LIMITED"].includes(effectivePrimaryStatus))
+     || primaryStatusReasons.length
+    );
+    const effectiveCardStatus = !campaign.google_campaign_id
+     ? campaign.status
+     : effectiveGoogleStatus === "REMOVED"
+      ? "removed"
+      : hasIssue && effectiveGoogleStatus !== "ENABLED" && effectiveGoogleStatus !== "PAUSED"
+       ? "issue"
+       : effectiveGoogleStatus === "PAUSED"
+        ? "paused"
+        : hasIssue
+         ? "issue"
+         : "published";
+    const statusLabel = !campaign.google_campaign_id
+     ? campaign.status === "failed"
+      ? "Failed"
+      : "Draft"
+     : effectiveGoogleStatus === "REMOVED"
+      ? "Removed"
+      : hasIssue && effectiveGoogleStatus !== "ENABLED" && effectiveGoogleStatus !== "PAUSED"
+       ? "Published — Has issue"
+       : friendlyGoogleCampaignStatus(effectiveGoogleStatus);
     return <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
      <header>
       <div>
@@ -347,13 +397,17 @@ const validatedManagerLabel = selectedCustomer?.loginCustomerId
        <h2>{campaign.campaign_name}</h2>
        <p>{campaign.geo_target_summary}</p>
       </div>
-      <span className={`campaign-status ${campaign.status === "published" ? "sent" : campaign.status === "paused" ? "skipped" : campaign.status === "failed" ? "failed" : "queued"}`}>{campaign.status}</span>
+      <span className={`campaign-status ${effectiveCardStatus === "published" ? "sent" : effectiveCardStatus === "paused" ? "skipped" : effectiveCardStatus === "issue" || effectiveCardStatus === "failed" || effectiveCardStatus === "removed" ? "failed" : "queued"}`}>{statusLabel}</span>
      </header>
      <dl className="google-ads-facts">
       <div><dt>Budget</dt><dd>{microsToMoney(Number(campaign.daily_budget_micros))}/day</dd></div>
       <div><dt>Monthly estimate</dt><dd>{money(Number(campaign.monthly_budget_estimate_cents ?? 0))}</dd></div>
       <div><dt>Destination</dt><dd>{campaign.destination_url}</dd></div>
       <div><dt>Google campaign ID</dt><dd>{campaign.google_campaign_id ?? "Draft only"}</dd></div>
+      <div><dt>Google status</dt><dd>{campaign.google_campaign_id ? (effectiveGoogleStatus ?? "Unknown") : "Draft only"}</dd></div>
+      <div><dt>Serving status</dt><dd>{campaign.google_campaign_id ? friendlyPrimaryStatus(effectivePrimaryStatus) : "Draft only"}</dd></div>
+      <div><dt>Issues</dt><dd>{campaign.google_campaign_id ? (primaryStatusReasons.length ? primaryStatusReasons.map(friendlyIssue).join(", ") : "None reported") : "Draft only"}</dd></div>
+      <div><dt>Last synced</dt><dd>{campaign.last_sync_at ? new Date(campaign.last_sync_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "Not synced yet"}</dd></div>
       <div><dt>Impressions</dt><dd>{metric?.impressions ?? "—"}</dd></div>
       <div><dt>Clicks</dt><dd>{metric?.clicks ?? "—"}</dd></div>
       <div><dt>CTR</dt><dd>{metric ? `${metric.ctr.toFixed(1)}%` : "—"}</dd></div>
@@ -378,7 +432,7 @@ const validatedManagerLabel = selectedCustomer?.loginCustomerId
      </details>
      <div className="google-ads-card-actions">
       {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open."/></form> : <>
-       <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, campaign.status === "paused" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{campaign.status === "paused" ? "Resume" : "Pause"}</button></form>
+       {effectiveGoogleStatus !== "REMOVED" && <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, effectiveGoogleStatus === "PAUSED" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{effectiveGoogleStatus === "PAUSED" ? "Start campaign" : "Pause campaign"}</button></form>}
        <form className="google-ads-inline-form" action={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}>
         <label>Daily budget
          <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} />

@@ -8,6 +8,7 @@ import {
  appendGoogleAdsNegativeKeyword,
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
+ fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
  generateGoogleAdsDraft,
  googleAdsErrorMessage,
@@ -74,6 +75,63 @@ const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) =
 const logGoogleAdsActionError = (message: string, payload: Record<string, unknown>) => {
  console.error(message, payload);
 };
+
+async function syncPublishedGoogleAdsCampaignStatuses(input: {
+ supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"];
+ accessToken: string;
+ businessId: string;
+ businessSlug: string;
+ userId: string;
+ connectionStatus: string | null | undefined;
+ connectionChoices: Array<{ id: string; loginCustomerId?: string | null }>;
+ selectedCustomerId: string | null;
+ campaigns: Array<{ id: string; google_campaign_id: string | null; google_ads_customer_id: string | null }>;
+}) {
+ const eligibleCampaigns = input.campaigns.filter((campaign) => campaign.google_campaign_id && campaign.google_ads_customer_id);
+ if (!eligibleCampaigns.length) return new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
+ const mutationAccess = resolvedMutationAccess(input.connectionStatus, input.connectionChoices, input.selectedCustomerId);
+ logGoogleAdsAction("Google Ads action stage", {
+  stage: "google_ads_campaign_status_sync",
+  provider: "google_ads_api",
+  businessId: input.businessId,
+  businessSlug: input.businessSlug,
+  campaignCount: eligibleCampaigns.length,
+  targetCustomerId: mutationAccess.targetCustomerId,
+  resolvedAccessMode: mutationAccess.resolvedAccessMode,
+  resolvedLoginCustomerId: mutationAccess.resolvedLoginCustomerId,
+  reason: mutationAccess.reason,
+ });
+  const snapshots = await fetchGoogleAdsCampaignStatuses({
+  accessToken: input.accessToken,
+  customerId: mutationAccess.targetCustomerId ?? input.selectedCustomerId ?? "",
+  campaignIds: eligibleCampaigns.map((campaign) => String(campaign.google_campaign_id ?? "")),
+  loginCustomerId: mutationAccess.resolvedLoginCustomerId,
+ });
+ const snapshotByCampaignId = new Map(snapshots.map((snapshot) => [snapshot.campaignId, snapshot]));
+ for (const campaign of eligibleCampaigns) {
+  const snapshot = snapshotByCampaignId.get(String(campaign.google_campaign_id ?? ""));
+  if (!snapshot) continue;
+  await input.supabase.from("business_google_ads_campaigns").update({
+   google_campaign_resource_name: snapshot.campaignResourceName,
+   google_campaign_status: snapshot.status,
+   google_campaign_primary_status: snapshot.primaryStatus,
+   google_campaign_primary_status_reasons: snapshot.primaryStatusReasons,
+   status: snapshot.status === "REMOVED" ? "archived" : snapshot.status === "PAUSED" ? "paused" : "published",
+   last_error: null,
+   last_sync_at: new Date().toISOString(),
+   updated_by: input.userId,
+   updated_at: new Date().toISOString(),
+  }).eq("business_id", input.businessId).eq("id", campaign.id);
+ }
+ logGoogleAdsAction("Google Ads action stage complete", {
+  stage: "google_ads_campaign_status_sync",
+  provider: "google_ads_api",
+  businessId: input.businessId,
+  businessSlug: input.businessSlug,
+  campaignCount: snapshots.length,
+ });
+ return snapshotByCampaignId;
+}
 
 async function context(slug: string) {
  logGoogleAdsAction("Google Ads action stage", { stage: "load_business", provider: "supabase", businessSlug: slug });
@@ -332,6 +390,7 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
   logGoogleAdsAction("Google Ads action stage complete", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleCampaignId: published.campaignId, adGroupId: published.adGroupId });
   const { error } = await supabase.from("business_google_ads_campaigns").update({
    google_campaign_id: published.campaignId,
+   google_campaign_resource_name: published.campaignResourceName,
    google_campaign_budget_resource_name: published.campaignBudgetResourceName,
    google_ad_group_id: published.adGroupId,
    status: "published",
@@ -342,6 +401,17 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    updated_at: new Date().toISOString(),
   }).eq("business_id", business.id).eq("id", campaignId);
  if (error) redirect(path(slug, "error", "The campaign was published to Google, but Servonas could not save the resulting IDs."));
+  await syncPublishedGoogleAdsCampaignStatuses({
+   supabase,
+   accessToken: connection.accessToken,
+   businessId: business.id,
+   businessSlug: business.slug,
+   userId: user.id,
+   connectionStatus: connection.status,
+   connectionChoices: connection.customerChoices,
+   selectedCustomerId: connection.customerId,
+   campaigns: [{ id: campaignId, google_campaign_id: published.campaignId, google_ads_customer_id: connection.customerId }],
+  });
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_published", metadata: { business_slug: business.slug, google_campaign_id: published.campaignId, timestamp: new Date().toISOString() } });
  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_campaign_published", metadata: published });
   revalidatePath(`/app/${slug}/marketing/google-ads`);
@@ -413,6 +483,17 @@ export async function setGoogleAdsCampaignStatusAction(slug: string, campaignId:
   updated_by: user.id,
   updated_at: new Date().toISOString(),
  }).eq("business_id", business.id).eq("id", campaignId);
+ await syncPublishedGoogleAdsCampaignStatuses({
+  supabase,
+  accessToken: connection.accessToken,
+  businessId: business.id,
+  businessSlug: business.slug,
+  userId: user.id,
+  connectionStatus: connection.status,
+  connectionChoices: connection.customerChoices,
+  selectedCustomerId: campaign.google_ads_customer_id ?? connection.customerId,
+  campaigns: [{ id: campaignId, google_campaign_id: campaign.google_campaign_id, google_ads_customer_id: campaign.google_ads_customer_id }],
+ });
  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: nextStatus === "PAUSED" ? "google_ads_campaign_paused" : "google_ads_campaign_resumed" });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", nextStatus === "PAUSED" ? "Campaign paused." : "Campaign resumed."));
@@ -477,12 +558,32 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  const dateTo = text(formData, "to");
  const metrics = await fetchGoogleAdsCampaignMetrics({ accessToken: connection.accessToken, customerId: connection.customerId, dateFrom, dateTo });
  const byCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
- const { data: campaigns } = await supabase.from("business_google_ads_campaigns").select("id,google_campaign_id,status").eq("business_id", business.id).in("status", ["published", "paused"]);
+ const { data: campaigns } = await supabase.from("business_google_ads_campaigns").select("id,google_campaign_id,google_ads_customer_id,status").eq("business_id", business.id).in("status", ["published", "paused", "archived"]);
+ const syncedStatuses = await syncPublishedGoogleAdsCampaignStatuses({
+  supabase,
+  accessToken: connection.accessToken,
+  businessId: business.id,
+  businessSlug: business.slug,
+  userId: user.id,
+  connectionStatus: connection.status,
+  connectionChoices: connection.customerChoices,
+  selectedCustomerId: connection.customerId,
+  campaigns: (campaigns ?? []).map((campaign) => ({
+   id: String(campaign.id),
+   google_campaign_id: campaign.google_campaign_id ?? null,
+   google_ads_customer_id: campaign.google_ads_customer_id ?? null,
+  })),
+ });
  for (const campaign of campaigns ?? []) {
   const metric = campaign.google_campaign_id ? byCampaignId.get(campaign.google_campaign_id) : null;
-  if (!metric) continue;
+  const synced = campaign.google_campaign_id ? syncedStatuses.get(campaign.google_campaign_id) : null;
+  if (!metric && !synced) continue;
   await supabase.from("business_google_ads_campaigns").update({
-   status: metric.status === "PAUSED" ? "paused" : "published",
+   status: synced?.status === "REMOVED" ? "archived" : (synced?.status ?? metric?.status) === "PAUSED" ? "paused" : "published",
+   google_campaign_status: synced?.status ?? null,
+   google_campaign_primary_status: synced?.primaryStatus ?? null,
+   google_campaign_primary_status_reasons: synced?.primaryStatusReasons ?? [],
+   google_campaign_resource_name: synced?.campaignResourceName ?? null,
    last_sync_at: new Date().toISOString(),
    updated_by: user.id,
    updated_at: new Date().toISOString(),

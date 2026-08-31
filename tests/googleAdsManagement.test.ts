@@ -41,6 +41,14 @@ test("google ads discovery cache migration stores retry metadata for quota-limit
  assert.match(migration, /account_discovery_last_request_id text/);
 });
 
+test("google ads campaign status sync migration stores live campaign state fields", async () => {
+ const migration = await read("../supabase/migrations/20260831000200_google_ads_campaign_status_sync.sql");
+ assert.match(migration, /add column if not exists google_campaign_resource_name text/);
+ assert.match(migration, /add column if not exists google_campaign_status text/);
+ assert.match(migration, /add column if not exists google_campaign_primary_status text/);
+ assert.match(migration, /add column if not exists google_campaign_primary_status_reasons jsonb not null default '\[\]'::jsonb/);
+});
+
 test("google ads schema sync migration widens connection statuses and backfills missing connection columns", async () => {
  const migration = await read("../supabase/migrations/20260831000100_google_ads_connection_status_schema_sync.sql");
  assert.match(migration, /drop constraint if exists business_google_ads_connections_status_check/);
@@ -73,7 +81,11 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /biddingStrategyType: campaignCreate\?\.campaignOperation\?\.create\?\.manualCpc \? "MANUAL_CPC"/);
  assert.match(file, /hasManualCpc: Boolean\(campaignCreate\?\.campaignOperation\?\.create\?\.manualCpc\)/);
  assert.match(file, /containsEuPoliticalAdvertising: typeof campaignCreate\?\.campaignOperation\?\.create\?\.containsEuPoliticalAdvertising === "string"/);
+ assert.match(file, /export async function fetchGoogleAdsCampaignStatuses/);
  assert.match(file, /googleAds:searchStream/);
+ assert.match(file, /campaign\.resource_name/);
+ assert.match(file, /campaign\.primary_status/);
+ assert.match(file, /campaign\.primary_status_reasons/);
  assert.match(file, /customer_client/);
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
  assert.match(file, /login_customer_id/);
@@ -242,13 +254,40 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /resolvedAccessMode: mutationAccess\.resolvedAccessMode/);
  assert.match(actions, /resolvedLoginCustomerId: mutationAccess\.resolvedLoginCustomerId/);
  assert.match(actions, /reason: mutationAccess\.reason/);
+ assert.match(actions, /async function syncPublishedGoogleAdsCampaignStatuses/);
+ assert.match(actions, /google_campaign_resource_name: published\.campaignResourceName/);
+ assert.match(actions, /google_campaign_status: snapshot\.status/);
+ assert.match(actions, /google_campaign_primary_status: snapshot\.primaryStatus/);
+ assert.match(actions, /google_campaign_primary_status_reasons: snapshot\.primaryStatusReasons/);
+ assert.match(actions, /await syncPublishedGoogleAdsCampaignStatuses\(/);
  assert.match(page, /Refresh Google Ads accounts/);
  assert.match(page, /account_discovery_retry_after_at/);
  assert.match(page, /selectedAccountVerified/);
+ assert.match(page, /fetchGoogleAdsCampaignStatuses/);
+ assert.match(page, /Published — Paused/);
+ assert.match(page, /Published — Active/);
+ assert.match(page, /Published — Has issue/);
+ assert.match(page, /Removed/);
+ assert.match(page, /<div><dt>Google status<\/dt><dd>/);
+ assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
+ assert.match(page, /<div><dt>Issues<\/dt><dd>/);
+ assert.match(page, /<div><dt>Last synced<\/dt><dd>/);
+ assert.match(page, /Start campaign/);
+ assert.match(page, /Pause campaign/);
  assert.match(page, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
  assert.match(page, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
  assert.match(page, /connection\.status === "account_access_verified"/);
  assert.match(page, /connection\.status === "oauth_connected" \|\| connection\.status === "account_discovery_pending" \|\| connection\.status === "account_discovery_rate_limited"/);
+});
+
+test("google ads status sync stores and reuses the published google campaign resource name", async () => {
+ const [actions, file] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../lib/googleAdsManagement.ts"),
+ ]);
+ assert.match(file, /campaignResourceName: typeof campaign === "string" \? campaign : null/);
+ assert.match(actions, /google_campaign_resource_name: published\.campaignResourceName/);
+ assert.match(actions, /google_campaign_resource_name: snapshot\.campaignResourceName/);
 });
 
 test("google ads mutation resolver prefers proven direct advertiser access over associated manager metadata", async () => {
