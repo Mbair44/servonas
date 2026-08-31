@@ -47,6 +47,7 @@ const billingUrl = (customerId: string | null | undefined) =>
 
 const accountCreateUrl = "https://ads.google.com/home/";
 const industryLabel = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Business";
+const dailyBudgetLabel = (micros: number | string | null | undefined) => `${microsToMoney(Number(micros ?? 0))}/day`;
 const friendlyGoogleCampaignStatus = (status: string | null | undefined) => {
  if (status === "ENABLED") return "Published — Active";
  if (status === "PAUSED") return "Published — Paused";
@@ -621,7 +622,7 @@ export default async function GoogleAdsPage({
      <section className="google-ads-overview-grid" aria-label="Campaign overview">
       <article className="google-ads-overview-stat">
        <span>Daily budget</span>
-       <strong>{microsToMoney(Number(campaign.daily_budget_micros))}/day</strong>
+       <strong>{dailyBudgetLabel(campaign.daily_budget_micros)}</strong>
       </article>
       <article className="google-ads-overview-stat">
        <span>Monthly estimate</span>
@@ -633,28 +634,23 @@ export default async function GoogleAdsPage({
       </article>
      </section>
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
-      <div className="google-ads-section-heading">
-       <div>
+      <div className="google-ads-manage-toolbar">
+       <div className="google-ads-manage-title">
         <h3>Manage campaign</h3>
-        <p>Pause or resume the campaign, adjust the budget, and refine traffic quality.</p>
        </div>
-      </div>
-      <div className="google-ads-manage-grid-compact">
        <div className="google-ads-manage-actions">
         {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form> : <>
          {!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" && <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, effectiveGoogleStatus === "PAUSED" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{effectiveGoogleStatus === "PAUSED" ? "Resume campaign" : "Pause campaign"}</button></form>}
          <form className="google-ads-budget-inline" action={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}>
-          <label>Daily budget
-           <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} />
+          <span className="google-ads-budget-readout"><strong>Budget:</strong> {dailyBudgetLabel(campaign.daily_budget_micros)}</span>
+          <label className="google-ads-budget-field"><span>$</span>
+           <input aria-label="Daily budget dollars" name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} />
+           <small>/ day</small>
           </label>
-          <button className="sv-button sv-secondary">Update budget</button>
+          <button className="sv-button sv-secondary">Edit budget</button>
          </form>
         </>}
        </div>
-       {campaign.status !== "draft" && campaign.google_ad_group_id && <form className="google-ads-negative-inline" action={addGoogleAdsNegativeKeywordAction.bind(null, businessSlug, campaign.id)}>
-        <label>Add negative keyword<input name="keyword" placeholder="free" /></label>
-        <button className="sv-button sv-secondary">Add</button>
-       </form>}
       </div>
      </section>
      <section className="google-ads-performance-block" aria-label="Campaign performance">
@@ -691,13 +687,25 @@ export default async function GoogleAdsPage({
        <label>Campaign name<input name="campaignName" defaultValue={campaign.campaign_name} /></label>
        <label>Ad group name<input name="adGroupName" defaultValue={campaign.ad_group_name} /></label>
        <label>Destination URL<input name="destinationUrl" defaultValue={campaign.destination_url} /></label>
-       <label>Daily budget<input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} /></label>
+       <label>Daily budget
+        <span className="google-ads-input-with-unit"><span>$</span><input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} /><small>/ day</small></span>
+       </label>
        <label className="wide">Keywords<textarea name="keywords" rows={5} defaultValue={items(campaign.keywords).join("\n")} /></label>
-       <label className="wide">Negative keywords<textarea name="negativeKeywords" rows={4} defaultValue={items(campaign.negative_keywords).join("\n")} /></label>
+       <details className="google-ads-keyword-section wide">
+        <summary>Keywords &amp; search traffic</summary>
+        <div className="google-ads-keyword-section-body">
+         <label className="wide">Negative keywords<textarea name="negativeKeywords" rows={4} defaultValue={items(campaign.negative_keywords).join("\n")} /></label>
+         {campaign.status !== "draft" && campaign.google_ad_group_id && <p className="google-ads-keyword-note">Add a new negative keyword below when you want to block unwanted searches without editing the full draft.</p>}
+        </div>
+       </details>
        <label className="wide">Headlines<textarea name="headlines" rows={5} defaultValue={items(campaign.headlines).join("\n")} /></label>
        <label className="wide">Descriptions<textarea name="descriptions" rows={4} defaultValue={items(campaign.descriptions).join("\n")} /></label>
        <div className="google-ads-form-actions"><button className="sv-button sv-secondary">Save changes</button></div>
       </form>
+      {campaign.status !== "draft" && campaign.google_ad_group_id && <form id={`negative-keyword-${campaign.id}`} className="google-ads-negative-inline" action={addGoogleAdsNegativeKeywordAction.bind(null, businessSlug, campaign.id)}>
+       <label>Add negative keyword<input name="keyword" placeholder="free" /></label>
+       <button className="sv-button sv-secondary">Add negative keyword</button>
+      </form>}
      </details>
     </article>;
     })}

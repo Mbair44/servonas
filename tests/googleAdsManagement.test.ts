@@ -291,8 +291,17 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Campaign is active and eligible to serve/);
  assert.match(page, /Campaign is paused/);
  assert.match(page, /Manage campaign/);
+ assert.match(page, /const dailyBudgetLabel = \(micros: number \| string \| null \| undefined\) => `\$\{microsToMoney\(Number\(micros \?\? 0\)\)\}\/day`/);
+ assert.match(page, /<strong>\{dailyBudgetLabel\(campaign\.daily_budget_micros\)\}<\/strong>/);
+ assert.match(page, /<span className="google-ads-budget-readout"><strong>Budget:<\/strong> \{dailyBudgetLabel\(campaign\.daily_budget_micros\)\}<\/span>/);
+ assert.match(page, /<label className="google-ads-budget-field"><span>\$<\/span>/);
+ assert.match(page, /<small>\/ day<\/small>/);
+ assert.match(page, /Edit budget/);
  assert.match(page, /Performance/);
  assert.match(page, /Technical details/);
+ assert.match(page, /Keywords &amp; search traffic/);
+ assert.match(page, /Add a new negative keyword below/);
+ assert.match(page, /className="google-ads-negative-inline"/);
  assert.match(page, /Published — Paused/);
  assert.match(page, /Published — Active/);
  assert.match(page, /Published — Has issue/);
@@ -304,6 +313,9 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /google-ads-status-callout/);
  assert.match(page, /google-ads-overview-grid/);
  assert.match(page, /google-ads-manage-panel/);
+ assert.match(page, /google-ads-manage-toolbar/);
+ assert.match(page, /google-ads-budget-field/);
+ assert.match(page, /google-ads-keyword-section/);
  assert.match(page, /google-ads-performance-block/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
  assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
@@ -311,10 +323,20 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /<div><dt>Last synced<\/dt><dd>/);
  assert.match(page, /Resume campaign/);
  assert.match(page, /Pause campaign/);
+ assert.doesNotMatch(page, /refine traffic quality/);
  assert.match(page, /Google Ads is connected\. Account list refresh is temporarily limited by Google, but the selected account is still accessible\./);
  assert.match(page, /Google Ads connected, but Google temporarily limited account lookup\. Try Refresh accounts later\./);
  assert.match(page, /connection\?\.status === "account_access_verified"/);
  assert.match(page, /connection\?\.status === "oauth_connected" \|\| connection\?\.status === "account_discovery_pending" \|\| connection\?\.status === "account_discovery_rate_limited"/);
+ const manageSection = page.match(/<section className="google-ads-manage-panel"[\s\S]*?<\/section>/);
+ assert.ok(manageSection);
+ assert.doesNotMatch(manageSection[0], /Add negative keyword/);
+ const styles = await read("../app/globals.css");
+ assert.match(styles, /\.google-ads-manage-toolbar\{/);
+ assert.match(styles, /\.google-ads-budget-readout\{/);
+ assert.match(styles, /\.google-ads-budget-field/);
+ assert.match(styles, /\.google-ads-keyword-section\{/);
+ assert.match(styles, /@media\(max-width:900px\)\{\.google-ads-manage-toolbar/);
 });
 
 test("google ads status sync stores and reuses the published google campaign resource name", async () => {
@@ -482,7 +504,7 @@ test("marketing funnel page preserves date controls plus requested dates and ren
  assert.match(page, /Jump to month/);
  assert.match(page, /Most-clicked rental items/);
  assert.match(page, /Customer journey/);
- assert.match(page, /Servonas insights/);
+ assert.match(page, /AI Insights/);
  assert.match(page, /Traffic source performance/);
  assert.match(css, /marketing-requested-dates-layout/);
  assert.match(css, /marketing-rental-item-cards/);

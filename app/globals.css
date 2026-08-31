@@ -1126,6 +1126,24 @@ body:has(>.pest-demo)>.sv-header,body:has(>.pest-demo)>.sv-footer{display:none}
 .marketing-item-demand-table span,.marketing-item-demand-table b{min-width:0}
 .marketing-item-demand-table>div:not(:first-child) span:first-child{font-weight:800;color:#17203a}
 .marketing-item-demand-table>div:not(:first-child) span:last-child{text-align:left}
+.google-ads-manage-panel{gap:10px;padding:14px 16px}
+.google-ads-manage-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.google-ads-manage-title h3{margin:0;color:#17203a;font-size:1rem}
+.google-ads-manage-actions{align-items:center}
+.google-ads-budget-inline{align-items:center}
+.google-ads-budget-readout{display:inline-flex;align-items:center;gap:6px;padding:10px 12px;border:1px solid #e6ebf2;border-radius:999px;background:#f8fafc;color:#344054;font-size:.84rem;font-weight:800;white-space:nowrap}
+.google-ads-budget-readout strong{color:#17203a}
+.google-ads-budget-field,.google-ads-input-with-unit{display:inline-grid;grid-template-columns:auto minmax(88px,120px) auto;align-items:center;gap:8px}
+.google-ads-budget-field{padding:6px 10px;border:1px solid #e6ebf2;border-radius:14px;background:#fff}
+.google-ads-budget-field>span,.google-ads-input-with-unit>span{color:#344054;font-size:.9rem;font-weight:900}
+.google-ads-budget-field small,.google-ads-input-with-unit small{color:#667085;font-size:.76rem;font-weight:800;white-space:nowrap}
+.google-ads-budget-field input{min-height:40px;padding:8px 10px;text-align:center}
+.google-ads-input-with-unit{width:100%}
+.google-ads-keyword-section{display:grid;gap:12px;padding:14px 16px;border:1px solid #edf0f4;border-radius:18px;background:#fbfcfe}
+.google-ads-keyword-section-body{display:grid;gap:12px;margin-top:12px}
+.google-ads-keyword-note{margin:0;color:#667085;line-height:1.5}
+@media(max-width:900px){.google-ads-manage-toolbar,.google-ads-manage-actions,.google-ads-budget-inline,.google-ads-negative-inline{display:grid}.google-ads-budget-readout,.google-ads-budget-field{width:100%}}
+@media(max-width:640px){.google-ads-budget-field,.google-ads-input-with-unit{grid-template-columns:auto minmax(0,1fr) auto}}
 .marketing-date-demand-panel{display:grid;gap:18px}
 .marketing-date-demand-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
 .marketing-date-demand-summary{display:grid;gap:6px;min-width:240px;padding:16px 18px;border:1px solid #d8e4f4;border-radius:18px;background:linear-gradient(180deg,#f8fbff,#fff)}
