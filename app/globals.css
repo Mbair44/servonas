@@ -1142,8 +1142,19 @@ body:has(>.pest-demo)>.sv-header,body:has(>.pest-demo)>.sv-footer{display:none}
 .google-ads-keyword-section{display:grid;gap:12px;padding:14px 16px;border:1px solid #edf0f4;border-radius:18px;background:#fbfcfe}
 .google-ads-keyword-section-body{display:grid;gap:12px;margin-top:12px}
 .google-ads-keyword-note{margin:0;color:#667085;line-height:1.5}
+.google-ads-onboarding-choice{display:grid;gap:14px;padding:18px;border:1px solid #dbe4f0;border-radius:20px;background:linear-gradient(180deg,#fff,#fbfdff)}
+.google-ads-onboarding-choice strong{font-size:1.08rem;color:#17203a}
+.google-ads-onboarding-choice p{margin:6px 0 0;color:#667085;line-height:1.6;max-width:62ch}
+.google-ads-onboarding-launcher{display:grid;gap:10px}
+.google-ads-onboarding-cta{display:flex;flex-wrap:wrap;gap:10px}
+.google-ads-onboarding-help,.google-ads-onboarding-note{margin:0;color:#667085;line-height:1.5}
+.google-ads-onboarding-note{color:#155eef;font-weight:700}
+.google-ads-guide-progress,.google-ads-readiness-group{display:grid;gap:6px}
+.google-ads-guide-progress strong,.google-ads-readiness-group strong{color:#17203a}
+.google-ads-guide-progress span,.google-ads-readiness-group span{color:#667085;font-size:.82rem;line-height:1.5}
+.google-ads-readiness-group header{display:grid;gap:4px}
 @media(max-width:900px){.google-ads-manage-toolbar,.google-ads-manage-actions,.google-ads-budget-inline,.google-ads-negative-inline{display:grid}.google-ads-budget-readout,.google-ads-budget-field{width:100%}}
-@media(max-width:640px){.google-ads-budget-field,.google-ads-input-with-unit{grid-template-columns:auto minmax(0,1fr) auto}}
+@media(max-width:640px){.google-ads-budget-field,.google-ads-input-with-unit{grid-template-columns:auto minmax(0,1fr) auto}.google-ads-onboarding-cta{display:grid}}
 .marketing-date-demand-panel{display:grid;gap:18px}
 .marketing-date-demand-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
 .marketing-date-demand-summary{display:grid;gap:6px;min-width:240px;padding:16px 18px;border:1px solid #d8e4f4;border-radius:18px;background:linear-gradient(180deg,#f8fbff,#fff)}

@@ -29,6 +29,7 @@ import {
 } from "./actions";
 import { GoogleAdsDraftSubmit } from "@/components/GoogleAdsDraftSubmit";
 import { GoogleAdsPageLoadingOverlay } from "@/components/GoogleAdsPageLoadingOverlay";
+import { GoogleAdsOauthLauncher } from "@/components/GoogleAdsOauthLauncher";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const microsToMoney = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(micros / 1_000_000);
@@ -410,41 +411,42 @@ export default async function GoogleAdsPage({
  const setupSteps = [
   {
    id: "connect",
-   label: "Connect Google Ads",
-   description: "Connect the Google login that will manage advertising for this business.",
+   label: "Connect your Google account",
+   description: "Use the Google login that has access to your business's Google Ads.",
    done: setupConnected,
   },
   {
    id: "account",
-   label: "Choose Ads account",
-   description: "Pick the Google Ads account this business should use.",
+   label: "Choose your Google Ads account",
+   description: "Pick the account for this business.",
    done: Boolean(selectedCustomerId),
   },
   {
    id: "billing",
-   label: "Confirm Google billing",
-   description: "Finish billing in Google before ads go live.",
+   label: "Confirm billing with Google",
+   description: "Google needs a payment method before ads can run.",
    done: billingReady,
   },
   {
    id: "build",
    label: "Build campaign",
-   description: "Create a draft based on your offer, audience, and website.",
+   description: "Servonas will help create the keywords, ad text, locations, and budget.",
    done: hasCampaigns,
   },
   {
    id: "review",
-   label: "Review & publish",
-   description: "Review the draft and publish it to Google Ads.",
+   label: "Review before it goes live",
+   description: "Check everything before publishing to Google.",
    done: publishedCampaigns.length > 0,
   },
   {
    id: "track",
    label: "Start & track results",
-   description: "Use performance results to monitor spend and conversions.",
+   description: "See how many people see your ads, click, and become leads or customers.",
    done: publishedCampaigns.length > 0,
   },
  ] as const;
+ const setupProgressCount = setupSteps.filter((step) => step.done).length;
  const currentStepIndex = setupSteps.findIndex((step) => !step.done);
  const setupComplete = setupSteps.every((step) => step.done);
  const nextStepIndex = currentStepIndex === -1 ? setupSteps.length - 1 : currentStepIndex;
@@ -478,22 +480,33 @@ export default async function GoogleAdsPage({
   <section className={`workspace-panel google-ads-guide ${setupComplete ? "is-complete" : ""}`}>
    <div className="google-ads-guide-intro">
     <div>
-     <span className="sv-kicker">Included during beta</span>
+     <span className="sv-kicker">Get started with Google Ads</span>
      <h2>{setupComplete ? "Google Ads setup complete" : nextStep.label}</h2>
-     <p>{setupComplete ? "Your connection, billing, campaign, and reporting flow are in place. Use the sections below to manage and track results." : nextStep.description}</p>
+     <p>{setupComplete ? "Your connection, billing, campaign, and reporting flow are in place. Use the sections below to manage and track results." : "Servonas will guide you through setup step by step. You stay in control of your budget, and Google bills you directly."}</p>
     </div>
     <div className="google-ads-beta-pricing">
      <article>
       <span>Servonas Ads Beta</span>
       <strong>$0</strong>
-      <small>Included during beta. No setup fee, no monthly management fee, and no Stripe checkout.</small>
+      <small>Included during beta. No setup fee or monthly management fee.</small>
      </article>
      <article>
       <span>Google advertising budget</span>
-      <strong>{campaigns?.length ? money(Number(campaigns?.[0]?.monthly_budget_estimate_cents ?? 0)) : "$500.00"}/month</strong>
-      <small>Paid directly to Google from the Google Ads account you connect.</small>
+      <strong>You choose the amount</strong>
+      <small>Start small and adjust anytime. Google bills you directly.</small>
      </article>
     </div>
+   </div>
+   {!setupConnected && <section className="google-ads-onboarding-choice" aria-label="Google Ads onboarding">
+    <div>
+     <strong>Do you already have a Google Ads account?</strong>
+     <p>Start here and Servonas will walk you through the rest. You do not need to know Google Ads terminology to get going.</p>
+    </div>
+    <GoogleAdsOauthLauncher businessSlug={businessSlug} />
+   </section>}
+   <div className="google-ads-guide-progress">
+    <strong>Setup progress: {setupProgressCount} of {setupSteps.length} complete</strong>
+    <span>{setupComplete ? "Everything is ready." : `Next up: ${nextStep.label}.`}</span>
    </div>
    {!setupComplete && <div className="google-ads-guide-steps">
     {setupSteps.map((step, index) => {
@@ -507,10 +520,6 @@ export default async function GoogleAdsPage({
    </div>}
    {setupComplete && <div className="google-ads-guide-complete"><strong>Everything needed to launch and monitor Google Ads is ready.</strong><div className="google-ads-readiness-mini">{setupSteps.map((step) => <span key={step.id} className="is-complete">{step.label}</span>)}</div></div>}
    <div className="google-ads-guide-actions">
-    {!setupConnected && <>
-     <a className="sv-button" href={`/api/google-ads/connect/${businessSlug}`}>Connect Google Ads</a>
-     <a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a>
-    </>}
     {setupConnected && !billingReady && <>
      <a className="sv-button" href={billingUrl(selectedCustomerId)} target="_blank" rel="noopener noreferrer">Complete Billing with Google</a>
      <form action={markGoogleAdsBillingReadyAction.bind(null, businessSlug)}>
@@ -519,10 +528,16 @@ export default async function GoogleAdsPage({
      </form>
     </>}
    </div>
-   <div className="google-ads-supporting-checks">
-    <article className={businessInfoReady ? "is-complete" : ""}><strong>Business info</strong><span>{businessInfoReady ? "Ready for ad drafting" : "Add email, city, or state"}</span></article>
-    <article className={landingPageReady ? "is-complete" : ""}><strong>Landing page</strong><span>{landingPageReady ? "Ready for traffic" : "Publish a site or booking page"}</span></article>
-   </div>
+   <section className="google-ads-readiness-group">
+    <header>
+     <strong>Servonas already has these covered</strong>
+     <span>These checks help make sure your campaign has the basics it needs.</span>
+    </header>
+    <div className="google-ads-supporting-checks">
+     <article className={businessInfoReady ? "is-complete" : ""}><strong>Business info</strong><span>{businessInfoReady ? "Ready for ad drafting" : "Add email, city, or state"}</span></article>
+     <article className={landingPageReady ? "is-complete" : ""}><strong>Landing page</strong><span>{landingPageReady ? "Ready for traffic" : "Publish a site or booking page"}</span></article>
+    </div>
+   </section>
   </section>
 
   {!setupConnected ? null : <section className="workspace-panel google-ads-connection-compact">
@@ -533,9 +548,9 @@ export default async function GoogleAdsPage({
      <p>{connection?.status === "account_access_verified" ? "Servonas can manage the selected Google Ads account." : connection?.status === "account_selected" ? "Google Ads is connected and an account has been selected." : connection?.status === "oauth_connected" || connection?.status === "account_discovery_pending" || connection?.status === "account_discovery_rate_limited" ? "Google Ads is connected. Choose the right account to keep going." : "Reconnect Google Ads to continue."}</p>
     </div>
     <div className="google-ads-connection-pills">
-     <span>{connection?.google_authenticated_email || "Unknown Google login"}</span>
-     <span>{connection?.google_ads_customer_id || "No account selected"}</span>
-     <span>{validatedManagerLabel ? "Manager account" : "Direct advertiser access"}</span>
+     <span>{selectedCustomer?.label || connection?.google_ads_customer_id || "No account selected"}</span>
+     <span>{validatedManagerLabel ? "Connected through manager access" : "Direct advertiser access"}</span>
+     {role === "platform_admin" && <span>{connection?.google_authenticated_email || "Unknown Google login"}</span>}
     </div>
    </div>
    {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
@@ -552,12 +567,12 @@ export default async function GoogleAdsPage({
     <summary>Manage connection</summary>
     <div className="google-ads-manage-grid">
      <div className="google-ads-audit-list">
-      <article><strong>Connected Google account</strong><span>{connection?.google_authenticated_email || "Unknown — reconnect to verify"}</span></article>
-      <article><strong>Google profile name</strong><span>{connection?.google_authenticated_name || "Unavailable"}</span></article>
-      <article><strong>Access mode</strong><span>{validatedManagerLabel ? "Manager account" : "Direct advertiser access"}</span></article>
+      {role === "platform_admin" && <article><strong>Connected Google account</strong><span>{connection?.google_authenticated_email || "Unknown — reconnect to verify"}</span></article>}
+      {role === "platform_admin" && <article><strong>Google profile name</strong><span>{connection?.google_authenticated_name || "Unavailable"}</span></article>}
+      <article><strong>Access mode</strong><span>{validatedManagerLabel ? "Connected through manager access" : "Direct advertiser access"}</span></article>
       <article><strong>Selected Google Ads account</strong><span>{connection?.google_ads_customer_id || "Not selected yet"}</span></article>
-      {validatedManagerLabel && <article><strong>Validated manager account</strong><span>{validatedManagerLabel}</span></article>}
-      <article><strong>Resolved login customer</strong><span>{connectionAccess?.loginCustomerId || "Direct advertiser access"}</span></article>
+      {validatedManagerLabel && role === "platform_admin" && <article><strong>Validated manager account</strong><span>{validatedManagerLabel}</span></article>}
+      {role === "platform_admin" && <article><strong>Resolved login customer</strong><span>{connectionAccess?.loginCustomerId || "Direct advertiser access"}</span></article>}
      </div>
      <div className="google-ads-manage-actions">
       <form action={refreshGoogleAdsAccountsAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Refresh Google Ads accounts</button></form>
