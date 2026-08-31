@@ -703,10 +703,8 @@ export function googleAdsErrorMessage(error: GoogleAdsRequestError | Error) {
 }
 
 export function googleAdsPreferredLoginCustomerIds(values: Array<string | null | undefined>) {
- const preferred = configuredGoogleAdsLoginCustomerId();
- const ordered = preferred ? [preferred, ...values] : values;
  const next: string[] = [];
- for (const value of ordered) {
+ for (const value of values) {
   if (!value) continue;
   const normalized = stripCustomerId(value);
   if (normalized && !next.includes(normalized)) next.push(normalized);
@@ -725,7 +723,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   "developer-token": developerToken,
   "Content-Type": "application/json",
  };
- const loginCustomerId = input.loginCustomerId === undefined ? input.customerId ?? null : input.loginCustomerId;
+ const loginCustomerId = input.loginCustomerId === undefined ? null : input.loginCustomerId;
  if (loginCustomerId) headers["login-customer-id"] = stripCustomerId(loginCustomerId);
  logGoogleAdsDiagnostic("Google Ads API request started", {
   stage: "google_ads_api_request",
@@ -2022,7 +2020,7 @@ export async function publishGoogleAdsCampaign(input: {
  const result = await googleAdsRequestWithLoginFallbacks<{ mutateOperationResponses?: any[] }>("/customers/" + stripCustomerId(input.customerId) + "/googleAds:mutate", {
   accessToken: input.accessToken,
   targetCustomerId: input.customerId,
-  loginCustomerIds: [...(input.loginCustomerIds ?? []), input.customerId, null],
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: {
    mutateOperations: mutateOperationsForCampaign({
     ...input,
@@ -2054,7 +2052,7 @@ export async function updateGoogleAdsCampaignStatus(input: {
  return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/campaigns:mutate`, {
   accessToken: input.accessToken,
   targetCustomerId: input.customerId,
-  loginCustomerIds: [...(input.loginCustomerIds ?? []), input.customerId, null],
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: {
    operations: [{
     update: {
@@ -2077,7 +2075,7 @@ export async function updateGoogleAdsCampaignBudget(input: {
  return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/campaignBudgets:mutate`, {
   accessToken: input.accessToken,
   targetCustomerId: input.customerId,
-  loginCustomerIds: [...(input.loginCustomerIds ?? []), input.customerId, null],
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: {
    operations: [{
     update: {

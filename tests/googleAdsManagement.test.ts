@@ -62,8 +62,9 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /method: "GET"/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
  assert.match(file, /googleAdsRequestWithLoginFallbacks/);
- assert.match(file, /loginCustomerIds: \[\.\.\.\(input\.loginCustomerIds \?\? \[\]\), input\.customerId, null\]/);
+ assert.match(file, /loginCustomerIds: \[\.\.\.\(input\.loginCustomerIds \?\? \[\]\), null\]/);
  assert.match(file, /if \(!attempts\.includes\(null\)\) attempts\.push\(null\)/);
+ assert.match(file, /const loginCustomerId = input\.loginCustomerId === undefined \? null : input\.loginCustomerId/);
  assert.match(file, /googleAds:searchStream/);
  assert.match(file, /customer_client/);
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
@@ -260,9 +261,15 @@ test("google ads mutation resolver uses validated manager login customer when th
 });
 
 test("google ads publish path does not blindly force associated manager login ids", async () => {
- const actions = await read("../app/app/[businessSlug]/marketing/google-ads/actions.ts");
+ const [actions, file] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../lib/googleAdsManagement.ts"),
+ ]);
  assert.doesNotMatch(actions, /loginCustomerIds\(connection\.customerChoices, connection\.customerId\)/);
  assert.doesNotMatch(actions, /loginCustomerIds\(connection\.customerChoices, campaign\.google_ads_customer_id\)/);
+ assert.doesNotMatch(file, /const preferred = configuredGoogleAdsLoginCustomerId\(\)/);
+ assert.doesNotMatch(file, /input\.loginCustomerId === undefined \? input\.customerId \?\? null : input\.loginCustomerId/);
+ assert.doesNotMatch(file, /loginCustomerIds: \[\.\.\.\(input\.loginCustomerIds \?\? \[\]\), input\.customerId, null\]/);
 });
 
 test("google ads admin reporting page surfaces beta adoption data", async () => {
