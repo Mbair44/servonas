@@ -468,6 +468,11 @@ function safeStringArray(value: unknown) {
  return value.map((entry) => typeof entry === "string" ? entry : "").filter(Boolean);
 }
 
+function readGoogleAdsField<T>(record: Record<string, unknown> | undefined, camelKey: string, snakeKey: string) {
+ if (!record) return undefined;
+ return (record[camelKey] ?? record[snakeKey]) as T | undefined;
+}
+
 function oauthConfigured() {
  const { clientId, clientSecret, developerToken } = credentials();
  return Boolean(clientId && clientSecret && developerToken);
@@ -2236,23 +2241,72 @@ export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: strin
  if (!input.campaignIds.length) return [] as GoogleAdsCampaignStatusSnapshot[];
  const ids = uniqueStrings(input.campaignIds.map(stripCustomerId).filter(Boolean));
  if (!ids.length) return [] as GoogleAdsCampaignStatusSnapshot[];
- const results = await googleAdsSearchStream(
-  input.customerId,
-  input.accessToken,
-  `SELECT campaign.id, campaign.resource_name, campaign.status, campaign.primary_status, campaign.primary_status_reasons FROM campaign WHERE campaign.id IN (${ids.join(",")})`,
-  input.loginCustomerId ?? undefined,
- );
- return results.map((row) => {
-  const campaign = row.campaign as Record<string, unknown> | undefined;
-  const primaryStatusReasons = safeStringArray(campaign?.primaryStatusReasons ?? campaign?.primaryStatusReasonsList ?? []);
-  return {
-   campaignId: String(campaign?.id ?? ""),
-   campaignResourceName: typeof campaign?.resourceName === "string" ? campaign.resourceName : null,
-   status: String(campaign?.status ?? "UNKNOWN"),
-   primaryStatus: typeof campaign?.primaryStatus === "string" ? campaign.primaryStatus : null,
-   primaryStatusReasons,
-  } satisfies GoogleAdsCampaignStatusSnapshot;
- }).filter((row) => row.campaignId);
+ const query = `SELECT campaign.id, campaign.resource_name, campaign.status, campaign.primary_status, campaign.primary_status_reasons FROM campaign WHERE campaign.id IN (${ids.join(",")})`;
+ const startedAt = now();
+ logGoogleAdsDiagnostic("Google Ads campaign status query started", {
+  stage: "google_ads_campaign_status_query",
+  provider: "google_ads_api",
+  targetCustomerId: input.customerId,
+  loginCustomerId: input.loginCustomerId ?? null,
+  googleCampaignIds: ids,
+  query,
+ });
+ try {
+  const results = await googleAdsSearchStream(
+   input.customerId,
+   input.accessToken,
+   query,
+   input.loginCustomerId ?? undefined,
+  );
+  const snapshots = results.map((row) => {
+   const campaign = row.campaign as Record<string, unknown> | undefined;
+   const primaryStatusReasons = safeStringArray(
+    readGoogleAdsField<unknown>(campaign, "primaryStatusReasons", "primary_status_reasons")
+    ?? campaign?.primaryStatusReasonsList
+    ?? campaign?.primary_status_reasons_list,
+   );
+   return {
+    campaignId: String(readGoogleAdsField<unknown>(campaign, "id", "id") ?? ""),
+    campaignResourceName: typeof readGoogleAdsField<unknown>(campaign, "resourceName", "resource_name") === "string"
+     ? String(readGoogleAdsField<unknown>(campaign, "resourceName", "resource_name"))
+     : null,
+    status: String(readGoogleAdsField<unknown>(campaign, "status", "status") ?? "UNKNOWN"),
+    primaryStatus: typeof readGoogleAdsField<unknown>(campaign, "primaryStatus", "primary_status") === "string"
+     ? String(readGoogleAdsField<unknown>(campaign, "primaryStatus", "primary_status"))
+     : null,
+    primaryStatusReasons,
+   } satisfies GoogleAdsCampaignStatusSnapshot;
+  }).filter((row) => row.campaignId);
+  logGoogleAdsDiagnostic("Google Ads campaign status query completed", {
+   stage: "google_ads_campaign_status_query",
+   provider: "google_ads_api",
+   targetCustomerId: input.customerId,
+   loginCustomerId: input.loginCustomerId ?? null,
+   queryResultCount: snapshots.length,
+   googleCampaignStatuses: snapshots.map((snapshot) => ({
+    googleCampaignId: snapshot.campaignId,
+    googleCampaignStatus: snapshot.status,
+    servingStatus: snapshot.primaryStatus,
+    issueCount: snapshot.primaryStatusReasons.length,
+   })),
+   durationMs: durationMs(startedAt),
+  });
+  return snapshots;
+ } catch (error) {
+  logGoogleAdsErrorDiagnostic("Google Ads campaign status query failed", {
+   stage: "google_ads_campaign_status_query",
+   provider: "google_ads_api",
+   targetCustomerId: input.customerId,
+   loginCustomerId: input.loginCustomerId ?? null,
+   googleCampaignIds: ids,
+   durationMs: durationMs(startedAt),
+   syncFailureReason: error instanceof Error ? error.message : "unknown",
+   errorName: error instanceof Error ? error.name : "unknown",
+   errorStatus: error && typeof error === "object" && "status" in error ? (error as { status?: unknown }).status : null,
+   googleStatus: error && typeof error === "object" && "googleStatus" in error ? (error as { googleStatus?: unknown }).googleStatus : null,
+  });
+  throw error;
+ }
 }
 
 export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string }) {
