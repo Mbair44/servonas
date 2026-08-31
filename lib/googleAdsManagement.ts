@@ -340,6 +340,29 @@ const logGoogleAdsDiagnostic = (message: string, payload: Record<string, unknown
 const logGoogleAdsErrorDiagnostic = (message: string, payload: Record<string, unknown>) => {
  console.error(message, payload);
 };
+const logGoogleAdsSupabaseWriteError = (input: {
+ stage: string;
+ businessId: string;
+ businessSlug?: string | null;
+ table: string;
+ operation: "insert" | "update" | "upsert";
+ error: { status?: number; code?: string; message?: string; details?: string; hint?: string } | null;
+}) => {
+ if (!input.error) return;
+ logGoogleAdsErrorDiagnostic("Google Ads Supabase write failed", {
+  stage: input.stage,
+  provider: "supabase",
+  businessId: input.businessId,
+  businessSlug: input.businessSlug ?? null,
+  table: input.table,
+  operation: input.operation,
+  httpStatus: input.error.status ?? null,
+  supabaseCode: input.error.code ?? null,
+  supabaseMessage: input.error.message ?? null,
+  supabaseDetails: input.error.details ?? null,
+  supabaseHint: input.error.hint ?? null,
+ });
+};
 const stableJson = (value: unknown) => {
  try {
   return JSON.stringify(value);
@@ -938,7 +961,17 @@ export async function persistGoogleAdsOauthConnection(input: {
   updated_at: nowIso,
   connected_at: nowIso,
  }, { onConflict: "business_id" });
- if (error) throw new Error("Google Ads connection could not be saved. Apply the Google Ads migration.");
+ if (error) {
+  logGoogleAdsSupabaseWriteError({
+   stage: "google_ads_connection_persist_failed",
+   businessId: input.businessId,
+   businessSlug: input.businessSlug ?? null,
+   table: "business_google_ads_connections",
+   operation: "upsert",
+   error,
+  });
+  throw new Error("Google Ads connection could not be saved. Apply the Google Ads connection schema migration.");
+ }
  logGoogleAdsDiagnostic("Google Ads connection persist completed", {
   stage: "google_ads_connection_persist_complete",
   provider: "supabase",
@@ -1519,7 +1552,17 @@ export async function storeGoogleAdsConnection(input: {
   connected_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
  }, { onConflict: "business_id" });
- if (error) throw new Error("Google Ads connection could not be saved. Apply the Google Ads migration.");
+ if (error) {
+  logGoogleAdsSupabaseWriteError({
+   stage: "persist_connection",
+   businessId: input.businessId,
+   businessSlug: null,
+   table: "business_google_ads_connections",
+   operation: "upsert",
+   error,
+  });
+  throw new Error("Google Ads connection could not be saved. Apply the Google Ads connection schema migration.");
+ }
  logGoogleAdsDiagnostic("Google Ads connection persistence completed", {
   stage: "persist_connection",
   provider: "supabase",
@@ -1809,9 +1852,19 @@ export async function updateTenantGoogleAdsSelection(businessId: string, custome
    login_customer_id: selected.loginCustomerId,
    status: selected.loginCustomerId ? "account_selected" : "account_access_verified",
    updated_at: new Date().toISOString(),
-  })
+ })
   .eq("business_id", businessId);
- if (error) throw new Error("Google Ads account selection could not be saved.");
+ if (error) {
+  logGoogleAdsSupabaseWriteError({
+   stage: "google_ads_account_selection_persist_failed",
+   businessId,
+   businessSlug: null,
+   table: "business_google_ads_connections",
+   operation: "update",
+   error,
+  });
+  throw new Error("Google Ads account selection could not be saved.");
+ }
 }
 
 export async function disconnectTenantGoogleAds(businessId: string) {
@@ -1828,9 +1881,19 @@ export async function disconnectTenantGoogleAds(businessId: string) {
    accessible_root_customer_labels: {},
    selectable_customer_details: [],
    updated_at: new Date().toISOString(),
-  })
+ })
   .eq("business_id", businessId);
- if (error) throw new Error("Google Ads could not be disconnected.");
+ if (error) {
+  logGoogleAdsSupabaseWriteError({
+   stage: "google_ads_disconnect_persist_failed",
+   businessId,
+   businessSlug: null,
+   table: "business_google_ads_connections",
+   operation: "update",
+   error,
+  });
+  throw new Error("Google Ads could not be disconnected.");
+ }
 }
 
 function resourceName(resource: string, id: string) {
