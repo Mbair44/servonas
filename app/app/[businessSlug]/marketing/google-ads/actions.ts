@@ -549,7 +549,7 @@ export async function updateGoogleAdsBudgetAction(slug: string, campaignId: stri
  redirect(path(slug, "success", "Campaign budget updated."));
 }
 
-export async function applyRecommendedGoogleAdsSettingsAction(slug: string, campaignId: string) {
+export async function applyRecommendedGoogleAdsSettingsAction(slug: string, campaignId: string, formData: FormData) {
  const { supabase, business, user } = await context(slug);
  const connection = await loadTenantGoogleAdsAccess(business.id);
  if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before updating campaign settings."));
@@ -570,20 +570,28 @@ export async function applyRecommendedGoogleAdsSettingsAction(slug: string, camp
  });
  const lowBidIssue = health.issues.find((issue) => issue.fixActionId === "increase_manual_cpc");
  if (!lowBidIssue) redirect(path(slug, "error", "Servonas did not find a safe recommended bid update for this campaign."));
+ if (String(formData.get("confirmCpcFix") ?? "") !== "apply") redirect(path(slug, "error", "Confirm the max CPC change before applying it."));
+ const liveSnapshot = healthSnapshots[0] ?? null;
+ if (liveSnapshot?.dataQuality.adGroups.state !== "verified" || !liveSnapshot.adGroupIds[0]) redirect(path(slug, "error", "Servonas could not verify the live ad group, so no bid was changed."));
  await updateGoogleAdsAdGroupBid({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
   loginCustomerIds: mutationAccess.loginCustomerIds,
-  adGroupId: campaign.google_ad_group_id,
+  adGroupId: liveSnapshot.adGroupIds[0],
   cpcBidMicros: health.recommendedManualCpcMicros,
  });
+ const verification = await fetchGoogleAdsCampaignHealthSnapshots({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignIds: [campaign.google_campaign_id], loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id });
+ const verifiedBid = verification[0]?.adGroupCpcBidMicros.find((bid) => bid === health.recommendedManualCpcMicros);
+ if (!verifiedBid) redirect(path(slug, "error", "Google Ads accepted the bid update, but Servonas could not verify the new max CPC yet. Refresh campaign health and try again shortly."));
+ const refreshedHealth = buildGoogleAdsCampaignHealth({ campaign, metric: null, status: statuses[0] ?? null, locationTargeting: locations[0] ?? null, snapshot: verification[0] ?? null });
+ if (refreshedHealth.issues.some((issue) => issue.id === "manual_cpc_too_low")) redirect(path(slug, "error", "Google Ads accepted the bid update, but campaign health still reports a critically low max CPC. Refresh and review the live settings."));
  await supabase.from("business_google_ads_campaigns").update({
   manual_cpc_bid_micros: health.recommendedManualCpcMicros,
   last_sync_at: new Date().toISOString(),
   updated_by: user.id,
   updated_at: new Date().toISOString(),
  }).eq("business_id", business.id).eq("id", campaignId);
- await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_recommended_settings_applied", metadata: { appliedFix: "increase_manual_cpc", previousIssue: lowBidIssue.id, cpcBidMicros: health.recommendedManualCpcMicros } });
+ await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_max_cpc_updated", metadata: { appliedFix: "increase_manual_cpc", previousIssue: lowBidIssue.id, previousCpc: lowBidIssue.currentValue, cpcBidMicros: health.recommendedManualCpcMicros, verified: true } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Recommended max CPC applied. Refreshing campaign health."));
 }

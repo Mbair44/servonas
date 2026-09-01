@@ -191,6 +191,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const window = acquisitionDateRange(q.range, q.from, q.to, new Date(), business.timezone);
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
+  const reportQueryStartedAt = Date.now();
   const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse] = await Promise.all([
     supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
@@ -210,10 +211,13 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("business_google_ads_campaigns").select("id,status,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
     supabase.from("booking_attribution_sessions").select("id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,total_session_duration_seconds,engaged_duration_seconds,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
   ]);
+  const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
   }
   const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source));
+  const rawEventCount = (eventsResponse.data ?? []).length;
+  const latestEventAt = ((eventsResponse.data ?? []) as Array<{ occurred_at?: string | null }>).reduce<string | null>((latest, row) => row.occurred_at && (!latest || row.occurred_at > latest) ? row.occurred_at : latest, null);
   const attributedBookings = ((bookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; booking_attribution_snapshots?: unknown }>).map((row) => ({
     booking_id: row.id,
     status: row.status,
@@ -393,6 +397,11 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       </div>
       <p className="marketing-filter-note">The report date range controls when the interaction happened. Requested rental dates below show the date the customer was trying to book.</p>
     </section>
+
+    <details className="workspace-panel marketing-attribution-note">
+      <summary>Analytics diagnostics</summary>
+      <p>Window: {window.from} to {window.to} ({business.timezone}). Business filter: {business.id}. Raw events: {rawEventCount}. Events after source filter: {events.length}. Sessions: {(sessionsResponse.data ?? []).length}. Latest event: {latestEventAt ?? "none"}. Query duration: {reportQueryDurationMs}ms.</p>
+    </details>
 
     <section className="marketing-kpi-grid">
       <article className="workspace-panel"><span>Visits</span><strong>{report.totals.visits}</strong><small>Attributed session visits</small></article>

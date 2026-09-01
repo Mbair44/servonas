@@ -21,7 +21,7 @@ export default async function AcquisitionReport({searchParams}:{searchParams:Pro
  if(q.industry)sessionsQuery=sessionsQuery.eq("industry",q.industry);
  const {data:sessionRows,error}=await sessionsQuery.order("first_seen_at",{ascending:false});
  const sessionIds=(sessionRows??[]).map(row=>row.id);
- const {data:eventRows}=sessionIds.length?await db.from("website_acquisition_events").select("acquisition_session_id,event_name").in("acquisition_session_id",sessionIds).gte("occurred_at",window.from).lt("occurred_at",window.to):{data:[]};
+ const {data:eventRows,error:eventError}=sessionIds.length?await db.from("website_acquisition_events").select("acquisition_session_id,event_name,occurred_at").in("acquisition_session_id",sessionIds).gte("occurred_at",window.from).lt("occurred_at",window.to):{data:[],error:null};
  const filteredSessions=(sessionRows??[]).filter(row=>!q.source||classifyAcquisitionSource(row)===q.source);
  const industries=[...new Set((sessionRows??[]).map(row=>row.industry).filter(Boolean) as string[])].sort();
  const report=buildAcquisitionReport(filteredSessions,eventRows??[]);
@@ -34,7 +34,7 @@ export default async function AcquisitionReport({searchParams}:{searchParams:Pro
    <label>To<input type="date" name="to" defaultValue={q.to??formatDate(window.to)}/></label>
    <button className="sv-button sv-secondary">Apply</button>
   </form>
-  {error?<p className="workspace-notice error">Acquisition analytics could not be loaded. Apply the acquisition funnel migration.</p>:<>
+  {error||eventError?<p className="workspace-notice error">Acquisition analytics could not be loaded. Apply the acquisition funnel migration.</p>:<>
    <section className="admin-acquisition-stages">
     <article><span>Sessions</span><strong>{report.overall.sessions}</strong></article>
     <article><span>Builder starts</span><strong>{report.overall.builderStarts}</strong><small>{percent(report.overall.sessionToBuilderRate)} of sessions</small></article>
@@ -46,6 +46,7 @@ export default async function AcquisitionReport({searchParams}:{searchParams:Pro
    <section className="workspace-panel"><h2>Traffic source summary</h2><div className="admin-acquisition-table"><div><b>Source</b><b>Sessions</b></div>{report.sourceSummary.map(source=><div key={source.source}><span>{source.source}</span><span>{source.sessions}</span></div>)}</div></section>
    <section className="workspace-panel"><h2>Attribution drill-down</h2><div className="admin-acquisition-table"><div><b>Landing page</b><b>Source</b><b>Sessions</b><b>UTM source</b><b>UTM campaign</b><b>gclid</b><b>gbraid</b><b>wbraid</b></div>{report.attributionRows.map((row,index)=><div key={`${row.landingPage}-${row.source}-${index}`}><span>{row.landingPage}</span><span>{row.source}</span><span>{row.sessions}</span><span title={row.utmSource??""}>{row.utmSource??"—"}</span><span title={row.utmCampaign??""}>{row.utmCampaign??"—"}</span><span title={row.gclid??""}>{row.gclid?`${row.gclid.slice(0,24)}…`:"—"}</span><span title={row.gbraid??""}>{row.gbraid?`${row.gbraid.slice(0,24)}…`:"—"}</span><span title={row.wbraid??""}>{row.wbraid?`${row.wbraid.slice(0,24)}…`:"—"}</span></div>)}</div></section>
    <section className="workspace-panel"><h2>Counting rules</h2><p>Sessions are deduplicated by unique acquisition session ID. Later funnel stages count unique session IDs that recorded the stage event within the selected date range, so duplicate events in one session do not inflate the report.</p></section>
+   <details className="workspace-panel marketing-attribution-note"><summary>Analytics diagnostics</summary><p>Window: {window.from} to {window.to} ({platformReportingTimeZone}). Global platform scope. Raw sessions: {(sessionRows??[]).length}. Filtered sessions: {filteredSessions.length}. Raw events: {(eventRows??[]).length}. Latest event: {((eventRows??[]) as Array<{occurred_at?:string|null}>).reduce<string|null>((latest,row)=>row.occurred_at&&(!latest||row.occurred_at>latest)?row.occurred_at:latest,null)??"none"}.</p></details>
   </>}
  </main>;
 }

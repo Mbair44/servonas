@@ -4,6 +4,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import {
  buildGoogleAdsCampaignHealth,
+ reviewGoogleAdsCampaignHealthWithAi,
  fetchGoogleAdsCampaignHealthSnapshots,
  fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
@@ -416,6 +417,15 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   source: "direct" as const,
  })));
  const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId, campaignLocationsByCampaignId);
+ const campaignAiReviewsByCampaignId = new Map<string, Awaited<ReturnType<typeof reviewGoogleAdsCampaignHealthWithAi>>>();
+ if (process.env.OPENAI_API_KEY?.trim()) {
+  await Promise.all(campaignCards.filter(({ campaign }) => campaign.google_campaign_id).map(async ({ campaign, metric }) => {
+   const campaignId = String(campaign.google_campaign_id);
+   const health = buildGoogleAdsCampaignHealth({ campaign, metric, status: campaignStatusesByCampaignId.get(campaignId) ?? null, locationTargeting: campaignLocationsByCampaignId.get(campaignId) ?? null, snapshot: campaignHealthSnapshotsByCampaignId.get(campaignId) ?? null });
+   const review = await reviewGoogleAdsCampaignHealthWithAi({ businessId: business.id, snapshot: campaignHealthSnapshotsByCampaignId.get(campaignId) ?? null, issues: health.issues });
+   campaignAiReviewsByCampaignId.set(campaignId, review);
+  }));
+ }
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const hasCampaigns = campaignCards.length > 0;
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
@@ -689,6 +699,12 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       snapshot: campaign.google_campaign_id ? campaignHealthSnapshotsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
      });
      const healthLabel = health.state === "healthy" ? "Healthy" : health.state === "critical_issue" ? "Critical issue" : "Needs attention";
+     const aiReview = campaignAiReviewsByCampaignId.get(String(campaign.google_campaign_id ?? ""));
+     const healthGroups = [
+      { label: "Serving", category: "serving" },
+      { label: "Optimization", category: "optimization" },
+      { label: "Conversion tracking", category: "conversion_tracking" },
+     ].map((group) => ({ ...group, issues: health.issues.filter((issue) => issue.category === group.category) })).filter((group) => group.issues.length);
      return <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
      <header>
      <div>
@@ -738,12 +754,11 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        {health.mostImportantIssue.currentValue ? <span>Current: {health.mostImportantIssue.currentValue}</span> : null}
        <p>{health.mostImportantIssue.description}</p>
        {health.mostImportantIssue.recommendedAction ? <p>{health.mostImportantIssue.recommendedAction}</p> : null}
-       {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <form action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)}>
-        <button className="sv-button">Fix recommended setting</button>
-        <small>Current: {health.mostImportantIssue.currentValue} · New: {microsToMoney(health.recommendedManualCpcMicros)}</small>
-       </form> : null}
+       {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <details className="google-ads-health-confirm"><summary>Fix CPC</summary><form action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)}><p>Current max CPC: {health.mostImportantIssue.currentValue}. Recommended starting point: {microsToMoney(health.recommendedManualCpcMicros)}.</p><input type="hidden" name="confirmCpcFix" value="apply" /><button className="sv-button">Apply {microsToMoney(health.recommendedManualCpcMicros)} max CPC</button><small>A more realistic starting bid for a local service campaign, not a guarantee of results.</small></form></details> : null}
       </div> : null}
-      {health.issues.length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{health.issues.slice(1, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</div></details>}
+      {health.issues.length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{healthGroups.map((group) => <section key={group.category}><h4>{group.label}</h4>{group.issues.slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</section>)}</div></details>}
+      {health.issues.some((issue) => issue.fixActionId) && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId).map((issue) => <article key={`recommendation-${issue.id}`}><strong>{issue.fixActionId === "increase_manual_cpc" ? "High priority" : "Recommended"}</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
+      {process.env.OPENAI_API_KEY?.trim() && <p className="google-ads-ai-review">{aiReview?.summary ? `AI review: ${aiReview.summary}` : "AI recommendations temporarily unavailable. Deterministic campaign health is still current."}</p>}
      </section>
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">

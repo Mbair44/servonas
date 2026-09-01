@@ -151,7 +151,9 @@ export type GoogleAdsDraft = {
 export type GoogleAdsBiddingStrategy = "MAXIMIZE_CLICKS" | "MANUAL_CPC";
 export type GoogleAdsCampaignHealthIssueSeverity = "critical" | "warning" | "info" | "healthy";
 export type GoogleAdsCampaignHealthState = "healthy" | "needs_attention" | "critical_issue";
-export type GoogleAdsCampaignHealthFixAction = "increase_manual_cpc";
+export type GoogleAdsCampaignHealthFixAction = "increase_manual_cpc" | "setup_booking_conversion";
+export type GoogleAdsCampaignHealthDataState = "verified" | "unknown";
+export type GoogleAdsCampaignHealthDataQuality = Record<"campaign" | "adGroups" | "ads" | "keywords" | "conversionGoals", { state: GoogleAdsCampaignHealthDataState; error: string | null }>;
 export type GoogleAdsCampaignHealthIssue = {
  id: string;
  severity: GoogleAdsCampaignHealthIssueSeverity;
@@ -161,6 +163,7 @@ export type GoogleAdsCampaignHealthIssue = {
  recommendedAction: string;
  canAutoFix: boolean;
  fixActionId?: GoogleAdsCampaignHealthFixAction;
+ category?: "serving" | "optimization" | "conversion_tracking";
 };
 export type GoogleAdsCampaignHealthSnapshot = {
  campaignId: string;
@@ -168,6 +171,7 @@ export type GoogleAdsCampaignHealthSnapshot = {
  campaignStatus: string | null;
  campaignPrimaryStatus: string | null;
  campaignPrimaryStatusReasons: string[];
+ adGroupIds: string[];
  adGroupStatuses: string[];
  adGroupPrimaryStatuses: string[];
  adGroupPrimaryStatusReasons: string[];
@@ -186,7 +190,12 @@ export type GoogleAdsCampaignHealthSnapshot = {
  targetGoogleSearch: boolean | null;
  positiveGeoTargetType: string | null;
  negativeGeoTargetType: string | null;
- conversionGoalSummary: string | null;
+ conversionGoals: Array<{ category: string | null; origin: string | null; primary: boolean | null; status: string | null }>;
+ dataQuality: GoogleAdsCampaignHealthDataQuality;
+};
+export type GoogleAdsCampaignHealthAiReview = {
+ summary: string;
+ recommendationIds: string[];
 };
 export type GoogleAdsCampaignMetrics = {
  campaignId: string;
@@ -2439,21 +2448,39 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
  const ids = uniqueStrings(input.campaignIds.map(stripCustomerId).filter(Boolean));
  if (!ids.length) return [] as GoogleAdsCampaignHealthSnapshot[];
  const queryIds = ids.join(",");
- const [campaignRows, adGroupRows, adRows, keywordRows] = await Promise.all([
-  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, campaign.status, campaign.primary_status, campaign.primary_status_reasons, campaign.start_date, campaign.end_date, campaign.bidding_strategy_type, campaign.network_settings.target_google_search, campaign.network_settings.target_search_network, campaign.geo_target_type_setting.positive_geo_target_type, campaign.geo_target_type_setting.negative_geo_target_type FROM campaign WHERE campaign.id IN (${queryIds})`, input.loginCustomerId, { stage: "google_ads_campaign_health_campaign_query", requestType: "google_ads_campaign_health_campaign_query", businessId: input.businessId ?? null }),
-  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, ad_group.status, ad_group.primary_status, ad_group.primary_status_reasons, ad_group.cpc_bid_micros FROM ad_group WHERE campaign.id IN (${queryIds})`, input.loginCustomerId, { stage: "google_ads_campaign_health_ad_group_query", requestType: "google_ads_campaign_health_ad_group_query", businessId: input.businessId ?? null }),
-  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, ad_group_ad.policy_summary.policy_topic_entries FROM ad_group_ad WHERE campaign.id IN (${queryIds})`, input.loginCustomerId, { stage: "google_ads_campaign_health_ad_query", requestType: "google_ads_campaign_health_ad_query", businessId: input.businessId ?? null }),
-  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, ad_group_criterion.status, ad_group_criterion.primary_status_reasons, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.cpc_bid_micros FROM keyword_view WHERE campaign.id IN (${queryIds})`, input.loginCustomerId, { stage: "google_ads_campaign_health_keyword_query", requestType: "google_ads_campaign_health_keyword_query", businessId: input.businessId ?? null }),
+ const healthQuery = async (resource: keyof GoogleAdsCampaignHealthDataQuality, query: string) => {
+  try {
+   return { rows: await googleAdsSearchStream(input.customerId, input.accessToken, query, input.loginCustomerId, { stage: `google_ads_campaign_health_${resource}_query`, requestType: `google_ads_campaign_health_${resource}_query`, businessId: input.businessId ?? null }), error: null };
+  } catch (error) {
+   const message = error instanceof Error ? error.message : "Google Ads health query failed.";
+   // A failed diagnostic query must remain unknown, never become an empty result.
+   logGoogleAdsErrorDiagnostic("Google Ads campaign health query unavailable", { stage: `google_ads_campaign_health_${resource}_query`, resource, customerId: stripCustomerId(input.customerId), campaignIds: ids, error: message });
+   return { rows: [] as Record<string, unknown>[], error: message };
+  }
+ };
+ const [campaignResult, adGroupResult, adResult, keywordResult, conversionGoalResult] = await Promise.all([
+  healthQuery("campaign", `SELECT campaign.id, campaign.status, campaign.primary_status, campaign.primary_status_reasons, campaign.start_date, campaign.end_date, campaign.bidding_strategy_type, campaign.network_settings.target_google_search, campaign.network_settings.target_search_network, campaign.geo_target_type_setting.positive_geo_target_type, campaign.geo_target_type_setting.negative_geo_target_type FROM campaign WHERE campaign.id IN (${queryIds})`),
+  healthQuery("adGroups", `SELECT campaign.id, ad_group.id, ad_group.status, ad_group.primary_status, ad_group.primary_status_reasons, ad_group.cpc_bid_micros FROM ad_group WHERE campaign.id IN (${queryIds})`),
+  healthQuery("ads", `SELECT campaign.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, ad_group_ad.policy_summary.policy_topic_entries FROM ad_group_ad WHERE campaign.id IN (${queryIds})`),
+  healthQuery("keywords", `SELECT campaign.id, ad_group_criterion.status, ad_group_criterion.primary_status_reasons, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.cpc_bid_micros FROM ad_group_criterion WHERE campaign.id IN (${queryIds}) AND ad_group_criterion.type = KEYWORD`),
+  healthQuery("conversionGoals", "SELECT conversion_action.category, conversion_action.origin, conversion_action.primary_for_goal, conversion_action.status FROM conversion_action"),
  ]);
  const snapshots = new Map<string, GoogleAdsCampaignHealthSnapshot>();
  const ensure = (campaignId: string) => {
   const current = snapshots.get(campaignId);
   if (current) return current;
-  const created: GoogleAdsCampaignHealthSnapshot = { campaignId, biddingStrategyType: null, campaignStatus: null, campaignPrimaryStatus: null, campaignPrimaryStatusReasons: [], adGroupStatuses: [], adGroupPrimaryStatuses: [], adGroupPrimaryStatusReasons: [], adGroupCpcBidMicros: [], keywordStatuses: [], keywordPrimaryStatusReasons: [], positiveKeywords: [], negativeKeywords: [], keywordCpcBidMicros: [], adStatuses: [], adApprovalStatuses: [], adPolicyTopics: [], startDate: null, endDate: null, targetSearchNetwork: null, targetGoogleSearch: null, positiveGeoTargetType: null, negativeGeoTargetType: null, conversionGoalSummary: null };
+  const dataQuality = {
+   campaign: { state: campaignResult.error ? "unknown" : "verified", error: campaignResult.error },
+   adGroups: { state: adGroupResult.error ? "unknown" : "verified", error: adGroupResult.error },
+   ads: { state: adResult.error ? "unknown" : "verified", error: adResult.error },
+   keywords: { state: keywordResult.error ? "unknown" : "verified", error: keywordResult.error },
+   conversionGoals: { state: conversionGoalResult.error ? "unknown" : "verified", error: conversionGoalResult.error },
+  } satisfies GoogleAdsCampaignHealthDataQuality;
+  const created: GoogleAdsCampaignHealthSnapshot = { campaignId, biddingStrategyType: null, campaignStatus: null, campaignPrimaryStatus: null, campaignPrimaryStatusReasons: [], adGroupIds: [], adGroupStatuses: [], adGroupPrimaryStatuses: [], adGroupPrimaryStatusReasons: [], adGroupCpcBidMicros: [], keywordStatuses: [], keywordPrimaryStatusReasons: [], positiveKeywords: [], negativeKeywords: [], keywordCpcBidMicros: [], adStatuses: [], adApprovalStatuses: [], adPolicyTopics: [], startDate: null, endDate: null, targetSearchNetwork: null, targetGoogleSearch: null, positiveGeoTargetType: null, negativeGeoTargetType: null, conversionGoals: [], dataQuality };
   snapshots.set(campaignId, created);
   return created;
  };
- for (const row of campaignRows) {
+ for (const row of campaignResult.rows) {
   const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
@@ -2468,7 +2495,7 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   snapshot.positiveGeoTargetType = typeof readGoogleAdsField(row, "campaign.geoTargetTypeSetting.positiveGeoTargetType", "campaign.geo_target_type_setting.positive_geo_target_type") === "string" ? String(readGoogleAdsField(row, "campaign.geoTargetTypeSetting.positiveGeoTargetType", "campaign.geo_target_type_setting.positive_geo_target_type")) : null;
   snapshot.negativeGeoTargetType = typeof readGoogleAdsField(row, "campaign.geoTargetTypeSetting.negativeGeoTargetType", "campaign.geo_target_type_setting.negative_geo_target_type") === "string" ? String(readGoogleAdsField(row, "campaign.geoTargetTypeSetting.negativeGeoTargetType", "campaign.geo_target_type_setting.negative_geo_target_type")) : null;
  }
- for (const row of adGroupRows) {
+ for (const row of adGroupResult.rows) {
   const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
@@ -2476,12 +2503,14 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   const primaryStatus = readGoogleAdsField(row, "adGroup.primaryStatus", "ad_group.primary_status");
   const reasons = readGoogleAdsField(row, "adGroup.primaryStatusReasons", "ad_group.primary_status_reasons");
   const bid = safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros"));
+  const adGroupId = stripCustomerId(String(readGoogleAdsField(row, "adGroup.id", "ad_group.id") ?? ""));
+  if (adGroupId) snapshot.adGroupIds.push(adGroupId);
   if (typeof status === "string") snapshot.adGroupStatuses.push(status);
   if (typeof primaryStatus === "string") snapshot.adGroupPrimaryStatuses.push(primaryStatus);
   if (Array.isArray(reasons)) snapshot.adGroupPrimaryStatusReasons.push(...reasons.map(String));
   if (bid > 0) snapshot.adGroupCpcBidMicros.push(bid);
  }
- for (const row of adRows) {
+ for (const row of adResult.rows) {
   const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
@@ -2492,7 +2521,7 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   if (typeof approvalStatus === "string") snapshot.adApprovalStatuses.push(approvalStatus);
   if (Array.isArray(topics)) snapshot.adPolicyTopics.push(...topics.map((topic) => stableJson(topic) ?? "").filter(Boolean));
  }
- for (const row of keywordRows) {
+ for (const row of keywordResult.rows) {
   const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
@@ -2506,6 +2535,13 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   if (keywordText) negative ? snapshot.negativeKeywords.push(keywordText) : snapshot.positiveKeywords.push(keywordText);
   if (bid > 0) snapshot.keywordCpcBidMicros.push(bid);
  }
+ const conversionGoals = conversionGoalResult.rows.map((row) => ({
+  category: typeof readGoogleAdsField(row, "conversionAction.category", "conversion_action.category") === "string" ? String(readGoogleAdsField(row, "conversionAction.category", "conversion_action.category")) : null,
+  origin: typeof readGoogleAdsField(row, "conversionAction.origin", "conversion_action.origin") === "string" ? String(readGoogleAdsField(row, "conversionAction.origin", "conversion_action.origin")) : null,
+  primary: typeof readGoogleAdsField(row, "conversionAction.primaryForGoal", "conversion_action.primary_for_goal") === "boolean" ? Boolean(readGoogleAdsField(row, "conversionAction.primaryForGoal", "conversion_action.primary_for_goal")) : null,
+  status: typeof readGoogleAdsField(row, "conversionAction.status", "conversion_action.status") === "string" ? String(readGoogleAdsField(row, "conversionAction.status", "conversion_action.status")) : null,
+ }));
+ for (const snapshot of snapshots.values()) snapshot.conversionGoals = conversionGoals;
  return ids.map((campaignId) => ensure(campaignId));
 }
 
@@ -2527,23 +2563,32 @@ export function buildGoogleAdsCampaignHealth(input: {
  const keywordReasons = input.snapshot?.keywordPrimaryStatusReasons ?? [];
  const positiveKeywords = input.snapshot?.positiveKeywords ?? [];
  const negativeKeywords = input.snapshot?.negativeKeywords ?? [];
+ const quality = input.snapshot?.dataQuality ?? {
+  campaign: { state: "unknown", error: "Campaign diagnostics were not loaded." }, adGroups: { state: "unknown", error: "Ad-group diagnostics were not loaded." }, ads: { state: "unknown", error: "Ad diagnostics were not loaded." }, keywords: { state: "unknown", error: "Keyword diagnostics were not loaded." }, conversionGoals: { state: "unknown", error: "Conversion-goal diagnostics were not loaded." },
+ } satisfies GoogleAdsCampaignHealthDataQuality;
  const manualBidCandidates = [...(input.snapshot?.adGroupCpcBidMicros ?? []), ...(input.snapshot?.keywordCpcBidMicros ?? [])].filter((value) => value > 0);
  const effectiveBiddingStrategy = input.snapshot?.biddingStrategyType ?? input.campaign.bidding_strategy ?? null;
  issues.push(sourceStatus === "PAUSED" || input.campaign.status === "paused"
   ? { id: "campaign_paused", severity: "info", title: "Campaign is paused", description: "The campaign is intentionally paused, so it will not serve until you resume it.", currentValue: "Paused", recommendedAction: "Resume the campaign when you want traffic again.", canAutoFix: false }
   : { id: "campaign_enabled", severity: "healthy", title: "Campaign enabled", description: "The campaign is enabled in Google Ads.", currentValue: sourceStatus ?? "Enabled", recommendedAction: "Keep monitoring delivery.", canAutoFix: false });
- issues.push(!adGroupStatuses.length || adGroupStatuses.every((status) => status === "PAUSED" || status === "REMOVED")
+ issues.push(quality.adGroups.state === "unknown"
+  ? { id: "ad_group_unknown", severity: "info", title: "Ad group status could not be verified", description: "Google Ads did not return ad-group diagnostics, so Servonas cannot confirm whether an ad group is active.", currentValue: null, recommendedAction: "Refresh campaign health after Google Ads diagnostics are available.", canAutoFix: false, category: "serving" }
+  : !adGroupStatuses.length || adGroupStatuses.every((status) => status === "PAUSED" || status === "REMOVED")
   ? { id: "ad_group_inactive", severity: "critical", title: "Ad group is not active", description: "This campaign does not currently have an enabled ad group that can serve.", currentValue: adGroupStatuses.length ? adGroupStatuses.join(", ") : "No ad groups found", recommendedAction: "Enable an ad group in Google Ads.", canAutoFix: false }
   : { id: "ad_group_eligible", severity: "healthy", title: "Ad group eligible", description: "At least one ad group is enabled for this campaign.", currentValue: adGroupStatuses[0] ?? "Enabled", recommendedAction: "Keep the ad group active.", canAutoFix: false });
- if (!adStatuses.length) issues.push({ id: "no_ads", severity: "critical", title: "No active ads found", description: "Servonas could not confirm a usable ad in this campaign.", currentValue: "No ads returned", recommendedAction: "Add or repair an ad in Google Ads.", canAutoFix: false });
+ if (quality.ads.state === "unknown") issues.push({ id: "ads_unknown", severity: "info", title: "Ad status could not be verified", description: "Google Ads did not return ad diagnostics, so Servonas cannot confirm ad approval or serving state.", currentValue: null, recommendedAction: "Refresh campaign health after Google Ads diagnostics are available.", canAutoFix: false, category: "serving" });
+ else if (!adStatuses.length) issues.push({ id: "no_ads", severity: "critical", title: "No active ads found", description: "Google Ads confirmed that this campaign has no usable ads.", currentValue: "No ads returned", recommendedAction: "Add or repair an ad in Google Ads.", canAutoFix: false });
  else if (adApprovals.length && adApprovals.every((status) => status === "DISAPPROVED")) issues.push({ id: "ads_disapproved", severity: "critical", title: "Ads are disapproved", description: "Google policy review is blocking every ad in this campaign.", currentValue: "Disapproved", recommendedAction: "Review Google policy messages and update the ad.", canAutoFix: false });
  else if (adApprovals.some((status) => status === "UNDER_REVIEW")) issues.push({ id: "ads_under_review", severity: "info", title: "Ads are still under review", description: "Google is still reviewing at least one ad before it can fully serve.", currentValue: "Under review", recommendedAction: "Wait for Google review to finish, then refresh status.", canAutoFix: false });
  else issues.push({ id: "ads_approved", severity: "healthy", title: "Ads approved", description: "Google has at least one usable ad available for this campaign.", currentValue: adApprovals[0] ?? "Approved", recommendedAction: "Keep watching policy status.", canAutoFix: false });
  const locationCount = input.locationTargeting?.targetedLocations.length ?? 0;
- issues.push(locationCount <= 0
+ issues.push(!input.locationTargeting
+  ? { id: "locations_unknown", severity: "info", title: "Location targeting could not be verified", description: "Servonas could not load live location targets from Google Ads.", currentValue: null, recommendedAction: "Refresh campaign health after location diagnostics are available.", canAutoFix: false, category: "serving" }
+  : locationCount <= 0
   ? { id: "no_locations", severity: "critical", title: "No explicit locations are configured", description: "A local service campaign usually needs at least one positive location target to serve where you actually work.", currentValue: "No positive locations", recommendedAction: "Add one or more service locations.", canAutoFix: false }
   : { id: "locations_configured", severity: "healthy", title: "Locations configured", description: "This campaign has explicit positive location targets.", currentValue: `${locationCount} location${locationCount === 1 ? "" : "s"}`, recommendedAction: "Keep locations aligned with your service area.", canAutoFix: false });
- if (!positiveKeywords.length || keywordStatuses.every((status) => status === "PAUSED" || status === "REMOVED")) issues.push({ id: "keywords_inactive", severity: "critical", title: "No active keywords found", description: "The campaign does not currently have active positive keywords that can match searches.", currentValue: positiveKeywords.length ? `${positiveKeywords.length} keywords` : "No positive keywords", recommendedAction: "Review and enable your keywords.", canAutoFix: false });
+ if (quality.keywords.state === "unknown") issues.push({ id: "keywords_unknown", severity: "info", title: "Keyword status could not be verified", description: "Google Ads did not return keyword diagnostics, so Servonas cannot confirm active keywords.", currentValue: null, recommendedAction: "Refresh campaign health after keyword diagnostics are available.", canAutoFix: false, category: "serving" });
+ else if (!positiveKeywords.length || keywordStatuses.every((status) => status === "PAUSED" || status === "REMOVED")) issues.push({ id: "keywords_inactive", severity: "critical", title: "No active keywords found", description: "Google Ads confirmed that this campaign has no active positive keywords that can match searches.", currentValue: positiveKeywords.length ? `${positiveKeywords.length} keywords` : "No positive keywords", recommendedAction: "Review and enable your keywords.", canAutoFix: false });
  else if (positiveKeywords.length > 0 && keywordReasons.length >= positiveKeywords.length && keywordReasons.every((reason) => reason.includes("LOW_SEARCH_VOLUME"))) issues.push({ id: "keywords_low_volume", severity: "warning", title: "Keywords have low search volume", description: "Google is flagging the current keyword set as too low-volume to serve consistently.", currentValue: `${positiveKeywords.length} of ${positiveKeywords.length} low-volume`, recommendedAction: "Broaden or replace the keyword list.", canAutoFix: false });
  const positiveKeywordSet = stringSet(positiveKeywords);
  const overlappingKeywords = [...stringSet(negativeKeywords)].filter((keyword) => positiveKeywordSet.has(keyword));
@@ -2556,23 +2601,58 @@ export function buildGoogleAdsCampaignHealth(input: {
   if (currentManualBidMicros > 0 && budgetMicros > 0 && currentManualBidMicros >= budgetMicros * 0.6) issues.push({ id: "budget_vs_bid", severity: "warning", title: "Max CPC is high relative to the daily budget", description: "This setup may only afford a small number of clicks per day.", currentValue: `${microsToCurrency(currentManualBidMicros)} bid vs ${microsToCurrency(budgetMicros)}/day`, recommendedAction: "Balance the bid and budget so the campaign can gather enough traffic.", canAutoFix: false });
  }
  const startAgeHours = hoursSinceGoogleAdsDate(input.snapshot?.startDate ?? null) ?? (input.campaign.created_at ? (Date.now() - new Date(input.campaign.created_at).getTime()) / (60 * 60 * 1000) : null);
- if ((sourceStatus === "ENABLED" || input.campaign.status === "published") && adGroupStatuses.some((status) => status === "ENABLED") && adStatuses.some((status) => status === "ENABLED") && startAgeHours != null && startAgeHours >= googleAdsNoImpressionGraceHours && (input.metric?.impressions ?? 0) === 0) {
+ if ((sourceStatus === "ENABLED" || input.campaign.status === "published") && quality.adGroups.state === "verified" && quality.ads.state === "verified" && adGroupStatuses.some((status) => status === "ENABLED") && adStatuses.some((status) => status === "ENABLED") && startAgeHours != null && startAgeHours >= googleAdsNoImpressionGraceHours && (input.metric?.impressions ?? 0) === 0) {
   const lowBidIssue = issues.find((issue) => issue.id === "manual_cpc_too_low" || issue.id === "manual_cpc_low");
   issues.push({ id: "no_impressions", severity: lowBidIssue ? "critical" : "warning", title: "No impressions yet", description: lowBidIssue ? `No impressions have been recorded yet. Your ${lowBidIssue.currentValue} max CPC may be contributing.` : "No impressions have been recorded yet even though the campaign appears enabled.", currentValue: "0 impressions", recommendedAction: lowBidIssue ? "Raise the bid, confirm targeting, then refresh performance." : "Review bids, targeting, and keyword demand.", canAutoFix: false });
  }
  if (input.snapshot?.endDate && normalizeGoogleAdsDateForDisplay(input.snapshot.endDate) && new Date(`${normalizeGoogleAdsDateForDisplay(input.snapshot.endDate)}T23:59:59Z`).getTime() < Date.now()) issues.push({ id: "campaign_ended", severity: "critical", title: "Campaign end date has passed", description: "This campaign has already reached its configured end date.", currentValue: normalizeGoogleAdsDateForDisplay(input.snapshot.endDate), recommendedAction: "Extend the end date in Google Ads if you want it to keep serving.", canAutoFix: false });
  if (input.snapshot?.targetSearchNetwork === false && input.snapshot?.targetGoogleSearch === false) issues.push({ id: "search_network_disabled", severity: "critical", title: "Search network is disabled", description: "The campaign is not configured to target Google Search right now.", currentValue: "Google Search off", recommendedAction: "Enable Google Search targeting in the campaign settings.", canAutoFix: false });
  if (input.snapshot?.positiveGeoTargetType && input.snapshot.positiveGeoTargetType !== "PRESENCE") issues.push({ id: "location_presence_mode", severity: "info", title: "Location targeting includes interest-based reach", description: "Presence-only targeting is often a tighter fit for local service campaigns.", currentValue: input.snapshot.positiveGeoTargetType.replaceAll("_", " "), recommendedAction: "Consider using presence-only targeting if lead quality is weak.", canAutoFix: false });
- if ((input.campaign.destination_url ?? "").includes("/book/")) issues.push({ id: "booking_conversion_tracking", severity: "info", title: "Online booking conversions should be reviewed", description: "This campaign sends traffic to booking, so confirm that booking conversions are being measured the way you want.", currentValue: "Booking destination detected", recommendedAction: "Verify Google Ads conversion goals for online bookings.", canAutoFix: false });
+ if ((input.campaign.destination_url ?? "").includes("/book/")) {
+  if (quality.conversionGoals.state === "unknown") issues.push({ id: "booking_conversion_unknown", severity: "info", title: "Booking conversion tracking could not be verified", description: "Servonas could not load Google Ads conversion goals for this account.", currentValue: null, recommendedAction: "Refresh campaign health after conversion-goal diagnostics are available.", canAutoFix: false, category: "conversion_tracking" });
+  else {
+   const goals = input.snapshot?.conversionGoals ?? [];
+   const phoneGoals = goals.filter((goal) => `${goal.category} ${goal.origin}`.includes("PHONE_CALL"));
+   const bookingGoals = goals.filter((goal) => `${goal.category} ${goal.origin}`.includes("WEBPAGE") && goal.primary !== false);
+   if (phoneGoals.length) issues.push({ id: "phone_call_conversion_configured", severity: "healthy", title: "Phone call leads configured", description: "Google Ads has phone-call conversion goals available.", currentValue: `${phoneGoals.length} phone-call goal${phoneGoals.length === 1 ? "" : "s"}`, recommendedAction: "Keep call tracking aligned with your sales process.", canAutoFix: false, category: "conversion_tracking" });
+   if (!bookingGoals.length) issues.push({ id: "booking_conversion_tracking", severity: "warning", title: "Online booking conversion is not configured", description: "This campaign sends visitors to booking. Google Ads is currently measuring phone-call leads, but completed online bookings do not appear to be a primary tracked outcome.", currentValue: phoneGoals.length ? "Phone call leads" : "No booking conversion found", recommendedAction: "Set up completed booking conversion tracking when the supported setup flow is available.", canAutoFix: false, fixActionId: "setup_booking_conversion", category: "conversion_tracking" });
+  }
+ }
  if (sourceReasons.length) issues.push({ id: "google_policy_or_account_notice", severity: "info", title: "Google reported additional campaign notes", description: "Google Ads returned serving or policy reasons for this campaign.", currentValue: sourceReasons.join(", "), recommendedAction: "Review the technical details and Google Ads UI for the full context.", canAutoFix: false });
+ const optimizationIssueIds = new Set(["keywords_low_volume", "negative_keyword_conflict", "manual_cpc_too_low", "manual_cpc_low", "manual_cpc_ok", "budget_vs_bid", "no_impressions", "location_presence_mode"]);
+ const categorizedIssues = issues.map((issue) => ({ ...issue, category: issue.category ?? (optimizationIssueIds.has(issue.id) ? "optimization" : "serving") }));
  const severityRank: Record<GoogleAdsCampaignHealthIssueSeverity, number> = { critical: 0, warning: 1, info: 2, healthy: 3 };
- const orderedIssues = issues.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+ const orderedIssues = categorizedIssues.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
  return {
   state: orderedIssues.some((issue) => issue.severity === "critical") ? "critical_issue" as const : orderedIssues.some((issue) => issue.severity === "warning") ? "needs_attention" as const : "healthy" as const,
   issues: orderedIssues,
   mostImportantIssue: orderedIssues.find((issue) => issue.severity !== "healthy") ?? orderedIssues[0] ?? null,
   recommendedManualCpcMicros: googleAdsRecommendedManualCpcMicros,
  };
+}
+
+export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: string; snapshot: GoogleAdsCampaignHealthSnapshot | null; issues: GoogleAdsCampaignHealthIssue[] }) {
+ const apiKey = process.env.OPENAI_API_KEY?.trim();
+ if (!apiKey || !input.snapshot) return null as GoogleAdsCampaignHealthAiReview | null;
+ const verifiedFacts = {
+  campaign: { status: input.snapshot.campaignStatus, servingStatus: input.snapshot.campaignPrimaryStatus, biddingStrategy: input.snapshot.biddingStrategyType },
+  adGroups: input.snapshot.dataQuality.adGroups.state === "verified" ? { statuses: input.snapshot.adGroupStatuses, bidsMicros: input.snapshot.adGroupCpcBidMicros } : "unknown",
+  ads: input.snapshot.dataQuality.ads.state === "verified" ? { statuses: input.snapshot.adStatuses, approvals: input.snapshot.adApprovalStatuses } : "unknown",
+  keywords: input.snapshot.dataQuality.keywords.state === "verified" ? { count: input.snapshot.positiveKeywords.length, statuses: input.snapshot.keywordStatuses } : "unknown",
+  conversionGoals: input.snapshot.dataQuality.conversionGoals.state === "verified" ? input.snapshot.conversionGoals : "unknown",
+  dataQuality: input.snapshot.dataQuality,
+  deterministicFindings: input.issues.filter((issue) => issue.severity !== "healthy").map((issue) => ({ id: issue.id, category: issue.category ?? "serving", severity: issue.severity, title: issue.title, evidence: issue.currentValue ?? issue.description })),
+ };
+ try {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_campaign_health_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendationIds: { type: "array", items: { type: "string" } } }, required: ["summary", "recommendationIds"] } } }, messages: [{ role: "system", content: "You review Google Ads facts for a small-business owner. Only use the supplied verified facts and deterministic findings. Never invent campaign facts. Treat unknown as unknown. Do not claim causation. Prioritize serving before optimization and conversion tracking. Return only the requested JSON." }, { role: "user", content: JSON.stringify(verifiedFacts) }] }) });
+  if (!response.ok) return null;
+  const body = await response.json() as any;
+  const parsed = JSON.parse(String(body.choices?.[0]?.message?.content ?? "{}")) as { summary?: unknown; recommendationIds?: unknown };
+  const allowed = new Set(input.issues.map((issue) => issue.id));
+  return { summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 500) : "", recommendationIds: Array.isArray(parsed.recommendationIds) ? parsed.recommendationIds.map(String).filter((id) => allowed.has(id)).slice(0, 4) : [] } satisfies GoogleAdsCampaignHealthAiReview;
+ } catch {
+  return null;
+ }
 }
 
 export async function updateGoogleAdsCampaignStatus(input: {
