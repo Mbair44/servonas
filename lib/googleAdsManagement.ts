@@ -265,8 +265,16 @@ export type GoogleAdsKeywordReviewKeyword = {
  primaryStatusReasons: string[];
  negative: boolean;
  cpcBidMicros: number | null;
+ firstPageCpcMicros: number | null;
+ topOfPageCpcMicros: number | null;
+ firstPositionCpcMicros: number | null;
+ qualityScore: number | null;
+ creativeQualityScore: string | null;
+ postClickQualityScore: string | null;
+ searchPredictedCtr: string | null;
  adGroupId: string | null;
  adGroupName: string | null;
+ finalUrls: string[];
  impressions: number;
  clicks: number;
  ctr: number;
@@ -278,13 +286,37 @@ export type GoogleAdsKeywordReviewSnapshot = {
  generatedAt: string;
  dateFrom: string;
  dateTo: string;
- campaign: { id: string; name: string | null; biddingStrategy: string | null; dailyBudgetMicros: number | null; industry: string | null; locations: string[]; impressions: number; clicks: number; conversions: number; costMicros: number };
+ performanceDataState: "early" | "sufficient";
+ campaign: {
+  id: string;
+  name: string | null;
+  biddingStrategy: string | null;
+  dailyBudgetMicros: number | null;
+  industry: string | null;
+  locations: string[];
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  costMicros: number;
+  ctr: number | null;
+  averageCpcMicros: number | null;
+  costPerConversionMicros: number | null;
+  conversionGoals: Array<{ category: string | null; origin: string | null; primary: boolean | null; status: string | null }>;
+  adGroupDefaultCpcMicros: number[];
+ };
+ searchTerms: { available: boolean; items: GoogleAdsSearchTerm[] };
  keywords: GoogleAdsKeywordReviewKeyword[];
+};
+export type GoogleAdsKeywordReviewSuggestedValue = {
+ type: "bid_adjustment" | "keyword_list" | "negative_keyword_list" | "match_type_change" | "budget_note" | "other";
+ label: string;
+ value: string | null;
 };
 export type GoogleAdsKeywordReview = {
  summary: string;
  performanceDataState: "early" | "sufficient";
- recommendations: Array<{ id: string; category: "bid" | "pause_keyword" | "keep_keyword" | "add_keyword" | "match_type" | "negative_keyword" | "budget" | "conversion_tracking" | "other"; priority: "high" | "medium" | "low"; title: string; explanation: string; evidence: string[]; keywordIds: string[]; suggestedValue: string | null; canApplyInServonas: false }>;
+ keywordsReviewed: number;
+ recommendations: Array<{ id: string; category: "bid" | "pause_keyword" | "keep_keyword" | "add_keyword" | "match_type" | "negative_keyword" | "budget" | "conversion_tracking" | "other"; priority: "high" | "medium" | "low"; title: string; explanation: string; evidence: string[]; keywordIds: string[]; suggestedValue: GoogleAdsKeywordReviewSuggestedValue | null; canApplyInServonas: boolean }>;
 };
 
 const supportedGoogleAdsVersions = new Set(["v23", "v24", "v25"]);
@@ -319,6 +351,7 @@ const googleAdsRecommendedManualCpcMicros = 2_000_000;
 const googleAdsCriticalManualCpcMicros = 50_000;
 const googleAdsWarningManualCpcMicros = 500_000;
 const googleAdsNoImpressionGraceHours = 24;
+const googleAdsKeywordReviewSufficientClicks = 20;
 const normalizeKeywordText = (value: string) => value.trim().replace(/^["'[\](){}]+|["'[\](){}]+$/g, "").replace(/\s+/g, " ");
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
 const moneyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -2628,7 +2661,10 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   const bid = safeNumber(readGoogleAdsField(row, "adGroupCriterion.cpcBidMicros", "ad_group_criterion.cpc_bid_micros"));
   if (typeof status === "string") snapshot.keywordStatuses.push(status);
   if (Array.isArray(reasons)) snapshot.keywordPrimaryStatusReasons.push(...reasons.map(String));
-  if (keywordText) negative ? snapshot.negativeKeywords.push(keywordText) : snapshot.positiveKeywords.push(keywordText);
+  if (keywordText) {
+   if (negative) snapshot.negativeKeywords.push(keywordText);
+   else snapshot.positiveKeywords.push(keywordText);
+  }
   if (bid > 0) snapshot.keywordCpcBidMicros.push(bid);
  }
  const conversionGoals = conversionGoalResult.rows.map((row) => ({
@@ -2769,10 +2805,18 @@ export async function fetchGoogleAdsKeywordReviewSnapshot(input: {
  const campaignId = stripCustomerId(input.campaignId);
  if (!campaignId) throw new Error("A valid Google Ads campaign is required.");
  const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
- // These fields are all returned by keyword_view; unavailable Google estimates are deliberately omitted.
- const rows = await googleAdsSearchStream(input.customerId, input.accessToken,
-  `SELECT campaign.id, campaign.name, campaign.bidding_strategy_type, ad_group.id, ad_group.name, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.primary_status, ad_group_criterion.primary_status_reasons, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.cpc_bid_micros, metrics.impressions, metrics.clicks, metrics.ctr, metrics.average_cpc, metrics.conversions, metrics.cost_micros FROM keyword_view WHERE campaign.id = ${campaignId} AND ${dateFilter}`,
-  input.loginCustomerId, { stage: "google_ads_keyword_review_snapshot", requestType: "keyword_review", businessId: input.businessId ?? null });
+ const [rows, adGroupRows, conversionGoalRows, searchTerms] = await Promise.all([
+  googleAdsSearchStream(input.customerId, input.accessToken,
+   `SELECT campaign.id, campaign.name, campaign.bidding_strategy_type, ad_group.id, ad_group.name, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.primary_status, ad_group_criterion.primary_status_reasons, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.cpc_bid_micros, ad_group_criterion.first_page_cpc_micros, ad_group_criterion.top_of_page_cpc_micros, ad_group_criterion.first_position_cpc_micros, ad_group_criterion.quality_info.quality_score, ad_group_criterion.quality_info.creative_quality_score, ad_group_criterion.quality_info.post_click_quality_score, ad_group_criterion.quality_info.search_predicted_ctr, ad_group_criterion.final_urls, metrics.impressions, metrics.clicks, metrics.ctr, metrics.average_cpc, metrics.conversions, metrics.cost_micros FROM keyword_view WHERE campaign.id = ${campaignId} AND ${dateFilter}`,
+   input.loginCustomerId, { stage: "google_ads_keyword_review_snapshot", requestType: "keyword_review", businessId: input.businessId ?? null }),
+  googleAdsSearchStream(input.customerId, input.accessToken,
+   `SELECT ad_group.id, ad_group.cpc_bid_micros FROM ad_group WHERE campaign.id = ${campaignId} AND ad_group.status != 'REMOVED'`,
+   input.loginCustomerId, { stage: "google_ads_keyword_review_ad_groups", requestType: "keyword_review_ad_groups", businessId: input.businessId ?? null }),
+  googleAdsSearchStream(input.customerId, input.accessToken,
+   "SELECT conversion_action.category, conversion_action.origin, conversion_action.primary_for_goal, conversion_action.status FROM conversion_action",
+   input.loginCustomerId, { stage: "google_ads_keyword_review_conversion_goals", requestType: "keyword_review_conversion_goals", businessId: input.businessId ?? null }),
+  fetchGoogleAdsSearchTerms({ accessToken: input.accessToken, customerId: input.customerId, campaignIds: [campaignId], dateFrom: input.dateFrom, dateTo: input.dateTo, businessId: input.businessId ?? null }).catch(() => [] as GoogleAdsSearchTerm[]),
+ ]);
  const keywords = rows.map((row) => ({
   id: stripCustomerId(String(readGoogleAdsField(row, "adGroupCriterion.criterionId", "ad_group_criterion.criterion_id") ?? "")),
   text: String(readGoogleAdsField(row, "adGroupCriterion.keyword.text", "ad_group_criterion.keyword.text") ?? "").trim(),
@@ -2782,30 +2826,81 @@ export async function fetchGoogleAdsKeywordReviewSnapshot(input: {
   primaryStatusReasons: Array.isArray(readGoogleAdsField(row, "adGroupCriterion.primaryStatusReasons", "ad_group_criterion.primary_status_reasons")) ? (readGoogleAdsField(row, "adGroupCriterion.primaryStatusReasons", "ad_group_criterion.primary_status_reasons") as unknown[]).map(String) : [],
   negative: Boolean(readGoogleAdsField(row, "adGroupCriterion.negative", "ad_group_criterion.negative")),
   cpcBidMicros: (() => { const value = safeNumber(readGoogleAdsField(row, "adGroupCriterion.cpcBidMicros", "ad_group_criterion.cpc_bid_micros")); return value || null; })(),
+  firstPageCpcMicros: (() => { const value = safeNumber(readGoogleAdsField(row, "adGroupCriterion.firstPageCpcMicros", "ad_group_criterion.first_page_cpc_micros")); return value || null; })(),
+  topOfPageCpcMicros: (() => { const value = safeNumber(readGoogleAdsField(row, "adGroupCriterion.topOfPageCpcMicros", "ad_group_criterion.top_of_page_cpc_micros")); return value || null; })(),
+  firstPositionCpcMicros: (() => { const value = safeNumber(readGoogleAdsField(row, "adGroupCriterion.firstPositionCpcMicros", "ad_group_criterion.first_position_cpc_micros")); return value || null; })(),
+  qualityScore: (() => { const value = safeNumber(readGoogleAdsField(row, "adGroupCriterion.qualityInfo.qualityScore", "ad_group_criterion.quality_info.quality_score")); return value || null; })(),
+  creativeQualityScore: typeof readGoogleAdsField(row, "adGroupCriterion.qualityInfo.creativeQualityScore", "ad_group_criterion.quality_info.creative_quality_score") === "string" ? String(readGoogleAdsField(row, "adGroupCriterion.qualityInfo.creativeQualityScore", "ad_group_criterion.quality_info.creative_quality_score")) : null,
+  postClickQualityScore: typeof readGoogleAdsField(row, "adGroupCriterion.qualityInfo.postClickQualityScore", "ad_group_criterion.quality_info.post_click_quality_score") === "string" ? String(readGoogleAdsField(row, "adGroupCriterion.qualityInfo.postClickQualityScore", "ad_group_criterion.quality_info.post_click_quality_score")) : null,
+  searchPredictedCtr: typeof readGoogleAdsField(row, "adGroupCriterion.qualityInfo.searchPredictedCtr", "ad_group_criterion.quality_info.search_predicted_ctr") === "string" ? String(readGoogleAdsField(row, "adGroupCriterion.qualityInfo.searchPredictedCtr", "ad_group_criterion.quality_info.search_predicted_ctr")) : null,
   adGroupId: (() => { const value = stripCustomerId(String(readGoogleAdsField(row, "adGroup.id", "ad_group.id") ?? "")); return value || null; })(),
   adGroupName: typeof readGoogleAdsField(row, "adGroup.name", "ad_group.name") === "string" ? String(readGoogleAdsField(row, "adGroup.name", "ad_group.name")) : null,
+  finalUrls: Array.isArray(readGoogleAdsField(row, "adGroupCriterion.finalUrls", "ad_group_criterion.final_urls")) ? (readGoogleAdsField(row, "adGroupCriterion.finalUrls", "ad_group_criterion.final_urls") as unknown[]).map(String).filter(Boolean) : [],
   impressions: safeNumber(readGoogleAdsField(row, "metrics.impressions", "metrics.impressions")), clicks: safeNumber(readGoogleAdsField(row, "metrics.clicks", "metrics.clicks")), ctr: safeNumber(readGoogleAdsField(row, "metrics.ctr", "metrics.ctr")), averageCpcMicros: safeNumber(readGoogleAdsField(row, "metrics.averageCpc", "metrics.average_cpc")), conversions: safeNumber(readGoogleAdsField(row, "metrics.conversions", "metrics.conversions")), costMicros: safeNumber(readGoogleAdsField(row, "metrics.costMicros", "metrics.cost_micros")),
  })).filter((keyword) => keyword.id && keyword.text);
  const first = rows[0];
- return { generatedAt: new Date().toISOString(), dateFrom: input.dateFrom, dateTo: input.dateTo, campaign: { id: campaignId, name: typeof readGoogleAdsField(first, "campaign.name", "campaign.name") === "string" ? String(readGoogleAdsField(first, "campaign.name", "campaign.name")) : input.campaignName, biddingStrategy: typeof readGoogleAdsField(first, "campaign.biddingStrategyType", "campaign.bidding_strategy_type") === "string" ? String(readGoogleAdsField(first, "campaign.biddingStrategyType", "campaign.bidding_strategy_type")) : null, dailyBudgetMicros: input.dailyBudgetMicros, industry: input.industry, locations: input.locations, impressions: keywords.reduce((sum, keyword) => sum + keyword.impressions, 0), clicks: keywords.reduce((sum, keyword) => sum + keyword.clicks, 0), conversions: keywords.reduce((sum, keyword) => sum + keyword.conversions, 0), costMicros: keywords.reduce((sum, keyword) => sum + keyword.costMicros, 0) }, keywords } satisfies GoogleAdsKeywordReviewSnapshot;
+ const impressions = keywords.reduce((sum, keyword) => sum + keyword.impressions, 0);
+ const clicks = keywords.reduce((sum, keyword) => sum + keyword.clicks, 0);
+ const conversions = keywords.reduce((sum, keyword) => sum + keyword.conversions, 0);
+ const costMicros = keywords.reduce((sum, keyword) => sum + keyword.costMicros, 0);
+ const ctr = impressions > 0 ? clicks / impressions : null;
+ const averageCpcMicros = clicks > 0 ? Math.round(costMicros / clicks) : null;
+ const performanceDataState = clicks < googleAdsKeywordReviewSufficientClicks ? "early" as const : "sufficient" as const;
+ const conversionGoals = conversionGoalRows.map((row) => ({
+  category: typeof readGoogleAdsField(row, "conversionAction.category", "conversion_action.category") === "string" ? String(readGoogleAdsField(row, "conversionAction.category", "conversion_action.category")) : null,
+  origin: typeof readGoogleAdsField(row, "conversionAction.origin", "conversion_action.origin") === "string" ? String(readGoogleAdsField(row, "conversionAction.origin", "conversion_action.origin")) : null,
+  primary: typeof readGoogleAdsField(row, "conversionAction.primaryForGoal", "conversion_action.primary_for_goal") === "boolean" ? Boolean(readGoogleAdsField(row, "conversionAction.primaryForGoal", "conversion_action.primary_for_goal")) : null,
+  status: typeof readGoogleAdsField(row, "conversionAction.status", "conversion_action.status") === "string" ? String(readGoogleAdsField(row, "conversionAction.status", "conversion_action.status")) : null,
+ }));
+ const adGroupDefaultCpcMicros = adGroupRows
+  .map((row) => safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros")))
+  .filter((value) => value > 0);
+ return {
+  generatedAt: new Date().toISOString(),
+  dateFrom: input.dateFrom,
+  dateTo: input.dateTo,
+  performanceDataState,
+  campaign: {
+   id: campaignId,
+   name: typeof readGoogleAdsField(first, "campaign.name", "campaign.name") === "string" ? String(readGoogleAdsField(first, "campaign.name", "campaign.name")) : input.campaignName,
+   biddingStrategy: typeof readGoogleAdsField(first, "campaign.biddingStrategyType", "campaign.bidding_strategy_type") === "string" ? String(readGoogleAdsField(first, "campaign.biddingStrategyType", "campaign.bidding_strategy_type")) : null,
+   dailyBudgetMicros: input.dailyBudgetMicros,
+   industry: input.industry,
+   locations: input.locations,
+   impressions,
+   clicks,
+   conversions,
+   costMicros,
+   ctr,
+   averageCpcMicros,
+   costPerConversionMicros: conversions > 0 ? Math.round(costMicros / conversions) : null,
+   conversionGoals,
+   adGroupDefaultCpcMicros,
+  },
+  searchTerms: { available: searchTerms.length > 0, items: searchTerms.slice(0, 25) },
+  keywords,
+ } satisfies GoogleAdsKeywordReviewSnapshot;
 }
 
 export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string; snapshot: GoogleAdsKeywordReviewSnapshot }) {
  const apiKey = process.env.OPENAI_API_KEY?.trim();
  if (!apiKey) return null as GoogleAdsKeywordReview | null;
  const allowedIds = new Set(input.snapshot.keywords.map((keyword) => keyword.id));
- const performanceDataState = input.snapshot.campaign.clicks < 20 ? "early" as const : "sufficient" as const;
+ const performanceDataState = input.snapshot.performanceDataState;
  try {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_keyword_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendations: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, category: { type: "string", enum: ["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"] }, priority: { type: "string", enum: ["high", "medium", "low"] }, title: { type: "string" }, explanation: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, keywordIds: { type: "array", items: { type: "string" } }, suggestedValue: { type: ["string", "null"] }, canApplyInServonas: { type: "boolean" } }, required: ["id", "category", "priority", "title", "explanation", "evidence", "keywordIds", "suggestedValue", "canApplyInServonas"] } } }, required: ["summary", "recommendations"] } } }, messages: [{ role: "system", content: "You are Servonas's Google Ads keyword reviewer. Use only the supplied verified Google Ads facts. Do not invent bid estimates, demand, performance, policy state, or campaign configuration. Clearly separate interpretation from facts. When performanceDataState is early, do not infer performance outcomes; focus on configuration and intent. Give 3 to 5 concise, practical recommendations. Do not claim guaranteed results. You cannot apply changes, so canApplyInServonas must be false. Return only JSON." }, { role: "user", content: JSON.stringify({ ...input.snapshot, performanceDataState }) }] }) });
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_keyword_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendations: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, category: { type: "string", enum: ["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"] }, priority: { type: "string", enum: ["high", "medium", "low"] }, title: { type: "string" }, explanation: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, keywordIds: { type: "array", items: { type: "string" } }, suggestedValue: { type: ["object", "null"], additionalProperties: false, properties: { type: { type: "string", enum: ["bid_adjustment", "keyword_list", "negative_keyword_list", "match_type_change", "budget_note", "other"] }, label: { type: "string" }, value: { type: ["string", "null"] } }, required: ["type", "label", "value"] }, canApplyInServonas: { type: "boolean" } }, required: ["id", "category", "priority", "title", "explanation", "evidence", "keywordIds", "suggestedValue", "canApplyInServonas"] } } }, required: ["summary", "recommendations"] } } }, messages: [{ role: "system", content: "You are Servonas's Google Ads keyword reviewer. Use only the supplied verified Google Ads facts. Do not invent bid estimates, demand, performance, policy state, campaign configuration, or search terms that are not present. Clearly separate interpretation from facts. When performanceDataState is early, explicitly acknowledge that there is not enough performance data yet to judge true conversion winners and focus on configuration, intent, match type, duplication, location intent, and verified bid constraints. Distinguish current keywords from search terms. If searchTerms.available is false, say search-term evidence is unavailable rather than inferring it. Ground every pause or bid recommendation in the supplied facts and intent. Give 3 to 5 concise, practical recommendations. Do not claim guaranteed results." }, { role: "user", content: JSON.stringify(input.snapshot) }] }) });
   if (!response.ok) return null;
   const parsed = JSON.parse(String((await response.json() as any).choices?.[0]?.message?.content ?? "{}")) as any;
   const categories = new Set(["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"]);
   const priorities = new Set(["high", "medium", "low"]);
   const recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 5).flatMap((value: any, index: number) => {
    if (!value || !categories.has(value.category) || !priorities.has(value.priority) || typeof value.title !== "string" || typeof value.explanation !== "string") return [];
-   return [{ id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: Array.isArray(value.evidence) ? value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 4).map((item: string) => item.slice(0, 220)) : [], keywordIds: Array.isArray(value.keywordIds) ? value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8) : [], suggestedValue: typeof value.suggestedValue === "string" ? value.suggestedValue.slice(0, 160) : null, canApplyInServonas: false as const }];
+   const suggestedValue = value.suggestedValue && typeof value.suggestedValue === "object" && typeof value.suggestedValue.type === "string" && typeof value.suggestedValue.label === "string"
+    ? { type: value.suggestedValue.type, label: value.suggestedValue.label.slice(0, 80), value: typeof value.suggestedValue.value === "string" ? value.suggestedValue.value.slice(0, 160) : null } satisfies GoogleAdsKeywordReviewSuggestedValue
+    : null;
+   return [{ id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: Array.isArray(value.evidence) ? value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)) : [], keywordIds: Array.isArray(value.keywordIds) ? value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8) : [], suggestedValue, canApplyInServonas: Boolean(value.canApplyInServonas) }];
   }) : [];
-  return { summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 500) : "Keyword review completed.", performanceDataState, recommendations } satisfies GoogleAdsKeywordReview;
+  return { summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 500) : "Keyword review completed.", performanceDataState, keywordsReviewed: input.snapshot.keywords.filter((keyword) => !keyword.negative).length, recommendations } satisfies GoogleAdsKeywordReview;
  } catch { return null; }
 }
 

@@ -888,7 +888,7 @@ export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: st
   });
   const review = await reviewGoogleAdsKeywordsWithAi({ businessId: business.id, snapshot });
   if (!review) throw new Error("AI keyword recommendations are temporarily unavailable.");
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 1, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), review } });
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 2, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), review } });
  } catch (error) {
   redirect(path(slug, "error", error instanceof Error ? error.message : "Keyword review could not be completed."));
  }
