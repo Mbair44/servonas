@@ -28,6 +28,7 @@ test("normalizes preserved first-touch Google Ads attribution",()=>{
 test("normalizes fbclid-backed Meta visits even when referrer is missing",()=>{
  assert.equal(normalizeMarketingSource({fbclid:"meta-click-1"}),"facebook");
  assert.equal(normalizeMarketingSource({fbclid:"meta-click-1",utm_source:"instagram"}),"instagram");
+ assert.equal(normalizeMarketingSource({utm_source:"fb",utm_medium:"paid"}),"facebook");
 });
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{
@@ -104,6 +105,17 @@ test("facebook paid visitor who reaches /booking counts as a booking start befor
  assert.equal(facebook.visits,1);
  assert.equal(facebook.detailedCounts.booking_start,1);
  assert.equal(facebook.stepCounts.find((step)=>step.key==="booking_start")?.count,1);
+});
+
+test("Facebook attribution survives the booking route and counts one idempotent start",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"91caf0a8-949d-4670-8833-47ea68a35e17",event_name:"landing_page_view",booking_attribution_sessions:{utm_source:"fb",utm_medium:"paid",utm_campaign:"copper-state",utm_content:"carousel",utm_term:"bounce-house",fbclid:"meta-click"}},
+  {attribution_session_id:"91caf0a8-949d-4670-8833-47ea68a35e17",event_name:"booking_started",booking_attribution_sessions:{utm_source:"fb",utm_medium:"paid",utm_campaign:"copper-state",fbclid:"meta-click"}},
+  {attribution_session_id:"91caf0a8-949d-4670-8833-47ea68a35e17",event_name:"booking_started",booking_attribution_sessions:{utm_source:"fb",utm_medium:"paid",utm_campaign:"copper-state",fbclid:"meta-click"}},
+ ]);
+ const facebook=report.summaries.find((row)=>row.source==="facebook");
+ assert.equal(facebook?.visits,1);
+ assert.equal(facebook?.detailedCounts.booking_start,1);
 });
 
 test("session metrics attach by normalized source without changing core funnel counts",()=>{

@@ -2482,14 +2482,6 @@ function normalizeGoogleAdsDateForDisplay(value: string | null) {
  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
 }
 
-function hoursSinceGoogleAdsDate(value: string | null) {
- const normalized = normalizeGoogleAdsDateForDisplay(value);
- if (!normalized) return null;
- const date = new Date(`${normalized}T00:00:00Z`);
- if (Number.isNaN(date.getTime())) return null;
- return (Date.now() - date.getTime()) / (60 * 60 * 1000);
-}
-
 export async function updateGoogleAdsAdGroupBid(input: {
  accessToken: string;
  customerId: string;
@@ -2794,7 +2786,7 @@ export function buildGoogleAdsCampaignHealth(input: {
  };
 }
 
-export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: string; snapshot: GoogleAdsCampaignHealthSnapshot | null; issues: GoogleAdsCampaignHealthIssue[] }) {
+export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: string; snapshot: GoogleAdsCampaignHealthSnapshot | null; issues: GoogleAdsCampaignHealthIssue[]; withinGracePeriod?: boolean; gracePeriodHoursRemaining?: number }) {
  const apiKey = process.env.OPENAI_API_KEY?.trim();
  if (!apiKey || !input.snapshot) return null as GoogleAdsCampaignHealthAiReview | null;
  const verifiedFacts = {
@@ -2805,8 +2797,8 @@ export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: s
   conversionGoals: input.snapshot.dataQuality.conversionGoals.state === "verified" ? input.snapshot.conversionGoals : "unknown",
   dataQuality: input.snapshot.dataQuality,
   zeroImpressions: input.issues.some((issue) => issue.id === "no_impressions" || issue.id === "no_impressions_monitoring"),
-  withinGracePeriod: input.issues.some((issue) => issue.id === "no_impressions_monitoring"),
-  gracePeriodHoursRemaining: 0,
+  withinGracePeriod: input.withinGracePeriod ?? input.issues.some((issue) => issue.id === "no_impressions_monitoring"),
+  gracePeriodHoursRemaining: input.gracePeriodHoursRemaining ?? 0,
   deterministicFindings: input.issues.filter((issue) => issue.severity !== "healthy").map((issue) => ({ id: issue.id, category: issue.category ?? "serving", severity: issue.severity, title: issue.title, evidence: issue.currentValue ?? issue.description })),
  };
  try {
@@ -2920,7 +2912,7 @@ export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string;
    const suggestedValue = value.suggestedValue && typeof value.suggestedValue === "object" && typeof value.suggestedValue.type === "string" && typeof value.suggestedValue.label === "string"
     ? { type: value.suggestedValue.type, label: value.suggestedValue.label.slice(0, 80), value: typeof value.suggestedValue.value === "string" ? value.suggestedValue.value.slice(0, 160) : null } satisfies GoogleAdsKeywordReviewSuggestedValue
     : null;
-   return [{ id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: Array.isArray(value.evidence) ? value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)) : [], keywordIds: Array.isArray(value.keywordIds) ? value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8) : [], suggestedValue, canApplyInServonas: Boolean(value.canApplyInServonas) }];
+   return [{ id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: Array.isArray(value.evidence) ? value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)) : [], keywordIds: Array.isArray(value.keywordIds) ? value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8) : [], suggestedValue, canApplyInServonas: false }];
   }) : [];
   return { summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 500) : "Keyword review completed.", performanceDataState, keywordsReviewed: input.snapshot.keywords.filter((keyword) => !keyword.negative).length, recommendations } satisfies GoogleAdsKeywordReview;
  } catch { return null; }

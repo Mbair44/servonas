@@ -491,6 +491,30 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(page, /Some campaign health checks could not be verified\. Verified checks are still shown below\./);
 });
 
+test("campaign health implements monitoring grace rules and preserves blockers", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /export const GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS = 24/);
+ assert.match(file, /servingRelevantChangeAt\?: string \| null/);
+ assert.match(file, /withinNoImpressionGracePeriod/);
+ assert.match(file, /id: "no_impressions_monitoring"/);
+ assert.match(file, /No action needed yet\. Servonas will keep monitoring delivery\./);
+ assert.match(file, /id: "no_impressions", severity: "warning"/);
+ assert.match(file, /Review keyword demand, bidding, targeting, and campaign schedule\./);
+ assert.match(file, /servingBlockerIds/);
+ assert.match(file, /"campaign_paused"/);
+ assert.match(file, /"ads_disapproved"/);
+ assert.match(file, /"keywords_inactive"/);
+ assert.match(file, /"manual_cpc_too_low"/);
+ assert.match(file, /input\.metric\?\.impressions === 0/);
+});
+
+test("campaign health AI receives grace-period facts and monitoring guidance", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /withinGracePeriod: input\.withinGracePeriod/);
+ assert.match(file, /gracePeriodHoursRemaining: input\.gracePeriodHoursRemaining/);
+ assert.match(file, /do not describe zero impressions as a problem or recommend changing bids, targeting, or keyword demand/);
+});
+
 test("keyword review uses a fresh verified snapshot and only runs from an explicit action", async () => {
  const [file, actions, page] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),

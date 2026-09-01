@@ -340,7 +340,7 @@ export default async function GoogleAdsPage({
   supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false }),
-  supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(20),
+  supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(100),
   supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
   supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5),
  ]);
@@ -444,7 +444,10 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
  })));
  const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId, campaignLocationsByCampaignId);
  const keywordReviewsByCampaignId = new Map<string, { review: NonNullable<ReturnType<typeof keywordReview>>; createdAt: string }>();
+ const servingRelevantEventTypes = new Set(["google_ads_campaign_published", "google_ads_campaign_resumed", "google_ads_max_cpc_updated", "google_ads_budget_updated", "google_ads_campaign_location_added", "google_ads_campaign_location_removed"]);
+ const servingRelevantChangeByCampaignId = new Map<string, string>();
  for (const entry of auditLog ?? []) {
+  if (entry.campaign_id && servingRelevantEventTypes.has(entry.event_type) && !servingRelevantChangeByCampaignId.has(entry.campaign_id) && !Number.isNaN(new Date(entry.created_at).getTime())) servingRelevantChangeByCampaignId.set(entry.campaign_id, entry.created_at);
   if (entry.event_type !== "google_ads_keyword_review_generated" || !entry.campaign_id || keywordReviewsByCampaignId.has(entry.campaign_id)) continue;
   const review = keywordReview(entry.metadata);
   if (review) keywordReviewsByCampaignId.set(entry.campaign_id, { review, createdAt: entry.created_at });
@@ -720,8 +723,9 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       status: campaign.google_campaign_id ? campaignStatusesByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
       locationTargeting: campaign.google_campaign_id ? campaignLocationsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
       snapshot: campaign.google_campaign_id ? campaignHealthSnapshotsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
+      servingRelevantChangeAt: servingRelevantChangeByCampaignId.get(campaign.id) ?? null,
      });
-     const healthLabel = health.state === "healthy" ? "Healthy" : health.state === "critical_issue" ? "Critical issue" : "Needs attention";
+     const healthLabel = health.state === "healthy" ? "Healthy" : health.state === "monitoring" ? "Monitoring" : health.state === "critical_issue" ? "Critical issue" : "Needs attention";
      const savedKeywordReview = keywordReviewsByCampaignId.get(campaign.id) ?? null;
      const healthGroups = [
       { label: "Serving", category: "serving" },
@@ -768,7 +772,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      </section>
      <section className={`google-ads-health-panel is-${health.state}`} aria-label="Campaign health">
       <div className="google-ads-section-heading">
-       <div><h3>Campaign health</h3><p>{health.state === "healthy" ? "No major setup issues detected." : "Servonas checks for configuration problems beyond Google's serving status."}</p></div>
+       <div><h3>Campaign health</h3><p>{health.state === "healthy" ? "No major setup issues detected." : health.state === "monitoring" ? "Servonas is monitoring delivery while Google begins serving this campaign." : "Servonas checks for configuration problems beyond Google's serving status."}</p></div>
        <span className="google-ads-health-badge">{healthLabel}</span>
       </div>
       {healthError ? <div className="workspace-notice warning">Some campaign health checks could not be verified. Verified checks are still shown below.</div> : null}
@@ -776,6 +780,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        <strong>{health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? "Your maximum bid is too low" : health.mostImportantIssue.title}</strong>
        {health.mostImportantIssue.currentValue ? <span>Current: {health.mostImportantIssue.currentValue}</span> : null}
        {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <><p>Your campaign is currently allowed to bid a maximum of {health.mostImportantIssue.currentValue} when someone searches for services like yours. That is likely too low to compete for local searches and may prevent your ad from being shown.</p><GoogleAdsBidAdjustment action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)} currentBidDollars={Number(health.mostImportantIssue.currentValue?.replace(/[^0-9.]/g, "") ?? 0)} recommendedBidDollars={health.recommendedManualCpcMicros / 1_000_000} dailyBudgetLabel={dailyBudgetLabel(campaign.daily_budget_micros)} /></> : <>{<p>{health.mostImportantIssue.description}</p>}{health.mostImportantIssue.recommendedAction ? <p>{health.mostImportantIssue.recommendedAction}</p> : null}</>}
+       {health.state === "monitoring" ? <small>We’ll flag this if the campaign remains at 0 impressions after {health.gracePeriodHoursRemaining} more hour{health.gracePeriodHoursRemaining === 1 ? "" : "s"}.</small> : null}
       </div> : null}
       {health.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{healthGroups.map((group) => <section key={group.category}><h4>{group.label}</h4>{group.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</section>)}</div></details>}
       {health.issues.some((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc") && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc").map((issue) => <article key={`recommendation-${issue.id}`}><strong>Recommended</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
