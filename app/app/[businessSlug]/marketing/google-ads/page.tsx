@@ -700,11 +700,7 @@ export default async function GoogleAdsPage({
      </section>
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">
-       <div className="google-ads-manage-title">
-        <h3>Manage campaign</h3>
-       </div>
-       <div className="google-ads-manage-actions">
-        {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form> : <>
+       {campaign.status === "draft" || campaign.status === "failed" ? <div className="google-ads-manage-actions"><form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form></div> : <>
          <GoogleAdsManageCampaignControls
           budgetDollars={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)}
           budgetLabel={dailyBudgetLabel(campaign.daily_budget_micros)}
@@ -712,8 +708,7 @@ export default async function GoogleAdsPage({
           statusLabel={!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" ? effectiveGoogleStatus === "PAUSED" ? "Resume campaign" : "Pause campaign" : null}
           updateBudgetAction={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}
          />
-        </>}
-       </div>
+       </>}
       </div>
      </section>
      <section className="google-ads-location-panel" aria-label="Location targeting">

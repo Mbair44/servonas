@@ -295,7 +295,7 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /<strong>\{dailyBudgetLabel\(campaign\.daily_budget_micros\)\}<\/strong>/);
  assert.match(page, /<GoogleAdsManageCampaignControls/);
  const manageControls = await read("../components/GoogleAdsManageCampaignControls.tsx");
- assert.match(manageControls, /<span className="google-ads-budget-readout"><strong>Budget:<\/strong> \{budgetLabel\}<\/span>/);
+ assert.match(manageControls, /<span className="google-ads-budget-readout" aria-label=\{`Current budget \$\{budgetLabel\}`\}>\{budgetLabel\}<\/span>/);
  assert.match(manageControls, /!isEditingBudget/);
  assert.match(manageControls, /Change budget/);
  assert.match(manageControls, /<span>Budget:<\/span>/);

@@ -1127,15 +1127,13 @@ body:has(>.pest-demo)>.sv-header,body:has(>.pest-demo)>.sv-footer{display:none}
 .marketing-item-demand-table>div:not(:first-child) span:first-child{font-weight:800;color:#17203a}
 .marketing-item-demand-table>div:not(:first-child) span:last-child{text-align:left}
 .google-ads-manage-panel{gap:8px;padding:14px 16px}
-.google-ads-manage-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.google-ads-manage-title h3{margin:0;color:#17203a;font-size:1rem}
-.google-ads-manage-actions{display:flex;flex:1 1 auto;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-end}
+.google-ads-manage-toolbar{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap}
+.google-ads-manage-actions{display:flex;flex:0 1 auto;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-start}
 .google-ads-manage-inline-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .google-ads-budget-inline{align-items:center}
 .google-ads-budget-inline-readonly{display:inline-flex}
 .google-ads-budget-inline-editor{display:flex}
-.google-ads-budget-readout{display:inline-flex;align-items:center;gap:6px;padding:10px 12px;border:1px solid #e6ebf2;border-radius:999px;background:#f8fafc;color:#344054;font-size:.84rem;font-weight:800;white-space:nowrap}
-.google-ads-budget-readout strong{color:#17203a}
+.google-ads-budget-readout{display:inline-flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid #e6ebf2;border-radius:999px;background:#f8fafc;color:#667085;font-size:.82rem;font-weight:700;white-space:nowrap}
 .google-ads-budget-field{display:grid;gap:8px;color:#344054;font-size:.8rem;font-weight:800}
 .google-ads-budget-field>.google-ads-input-with-unit,.google-ads-input-with-unit{display:inline-grid;grid-template-columns:auto minmax(88px,120px) auto;align-items:center;gap:8px}
 .google-ads-budget-field>span,.google-ads-input-with-unit>span{color:#344054;font-size:.9rem;font-weight:900}
