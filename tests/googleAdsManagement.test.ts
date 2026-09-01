@@ -539,6 +539,20 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);
 });
 
+test("keyword review keeps its core GAQL snapshot independent from unavailable bid estimates", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /bidEstimates: \{ status: "available" \| "unavailable" \| "error"/);
+ assert.match(file, /bidEstimates: \{ status: "unavailable" as const \}/);
+ assert.doesNotMatch(file, /ad_group_criterion\.first_page_cpc_micros/);
+ assert.doesNotMatch(file, /ad_group_criterion\.top_of_page_cpc_micros/);
+ assert.doesNotMatch(file, /ad_group_criterion\.first_position_cpc_micros/);
+ assert.match(file, /ad_group_criterion\.primary_status_reasons/);
+ assert.match(file, /SELECT ad_group\.id, ad_group\.cpc_bid_micros FROM ad_group/);
+ assert.match(file, /fetchGoogleAdsSearchTerms[\s\S]*\.catch\(\(\) => \[\]/);
+ assert.match(file, /Bid estimate fields may be unavailable\./);
+ assert.match(file, /without inventing a dollar amount/);
+});
+
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
  const [file, actions, page] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),
