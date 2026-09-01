@@ -617,10 +617,13 @@ test("keyword review keeps internal IDs out of customer-facing recommendation co
  assert.match(page, /function readableRecommendationEvidence/);
  assert.match(page, /reviewed negative keyword/);
  assert.match(page, /Relevant keywords/);
- assert.match(page, /Technical details/);
- assert.match(page, /Keyword ID:/);
  assert.match(page, /savedKeywordReview\.review\.keywordDisplays\.get\(id\) \?\? \{ \.\.\.unresolvedKeyword, id \}/);
  assert.doesNotMatch(page, /keywordLabels\.get\(id\) \?\? id/);
+ const recommendationSection = page.slice(page.indexOf('aria-label="AI keyword review"'), page.indexOf('aria-label="Manage campaign"'));
+ assert.doesNotMatch(recommendationSection, /Technical details/);
+ assert.doesNotMatch(recommendationSection, /Keyword ID:/);
+ assert.match(recommendationSection, /Google data supporting it/);
+ assert.match(recommendationSection, /Apply recommendation/);
 });
 
 test("forced keyword reviews log a complete safe snapshot and inventory enrichment stays non-blocking", async () => {
