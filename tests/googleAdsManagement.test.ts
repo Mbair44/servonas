@@ -578,7 +578,7 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(actions, /google_ads_keyword_bid_applied/);
  assert.match(actions, /google_ads_keyword_bid_apply_failed/);
  assert.match(page, /Your ad may not be showing high enough/);
- assert.match(page, /Google has not provided a usable first-page estimate/);
+ assert.match(page, /Google has not provided a precise first-page bid estimate/);
  assert.match(page, /Apply recommendation/);
  assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);
 });
@@ -638,6 +638,28 @@ test("forced keyword reviews log a complete safe snapshot and inventory enrichme
  assert.match(page, /from\("inventory_items"\).*order\("created_at", \{ ascending: false \}\)\.order\("name"\)/);
  assert.doesNotMatch(page, /from\("inventory_items"\)[\s\S]{0,250}order\("sort_order"\)/);
  assert.match(page, /const \[\{ data: services \}, \{ data: inventory \}/);
+});
+
+test("manual CPC recommendations remain actionable without a Google bid estimate", async () => {
+ const [actions, page] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(page, /const defaultBidAction = recommendation\.category === "bid" && !bidRecommendation && !bidCandidates\.length && manualCpc/);
+ assert.match(page, /Recommended action available/);
+ assert.match(page, /Google has not provided a precise first-page bid estimate\. Servonas can still help you choose a higher maximum bid\./);
+ assert.match(page, /Current maximum bid:/);
+ assert.match(page, /<summary>Adjust maximum bid<\/summary>/);
+ assert.match(page, /Servonas suggests starting with a modest increase/);
+ assert.match(page, /name="maximumBidDollars" type="number" min="0\.01" step="0\.01"/);
+ assert.match(page, /Your daily budget remains/);
+ assert.match(page, /Google is managing bids automatically for this campaign, so manual bid changes are not available\./);
+ assert.match(page, /Servonas could not verify a current Manual CPC default bid and target ad group/);
+ assert.match(page, /Action available\. Review the editable bid change above before confirming\./);
+ assert.match(actions, /updateGoogleAdsAdGroupBid/);
+ assert.match(actions, /fetchGoogleAdsAdGroupBid/);
+ assert.match(actions, /confirmCpcFix/);
+ assert.match(actions, /verifiedCpcMicros: verification\.cpcBidMicros/);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
