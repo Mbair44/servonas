@@ -241,7 +241,7 @@ test("google ads diagnostic keeps direct advertiser mode when an associated mana
  assert.match(file, /if \(directAccessPassed && !candidateManagerCustomerId\) \{/);
  assert.match(file, /managerCustomerId: null/);
  assert.match(file, /resolvedLoginCustomerId: null/);
- assert.match(page, /<article><strong>Access mode<\/strong><span>\{validatedManagerLabel \? "Manager account" : "Direct advertiser access"\}<\/span><\/article>/);
+ assert.match(page, /<article><strong>Access mode<\/strong><span>\{validatedManagerLabel \? "Connected through manager access" : "Direct advertiser access"\}<\/span><\/article>/);
  assert.doesNotMatch(page, /<article><strong>Manager account<\/strong><span>145-777-1276<\/span><\/article>/);
 });
 
@@ -293,10 +293,16 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Manage campaign/);
  assert.match(page, /const dailyBudgetLabel = \(micros: number \| string \| null \| undefined\) => `\$\{microsToMoney\(Number\(micros \?\? 0\)\)\}\/day`/);
  assert.match(page, /<strong>\{dailyBudgetLabel\(campaign\.daily_budget_micros\)\}<\/strong>/);
- assert.match(page, /<span className="google-ads-budget-readout"><strong>Budget:<\/strong> \{dailyBudgetLabel\(campaign\.daily_budget_micros\)\}<\/span>/);
- assert.match(page, /<label className="google-ads-budget-field"><span>\$<\/span>/);
- assert.match(page, /<small>\/ day<\/small>/);
- assert.match(page, /Edit budget/);
+ assert.match(page, /<GoogleAdsManageCampaignControls/);
+ const manageControls = await read("../components/GoogleAdsManageCampaignControls.tsx");
+ assert.match(manageControls, /<span className="google-ads-budget-readout"><strong>Budget:<\/strong> \{budgetLabel\}<\/span>/);
+ assert.match(manageControls, /!isEditingBudget/);
+ assert.match(manageControls, /Change budget/);
+ assert.match(manageControls, /<span>Budget:<\/span>/);
+ assert.match(manageControls, /<small>\/ day<\/small>/);
+ assert.match(manageControls, /Updating budget…/);
+ assert.match(manageControls, /Cancel/);
+ assert.doesNotMatch(manageControls, /Edit budget/);
  assert.match(page, /Performance/);
  assert.match(page, /Technical details/);
  assert.match(page, /Keywords &amp; search traffic/);
@@ -314,7 +320,7 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /google-ads-overview-grid/);
  assert.match(page, /google-ads-manage-panel/);
  assert.match(page, /google-ads-manage-toolbar/);
- assert.match(page, /google-ads-budget-field/);
+ assert.match(manageControls, /google-ads-budget-field/);
  assert.match(page, /google-ads-keyword-section/);
  assert.match(page, /google-ads-performance-block/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
@@ -334,6 +340,9 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  const styles = await read("../app/globals.css");
  assert.match(styles, /\.google-ads-manage-toolbar\{/);
  assert.match(styles, /\.google-ads-budget-readout\{/);
+ assert.match(styles, /\.google-ads-budget-inline-readonly\{/);
+ assert.match(styles, /\.google-ads-budget-inline-editor\{/);
+ assert.match(styles, /\.google-ads-manage-inline-actions\{/);
  assert.match(styles, /\.google-ads-budget-field/);
  assert.match(styles, /\.google-ads-keyword-section\{/);
  assert.match(styles, /@media\(max-width:900px\)\{\.google-ads-manage-toolbar/);

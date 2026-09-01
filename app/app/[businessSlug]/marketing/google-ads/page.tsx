@@ -28,6 +28,7 @@ import {
  updateGoogleAdsDraftAction,
 } from "./actions";
 import { GoogleAdsDraftSubmit } from "@/components/GoogleAdsDraftSubmit";
+import { GoogleAdsManageCampaignControls } from "@/components/GoogleAdsManageCampaignControls";
 import { GoogleAdsPageLoadingOverlay } from "@/components/GoogleAdsPageLoadingOverlay";
 import { GoogleAdsOauthLauncher } from "@/components/GoogleAdsOauthLauncher";
 
@@ -655,15 +656,13 @@ export default async function GoogleAdsPage({
        </div>
        <div className="google-ads-manage-actions">
         {campaign.status === "draft" || campaign.status === "failed" ? <form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form> : <>
-         {!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" && <form action={setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, effectiveGoogleStatus === "PAUSED" ? "ENABLED" : "PAUSED")}><button className="sv-button sv-secondary">{effectiveGoogleStatus === "PAUSED" ? "Resume campaign" : "Pause campaign"}</button></form>}
-         <form className="google-ads-budget-inline" action={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}>
-          <span className="google-ads-budget-readout"><strong>Budget:</strong> {dailyBudgetLabel(campaign.daily_budget_micros)}</span>
-          <label className="google-ads-budget-field"><span>$</span>
-           <input aria-label="Daily budget dollars" name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} />
-           <small>/ day</small>
-          </label>
-          <button className="sv-button sv-secondary">Edit budget</button>
-         </form>
+         <GoogleAdsManageCampaignControls
+          budgetDollars={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)}
+          budgetLabel={dailyBudgetLabel(campaign.daily_budget_micros)}
+          statusAction={!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" ? setGoogleAdsCampaignStatusAction.bind(null, businessSlug, campaign.id, effectiveGoogleStatus === "PAUSED" ? "ENABLED" : "PAUSED") : null}
+          statusLabel={!statusSyncUnavailable && effectiveGoogleStatus !== "REMOVED" ? effectiveGoogleStatus === "PAUSED" ? "Resume campaign" : "Pause campaign" : null}
+          updateBudgetAction={updateGoogleAdsBudgetAction.bind(null, businessSlug, campaign.id)}
+         />
         </>}
        </div>
       </div>
