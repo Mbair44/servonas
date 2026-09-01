@@ -3,6 +3,8 @@ import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import {
+ buildGoogleAdsCampaignHealth,
+ fetchGoogleAdsCampaignHealthSnapshots,
  fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/googleAdsManagement";
 import {
  addGoogleAdsNegativeKeywordAction,
+ applyRecommendedGoogleAdsSettingsAction,
  createGoogleAdsDraftAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
@@ -312,11 +315,13 @@ export default async function GoogleAdsPage({
  let statusError: string | null = null;
  let searchTermsError: string | null = null;
  let permissionDiagnostic: Awaited<ReturnType<typeof runGoogleAdsPermissionDiagnostic>> | null = null;
- let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
- let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
- let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>();
+let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
+let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
+let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>();
+ let campaignHealthSnapshotsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignHealthSnapshots>>[number]>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
  let locationsError: string | null = null;
+ let healthError: string | null = null;
  if (connection?.status && connection.status !== "disconnected") {
   try {
    connectionAccess = await loadTenantGoogleAdsAccess(business.id);
@@ -357,6 +362,18 @@ export default async function GoogleAdsPage({
      campaignLocationsByCampaignId = new Map(campaignLocations.map((row) => [row.campaignId, row]));
     } catch (error) {
      locationsError = error instanceof Error ? error.message : "Campaign locations could not be loaded.";
+    }
+    try {
+     const healthSnapshots = await fetchGoogleAdsCampaignHealthSnapshots({
+      accessToken: connectionAccess.accessToken,
+      customerId: connectionAccess.customerId,
+      campaignIds: publishedIds,
+      loginCustomerId: connectionAccess.loginCustomerId,
+      businessId: business.id,
+     });
+     campaignHealthSnapshotsByCampaignId = new Map(healthSnapshots.map((row) => [row.campaignId, row]));
+    } catch (error) {
+     healthError = error instanceof Error ? error.message : "Campaign health details could not be loaded.";
     }
     try {
      topSearchTerms = await fetchGoogleAdsSearchTerms({
@@ -639,6 +656,14 @@ export default async function GoogleAdsPage({
    <section className="google-ads-campaign-grid">
     {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, issuesAvailable, effectiveCardStatus, statusLabel, summary }) => {
      const syncedAt = formatTimestamp(campaign.last_sync_at, business.timezone);
+     const health = buildGoogleAdsCampaignHealth({
+      campaign,
+      metric,
+      status: campaign.google_campaign_id ? campaignStatusesByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
+      locationTargeting: campaign.google_campaign_id ? campaignLocationsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
+      snapshot: campaign.google_campaign_id ? campaignHealthSnapshotsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
+     });
+     const healthLabel = health.state === "healthy" ? "Healthy" : health.state === "critical_issue" ? "Critical issue" : "Needs attention";
      return <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
      <header>
      <div>
@@ -676,6 +701,31 @@ export default async function GoogleAdsPage({
        <span>Targeting</span>
        <strong>{campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""))?.targetedLocations ?? [])}</strong>
       </article>
+     </section>
+     <section className={`google-ads-health-panel is-${health.state}`} aria-label="Campaign health">
+      <div className="google-ads-section-heading">
+       <div>
+        <h3>Campaign health</h3>
+        <p>Is this campaign configured in a way that is likely to actually serve and perform?</p>
+       </div>
+       <span className="google-ads-health-badge">{healthLabel}</span>
+      </div>
+      {healthError ? <div className="workspace-notice warning">Campaign health details are temporarily unavailable. {healthError}</div> : null}
+      <div className="google-ads-health-list">
+       {health.issues.slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}>
+        <strong>{issue.severity === "healthy" ? "✓" : issue.severity === "critical" ? "!" : issue.severity === "warning" ? "!" : "i"} {issue.title}</strong>
+        <span>{issue.currentValue ?? issue.description}</span>
+       </article>)}
+      </div>
+      {health.mostImportantIssue && health.mostImportantIssue.severity !== "healthy" ? <div className="google-ads-health-focus">
+       <strong>Most important issue:</strong>
+       <p>{health.mostImportantIssue.description}</p>
+       <p>{health.mostImportantIssue.recommendedAction}</p>
+       {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <form action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)}>
+        <button className="sv-button">Fix recommended setting</button>
+        <small>Current: {health.mostImportantIssue.currentValue} · New: {microsToMoney(health.recommendedManualCpcMicros)}</small>
+       </form> : null}
+      </div> : null}
      </section>
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">
@@ -740,8 +790,18 @@ export default async function GoogleAdsPage({
        <label>Campaign name<input name="campaignName" defaultValue={campaign.campaign_name} /></label>
        <label>Ad group name<input name="adGroupName" defaultValue={campaign.ad_group_name} /></label>
        <label>Destination URL<input name="destinationUrl" defaultValue={campaign.destination_url} /></label>
-       <label>Daily budget
+      <label>Daily budget
         <span className="google-ads-input-with-unit"><span>$</span><input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue={(Number(campaign.daily_budget_micros) / 1_000_000).toFixed(0)} /><small>/ day</small></span>
+       </label>
+       <label>Bidding strategy
+        <select name="biddingStrategy" defaultValue={campaign.bidding_strategy ?? "MAXIMIZE_CLICKS"}>
+         <option value="MAXIMIZE_CLICKS">Maximize Clicks</option>
+         <option value="MANUAL_CPC">Manual CPC</option>
+        </select>
+        <small>Recommended for new campaigns: Maximize Clicks.</small>
+       </label>
+       <label>Manual max CPC
+        <span className="google-ads-input-with-unit"><span>$</span><input name="manualCpcBidDollars" type="number" min="0.5" step="0.01" defaultValue={campaign.manual_cpc_bid_micros ? (Number(campaign.manual_cpc_bid_micros) / 1_000_000).toFixed(2) : "2.00"} /><small>only for Manual CPC</small></span>
        </label>
        <label className="wide">Keywords<textarea name="keywords" rows={5} defaultValue={items(campaign.keywords).join("\n")} /></label>
        <details className="google-ads-keyword-section wide">
@@ -828,6 +888,17 @@ export default async function GoogleAdsPage({
       <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue="10" />
       <small>About {money(30000)}/month. This is your Google advertising budget, and Google charges the connected Ads account directly. Servonas Ads Beta stays free.</small>
      </label>
+     <label>Bidding strategy
+      <select name="biddingStrategy" defaultValue="MAXIMIZE_CLICKS">
+       <option value="MAXIMIZE_CLICKS">Maximize Clicks</option>
+       <option value="MANUAL_CPC">Manual CPC</option>
+      </select>
+      <small>Recommended for new campaigns: Maximize Clicks. Use Manual CPC only when you want direct bid control.</small>
+     </label>
+     <label>Manual max CPC
+      <input name="manualCpcBidDollars" type="number" min="0.5" step="0.01" defaultValue="2.00" />
+      <small>Safer starting point for Manual CPC campaigns.</small>
+     </label>
      <label>Destination website
       <input readOnly value={website?.custom_domain || (website?.public_slug ? `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/sites/${website.public_slug}` : `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/book/${business.slug}`)} />
      </label>
@@ -859,6 +930,17 @@ export default async function GoogleAdsPage({
     <label>Daily budget
      <input name="dailyBudgetDollars" type="number" min="1" step="1" defaultValue="10" />
      <small>About {money(30000)}/month. This is your Google advertising budget, and Google charges the connected Ads account directly. Servonas Ads Beta stays free.</small>
+    </label>
+    <label>Bidding strategy
+     <select name="biddingStrategy" defaultValue="MAXIMIZE_CLICKS">
+      <option value="MAXIMIZE_CLICKS">Maximize Clicks</option>
+      <option value="MANUAL_CPC">Manual CPC</option>
+     </select>
+     <small>Recommended for new campaigns: Maximize Clicks. Use Manual CPC only when you want direct bid control.</small>
+    </label>
+    <label>Manual max CPC
+     <input name="manualCpcBidDollars" type="number" min="0.5" step="0.01" defaultValue="2.00" />
+     <small>Safer starting point for Manual CPC campaigns.</small>
     </label>
     <label>Destination website
      <input readOnly value={website?.custom_domain || (website?.public_slug ? `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/sites/${website.public_slug}` : `${process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com"}/book/${business.slug}`)} />

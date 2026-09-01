@@ -23,6 +23,8 @@ create table if not exists public.business_google_ads_campaigns(
  google_ad_group_id text,
  campaign_name text not null,
  ad_group_name text not null,
+ bidding_strategy text not null default 'MAXIMIZE_CLICKS' check(bidding_strategy in('MAXIMIZE_CLICKS','MANUAL_CPC')),
+ manual_cpc_bid_micros bigint check(manual_cpc_bid_micros is null or manual_cpc_bid_micros>=10000),
  destination_url text not null,
  status text not null default 'draft' check(status in('draft','publishing','published','paused','archived','failed')),
  source text not null default 'servonas' check(source in('servonas','google_import')),
