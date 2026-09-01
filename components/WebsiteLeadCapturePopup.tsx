@@ -23,6 +23,7 @@ export function WebsiteLeadCapturePopup({site,action,preview=false}:{site:Busine
  const popup=site.leadCapturePopup;
  const storageKey=popup.fingerprint;
  const offer=useMemo(()=>offerLabel(site),[site]);
+ const disclosure=`By submitting, you agree to receive promotional emails from ${site.name}. You can unsubscribe at any time.`;
  const analyticsLabel=useMemo(()=>[site.name,popup.couponCode||offer].filter(Boolean).join(" | ").slice(0,120),[offer,popup.couponCode,site.name]);
 
  useEffect(()=>{
@@ -72,12 +73,9 @@ export function WebsiteLeadCapturePopup({site,action,preview=false}:{site:Busine
     <label>Email address
      <input required name="email" type="email" autoComplete="email" maxLength={320} placeholder="you@example.com"/>
     </label>
-    <label className="website-lead-popup-consent">
-     <input required name="marketingConsent" type="checkbox" value="on"/>
-     <span>{popup.disclosure}</span>
-    </label>
     <label className="site-honeypot" aria-hidden="true">Company website<input name="companyWebsite" tabIndex={-1} autoComplete="off"/></label>
     <button className="site-primary-button" disabled={pending||Boolean(preview&&!action)}>{pending? "Sending your offer…":popup.ctaText}</button>
+    <p className="website-lead-popup-disclosure">{disclosure}</p>
    </form>:<div className="website-lead-popup-success" role="status">
     <span>You&apos;re in!</span>
     <h2>{state.successMessage||popup.successMessage}</h2>

@@ -113,7 +113,6 @@ export async function submitWebsiteLeadCapture(siteSlug:string,_state:{success?:
  if(text(data,"companyWebsite"))return popupState(undefined,true);
  const email=text(data,"email").toLowerCase();
  if(!emailPattern.test(email))return popupState("Enter a valid email address.");
- if(text(data,"marketingConsent")!=="on")return popupState("Please agree to receive promotional emails before continuing.");
  const db=getSupabaseAdmin();if(!db)return popupState("This offer is temporarily unavailable.");
  const {data:website}=await db.from("business_website_settings").select("id,business_id,public_slug,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!website||!website.lead_capture_popup_enabled)return popupState("This offer is not active right now.");
@@ -138,21 +137,17 @@ export async function submitWebsiteLeadCapture(siteSlug:string,_state:{success?:
    preferred_contact_method:"email",
    tags:["website-lead","website-discount-lead"],
    lead_source:"Discount Popup",
-   marketing_email_status:"subscribed",
-   marketing_email_opted_out_at:null,
+   marketing_email_status:"unsubscribed",
    is_active:true,
   }).select("id,marketing_email_status").single();
   if(created.error||!created.data)return popupState("This offer could not be saved right now.");
   customer=created.data;
- }else{
-  const existingTagsQuery=await db.from("customers").select("tags").eq("business_id",website.business_id).eq("id",customer.id).maybeSingle();
-  const tags=[...new Set([...(existingTagsQuery.data?.tags??[]),"website-lead","website-discount-lead"])];
-  await db.from("customers").update({marketing_email_status:"subscribed",marketing_email_opted_out_at:null,lead_source:"Discount Popup",tags,updated_at:new Date().toISOString()}).eq("business_id",website.business_id).eq("id",customer.id);
  }
  const business=Array.isArray(website.businesses)?website.businesses[0]:website.businesses;
  const owner=business?.owner_user_id?await db.from("profiles").select("id").eq("id",business.owner_user_id).maybeSingle():{data:null};
  const sharedDiscount=await ensurePopupDiscount(db,{businessId:website.business_id,userId:owner.data?.id??null,businessName:business?.name||"Business",popup:website});
  const now=new Date().toISOString();
+ const consentDisclosure=`By submitting, you agree to receive promotional emails from ${business?.name||"this business"}. You can unsubscribe at any time.`;
  const leadPayload={
   business_id:website.business_id,
   website_id:website.id,
@@ -181,14 +176,17 @@ export async function submitWebsiteLeadCapture(siteSlug:string,_state:{success?:
   wbraid:text(data,"wbraid")||null,
   marketing_consent_granted:true,
   marketing_consented_at:now,
-  consent_disclosure:website.lead_capture_popup_disclosure??null,
-  consent_version:createHash("sha256").update(website.lead_capture_popup_disclosure??"").digest("hex").slice(0,16),
+  consent_disclosure:consentDisclosure,
+  consent_version:createHash("sha256").update(consentDisclosure).digest("hex").slice(0,16),
   submitted_ip_hash:ipHash,
   user_agent:requestHeaders.get("user-agent")||null,
   updated_at:now,
  };
  const {error:leadError}=await db.from("website_discount_leads").upsert(leadPayload,{onConflict:"business_id,normalized_email"});
  if(leadError){console.error("Website discount lead upsert failed",{businessId:website.business_id,code:leadError.code,message:leadError.message});return popupState("This offer could not be saved right now.");}
+ const existingTagsQuery=await db.from("customers").select("tags").eq("business_id",website.business_id).eq("id",customer.id).maybeSingle();
+ const tags=[...new Set([...(existingTagsQuery.data?.tags??[]),"website-lead","website-discount-lead"])];
+ await db.from("customers").update({marketing_email_status:"subscribed",marketing_email_opted_out_at:null,lead_source:"Discount Popup",tags,updated_at:now}).eq("business_id",website.business_id).eq("id",customer.id);
  const bookingUrl=`${(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"")}/book/${siteSlug}`;
  await sendWebsiteLeadCaptureEmail({
   businessId:website.business_id,
