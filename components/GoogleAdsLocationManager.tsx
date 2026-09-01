@@ -7,11 +7,27 @@ function friendlyGeoTargetType(value: string | null | undefined) {
  return value ? value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Unknown";
 }
 
+const usStateAbbreviations: Record<string, string> = { Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY" };
+
+function friendlyLocationName(value: string | null | undefined) {
+ if (!value) return "Unknown location";
+ const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+ if (parts.at(-1) === "United States") parts.pop();
+ const state = parts.at(-1);
+ if (state && usStateAbbreviations[state]) parts[parts.length - 1] = usStateAbbreviations[state];
+ return parts.join(", ");
+}
+
+function targetingBehavior(value: string | null | undefined) {
+ if (value === "PRESENCE") return { label: "People in these areas", description: "People in or regularly in your selected locations." };
+ return { label: "People in or interested in these areas", description: "People in, regularly in, or interested in your selected locations." };
+}
+
 function campaignLocationSummary(locations: Array<{ canonicalName: string | null; name: string }>) {
  if (!locations.length) return "No locations set";
- const names = locations.map((location) => location.canonicalName || location.name);
- if (names.length <= 2) return names.join(", ");
- return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+ const names = locations.map((location) => friendlyLocationName(location.canonicalName || location.name));
+ if (names.length <= 2) return names.join(" · ");
+ return `${names.slice(0, 2).join(" · ")} · +${names.length - 2} more`;
 }
 
 type Props = {
@@ -39,6 +55,7 @@ export function GoogleAdsLocationManager({ businessSlug, campaignId, initialTarg
 
  const targetedLocations = targeting?.targetedLocations ?? [];
  const excludedLocations = targeting?.excludedLocations ?? [];
+ const locationBehavior = targetingBehavior(targeting?.positiveGeoTargetType);
 
  const targetedSet = useMemo(() => new Set(targetedLocations.map((location) => location.geoTargetConstant)), [targetedLocations]);
 
@@ -125,7 +142,8 @@ export function GoogleAdsLocationManager({ businessSlug, campaignId, initialTarg
    </div>
    <div>
     <span>Targeting behavior</span>
-    <strong>{friendlyGeoTargetType(targeting?.positiveGeoTargetType)}</strong>
+    <strong>{locationBehavior.label}</strong>
+    <small title={friendlyGeoTargetType(targeting?.positiveGeoTargetType)}>{locationBehavior.description}</small>
    </div>
    <div>
     <span>Excluded locations</span>
@@ -139,7 +157,7 @@ export function GoogleAdsLocationManager({ businessSlug, campaignId, initialTarg
      <strong>Targeted locations</strong>
      {targetedLocations.length ? <div className="google-ads-location-list">{targetedLocations.map((location) => <article key={location.geoTargetConstant}>
       <span>
-       <b>{location.canonicalName || location.name}</b>
+       <b>{friendlyLocationName(location.canonicalName || location.name)}</b>
        <small>{location.targetType ? `${friendlyGeoTargetType(location.targetType)}${location.countryCode ? ` · ${location.countryCode}` : ""}` : location.countryCode ?? "Google Ads location"}</small>
       </span>
       <button className="sv-button sv-secondary" type="button" disabled={!location.criterionResourceName || mutation.busy} onClick={() => void removeLocation(location)}>
@@ -152,7 +170,7 @@ export function GoogleAdsLocationManager({ businessSlug, campaignId, initialTarg
      <strong>Excluded locations</strong>
      <div className="google-ads-location-list">{excludedLocations.map((location) => <article key={location.geoTargetConstant}>
       <span>
-       <b>{location.canonicalName || location.name}</b>
+       <b>{friendlyLocationName(location.canonicalName || location.name)}</b>
        <small>{location.targetType ? `${friendlyGeoTargetType(location.targetType)}${location.countryCode ? ` · ${location.countryCode}` : ""}` : location.countryCode ?? "Google Ads location"}</small>
       </span>
      </article>)}</div>
@@ -170,7 +188,7 @@ export function GoogleAdsLocationManager({ businessSlug, campaignId, initialTarg
      const alreadyTargeted = targetedSet.has(result.resourceName);
      return <article key={result.resourceName}>
       <span>
-       <b>{result.canonicalName || result.name}</b>
+       <b>{friendlyLocationName(result.canonicalName || result.name)}</b>
        <small>{[result.targetType ? friendlyGeoTargetType(result.targetType) : null, result.countryCode].filter(Boolean).join(" · ") || "Google Ads geo target"}</small>
       </span>
       <button className="sv-button sv-secondary" type="button" disabled={alreadyTargeted || mutation.busy} onClick={() => void addLocation(result.resourceName)}>

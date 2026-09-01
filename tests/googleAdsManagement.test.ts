@@ -300,10 +300,13 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /fetchGoogleAdsCampaignStatuses/);
  assert.match(page, /Google Ads setup complete/);
  assert.match(page, /Manage connection/);
+ assert.match(page, /Additional campaign/);
  assert.match(page, /Create another campaign/);
  assert.match(page, /Build your first campaign/);
  assert.match(page, /Campaign is on — Google is reviewing your ads/);
- assert.match(page, /Campaign is active and eligible to serve/);
+ assert.match(page, /Campaign is active/);
+ assert.match(page, /Google serving status:/);
+ assert.doesNotMatch(page, /Campaign is active and eligible to serve/);
  assert.match(page, /Campaign is paused/);
  assert.match(page, /Campaign health/);
  assert.match(page, /Fix recommended setting/);
@@ -338,6 +341,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /google-ads-status-callout/);
  assert.match(page, /google-ads-health-panel/);
  assert.match(page, /google-ads-health-focus/);
+ assert.match(page, /View health details/);
+ assert.match(page, /No major setup issues detected\./);
  assert.match(page, /google-ads-overview-grid/);
  assert.match(page, /google-ads-manage-panel/);
  assert.match(page, /google-ads-manage-toolbar/);
@@ -355,6 +360,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(locationManager, /Already targeted/);
  assert.match(locationManager, /Excluded locations/);
  assert.match(locationManager, /Targeting behavior/);
+ assert.match(locationManager, /People in or interested in these areas/);
+ assert.match(locationManager, /People in these areas/);
  assert.match(locationManager, /Removing this location will leave this campaign without any explicit location targeting\./);
  assert.match(locationManager, /Searching…/);
  assert.match(locationManager, /Adding…/);
@@ -373,6 +380,9 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(locationSearchRoute, /google_ads_location_search_started/);
  assert.match(locationSearchRoute, /google_ads_location_search_completed/);
  assert.match(page, /google-ads-performance-block/);
+ assert.match(page, /No traffic yet\./);
+ assert.match(page, /Change reporting dates/);
+ assert.match(page, /View detailed performance/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
  assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
  assert.match(page, /<div><dt>Issues<\/dt><dd>/);
@@ -397,6 +407,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(styles, /\.google-ads-health-panel/);
  assert.match(styles, /\.google-ads-health-list/);
  assert.match(styles, /\.google-ads-health-focus/);
+ assert.match(styles, /\.google-ads-setup-details/);
+ assert.match(styles, /\.google-ads-performance-empty/);
  assert.match(styles, /\.google-ads-keyword-section\{/);
  assert.match(styles, /\.google-ads-location-panel\{/);
  assert.match(styles, /\.google-ads-location-summary-card\{/);
