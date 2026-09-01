@@ -55,11 +55,26 @@ function keywordReview(value: unknown) {
  if (!value || typeof value !== "object") return null;
  const review = (value as { review?: unknown }).review;
  if (!review || typeof review !== "object") return null;
- const candidate = review as { summary?: unknown; performanceDataState?: unknown; recommendations?: unknown };
+ const candidate = review as { summary?: unknown; performanceDataState?: unknown; keywordsReviewed?: unknown; recommendations?: unknown };
  if (typeof candidate.summary !== "string" || !Array.isArray(candidate.recommendations)) return null;
  const labels = Array.isArray((value as { keywordLabels?: unknown }).keywordLabels) ? (value as { keywordLabels: unknown[] }).keywordLabels.flatMap((entry) => entry && typeof entry === "object" && typeof (entry as any).id === "string" && typeof (entry as any).text === "string" ? [{ id: (entry as any).id, text: (entry as any).text }] : []) : [];
- return { summary: candidate.summary, performanceDataState: candidate.performanceDataState === "early" ? "early" : "sufficient", keywordLabels: new Map(labels.map((label) => [label.id, label.text])), recommendations: candidate.recommendations.filter((entry): entry is { id: string; priority: string; title: string; explanation: string; evidence: string[]; suggestedValue: string | null; keywordIds: string[] } => Boolean(entry && typeof entry === "object" && typeof (entry as any).title === "string")).slice(0, 5) };
+ return {
+  summary: candidate.summary,
+  performanceDataState: candidate.performanceDataState === "early" ? "early" : "sufficient",
+  keywordsReviewed: typeof candidate.keywordsReviewed === "number" ? candidate.keywordsReviewed : labels.length,
+  keywordLabels: new Map(labels.map((label) => [label.id, label.text])),
+  recommendations: candidate.recommendations.filter((entry): entry is { id: string; category?: string; priority: string; title: string; explanation: string; evidence: string[]; suggestedValue: { label?: string; value?: string | null } | null; keywordIds: string[]; canApplyInServonas?: boolean } => Boolean(entry && typeof entry === "object" && typeof (entry as any).title === "string")).slice(0, 5),
+ };
 }
+
+const recommendationBadge = (category: string | null | undefined) => {
+ if (category === "bid") return "Review bid recommendations";
+ if (category === "pause_keyword") return "Review keywords";
+ if (category === "add_keyword") return "View suggestions";
+ if (category === "negative_keyword") return "Review negatives";
+ if (category === "match_type") return "Review match types";
+ return "Review recommendation";
+};
 
 const billingUrl = (customerId: string | null | undefined) =>
  customerId ? `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}` : "https://ads.google.com/home/";
@@ -766,8 +781,42 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       {health.issues.some((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc") && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc").map((issue) => <article key={`recommendation-${issue.id}`}><strong>Recommended</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
      </section>
      {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
-      <div className="google-ads-section-heading"><div><h3>Keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button></form></div>
-      {savedKeywordReview ? <><p className="google-ads-ai-review">Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}. {savedKeywordReview.review.performanceDataState === "early" ? "Traffic is still limited, so these are configuration and intent suggestions rather than performance conclusions." : "Recommendations use the recent campaign performance window."}</p><strong>Servonas recommendation</strong><p>{savedKeywordReview.review.summary}</p>{savedKeywordReview.review.recommendations.map((recommendation) => <article key={recommendation.id}><strong>{recommendation.priority} priority</strong><b>{recommendation.title}</b><span>{recommendation.explanation}</span>{recommendation.keywordIds.length ? <small>Relevant keywords: {recommendation.keywordIds.map((id) => savedKeywordReview.review.keywordLabels.get(id) ?? id).join(", ")}</small> : null}{recommendation.evidence.length ? <small>{recommendation.evidence.join(" | ")}</small> : null}{recommendation.suggestedValue ? <small>Suggested next step: {recommendation.suggestedValue}</small> : null}<small>Review in Google Ads before making changes.</small></article>)}</> : <p className="google-ads-ai-review">No saved review yet. This does not run automatically or change Google Ads.</p>}
+      <div className="google-ads-section-heading"><div><h3>Servonas keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button></form></div>
+      {savedKeywordReview ? <>
+        <p className="google-ads-ai-review">Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}. {savedKeywordReview.review.performanceDataState === "early" ? "There is not enough performance data yet to judge which keywords truly convert, so this review focuses on configuration and intent." : "Recommendations use the recent campaign performance window."}</p>
+        <div className="google-ads-health-focus">
+         <strong>Servonas reviewed {savedKeywordReview.review.keywordsReviewed} active keyword{savedKeywordReview.review.keywordsReviewed === 1 ? "" : "s"}.</strong>
+         <p>{savedKeywordReview.review.summary}</p>
+        </div>
+        {savedKeywordReview.review.recommendations.map((recommendation) => <details key={recommendation.id} className="google-ads-health-details">
+          <summary>{recommendation.priority} priority: {recommendation.title}</summary>
+          <div className="google-ads-health-list">
+           <section>
+            <h4>{recommendationBadge(recommendation.category ?? null)}</h4>
+            <article className={`is-${recommendation.priority === "high" ? "warning" : recommendation.priority === "medium" ? "info" : "healthy"}`}>
+             <strong>Recommendation</strong>
+             <span>{recommendation.explanation}</span>
+            </article>
+            {recommendation.keywordIds.length ? <article>
+              <strong>Relevant keywords</strong>
+              <span>{recommendation.keywordIds.map((id) => savedKeywordReview.review.keywordLabels.get(id) ?? id).join(", ")}</span>
+             </article> : null}
+            {recommendation.evidence.length ? <article>
+              <strong>Google data supporting it</strong>
+              <span>{recommendation.evidence.join(" | ")}</span>
+             </article> : null}
+            {recommendation.suggestedValue ? <article>
+              <strong>Suggested action</strong>
+              <span>{recommendation.suggestedValue.label}{recommendation.suggestedValue.value ? `: ${recommendation.suggestedValue.value}` : ""}</span>
+             </article> : null}
+            <article>
+             <strong>Apply status</strong>
+             <span>{recommendation.canApplyInServonas ? "This recommendation can be applied in Servonas." : "Review in Google Ads before making changes."}</span>
+            </article>
+           </section>
+          </div>
+         </details>)}
+       </> : <p className="google-ads-ai-review">No saved review yet. This does not run automatically or change Google Ads.</p>}
      </section>}
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">
