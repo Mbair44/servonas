@@ -150,7 +150,7 @@ export type GoogleAdsDraft = {
 };
 export type GoogleAdsBiddingStrategy = "MAXIMIZE_CLICKS" | "MANUAL_CPC";
 export type GoogleAdsCampaignHealthIssueSeverity = "critical" | "warning" | "info" | "healthy";
-export type GoogleAdsCampaignHealthState = "healthy" | "needs_attention" | "critical_issue";
+export type GoogleAdsCampaignHealthState = "healthy" | "monitoring" | "needs_attention" | "critical_issue";
 export type GoogleAdsCampaignHealthFixAction = "increase_manual_cpc" | "setup_booking_conversion";
 export type GoogleAdsCampaignHealthDataState = "verified" | "unknown";
 export type GoogleAdsCampaignHealthQueryError = { code: string | null; message: string; requestId: string | null; googleStatus: string | null; durationMs: number; gaql: string };
@@ -350,7 +350,8 @@ const maxGoogleAdsDescriptions = 4;
 const googleAdsRecommendedManualCpcMicros = 2_000_000;
 const googleAdsCriticalManualCpcMicros = 50_000;
 const googleAdsWarningManualCpcMicros = 500_000;
-const googleAdsNoImpressionGraceHours = 24;
+// Keep this in one place so delivery monitoring can be tuned without changing health rules.
+export const GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS = 24;
 const googleAdsKeywordReviewSufficientClicks = 20;
 const normalizeKeywordText = (value: string) => value.trim().replace(/^["'[\](){}]+|["'[\](){}]+$/g, "").replace(/\s+/g, " ");
 const jsonText = (value: unknown) => typeof value === "string" ? value : "";
@@ -2695,6 +2696,7 @@ export function buildGoogleAdsCampaignHealth(input: {
  status: GoogleAdsCampaignStatusSnapshot | null;
  locationTargeting: GoogleAdsCampaignLocationTargeting | null;
  snapshot: GoogleAdsCampaignHealthSnapshot | null;
+ servingRelevantChangeAt?: string | null;
 }) {
  const issues: GoogleAdsCampaignHealthIssue[] = [];
  const budgetMicros = Number(input.campaign.daily_budget_micros ?? 0);
@@ -2713,7 +2715,7 @@ export function buildGoogleAdsCampaignHealth(input: {
  const manualBidCandidates = [...(input.snapshot?.adGroupCpcBidMicros ?? []), ...(input.snapshot?.keywordCpcBidMicros ?? [])].filter((value) => value > 0);
  const effectiveBiddingStrategy = input.snapshot?.biddingStrategyType ?? input.campaign.bidding_strategy ?? null;
  issues.push(sourceStatus === "PAUSED" || input.campaign.status === "paused"
-  ? { id: "campaign_paused", severity: "info", title: "Campaign is paused", description: "The campaign is intentionally paused, so it will not serve until you resume it.", currentValue: "Paused", recommendedAction: "Resume the campaign when you want traffic again.", canAutoFix: false }
+  ? { id: "campaign_paused", severity: "warning", title: "Campaign is paused", description: "The campaign is intentionally paused, so it will not serve until you resume it.", currentValue: "Paused", recommendedAction: "Resume the campaign when you want traffic again.", canAutoFix: false }
   : { id: "campaign_enabled", severity: "healthy", title: "Campaign enabled", description: "The campaign is enabled in Google Ads.", currentValue: sourceStatus ?? "Enabled", recommendedAction: "Keep monitoring delivery.", canAutoFix: false });
  issues.push(quality.adGroups.state === "unknown"
   ? { id: "ad_group_unknown", severity: "info", title: "Ad group status could not be verified", description: "Google Ads did not return ad-group diagnostics, so Servonas cannot confirm whether an ad group is active.", currentValue: null, recommendedAction: "Refresh campaign health after Google Ads diagnostics are available.", canAutoFix: false, category: "serving" }
@@ -2744,11 +2746,6 @@ export function buildGoogleAdsCampaignHealth(input: {
   else if (currentManualBidMicros >= googleAdsWarningManualCpcMicros) issues.push({ id: "manual_cpc_ok", severity: "healthy", title: "Manual CPC is within a safer starting range", description: "The current manual bid is above the low-bid warning threshold.", currentValue: microsToCurrency(currentManualBidMicros), recommendedAction: "Watch real performance before changing bids.", canAutoFix: false });
   if (currentManualBidMicros > 0 && budgetMicros > 0 && currentManualBidMicros >= budgetMicros * 0.6) issues.push({ id: "budget_vs_bid", severity: "warning", title: "Max CPC is high relative to the daily budget", description: "This setup may only afford a small number of clicks per day.", currentValue: `${microsToCurrency(currentManualBidMicros)} bid vs ${microsToCurrency(budgetMicros)}/day`, recommendedAction: "Balance the bid and budget so the campaign can gather enough traffic.", canAutoFix: false });
  }
- const startAgeHours = hoursSinceGoogleAdsDate(input.snapshot?.startDate ?? null) ?? (input.campaign.created_at ? (Date.now() - new Date(input.campaign.created_at).getTime()) / (60 * 60 * 1000) : null);
- if ((sourceStatus === "ENABLED" || input.campaign.status === "published") && quality.adGroups.state === "verified" && quality.ads.state === "verified" && adGroupStatuses.some((status) => status === "ENABLED") && adStatuses.some((status) => status === "ENABLED") && startAgeHours != null && startAgeHours >= googleAdsNoImpressionGraceHours && (input.metric?.impressions ?? 0) === 0) {
-  const lowBidIssue = issues.find((issue) => issue.id === "manual_cpc_too_low" || issue.id === "manual_cpc_low");
-  issues.push({ id: "no_impressions", severity: lowBidIssue ? "critical" : "warning", title: "No impressions yet", description: lowBidIssue ? `No impressions have been recorded yet. Your ${lowBidIssue.currentValue} max CPC may be contributing.` : "No impressions have been recorded yet even though the campaign appears enabled.", currentValue: "0 impressions", recommendedAction: lowBidIssue ? "Raise the bid, confirm targeting, then refresh performance." : "Review bids, targeting, and keyword demand.", canAutoFix: false });
- }
  if (input.snapshot?.endDate && normalizeGoogleAdsDateForDisplay(input.snapshot.endDate) && new Date(`${normalizeGoogleAdsDateForDisplay(input.snapshot.endDate)}T23:59:59Z`).getTime() < Date.now()) issues.push({ id: "campaign_ended", severity: "critical", title: "Campaign end date has passed", description: "This campaign has already reached its configured end date.", currentValue: normalizeGoogleAdsDateForDisplay(input.snapshot.endDate), recommendedAction: "Extend the end date in Google Ads if you want it to keep serving.", canAutoFix: false });
  if (input.snapshot?.targetSearchNetwork === false && input.snapshot?.targetGoogleSearch === false) issues.push({ id: "search_network_disabled", severity: "critical", title: "Search network is disabled", description: "The campaign is not configured to target Google Search right now.", currentValue: "Google Search off", recommendedAction: "Enable Google Search targeting in the campaign settings.", canAutoFix: false });
  if (input.snapshot?.positiveGeoTargetType && input.snapshot.positiveGeoTargetType !== "PRESENCE") issues.push({ id: "location_presence_mode", severity: "info", title: "Location targeting includes interest-based reach", description: "Presence-only targeting is often a tighter fit for local service campaigns.", currentValue: input.snapshot.positiveGeoTargetType.replaceAll("_", " "), recommendedAction: "Consider using presence-only targeting if lead quality is weak.", canAutoFix: false });
@@ -2763,15 +2760,37 @@ export function buildGoogleAdsCampaignHealth(input: {
   }
  }
  if (sourceReasons.length) issues.push({ id: "google_policy_or_account_notice", severity: "info", title: "Google reported additional campaign notes", description: "Google Ads returned serving or policy reasons for this campaign.", currentValue: sourceReasons.join(", "), recommendedAction: "Review the technical details and Google Ads UI for the full context.", canAutoFix: false });
+ const servingRelevantChangeAt = input.servingRelevantChangeAt ?? input.campaign.created_at ?? input.snapshot?.startDate ?? null;
+ const servingChangeAgeHours = servingRelevantChangeAt ? (Date.now() - new Date(servingRelevantChangeAt).getTime()) / (60 * 60 * 1000) : null;
+ const zeroImpressions = input.metric?.impressions === 0;
+ const servingBlockerIds = new Set(["campaign_paused", "ad_group_inactive", "no_ads", "ads_disapproved", "ads_under_review", "no_locations", "keywords_inactive", "keywords_low_volume", "negative_keyword_conflict", "manual_cpc_too_low", "manual_cpc_low", "campaign_ended", "search_network_disabled"]);
+ const servingEligible = (sourceStatus === "ENABLED" || input.campaign.status === "published")
+  && quality.adGroups.state === "verified"
+  && quality.ads.state === "verified"
+  && quality.keywords.state === "verified"
+  && Boolean(input.locationTargeting)
+  && !issues.some((issue) => servingBlockerIds.has(issue.id));
+ const withinNoImpressionGracePeriod = zeroImpressions && servingEligible && servingChangeAgeHours != null && servingChangeAgeHours >= 0 && servingChangeAgeHours < GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS;
+ const gracePeriodHoursRemaining = withinNoImpressionGracePeriod ? Math.max(0, Math.ceil(GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS - servingChangeAgeHours!)) : 0;
+ if (withinNoImpressionGracePeriod) {
+  issues.push({ id: "no_impressions_monitoring", severity: "info", title: "No impressions yet", description: "Your campaign is enabled and configured to serve. Google has not recorded impressions yet, so Servonas is monitoring delivery.", currentValue: "0 impressions", recommendedAction: "No action needed yet. Servonas will keep monitoring delivery.", canAutoFix: false, category: "serving" });
+ } else if (zeroImpressions && servingEligible && servingChangeAgeHours != null && servingChangeAgeHours >= GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS) {
+  issues.push({ id: "no_impressions", severity: "warning", title: "No impressions yet", description: `Your campaign has been eligible to serve for more than ${GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS} hours but Google has not recorded any impressions.`, currentValue: "0 impressions", recommendedAction: "Review keyword demand, bidding, targeting, and campaign schedule.", canAutoFix: false, category: "serving" });
+ }
  const optimizationIssueIds = new Set(["keywords_low_volume", "negative_keyword_conflict", "manual_cpc_too_low", "manual_cpc_low", "manual_cpc_ok", "budget_vs_bid", "no_impressions", "location_presence_mode"]);
  const categorizedIssues = issues.map((issue) => ({ ...issue, category: issue.category ?? (optimizationIssueIds.has(issue.id) ? "optimization" : "serving") }));
  const severityRank: Record<GoogleAdsCampaignHealthIssueSeverity, number> = { critical: 0, warning: 1, info: 2, healthy: 3 };
  const orderedIssues = categorizedIssues.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+ const monitoringIssue = orderedIssues.find((issue) => issue.id === "no_impressions_monitoring") ?? null;
  return {
-  state: orderedIssues.some((issue) => issue.severity === "critical") ? "critical_issue" as const : orderedIssues.some((issue) => issue.severity === "warning") ? "needs_attention" as const : "healthy" as const,
+  state: orderedIssues.some((issue) => issue.severity === "critical") ? "critical_issue" as const : monitoringIssue ? "monitoring" as const : orderedIssues.some((issue) => issue.severity === "warning") ? "needs_attention" as const : "healthy" as const,
   issues: orderedIssues,
-  mostImportantIssue: orderedIssues.find((issue) => issue.severity !== "healthy") ?? orderedIssues[0] ?? null,
+  mostImportantIssue: monitoringIssue ?? orderedIssues.find((issue) => issue.severity !== "healthy") ?? orderedIssues[0] ?? null,
   recommendedManualCpcMicros: googleAdsRecommendedManualCpcMicros,
+  zeroImpressions,
+  withinNoImpressionGracePeriod,
+  gracePeriodHoursRemaining,
+  servingRelevantChangeAt,
  };
 }
 
@@ -2785,10 +2804,13 @@ export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: s
   keywords: input.snapshot.dataQuality.keywords.state === "verified" ? { count: input.snapshot.positiveKeywords.length, statuses: input.snapshot.keywordStatuses } : "unknown",
   conversionGoals: input.snapshot.dataQuality.conversionGoals.state === "verified" ? input.snapshot.conversionGoals : "unknown",
   dataQuality: input.snapshot.dataQuality,
+  zeroImpressions: input.issues.some((issue) => issue.id === "no_impressions" || issue.id === "no_impressions_monitoring"),
+  withinGracePeriod: input.issues.some((issue) => issue.id === "no_impressions_monitoring"),
+  gracePeriodHoursRemaining: 0,
   deterministicFindings: input.issues.filter((issue) => issue.severity !== "healthy").map((issue) => ({ id: issue.id, category: issue.category ?? "serving", severity: issue.severity, title: issue.title, evidence: issue.currentValue ?? issue.description })),
  };
  try {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_campaign_health_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendationIds: { type: "array", items: { type: "string" } } }, required: ["summary", "recommendationIds"] } } }, messages: [{ role: "system", content: "You review Google Ads facts for a small-business owner. Only use the supplied verified facts and deterministic findings. Never invent campaign facts. Treat unknown as unknown; never treat it as an empty result or zero count. Do not claim causation. Prioritize serving before optimization and conversion tracking. Return only the requested JSON." }, { role: "user", content: JSON.stringify(verifiedFacts) }] }) });
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_campaign_health_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendationIds: { type: "array", items: { type: "string" } } }, required: ["summary", "recommendationIds"] } } }, messages: [{ role: "system", content: "You review Google Ads facts for a small-business owner. Only use the supplied verified facts and deterministic findings. Never invent campaign facts. Treat unknown as unknown; never treat it as an empty result or zero count. Do not claim causation. Prioritize serving before optimization and conversion tracking. If withinGracePeriod is true and the deterministic findings show no serving blocker, do not describe zero impressions as a problem or recommend changing bids, targeting, or keyword demand. Explain that Servonas is monitoring delivery. Return only the requested JSON." }, { role: "user", content: JSON.stringify(verifiedFacts) }] }) });
   if (!response.ok) return null;
   const body = await response.json() as any;
   const parsed = JSON.parse(String(body.choices?.[0]?.message?.content ?? "{}")) as { summary?: unknown; recommendationIds?: unknown };
