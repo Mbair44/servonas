@@ -466,6 +466,8 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(actions, /implementation: "action_specific_manual_cpc_v2"/);
  assert.match(actions, /fix_cpc_blocked/);
  assert.match(actions, /fetchGoogleAdsManualCpcAdGroups/);
+ assert.match(actions, /select\("google_ads_customer_id,google_campaign_id"\)/);
+ assert.doesNotMatch(actions, /select\("google_ads_customer_id,google_campaign_id,google_ad_group_id,bidding_strategy/);
  assert.match(actions, /fetchGoogleAdsAdGroupBid/);
  assert.match(actions, /verification = await fetchGoogleAdsAdGroupBid/);
  assert.match(actions, /fix_cpc_started/);

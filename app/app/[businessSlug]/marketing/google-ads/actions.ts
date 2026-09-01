@@ -562,7 +562,9 @@ export async function applyRecommendedGoogleAdsSettingsAction(slug: string, camp
   logGoogleAdsActionError("Google Ads CPC fix blocked", { stage: "fix_cpc_blocked", implementation: "action_specific_manual_cpc_v2", action: "update_manual_cpc", businessId: business.id, campaignId, adGroupId: null, blockingReasons: ["google_ads_connection_or_selected_customer_missing"] });
   redirect(path(slug, "error", "Reconnect Google Ads before updating campaign settings."));
  }
- const { data: campaign, error: campaignError } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_id,google_ad_group_id,bidding_strategy,daily_budget_micros,manual_cpc_bid_micros,destination_url,status,created_at").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
+ // This mapping read deliberately excludes local bidding fields. Google Ads is
+ // authoritative for the current campaign strategy and live ad-group bid.
+ const { data: campaign, error: campaignError } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_id").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
  if (campaignError || !campaign?.google_campaign_id || !campaign.google_ads_customer_id) {
   logGoogleAdsActionError("Google Ads CPC fix blocked", { stage: "fix_cpc_blocked", implementation: "action_specific_manual_cpc_v2", action: "update_manual_cpc", businessId: business.id, campaignId, adGroupId: null, blockingReasons: [campaignError ? "campaign_read_failed" : "campaign_google_identifiers_missing"], errorCode: campaignError?.code ?? null, errorMessage: campaignError?.message ?? null });
   redirect(path(slug, "error", "The selected campaign could not be verified."));
