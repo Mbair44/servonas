@@ -17,7 +17,15 @@ test("google ads migration creates private connection and campaign tables", asyn
  assert.match(migration, /create table if not exists public\.business_google_ads_connections/);
  assert.match(migration, /create table if not exists public\.business_google_ads_campaigns/);
  assert.match(migration, /create table if not exists public\.business_google_ads_audit_log/);
+ assert.match(migration, /bidding_strategy text not null default 'MAXIMIZE_CLICKS'/);
+ assert.match(migration, /manual_cpc_bid_micros bigint/);
  assert.match(migration, /revoke all on public\.business_google_ads_connections from anon,authenticated/);
+});
+
+test("google ads campaign health defaults migration adds bidding columns for existing installs", async () => {
+ const migration = await read("../supabase/migrations/20260901000100_google_ads_campaign_health_defaults.sql");
+ assert.match(migration, /add column if not exists bidding_strategy text not null default 'MAXIMIZE_CLICKS'/);
+ assert.match(migration, /add column if not exists manual_cpc_bid_micros bigint/);
 });
 
 test("google ads beta migration creates beta analytics and feedback tables", async () => {
@@ -297,6 +305,9 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Campaign is on — Google is reviewing your ads/);
  assert.match(page, /Campaign is active and eligible to serve/);
  assert.match(page, /Campaign is paused/);
+ assert.match(page, /Campaign health/);
+ assert.match(page, /Fix recommended setting/);
+ assert.match(page, /Recommended for new campaigns: Maximize Clicks/);
  assert.match(page, /Manage campaign/);
  assert.match(page, /const dailyBudgetLabel = \(micros: number \| string \| null \| undefined\) => `\$\{microsToMoney\(Number\(micros \?\? 0\)\)\}\/day`/);
  assert.match(page, /<strong>\{dailyBudgetLabel\(campaign\.daily_budget_micros\)\}<\/strong>/);
@@ -313,6 +324,7 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Performance/);
  assert.match(page, /Technical details/);
  assert.match(page, /Keywords &amp; search traffic/);
+ assert.match(page, /Manual max CPC/);
  assert.match(page, /Add a new negative keyword below/);
  assert.match(page, /className="google-ads-negative-inline"/);
  assert.match(page, /Published — Paused/);
@@ -324,6 +336,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Unavailable from Google/);
  assert.match(page, /Google campaign status could not be refreshed right now/);
  assert.match(page, /google-ads-status-callout/);
+ assert.match(page, /google-ads-health-panel/);
+ assert.match(page, /google-ads-health-focus/);
  assert.match(page, /google-ads-overview-grid/);
  assert.match(page, /google-ads-manage-panel/);
  assert.match(page, /google-ads-manage-toolbar/);
@@ -380,12 +394,19 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(styles, /\.google-ads-budget-inline-editor\{/);
  assert.match(styles, /\.google-ads-manage-inline-actions\{/);
  assert.match(styles, /\.google-ads-budget-field/);
+ assert.match(styles, /\.google-ads-health-panel/);
+ assert.match(styles, /\.google-ads-health-list/);
+ assert.match(styles, /\.google-ads-health-focus/);
  assert.match(styles, /\.google-ads-keyword-section\{/);
  assert.match(styles, /\.google-ads-location-panel\{/);
  assert.match(styles, /\.google-ads-location-summary-card\{/);
  assert.match(styles, /\.google-ads-location-list article\{/);
  assert.match(styles, /\.google-ads-location-search\{/);
  assert.match(styles, /@media\(max-width:900px\)\{\.google-ads-manage-toolbar/);
+ assert.match(actions, /export async function applyRecommendedGoogleAdsSettingsAction/);
+ assert.match(actions, /updateGoogleAdsAdGroupBid/);
+ assert.match(actions, /manual_cpc_bid_micros/);
+ assert.match(actions, /bidding_strategy/);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
@@ -556,7 +577,9 @@ test("google ads atomic mutate assigns temp resource names before cross-resource
 
 test("google ads search campaign includes manual cpc bidding in the actual mutate payload", async () => {
  const file = await read("../lib/googleAdsManagement.ts");
- assert.match(file, /campaignOperation:\s*{\s*create:\s*{\s*resourceName: campaignTemp,[\s\S]*advertisingChannelType: "SEARCH",[\s\S]*campaignBudget: budgetTemp,[\s\S]*manualCpc: \{\},[\s\S]*containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",/s);
+ assert.match(file, /\.\.\.\(input\.biddingStrategy === "MANUAL_CPC" \? \{ manualCpc: \{\} \} : \{ maximizeClicks: \{\} \}\)/);
+ assert.match(file, /networkSettings:\s*{\s*targetGoogleSearch: true,\s*targetSearchNetwork: false,\s*targetContentNetwork: false,\s*targetPartnerSearchNetwork: false,/s);
+ assert.match(file, /input\.biddingStrategy === "MANUAL_CPC" && input\.manualCpcBidMicros/);
  assert.doesNotMatch(file, /campaignOperation:\s*{\s*create:\s*{[\s\S]*advertisingChannelType: "SEARCH"[\s\S]*campaignBudget: budgetTemp,\s*}\s*,/s);
 });
 

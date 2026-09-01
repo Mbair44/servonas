@@ -7,9 +7,11 @@ import { canManageBusiness } from "@/lib/access";
 import {
  appendGoogleAdsNegativeKeyword,
  addGoogleAdsCampaignLocation,
+ buildGoogleAdsCampaignHealth,
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignLocationTargeting,
+ fetchGoogleAdsCampaignHealthSnapshots,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
  generateGoogleAdsDraft,
@@ -24,6 +26,7 @@ import {
  submitGoogleAdsBetaFeedback,
  updateGoogleAdsCampaignBudget,
  updateGoogleAdsCampaignStatus,
+ updateGoogleAdsAdGroupBid,
  updateTenantGoogleAdsSelection,
  disconnectTenantGoogleAds,
  writeGoogleAdsAuditLog,
@@ -40,6 +43,10 @@ const numberValue = (data: FormData, key: string) => {
 };
 const lines = (data: FormData, key: string) => String(data.get(key) ?? "").split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
 const billingUrl = (customerId: string) => `https://ads.google.com/aw/billing/summary?ocid=${encodeURIComponent(customerId)}`;
+const manualCpcMicros = (data: FormData, key: string) => {
+ const numeric = Number(text(data, key));
+ return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric * 1_000_000) : null;
+};
 const resolvedMutationAccess = (
  status: string | null | undefined,
  choices: Array<{ id: string; loginCustomerId?: string | null }>,
@@ -257,6 +264,8 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
  if (!service && !inventory && !hasOfferOptions && !business.industry_profile) redirect(path(slug, "error", "Add a service, rental, or business industry before generating a draft."));
  const geoTargetType = text(formData, "geoTargetType") as "service_area" | "cities" | "zip_codes" | "radius";
  const dailyBudgetDollars = numberValue(formData, "dailyBudgetDollars");
+ const biddingStrategy = text(formData, "biddingStrategy") === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS";
+ const manualCpcBidMicros = biddingStrategy === "MANUAL_CPC" ? (manualCpcMicros(formData, "manualCpcBidDollars") ?? 2_000_000) : null;
   const draft = await generateGoogleAdsDraft({
   businessId: business.id,
   businessName: business.name,
@@ -279,6 +288,8 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   geoValues: lines(formData, "geoValues"),
   radiusMiles: geoTargetType === "radius" ? numberValue(formData, "radiusMiles") || null : null,
   dailyBudgetDollars,
+  biddingStrategy,
+  manualCpcBidDollars: manualCpcBidMicros ? manualCpcBidMicros / 1_000_000 : null,
  });
  const micros = Math.max(1, Math.round(dailyBudgetDollars * 1_000_000));
  const { error } = await supabase.from("business_google_ads_campaigns").insert({
@@ -288,6 +299,8 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   google_ads_customer_id: connection.customerId,
   campaign_name: draft.campaignName,
   ad_group_name: draft.adGroupName,
+  bidding_strategy: biddingStrategy,
+  manual_cpc_bid_micros: manualCpcBidMicros,
   destination_url: draft.destinationUrl,
   status: "draft",
   daily_budget_micros: micros,
@@ -334,9 +347,13 @@ export async function updateGoogleAdsDraftAction(slug: string, campaignId: strin
  const headlines = limitedLines(formData, "headlines", 15);
  const descriptions = limitedLines(formData, "descriptions", 4);
  const budgetDollars = numberValue(formData, "dailyBudgetDollars");
+ const biddingStrategy = text(formData, "biddingStrategy") === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS";
+ const manualBidMicros = biddingStrategy === "MANUAL_CPC" ? (manualCpcMicros(formData, "manualCpcBidDollars") ?? 2_000_000) : null;
  const { error } = await supabase.from("business_google_ads_campaigns").update({
   campaign_name: text(formData, "campaignName"),
   ad_group_name: text(formData, "adGroupName"),
+  bidding_strategy: biddingStrategy,
+  manual_cpc_bid_micros: manualBidMicros,
   destination_url: text(formData, "destinationUrl"),
   keywords,
   negative_keywords: negatives,
@@ -386,6 +403,8 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    campaignName: campaign.campaign_name,
    adGroupName: campaign.ad_group_name,
    dailyBudgetMicros: Number(campaign.daily_budget_micros),
+   biddingStrategy: campaign.bidding_strategy === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS",
+   manualCpcBidMicros: Number(campaign.manual_cpc_bid_micros ?? 0) || null,
    destinationUrl: campaign.destination_url,
    keywords: Array.isArray(campaign.keywords) ? campaign.keywords.map(String) : [],
    negativeKeywords: Array.isArray(campaign.negative_keywords) ? campaign.negative_keywords.map(String) : [],
@@ -528,6 +547,45 @@ export async function updateGoogleAdsBudgetAction(slug: string, campaignId: stri
  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_budget_updated", metadata: { dailyBudgetDollars } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Campaign budget updated."));
+}
+
+export async function applyRecommendedGoogleAdsSettingsAction(slug: string, campaignId: string) {
+ const { supabase, business, user } = await context(slug);
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before updating campaign settings."));
+ const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_id,google_ad_group_id,bidding_strategy,daily_budget_micros,manual_cpc_bid_micros,destination_url,status,created_at").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
+ if (!campaign?.google_ad_group_id || !campaign.google_campaign_id || !campaign.google_ads_customer_id) redirect(path(slug, "error", "This campaign is not ready for recommended setting updates."));
+ const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+ const [statuses, locations, healthSnapshots] = await Promise.all([
+  fetchGoogleAdsCampaignStatuses({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignIds: [campaign.google_campaign_id], loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id }),
+  fetchGoogleAdsCampaignLocationTargeting({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignIds: [campaign.google_campaign_id], loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id }),
+  fetchGoogleAdsCampaignHealthSnapshots({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignIds: [campaign.google_campaign_id], loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id }),
+ ]);
+ const health = buildGoogleAdsCampaignHealth({
+  campaign,
+  metric: null,
+  status: statuses[0] ?? null,
+  locationTargeting: locations[0] ?? null,
+  snapshot: healthSnapshots[0] ?? null,
+ });
+ const lowBidIssue = health.issues.find((issue) => issue.fixActionId === "increase_manual_cpc");
+ if (!lowBidIssue) redirect(path(slug, "error", "Servonas did not find a safe recommended bid update for this campaign."));
+ await updateGoogleAdsAdGroupBid({
+  accessToken: connection.accessToken,
+  customerId: campaign.google_ads_customer_id,
+  loginCustomerIds: mutationAccess.loginCustomerIds,
+  adGroupId: campaign.google_ad_group_id,
+  cpcBidMicros: health.recommendedManualCpcMicros,
+ });
+ await supabase.from("business_google_ads_campaigns").update({
+  manual_cpc_bid_micros: health.recommendedManualCpcMicros,
+  last_sync_at: new Date().toISOString(),
+  updated_by: user.id,
+  updated_at: new Date().toISOString(),
+ }).eq("business_id", business.id).eq("id", campaignId);
+ await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_recommended_settings_applied", metadata: { appliedFix: "increase_manual_cpc", previousIssue: lowBidIssue.id, cpcBidMicros: health.recommendedManualCpcMicros } });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Recommended max CPC applied. Refreshing campaign health."));
 }
 
 export async function addGoogleAdsNegativeKeywordAction(slug: string, campaignId: string, formData: FormData) {
