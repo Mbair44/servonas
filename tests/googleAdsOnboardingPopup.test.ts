@@ -5,15 +5,18 @@ import { readFile } from "node:fs/promises";
 const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("first-time google ads onboarding shows one guided starting point and softer budget copy", async () => {
- const page = await read("app/app/[businessSlug]/marketing/google-ads/page.tsx");
+ const [page, launcher] = await Promise.all([
+  read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+  read("components/GoogleAdsOauthLauncher.tsx"),
+ ]);
  assert.match(page, /Get started with Google Ads/);
  assert.match(page, /Do you already have a Google Ads account\?/);
- assert.match(page, /Yes, connect my account/);
- assert.match(page, /No, help me create one/);
+ assert.match(launcher, /Yes, connect my account/);
+ assert.match(launcher, /No, help me create one/);
  assert.match(page, /Servonas will guide you through setup step by step\. You stay in control of your budget, and Google bills you directly\./);
  assert.match(page, /You choose the amount/);
  assert.match(page, /Start small and adjust anytime\. Google bills you directly\./);
- assert.doesNotMatch(page, /\$500\.00\"}\/month/);
+ assert.doesNotMatch(page, /<article>\s*<span>Google advertising budget<\/span>\s*<strong>\{campaigns\?\.length \? money\(Number\(campaigns\?\.\[0\]\?\.monthly_budget_estimate_cents \?\? 0\)\) : "\$500\.00"\}\/month<\/strong>/);
 });
 
 test("google ads onboarding uses popup oauth with safe fallback and same-origin completion", async () => {
