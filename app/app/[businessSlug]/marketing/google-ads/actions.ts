@@ -671,7 +671,11 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  const dateTo = text(formData, "to");
  const metrics = await fetchGoogleAdsCampaignMetrics({ accessToken: connection.accessToken, customerId: connection.customerId, dateFrom, dateTo, businessId: business.id });
  const byCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
- const { data: campaigns } = await supabase.from("business_google_ads_campaigns").select("id,google_campaign_id,google_ads_customer_id,status").eq("business_id", business.id).in("status", ["published", "paused", "archived"]);
+ const [{ data: campaigns }, { data: territories }, { data: priorReviews }] = await Promise.all([
+  supabase.from("business_google_ads_campaigns").select("id,campaign_name,google_campaign_id,google_ads_customer_id,daily_budget_micros,status").eq("business_id", business.id).in("status", ["published", "paused", "archived"]),
+  supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
+  supabase.from("business_google_ads_audit_log").select("campaign_id,metadata,created_at").eq("business_id", business.id).eq("event_type", "google_ads_keyword_review_generated").order("created_at", { ascending: false }).limit(100),
+ ]);
  const syncedStatuses = await syncPublishedGoogleAdsCampaignStatuses({
   supabase,
   accessToken: connection.accessToken,
@@ -702,7 +706,34 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
    updated_at: new Date().toISOString(),
   }).eq("business_id", business.id).eq("id", campaign.id);
  }
- await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, campaignCount: metrics.length } });
+ const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, connection.customerId);
+ const staleReviewCampaignIds: string[] = [];
+ await Promise.all((campaigns ?? []).filter((campaign) => campaign.google_campaign_id && campaign.google_ads_customer_id).map(async (campaign) => {
+  try {
+   const snapshot = await fetchGoogleAdsKeywordReviewSnapshot({
+    accessToken: connection.accessToken,
+    customerId: campaign.google_ads_customer_id,
+    campaignId: campaign.google_campaign_id,
+    campaignName: campaign.campaign_name ?? null,
+    dailyBudgetMicros: campaign.daily_budget_micros ?? null,
+    industry: business.industry_profile ?? null,
+    locations: (territories ?? []).map((territory) => territory.name),
+    dateFrom,
+    dateTo,
+    loginCustomerId: mutationAccess.resolvedLoginCustomerId,
+    businessId: business.id,
+   });
+   const snapshotHash = googleAdsKeywordReviewSnapshotHash(snapshot);
+   const priorReview = (priorReviews ?? []).find((entry) => entry.campaign_id === campaign.id && entry.metadata && typeof entry.metadata === "object" && typeof (entry.metadata as { snapshotHash?: unknown }).snapshotHash === "string");
+   const priorSnapshotHash = priorReview && (priorReview.metadata as { snapshotHash: string }).snapshotHash;
+   if (!priorSnapshotHash || priorSnapshotHash === snapshotHash) return;
+   staleReviewCampaignIds.push(campaign.id);
+   await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_stale", metadata: { previousSnapshotHash: priorSnapshotHash, snapshotHash, snapshotTimestamp: snapshot.generatedAt, reason: "metrics_refresh_changed_ai_input" } });
+  } catch (error) {
+   logGoogleAdsActionError("Google Ads keyword review freshness check failed", { stage: "google_ads_keyword_review_refresh_freshness", provider: "google_ads_api", businessId: business.id, campaignId: campaign.id, errorType: error instanceof Error ? error.name : "unknown" });
+  }
+ }));
+ await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, campaignCount: metrics.length, staleReviewCampaignCount: staleReviewCampaignIds.length } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads metrics refreshed."));
 }
@@ -919,7 +950,7 @@ export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: st
   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_miss", { ...reviewMetadata, cacheStatus: forceReview ? "bypassed" : "miss" });
   const review = await reviewGoogleAdsKeywordsWithAi({ businessId: business.id, googleCustomerId: campaign.google_ads_customer_id, snapshot, snapshotHash });
   if (!review) throw new Error("AI keyword recommendations are temporarily unavailable.");
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 3, snapshotHash, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), review } });
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 3, snapshotHash, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, model: reviewMetadata.model, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), review } });
  } catch (error) {
   redirect(path(slug, "error", error instanceof Error ? error.message : "Keyword review could not be completed."));
  }
