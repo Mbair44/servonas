@@ -310,8 +310,10 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /Campaign is paused/);
  assert.match(page, /Campaign health/);
  assert.match(page, /Servonas recommends/);
- assert.match(page, /Fix CPC/);
- assert.match(page, /Apply \{microsToMoney\(health\.recommendedManualCpcMicros\)\} max CPC/);
+ assert.match(page, /Your maximum bid is too low/);
+ assert.match(page, /GoogleAdsBidAdjustment/);
+ assert.match(actions, /selectedMaximumBidMicros/);
+ assert.match(actions, /requestedCpcMicros/);
  assert.match(page, /Recommended for new campaigns: Maximize Clicks/);
  assert.match(page, /Manage campaign/);
  assert.match(page, /const dailyBudgetLabel = \(micros: number \| string \| null \| undefined\) => `\$\{microsToMoney\(Number\(micros \?\? 0\)\)\}\/day`/);
@@ -468,6 +470,13 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(actions, /fix_cpc_mutation_completed/);
  assert.match(actions, /fix_cpc_refetch_started/);
  assert.match(actions, /fix_cpc_refetch_completed/);
+ assert.match(actions, /fix_cpc_verify_started/);
+ assert.match(actions, /fix_cpc_verify_completed/);
+ assert.match(actions, /fix_cpc_health_refresh_started/);
+ assert.match(actions, /fix_cpc_completed/);
+ assert.match(actions, /Google Ads accepted the update, but Servonas could not verify the new bid/);
+ assert.match(file, /googleAds:searchStream/);
+ assert.doesNotMatch(file, /adGroups\/\$\{[^}]+\}/);
  assert.match(actions, /google_ads_max_cpc_updated/);
  assert.match(page, /Servonas recommends/);
  assert.match(page, /Conversion tracking/);

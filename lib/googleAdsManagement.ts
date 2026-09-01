@@ -1075,7 +1075,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   customerId: targetCustomerId,
   loginCustomerId,
  });
- Object.defineProperty(result, "__servonasGoogleAdsRequest", { value: { requestId: googleAdsRequestId(response, undefined), durationMs: durationMs(startedAt) }, enumerable: false });
+ Object.defineProperty(result, "__servonasGoogleAdsRequest", { value: { requestId: googleAdsRequestId(response, undefined), durationMs: durationMs(startedAt), httpStatus: response.status }, enumerable: false });
  return result;
 }
 
@@ -2451,8 +2451,8 @@ export async function updateGoogleAdsAdGroupBid(input: {
  if (result.partialFailureError?.message) throw new Error(`Google Ads rejected the CPC update: ${result.partialFailureError.message}`);
  const returnedResourceName = result.results?.find((row) => row.resourceName === resourceName)?.resourceName ?? null;
  if (!returnedResourceName) throw new Error("Google Ads did not confirm an updated ad group for the CPC change.");
- const requestMetadata = (result as typeof result & { __servonasGoogleAdsRequest?: { requestId: string | null } }).__servonasGoogleAdsRequest;
- return { resourceName: returnedResourceName, googleRequestId: requestMetadata?.requestId ?? null };
+ const requestMetadata = (result as typeof result & { __servonasGoogleAdsRequest?: { requestId: string | null; httpStatus: number } }).__servonasGoogleAdsRequest;
+ return { resourceName: returnedResourceName, googleRequestId: requestMetadata?.requestId ?? null, httpStatus: requestMetadata?.httpStatus ?? null, mutationResultCount: result.results?.length ?? 0, partialFailure: Boolean(result.partialFailureError?.message) };
 }
 
 export async function fetchGoogleAdsAdGroupBid(input: {
