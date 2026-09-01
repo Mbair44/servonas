@@ -595,6 +595,7 @@ test("keyword review keeps its core GAQL snapshot independent from unavailable b
  assert.match(file, /fetchGoogleAdsSearchTerms[\s\S]*\.catch\(\(\) => \[\]/);
  assert.match(file, /Bid estimate fields may be unavailable\./);
  assert.match(file, /without inventing a dollar amount/);
+ assert.match(file, /never include raw Google IDs, criterion IDs, ad group IDs, campaign IDs, or resource names in customer-facing prose/);
  assert.match(file, /deriveGoogleAdsKeywordBidRecommendations/);
  assert.match(file, /firstPageBidEstimateMicros \* 1\.1/);
  assert.match(file, /keyword\.cpcBidMicros \* 1\.5/);
@@ -620,6 +621,23 @@ test("keyword review keeps internal IDs out of customer-facing recommendation co
  assert.match(page, /Keyword ID:/);
  assert.match(page, /savedKeywordReview\.review\.keywordDisplays\.get\(id\) \?\? \{ \.\.\.unresolvedKeyword, id \}/);
  assert.doesNotMatch(page, /keywordLabels\.get\(id\) \?\? id/);
+});
+
+test("forced keyword reviews log a complete safe snapshot and inventory enrichment stays non-blocking", async () => {
+ const [actions, page] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(actions, /negativeKeywordCount/);
+ assert.match(actions, /defaultMaxBidMicros/);
+ assert.match(actions, /campaignCostMicros/);
+ assert.match(actions, /cacheStatus: forceReview \? "forced_refresh" : null/);
+ assert.match(actions, /cacheStatus: forceReview \? "forced_refresh" : "miss"/);
+ assert.match(actions, /const cachedReview = forceReview \? null/);
+ assert.match(page, /google_ads_page_inventory_read/);
+ assert.match(page, /from\("inventory_items"\).*order\("created_at", \{ ascending: false \}\)\.order\("name"\)/);
+ assert.doesNotMatch(page, /from\("inventory_items"\)[\s\S]{0,250}order\("sort_order"\)/);
+ assert.match(page, /const \[\{ data: services \}, \{ data: inventory \}/);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
