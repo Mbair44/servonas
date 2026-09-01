@@ -1145,6 +1145,24 @@ body:has(>.pest-demo)>.sv-header,body:has(>.pest-demo)>.sv-footer{display:none}
 .google-ads-keyword-section{display:grid;gap:12px;padding:14px 16px;border:1px solid #edf0f4;border-radius:18px;background:#fbfcfe}
 .google-ads-keyword-section-body{display:grid;gap:12px;margin-top:12px}
 .google-ads-keyword-note{margin:0;color:#667085;line-height:1.5}
+.google-ads-location-panel{display:grid;gap:14px;padding:18px;border:1px solid #edf0f4;border-radius:20px;background:#fff}
+.google-ads-location-summary-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.google-ads-location-summary-card>div{display:grid;gap:6px;padding:14px 16px;border:1px solid #e6ebf2;border-radius:16px;background:#f8fafc}
+.google-ads-location-summary-card span{color:#667085;font-size:.76rem;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
+.google-ads-location-summary-card strong{color:#17203a;font-size:1rem;line-height:1.35}
+.google-ads-location-manager{display:grid;gap:12px}
+.google-ads-location-manager summary{cursor:pointer;color:#344054;font-weight:850}
+.google-ads-location-lists{display:grid;gap:14px}
+.google-ads-location-lists>div{display:grid;gap:10px}
+.google-ads-location-list{display:grid;gap:10px}
+.google-ads-location-list article{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #e6ebf2;border-radius:14px;background:#fff}
+.google-ads-location-list span{display:grid;gap:4px;min-width:0}
+.google-ads-location-list b{color:#17203a}
+.google-ads-location-list small,.google-ads-location-empty,.google-ads-location-warning{color:#667085}
+.google-ads-location-warning{display:block}
+.google-ads-location-search{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.google-ads-location-search label{flex:1 1 320px}
+.google-ads-location-search-results{display:grid;gap:10px}
 .google-ads-onboarding-choice{display:grid;gap:14px;padding:18px;border:1px solid #dbe4f0;border-radius:20px;background:linear-gradient(180deg,#fff,#fbfdff)}
 .google-ads-onboarding-choice strong{font-size:1.08rem;color:#17203a}
 .google-ads-onboarding-choice p{margin:6px 0 0;color:#667085;line-height:1.6;max-width:62ch}
@@ -1156,7 +1174,7 @@ body:has(>.pest-demo)>.sv-header,body:has(>.pest-demo)>.sv-footer{display:none}
 .google-ads-guide-progress strong,.google-ads-readiness-group strong{color:#17203a}
 .google-ads-guide-progress span,.google-ads-readiness-group span{color:#667085;font-size:.82rem;line-height:1.5}
 .google-ads-readiness-group header{display:grid;gap:4px}
-@media(max-width:900px){.google-ads-manage-toolbar,.google-ads-manage-actions,.google-ads-budget-inline,.google-ads-negative-inline,.google-ads-manage-inline-actions{display:grid}.google-ads-budget-inline-readonly,.google-ads-budget-inline-editor{display:grid}.google-ads-budget-readout,.google-ads-budget-field{width:100%}}
+@media(max-width:900px){.google-ads-manage-toolbar,.google-ads-manage-actions,.google-ads-budget-inline,.google-ads-negative-inline,.google-ads-manage-inline-actions,.google-ads-location-search,.google-ads-location-list article{display:grid}.google-ads-budget-inline-readonly,.google-ads-budget-inline-editor{display:grid}.google-ads-budget-readout,.google-ads-budget-field{width:100%}.google-ads-location-summary-card{grid-template-columns:1fr}}
 @media(max-width:640px){.google-ads-budget-field,.google-ads-input-with-unit{grid-template-columns:auto minmax(0,1fr) auto}.google-ads-onboarding-cta{display:grid}}
 .marketing-date-demand-panel{display:grid;gap:18px}
 .marketing-date-demand-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}

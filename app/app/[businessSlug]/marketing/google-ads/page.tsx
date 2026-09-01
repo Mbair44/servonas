@@ -3,24 +3,30 @@ import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import {
+ fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
  fetchGoogleAdsSearchTerms,
- googleAdsReadyLabel,
- loadTenantGoogleAdsAccess,
- recordGoogleAdsBetaEvent,
- runGoogleAdsPermissionDiagnostic,
- type GoogleAdsCustomer,
+  googleAdsReadyLabel,
+  loadTenantGoogleAdsAccess,
+  recordGoogleAdsBetaEvent,
+  runGoogleAdsPermissionDiagnostic,
+  searchGoogleAdsGeoTargets,
+  type GoogleAdsCustomer,
+  type GoogleAdsGeoTargetSuggestion,
 } from "@/lib/googleAdsManagement";
 import {
  addGoogleAdsNegativeKeywordAction,
+ addGoogleAdsCampaignLocationAction,
  createGoogleAdsDraftAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
  refreshGoogleAdsAccountsAction,
  refreshGoogleAdsCampaignsAction,
+ removeGoogleAdsCampaignLocationAction,
  runGoogleAdsPermissionDiagnosticAction,
+ searchGoogleAdsCampaignLocationsAction,
  selectGoogleAdsCustomer,
  setGoogleAdsCampaignStatusAction,
  submitGoogleAdsBetaFeedbackAction,
@@ -50,6 +56,13 @@ const billingUrl = (customerId: string | null | undefined) =>
 const accountCreateUrl = "https://ads.google.com/home/";
 const industryLabel = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Business";
 const dailyBudgetLabel = (micros: number | string | null | undefined) => `${microsToMoney(Number(micros ?? 0))}/day`;
+const friendlyGeoTargetType = (value: string | null | undefined) => value ? value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Unknown";
+const campaignLocationSummary = (locations: Array<{ canonicalName: string | null; name: string }>) => {
+ if (!locations.length) return "No locations set";
+ const names = locations.map((location) => location.canonicalName || location.name);
+ if (names.length <= 2) return names.join(", ");
+ return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+};
 const friendlyGoogleCampaignStatus = (status: string | null | undefined) => {
  if (status === "ENABLED") return "Published — Active";
  if (status === "PAUSED") return "Published — Paused";
@@ -207,6 +220,7 @@ function buildCampaignViewModels(
  campaigns: any[] | null | undefined,
  metricsByCampaignId: Map<string, CampaignMetricRow>,
  campaignStatusesByCampaignId: Map<string, CampaignStatusRow>,
+ campaignLocationsByCampaignId: Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>,
 ) {
  return (campaigns ?? []).map((campaign) => {
   const metric = campaign.google_campaign_id ? metricsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null;
@@ -273,7 +287,7 @@ export default async function GoogleAdsPage({
  searchParams,
 }: {
  params: Promise<{ businessSlug: string }>;
- searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string }>;
+ searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string }>;
 }) {
  const { businessSlug } = await params;
  const query = await searchParams;
@@ -304,11 +318,15 @@ export default async function GoogleAdsPage({
  let permissionDiagnostic: Awaited<ReturnType<typeof runGoogleAdsPermissionDiagnostic>> | null = null;
  let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
  let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
+ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
+ let locationSearchResults: GoogleAdsGeoTargetSuggestion[] = [];
+ let locationsError: string | null = null;
  if (connection?.status && connection.status !== "disconnected") {
   try {
    connectionAccess = await loadTenantGoogleAdsAccess(business.id);
    if (connectionAccess?.customerId) {
+    const publishedIds = (campaigns ?? []).map((campaign: any) => String(campaign.google_campaign_id ?? "")).filter(Boolean);
     try {
      const metrics = await fetchGoogleAdsCampaignMetrics({
       accessToken: connectionAccess.accessToken,
@@ -321,7 +339,6 @@ export default async function GoogleAdsPage({
     } catch (error) {
      metricsError = error instanceof Error ? error.message : "Campaign metrics could not be loaded.";
     }
-    const publishedIds = (campaigns ?? []).map((campaign: any) => String(campaign.google_campaign_id ?? "")).filter(Boolean);
     try {
      const campaignStatuses = await fetchGoogleAdsCampaignStatuses({
       accessToken: connectionAccess.accessToken,
@@ -333,6 +350,34 @@ export default async function GoogleAdsPage({
      campaignStatusesByCampaignId = new Map(campaignStatuses.map((row) => [row.campaignId, row]));
     } catch (error) {
      statusError = error instanceof Error ? error.message : "Campaign status could not be loaded.";
+    }
+    try {
+     const campaignLocations = await fetchGoogleAdsCampaignLocationTargeting({
+      accessToken: connectionAccess.accessToken,
+      customerId: connectionAccess.customerId,
+      campaignIds: publishedIds,
+      loginCustomerId: connectionAccess.loginCustomerId,
+      businessId: business.id,
+     });
+     campaignLocationsByCampaignId = new Map(campaignLocations.map((row) => [row.campaignId, row]));
+    } catch (error) {
+     locationsError = error instanceof Error ? error.message : "Campaign locations could not be loaded.";
+    }
+    if (query.manageLocations && query.locationQuery?.trim()) {
+     const selectedManagedCampaign = (campaigns ?? []).find((campaign: any) => String(campaign.id) === String(query.manageLocations));
+     if (selectedManagedCampaign?.google_campaign_id) {
+      try {
+       locationSearchResults = await searchGoogleAdsGeoTargets({
+        accessToken: connectionAccess.accessToken,
+        customerId: connectionAccess.customerId,
+        loginCustomerId: connectionAccess.loginCustomerId,
+        query: query.locationQuery.trim(),
+        businessId: business.id,
+       });
+      } catch (error) {
+       locationsError = error instanceof Error ? error.message : "Campaign locations could not be searched.";
+      }
+     }
     }
     try {
      topSearchTerms = await fetchGoogleAdsSearchTerms({
@@ -365,7 +410,7 @@ export default async function GoogleAdsPage({
   status: null,
   source: "direct" as const,
  })));
- const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId);
+ const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId, campaignLocationsByCampaignId);
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const hasCampaigns = campaignCards.length > 0;
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
@@ -617,10 +662,10 @@ export default async function GoogleAdsPage({
      const syncedAt = formatTimestamp(campaign.last_sync_at, business.timezone);
      return <article className="workspace-panel google-ads-campaign-card" key={campaign.id}>
      <header>
-      <div>
+     <div>
        <span className="sv-kicker">Campaign</span>
        <h2>{campaign.campaign_name}</h2>
-       <p>{campaign.geo_target_summary}</p>
+       <p>{campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""))?.targetedLocations ?? [])}</p>
       </div>
       <span className={`campaign-status ${effectiveCardStatus === "published" ? "sent" : effectiveCardStatus === "paused" ? "skipped" : effectiveCardStatus === "issue" || effectiveCardStatus === "failed" || effectiveCardStatus === "removed" ? "failed" : "queued"}`}>{statusLabel}</span>
      </header>
@@ -648,6 +693,10 @@ export default async function GoogleAdsPage({
        <span>Destination</span>
        <strong>{campaign.destination_url}</strong>
       </article>
+      <article className="google-ads-overview-stat">
+       <span>Targeting</span>
+       <strong>{campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""))?.targetedLocations ?? [])}</strong>
+      </article>
      </section>
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">
@@ -666,6 +715,87 @@ export default async function GoogleAdsPage({
         </>}
        </div>
       </div>
+     </section>
+     <section className="google-ads-location-panel" aria-label="Location targeting">
+      <div className="google-ads-section-heading">
+       <div>
+        <h3>Location targeting</h3>
+        <p>Google Ads is the source of truth for where this campaign can appear.</p>
+       </div>
+      </div>
+      {locationsError ? <div className="workspace-notice warning">Location targeting is temporarily unavailable. {locationsError}</div> : null}
+      {(() => {
+       const locationTargeting = campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""));
+       const targetedLocations = locationTargeting?.targetedLocations ?? [];
+       const excludedLocations = locationTargeting?.excludedLocations ?? [];
+       const managingThisCampaign = String(query.manageLocations ?? "") === String(campaign.id);
+       return <>
+        <div className="google-ads-location-summary-card">
+         <div>
+          <span>Targeted locations</span>
+          <strong>{targetedLocations.length ? campaignLocationSummary(targetedLocations) : "No locations currently configured"}</strong>
+         </div>
+         <div>
+          <span>Targeting behavior</span>
+          <strong>{friendlyGeoTargetType(locationTargeting?.positiveGeoTargetType)}</strong>
+         </div>
+         <div>
+          <span>Excluded locations</span>
+          <strong>{excludedLocations.length || "None"}</strong>
+         </div>
+        </div>
+        <details className="google-ads-location-manager" open={managingThisCampaign}>
+         <summary>{targetedLocations.length ? "Manage locations" : "Add locations"}</summary>
+         <div className="google-ads-location-lists">
+          <div>
+           <strong>Targeted locations</strong>
+           {targetedLocations.length ? <div className="google-ads-location-list">{targetedLocations.map((location) => <article key={location.geoTargetConstant}>
+            <span>
+             <b>{location.canonicalName || location.name}</b>
+             <small>{location.targetType ? `${friendlyGeoTargetType(location.targetType)}${location.countryCode ? ` · ${location.countryCode}` : ""}` : location.countryCode ?? "Google Ads location"}</small>
+            </span>
+            <form action={removeGoogleAdsCampaignLocationAction.bind(null, businessSlug, campaign.id)}>
+             <input type="hidden" name="criterionResourceName" value={location.criterionResourceName ?? ""} />
+             <button className="sv-button sv-secondary" disabled={!location.criterionResourceName}>{targetedLocations.length === 1 ? "Remove last target" : "Remove"}</button>
+            </form>
+           </article>)}</div> : <p className="google-ads-location-empty">No locations are currently targeted.</p>}
+           {targetedLocations.length === 1 ? <small className="google-ads-location-warning">Removing this location will leave this campaign without any explicit location targeting.</small> : null}
+          </div>
+          {excludedLocations.length ? <div>
+           <strong>Excluded locations</strong>
+           <div className="google-ads-location-list">{excludedLocations.map((location) => <article key={location.geoTargetConstant}>
+            <span>
+             <b>{location.canonicalName || location.name}</b>
+             <small>{location.targetType ? `${friendlyGeoTargetType(location.targetType)}${location.countryCode ? ` · ${location.countryCode}` : ""}` : location.countryCode ?? "Google Ads location"}</small>
+            </span>
+           </article>)}</div>
+          </div> : null}
+         </div>
+         <form className="google-ads-location-search" action={searchGoogleAdsCampaignLocationsAction.bind(null, businessSlug, campaign.id)}>
+          <label>Search city, county, state, or ZIP
+           <input name="locationQuery" defaultValue={managingThisCampaign ? query.locationQuery ?? "" : ""} placeholder="Gilbert, Maricopa County, Arizona, 85296" />
+          </label>
+          <button className="sv-button sv-secondary">Search locations</button>
+         </form>
+         {managingThisCampaign && locationSearchResults.length ? <div className="google-ads-location-search-results">
+          <strong>Add another location</strong>
+          <div className="google-ads-location-list">{locationSearchResults.map((result) => {
+           const alreadyTargeted = targetedLocations.some((location) => location.geoTargetConstant === result.resourceName);
+           return <article key={result.resourceName}>
+            <span>
+             <b>{result.canonicalName || result.name}</b>
+             <small>{[result.targetType ? friendlyGeoTargetType(result.targetType) : null, result.countryCode].filter(Boolean).join(" · ") || "Google Ads geo target"}</small>
+            </span>
+            <form action={addGoogleAdsCampaignLocationAction.bind(null, businessSlug, campaign.id)}>
+             <input type="hidden" name="geoTargetConstant" value={result.resourceName} />
+             <button className="sv-button sv-secondary" disabled={alreadyTargeted}>{alreadyTargeted ? "Already targeted" : "Add location"}</button>
+            </form>
+           </article>;
+          })}</div>
+         </div> : null}
+        </details>
+       </>;
+      })()}
      </section>
      <section className="google-ads-performance-block" aria-label="Campaign performance">
       <div className="google-ads-section-heading">
