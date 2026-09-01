@@ -309,7 +309,9 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.doesNotMatch(page, /Campaign is active and eligible to serve/);
  assert.match(page, /Campaign is paused/);
  assert.match(page, /Campaign health/);
- assert.match(page, /Fix recommended setting/);
+ assert.match(page, /Servonas recommends/);
+ assert.match(page, /Fix CPC/);
+ assert.match(page, /Apply \{microsToMoney\(health\.recommendedManualCpcMicros\)\} max CPC/);
  assert.match(page, /Recommended for new campaigns: Maximize Clicks/);
  assert.match(page, /Manage campaign/);
  assert.match(page, /const dailyBudgetLabel = \(micros: number \| string \| null \| undefined\) => `\$\{microsToMoney\(Number\(micros \?\? 0\)\)\}\/day`/);
@@ -419,6 +421,36 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /updateGoogleAdsAdGroupBid/);
  assert.match(actions, /manual_cpc_bid_micros/);
  assert.match(actions, /bidding_strategy/);
+});
+
+test("campaign health keeps failed diagnostics unknown and only offers verified recommendations", async () => {
+ const [file, actions, page] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(file, /GoogleAdsCampaignHealthDataQuality/);
+ assert.match(file, /A failed diagnostic query must remain unknown, never become an empty result\./);
+ assert.match(file, /healthQuery\("keywords", `SELECT campaign\.id, ad_group_criterion\.status/);
+ assert.match(file, /FROM ad_group_criterion WHERE campaign\.id IN/);
+ assert.match(file, /ad_group_criterion\.type = KEYWORD/);
+ assert.match(file, /healthQuery\("conversionGoals", "SELECT conversion_action\.category/);
+ assert.match(file, /id: "ad_group_unknown"/);
+ assert.match(file, /id: "ads_unknown"/);
+ assert.match(file, /id: "keywords_unknown"/);
+ assert.match(file, /id: "booking_conversion_tracking"/);
+ assert.match(file, /const categorizedIssues = issues\.map/);
+ assert.match(file, /"optimization"/);
+ assert.match(file, /reviewGoogleAdsCampaignHealthWithAi/);
+ assert.match(file, /Only use the supplied verified facts and deterministic findings\. Never invent campaign facts\./);
+ assert.match(actions, /confirmCpcFix/);
+ assert.match(actions, /liveSnapshot\?\.dataQuality\.adGroups\.state !== "verified"/);
+ assert.match(actions, /const verification = await fetchGoogleAdsCampaignHealthSnapshots/);
+ assert.match(actions, /const refreshedHealth = buildGoogleAdsCampaignHealth/);
+ assert.match(actions, /google_ads_max_cpc_updated/);
+ assert.match(page, /Servonas recommends/);
+ assert.match(page, /Conversion tracking/);
+ assert.match(page, /AI recommendations temporarily unavailable\. Deterministic campaign health is still current\./);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {

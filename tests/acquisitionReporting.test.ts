@@ -119,3 +119,10 @@ test("builds expected date ranges", () => {
     to: "2026-08-13T07:00:00.000Z",
   });
 });
+
+test("includes the Aug 31 to Sep 1 Arizona boundary without assuming UTC midnight", () => {
+ assert.deepEqual(acquisitionDateRange("custom", "2026-08-31", "2026-09-01", new Date("2026-09-01T18:00:00.000Z"), "America/Phoenix"), {
+  from: "2026-08-31T07:00:00.000Z",
+  to: "2026-09-02T07:00:00.000Z",
+ });
+});

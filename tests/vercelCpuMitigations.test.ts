@@ -92,8 +92,8 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(flags,/NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS/);
  assert.match(flags,/DISABLE_BOOKING_FUNNEL_ANALYTICS/);
  assert.match(flags,/NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS/);
- assert.match(flags,/if\(isDisabled\(process\.env\.DISABLE_OPTIONAL_ANALYTICS\?\?process\.env\.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS\)\)return false/);
- assert.match(flags,/if\(isDisabled\(process\.env\.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS\)\)return false/);
+ assert.match(flags,/return publicOptionalAnalyticsEnabled\(\);/);
+ assert.match(flags,/return publicBookingFunnelEnabled\(\);/);
  assert.match(flags,/const disabledValues=new Set\(\["1","true","on","yes","disabled"\]\)/);
  assert.match(funnel,/bookingFunnelEnabled/);
  assert.match(funnel,/if\(!bookingFunnelEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);

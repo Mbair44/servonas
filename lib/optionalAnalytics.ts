@@ -5,7 +5,9 @@ function isDisabled(raw:string|undefined){
 }
 
 export function optionalAnalyticsEnabled(){
- return !isDisabled(process.env.DISABLE_OPTIONAL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS);
+ // Browser tracking can only see NEXT_PUBLIC_* values. Use the same release-time
+ // flag at ingestion so a server-only toggle cannot silently discard live events.
+ return publicOptionalAnalyticsEnabled();
 }
 
 export function publicOptionalAnalyticsEnabled(){
@@ -13,8 +15,7 @@ export function publicOptionalAnalyticsEnabled(){
 }
 
 export function bookingFunnelEnabled(){
- if(isDisabled(process.env.DISABLE_OPTIONAL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS))return false;
- return !isDisabled(process.env.DISABLE_BOOKING_FUNNEL_ANALYTICS??process.env.NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS);
+ return publicBookingFunnelEnabled();
 }
 
 export function publicBookingFunnelEnabled(){
