@@ -144,7 +144,7 @@ export function normalizeMarketingSource(session:AttributionSessionLike|null|und
  if(utmSource==="google"&&/(cpc|ppc|paid|display|search)/.test(utmMedium))return "google_ads";
  if(utmSource==="google")return "google";
  if(clean(session?.fbclid))return utmSource==="instagram"||/instagram\./.test(host)?"instagram":"facebook";
- if(utmSource==="facebook"||utmSource==="meta")return "facebook";
+ if(utmSource==="fb"||utmSource==="facebook"||utmSource==="meta")return "facebook";
  if(utmSource==="instagram")return "instagram";
  if(utmSource==="email"||utmMedium==="email")return "email";
  if(utmMedium==="organic")return "organic";

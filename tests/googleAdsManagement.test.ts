@@ -491,6 +491,30 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(page, /Some campaign health checks could not be verified\. Verified checks are still shown below\./);
 });
 
+test("campaign health implements monitoring grace rules and preserves blockers", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /export const GOOGLE_ADS_NO_IMPRESSION_GRACE_HOURS = 24/);
+ assert.match(file, /servingRelevantChangeAt\?: string \| null/);
+ assert.match(file, /withinNoImpressionGracePeriod/);
+ assert.match(file, /id: "no_impressions_monitoring"/);
+ assert.match(file, /No action needed yet\. Servonas will keep monitoring delivery\./);
+ assert.match(file, /id: "no_impressions", severity: "warning"/);
+ assert.match(file, /Review keyword demand, bidding, targeting, and campaign schedule\./);
+ assert.match(file, /servingBlockerIds/);
+ assert.match(file, /"campaign_paused"/);
+ assert.match(file, /"ads_disapproved"/);
+ assert.match(file, /"keywords_inactive"/);
+ assert.match(file, /"manual_cpc_too_low"/);
+ assert.match(file, /input\.metric\?\.impressions === 0/);
+});
+
+test("campaign health AI receives grace-period facts and monitoring guidance", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /withinGracePeriod: input\.withinGracePeriod/);
+ assert.match(file, /gracePeriodHoursRemaining: input\.gracePeriodHoursRemaining/);
+ assert.match(file, /do not describe zero impressions as a problem or recommend changing bids, targeting, or keyword demand/);
+});
+
 test("keyword review uses a fresh verified snapshot and only runs from an explicit action", async () => {
  const [file, actions, page] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),
@@ -513,6 +537,20 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(page, /Servonas reviews a fresh Google Ads keyword snapshot only when you request it\./);
  assert.match(page, /Review in Google Ads before making changes\./);
  assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);
+});
+
+test("keyword review keeps its core GAQL snapshot independent from unavailable bid estimates", async () => {
+ const file = await read("../lib/googleAdsManagement.ts");
+ assert.match(file, /bidEstimates: \{ status: "available" \| "unavailable" \| "error"/);
+ assert.match(file, /bidEstimates: \{ status: "unavailable" as const \}/);
+ assert.doesNotMatch(file, /ad_group_criterion\.first_page_cpc_micros/);
+ assert.doesNotMatch(file, /ad_group_criterion\.top_of_page_cpc_micros/);
+ assert.doesNotMatch(file, /ad_group_criterion\.first_position_cpc_micros/);
+ assert.match(file, /ad_group_criterion\.primary_status_reasons/);
+ assert.match(file, /SELECT ad_group\.id, ad_group\.cpc_bid_micros FROM ad_group/);
+ assert.match(file, /fetchGoogleAdsSearchTerms[\s\S]*\.catch\(\(\) => \[\]/);
+ assert.match(file, /Bid estimate fields may be unavailable\./);
+ assert.match(file, /without inventing a dollar amount/);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
