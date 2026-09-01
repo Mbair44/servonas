@@ -42,4 +42,4 @@ export async function snapshotBookingAttribution(db:SupabaseClient,input:{busine
  await db.from("booking_attribution_snapshots").upsert({booking_id:input.bookingId,business_id:input.businessId,attribution_session_id:session.id,first_landing_url:session.first_landing_url,first_landing_path:session.first_landing_path,first_referrer:session.first_referrer,gclid:session.gclid,gbraid:session.gbraid,wbraid:session.wbraid,fbclid:session.fbclid,utm_source:session.utm_source,utm_medium:session.utm_medium,utm_campaign:session.utm_campaign,utm_content:session.utm_content,utm_term:session.utm_term,updated_at:new Date().toISOString()},{onConflict:"booking_id"});
 }
 
-export function attributionFromSearch(search:URLSearchParams):AttributionValues { return Object.fromEntries(attributionKeys.map(key=>[key,clean(search.get(key))]).filter(([,value])=>Boolean(value))) as AttributionValues; }
+export function attributionFromSearch(search:URLSearchParams,fallback?:URLSearchParams):AttributionValues { return Object.fromEntries(attributionKeys.map(key=>[key,clean(search.get(key))||clean(fallback?.get(key))]).filter(([,value])=>Boolean(value))) as AttributionValues; }
