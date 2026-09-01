@@ -73,6 +73,37 @@ function items(value: unknown) {
  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
+type KeywordDisplay = { id: string; text: string; matchType: string | null; status: string | null; primaryStatus: string | null; primaryStatusReasons: string[]; negative: boolean; cpcBidMicros: number | null; impressions: number; clicks: number; conversions: number; adGroupId: string | null };
+
+const friendlyKeywordValue = (value: string | null) => value ? value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not reported";
+const singularOrPlural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const unresolvedKeyword: KeywordDisplay = { id: "", text: "A reviewed keyword", matchType: null, status: null, primaryStatus: null, primaryStatusReasons: [], negative: false, cpcBidMicros: null, impressions: 0, clicks: 0, conversions: 0, adGroupId: null };
+
+function customerFacingText(value: string, displays: KeywordDisplay[]) {
+ let result = value;
+ for (const display of displays) {
+  if (display.id) result = result.replaceAll(display.id, display.text);
+ }
+ return result.replace(/\b\d{6,}\b/g, "a reviewed keyword");
+}
+
+function readableRecommendationEvidence(category: string | undefined, displays: KeywordDisplay[]) {
+ if (!displays.length) return ["Servonas could not match every saved keyword to its display details. No automatic change will be made."];
+ const negative = displays.filter((keyword) => keyword.negative);
+ if (category === "negative_keyword" && negative.length) {
+  const inactive = negative.filter((keyword) => keyword.impressions === 0 && keyword.clicks === 0).length;
+  return [inactive === negative.length ? `${singularOrPlural(negative.length, "reviewed negative keyword")} have not received impressions or clicks.` : `${singularOrPlural(inactive, "reviewed negative keyword")} have not received impressions or clicks.`, "No issues were detected with the current negative keyword set."];
+ }
+ const limited = displays.filter((keyword) => keyword.primaryStatus === "LIMITED").length;
+ const impressions = displays.reduce((total, keyword) => total + keyword.impressions, 0);
+ const clicks = displays.reduce((total, keyword) => total + keyword.clicks, 0);
+ const conversions = displays.reduce((total, keyword) => total + keyword.conversions, 0);
+ const facts = [limited ? `${singularOrPlural(limited, "reviewed keyword")} are currently limited by Google.` : `${singularOrPlural(displays.length, "reviewed keyword")} are active in this review.`, `Google reports ${impressions} impressions, ${clicks} clicks, and ${conversions} conversions across these reviewed keywords.`];
+ const bids = displays.filter((keyword) => keyword.cpcBidMicros !== null).slice(0, 3).map((keyword) => `${keyword.text}: ${microsToMoney(keyword.cpcBidMicros!)}`);
+ if (bids.length) facts.push(`Current maximum bids: ${bids.join(", ")}.`);
+ return facts;
+}
+
 function keywordReview(value: unknown) {
  if (!value || typeof value !== "object") return null;
  const review = (value as { review?: unknown }).review;
@@ -80,6 +111,7 @@ function keywordReview(value: unknown) {
  const candidate = review as { summary?: unknown; performanceDataState?: unknown; keywordsReviewed?: unknown; recommendations?: unknown };
  if (typeof candidate.summary !== "string" || !Array.isArray(candidate.recommendations)) return null;
  const labels = Array.isArray((value as { keywordLabels?: unknown }).keywordLabels) ? (value as { keywordLabels: unknown[] }).keywordLabels.flatMap((entry) => entry && typeof entry === "object" && typeof (entry as any).id === "string" && typeof (entry as any).text === "string" ? [{ id: (entry as any).id, text: (entry as any).text }] : []) : [];
+ const keywordDisplays = Array.isArray((value as { keywordDisplays?: unknown }).keywordDisplays) ? (value as { keywordDisplays: unknown[] }).keywordDisplays.flatMap((entry): KeywordDisplay[] => entry && typeof entry === "object" && typeof (entry as any).id === "string" && typeof (entry as any).text === "string" ? [{ id: (entry as any).id, text: (entry as any).text, matchType: typeof (entry as any).matchType === "string" ? (entry as any).matchType : null, status: typeof (entry as any).status === "string" ? (entry as any).status : null, primaryStatus: typeof (entry as any).primaryStatus === "string" ? (entry as any).primaryStatus : null, primaryStatusReasons: Array.isArray((entry as any).primaryStatusReasons) ? (entry as any).primaryStatusReasons.filter((reason: unknown): reason is string => typeof reason === "string") : [], negative: Boolean((entry as any).negative), cpcBidMicros: typeof (entry as any).cpcBidMicros === "number" ? (entry as any).cpcBidMicros : null, impressions: Number((entry as any).impressions) || 0, clicks: Number((entry as any).clicks) || 0, conversions: Number((entry as any).conversions) || 0, adGroupId: typeof (entry as any).adGroupId === "string" ? (entry as any).adGroupId : null }] : []) : labels.map((label) => ({ ...unresolvedKeyword, ...label }));
  const bidRecommendations = Array.isArray((value as { bidRecommendations?: unknown }).bidRecommendations) ? (value as { bidRecommendations: unknown[] }).bidRecommendations.filter((entry): entry is { keywordId: string; keyword: string; currentBidMicros: number; firstPageBidEstimateMicros: number; recommendedBidMicros: number; increasePercent: number; reason: string } => Boolean(entry && typeof entry === "object" && typeof (entry as any).keywordId === "string" && typeof (entry as any).currentBidMicros === "number" && typeof (entry as any).recommendedBidMicros === "number")) : [];
  const bidContextValue = (value as { bidActionContext?: unknown }).bidActionContext;
  const bidActionContext = bidContextValue && typeof bidContextValue === "object" ? bidContextValue as { biddingStrategy?: string | null; dailyBudgetMicros?: number | null; defaultBidMicros?: number | null; suggestedDefaultBidMicros?: number | null; keywordCandidates?: Array<{ keywordId: string; keyword: string; currentBidMicros: number; suggestedBidMicros: number; status?: string | null; reasons?: string[] }> } : null;
@@ -92,6 +124,7 @@ function keywordReview(value: unknown) {
   performanceDataState: candidate.performanceDataState === "early" ? "early" : "sufficient",
   keywordsReviewed: typeof candidate.keywordsReviewed === "number" ? candidate.keywordsReviewed : labels.length,
   keywordLabels: new Map(labels.map((label) => [label.id, label.text])),
+  keywordDisplays: new Map(keywordDisplays.map((display) => [display.id, display])),
   bidRecommendations,
   bidActionContext,
   recommendations: candidate.recommendations.filter((entry): entry is { id: string; category?: string; actionType?: "adjust_default_bid" | "adjust_keyword_bid" | "pause_keywords" | "add_keywords" | "add_negative_keywords" | "change_match_type" | "review_only"; suggestedDirection?: "increase" | "decrease" | "review" | null; priority: string; title: string; explanation: string; evidence: string[]; suggestedValue: { label?: string; value?: string | null } | null; keywordIds: string[]; canApplyInServonas?: boolean } => Boolean(entry && typeof entry === "object" && typeof (entry as any).title === "string")).slice(0, 5),
@@ -849,30 +882,31 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
         <p className="google-ads-ai-review">Servonas AI review. Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}{savedKeywordReview.review.snapshotTimestamp ? `, based on Google Ads data from ${new Date(savedKeywordReview.review.snapshotTimestamp).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}` : ""}. {savedKeywordReview.stale ? "Google Ads data changed after this review. Review again for an updated analysis." : savedKeywordReview.review.performanceDataState === "early" ? "There is not enough performance data yet to judge which keywords truly convert, so this review focuses on configuration and intent." : "Recommendations use the recent campaign performance window."}</p>
         <div className="google-ads-health-focus">
          <strong>Servonas reviewed {savedKeywordReview.review.keywordsReviewed} active keyword{savedKeywordReview.review.keywordsReviewed === 1 ? "" : "s"}.</strong>
-         <p>{savedKeywordReview.review.summary}</p>
+         <p>{customerFacingText(savedKeywordReview.review.summary, Array.from(savedKeywordReview.review.keywordDisplays.values()))}</p>
         </div>
-        {savedKeywordReview.review.recommendations.map((recommendation) => { const bidRecommendation = recommendation.category === "bid" ? savedKeywordReview.review.bidRecommendations.find((entry) => recommendation.keywordIds.includes(entry.keywordId)) ?? null : null; const bidCandidates = recommendation.category === "bid" ? (savedKeywordReview.review.bidActionContext?.keywordCandidates ?? []).filter((entry) => recommendation.keywordIds.includes(entry.keywordId)) : []; return <details key={recommendation.id} className="google-ads-health-details">
-          <summary>{recommendation.priority} priority: {recommendation.category === "bid" ? "Your ad may not be showing high enough" : recommendation.title}</summary>
+        {savedKeywordReview.review.recommendations.map((recommendation) => { const relevantKeywords = recommendation.keywordIds.map((id) => savedKeywordReview.review.keywordDisplays.get(id) ?? { ...unresolvedKeyword, id }).slice(0, 8); const customerEvidence = readableRecommendationEvidence(recommendation.category, relevantKeywords); const bidRecommendation = recommendation.category === "bid" ? savedKeywordReview.review.bidRecommendations.find((entry) => recommendation.keywordIds.includes(entry.keywordId)) ?? null : null; const bidCandidates = recommendation.category === "bid" ? (savedKeywordReview.review.bidActionContext?.keywordCandidates ?? []).filter((entry) => recommendation.keywordIds.includes(entry.keywordId)) : []; return <details key={recommendation.id} className="google-ads-health-details">
+          <summary>{recommendation.priority} priority: {recommendation.category === "bid" ? "Your ad may not be showing high enough" : customerFacingText(recommendation.title, relevantKeywords)}</summary>
           <div className="google-ads-health-list">
            <section>
             <h4>{recommendationBadge(recommendation.category ?? null)}</h4>
             <article className={`is-${recommendation.priority === "high" ? "warning" : recommendation.priority === "medium" ? "info" : "healthy"}`}>
              <strong>What is happening</strong>
-             <span>{recommendation.category === "bid" ? "Google indicates that this keyword may need a higher maximum bid to compete for prominent search placement." : recommendation.explanation}</span>
+             <span>{recommendation.category === "bid" ? "Google indicates that this keyword may need a higher maximum bid to compete for prominent search placement." : customerFacingText(recommendation.explanation, relevantKeywords)}</span>
             </article>
-            <article><strong>Why it matters</strong><span>{recommendation.category === "bid" ? "A higher bid can help your ad appear more often when customers search for this service. It does not change your daily budget." : recommendation.evidence[0] ?? "This recommendation is based on the verified Google Ads facts in this review."}</span></article>
+            <article><strong>Why it matters</strong><span>{recommendation.category === "bid" ? "A higher bid can help your ad appear more often when customers search for this service. It does not change your daily budget." : customerFacingText(recommendation.evidence[0] ?? "This recommendation is based on the verified Google Ads facts in this review.", relevantKeywords)}</span></article>
             {recommendation.keywordIds.length ? <article>
               <strong>Relevant keywords</strong>
-              <span>{recommendation.keywordIds.map((id) => savedKeywordReview.review.keywordLabels.get(id)).filter((label): label is string => Boolean(label)).join(", ")}</span>
+              <span>{relevantKeywords.map((keyword) => `${keyword.text}${keyword.matchType ? ` (${friendlyKeywordValue(keyword.matchType)})` : ""}`).join(", ")}</span>
              </article> : null}
-            {recommendation.evidence.length ? <article>
+            <article>
               <strong>Google data supporting it</strong>
-              <span>{recommendation.evidence.join(" | ")}</span>
-             </article> : null}
+              <span>{customerEvidence.join(" | ")}</span>
+             </article>
             {recommendation.suggestedValue ? <article>
               <strong>What Servonas recommends</strong>
-              <span>{recommendation.suggestedValue.label}{recommendation.suggestedValue.value ? `: ${recommendation.suggestedValue.value}` : ""}</span>
+              <span>{customerFacingText(recommendation.suggestedValue.label ?? "Review this recommendation", relevantKeywords)}{recommendation.suggestedValue.value ? `: ${customerFacingText(recommendation.suggestedValue.value, relevantKeywords)}` : ""}</span>
              </article> : null}
+            {relevantKeywords.length ? <details><summary>Technical details</summary><span>{relevantKeywords.map((keyword) => `Keyword ID: ${keyword.id || "unavailable"}${keyword.adGroupId ? `; Ad group ID: ${keyword.adGroupId}` : ""}`).join(" | ")}</span></details> : null}
             {recommendation.category === "bid" && bidRecommendation ? <article><strong>Suggested bid change</strong><span>{bidRecommendation.keyword}: {microsToMoney(bidRecommendation.currentBidMicros)} → {microsToMoney(bidRecommendation.recommendedBidMicros)}. Google first-page estimate: {microsToMoney(bidRecommendation.firstPageBidEstimateMicros)}. Change: +{bidRecommendation.increasePercent}%.</span>{savedKeywordReview.appliedKeywordIds.has(bidRecommendation.keywordId) ? <span>Applied: {microsToMoney(bidRecommendation.currentBidMicros)} → {microsToMoney(bidRecommendation.recommendedBidMicros)}</span> : <details><summary>Apply recommendation</summary><p>Servonas will update <strong>{bidRecommendation.keyword}</strong> from {microsToMoney(bidRecommendation.currentBidMicros)} to {microsToMoney(bidRecommendation.recommendedBidMicros)}. Your estimated daily budget remains unchanged.</p><form action={applyGoogleAdsKeywordBidRecommendationAction.bind(null, businessSlug, campaign.id)}><input type="hidden" name="keywordIds" value={bidRecommendation.keywordId} /><input type="hidden" name="maximumBidDollars" value={(bidRecommendation.recommendedBidMicros / 1_000_000).toFixed(2)} /><input type="hidden" name="confirmKeywordBid" value="apply" /><button className="button secondary" type="submit">Apply recommendation</button></form></details>}</article> : null}
             {recommendation.category === "bid" && !bidRecommendation && !bidCandidates.length && recommendation.actionType === "adjust_default_bid" && savedKeywordReview.review.bidActionContext?.biddingStrategy === "MANUAL_CPC" && savedKeywordReview.review.bidActionContext.defaultBidMicros && savedKeywordReview.review.bidActionContext.suggestedDefaultBidMicros ? <article><strong>Suggested default bid update</strong><span>Google has not supplied a precise dollar estimate. Servonas suggests a conservative, editable starting point based on your current default bid.</span><details><summary>Review and update</summary><p>Servonas will update the campaign&apos;s default bid. Your daily budget remains {dailyBudgetLabel(savedKeywordReview.review.bidActionContext.dailyBudgetMicros)}.</p><form action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)}><label>Servonas suggested starting point<input name="maximumBidDollars" type="number" min="0.01" step="0.01" defaultValue={(savedKeywordReview.review.bidActionContext.suggestedDefaultBidMicros / 1_000_000).toFixed(2)} /></label><p>You are about to update the default bid. The value above is editable before you confirm.</p><input type="hidden" name="confirmCpcFix" value="apply" /><button className="button secondary" type="submit">Confirm update</button></form></details></article> : null}
             {recommendation.category === "bid" && !bidRecommendation && bidCandidates.length && savedKeywordReview.review.bidActionContext?.biddingStrategy === "MANUAL_CPC" ? <article><strong>Recommended action available</strong><span>Google indicates these keywords may need a higher bid, but it has not provided a reliable dollar estimate. Servonas suggested starting point is based on the current bid, not a Google recommendation.</span><details><summary>Review and update</summary><p>Raising your maximum bid gives Google more room to compete when someone searches for your services. It does not mean every click will cost that amount. Your daily budget remains {dailyBudgetLabel(savedKeywordReview.review.bidActionContext.dailyBudgetMicros)}.</p><form action={applyGoogleAdsKeywordBidRecommendationAction.bind(null, businessSlug, campaign.id)}><fieldset><legend>Select keywords to update</legend>{bidCandidates.map((candidate) => <label key={candidate.keywordId}><input type="checkbox" name="keywordIds" value={candidate.keywordId} defaultChecked />{candidate.keyword} · Current maximum bid {microsToMoney(candidate.currentBidMicros)} · {candidate.reasons?.length ? "Limited by bid" : "Active"}</label>)}</fieldset><label>Servonas suggested starting point<input name="maximumBidDollars" type="number" min="0.01" step="0.01" defaultValue={(bidCandidates[0]!.suggestedBidMicros / 1_000_000).toFixed(2)} /></label><p>You are about to update the selected keywords. The value above is editable before you confirm.</p><input type="hidden" name="confirmKeywordBid" value="apply" /><button className="button secondary" type="submit">Confirm update</button></form></details></article> : null}
