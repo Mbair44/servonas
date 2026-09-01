@@ -4,6 +4,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { acquisitionDateRange } from "@/lib/acquisitionReporting";
 import {
+  attachSessionMetricsToSourceReport,
   type AttributedBookingRow,
   buildSourcePerformanceReport,
   labelForSource,
@@ -37,10 +38,10 @@ function canonicalEventName(value: string) {
     inventory_view: "inventory_view",
     inventory_item_view: "inventory_view",
     rental_viewed: "inventory_view",
-    booking_cta_click: "booking_cta_click",
-    inventory_item_clicked: "booking_cta_click",
-    check_availability_clicked: "booking_cta_click",
-    reserve_clicked: "booking_cta_click",
+    booking_cta_click: "booking_start",
+    inventory_item_clicked: "booking_start",
+    check_availability_clicked: "booking_start",
+    reserve_clicked: "booking_start",
     availability_check_started: "availability_check",
     availability_check: "availability_check",
     rental_availability_checked: "availability_check",
@@ -48,9 +49,9 @@ function canonicalEventName(value: string) {
     availability_date_selected: "date_selected",
     event_date_selected: "date_selected",
     event_date_changed: "date_selected",
+    booking_started: "booking_start",
+    item_added_to_cart: "item_added",
     checkout_started: "checkout_started",
-    booking_started: "checkout_started",
-    item_added_to_cart: "checkout_started",
     lead_submitted: "lead_submitted",
     customer_info_entered: "lead_submitted",
     booking_completed: "booking_completed",
@@ -164,7 +165,7 @@ function buildRentalItemAnalytics(events: FunnelEventRow[], bookingItems: Bookin
     const current = bucket(row.inventory_item_id);
     const canonical = canonicalEventName(String(row.event_name));
     if (canonical === "inventory_view") current.views += 1;
-    if (canonical === "booking_cta_click") current.bookingStarts += 1;
+    if (canonical === "booking_start") current.bookingStarts += 1;
     if (canonical === "availability_check" || canonical === "date_selected") current.datePicks += 1;
   }
   for (const row of bookingItems) {
@@ -190,7 +191,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const window = acquisitionDateRange(q.range, q.from, q.to, new Date(), business.timezone);
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
-  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse] = await Promise.all([
+  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse] = await Promise.all([
     supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
@@ -207,6 +208,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_google_ads_campaigns").select("id,status,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
+    supabase.from("booking_attribution_sessions").select("id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,total_session_duration_seconds,engaged_duration_seconds,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
   ]);
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
@@ -218,7 +220,28 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     total_cents: row.total_cents,
     booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
   })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots) === source);
-  const report = buildSourcePerformanceReport(events, attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>);
+  const report = attachSessionMetricsToSourceReport(
+    buildSourcePerformanceReport(events, attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>),
+    ((sessionsResponse.data ?? []) as Array<{
+      id: string;
+      utm_source?: string | null;
+      utm_medium?: string | null;
+      utm_campaign?: string | null;
+      utm_content?: string | null;
+      utm_term?: string | null;
+      first_referrer?: string | null;
+      first_landing_url?: string | null;
+      first_landing_path?: string | null;
+      gclid?: string | null;
+      gbraid?: string | null;
+      wbraid?: string | null;
+      fbclid?: string | null;
+      total_session_duration_seconds?: number | null;
+      engaged_duration_seconds?: number | null;
+      page_count?: number | null;
+      engaged_page_count?: number | null;
+    }>).filter((row) => source === "all" || normalizeMarketingSource(row) === source),
+  );
   const itemNames = new Map(((inventoryResponse.data ?? []) as Array<{ id: string; name: string | null }>).map((item) => [item.id, item.name?.trim() || "Rental item"]));
   const bookingSourceMap = new Map<string, MarketingSource>();
   for (const row of snapshotsResponse.data ?? []) {
@@ -253,9 +276,10 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const journeySteps = [
     ["landing_view", "Visits"],
     ["engaged", "Item / service views"],
-    ["booking_cta_click", "Booking starts"],
+    ["booking_start", "Booking starts"],
     ["availability_check", "Availability checks"],
     ["date_selected", "Date selections"],
+    ["item_added", "Items added"],
     ["checkout_started", "Checkout starts"],
     ["booking_completed", "Bookings"],
   ] as const;
@@ -322,7 +346,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       funnel: {
         visits: report.totals.visits,
         engaged: report.totals.engaged,
-        bookingStarts: aggregatedStepCounts.get("booking_cta_click") ?? 0,
+        bookingStarts: aggregatedStepCounts.get("booking_start") ?? 0,
         checkoutStarts: aggregatedStepCounts.get("checkout_started") ?? 0,
         leads: aggregatedStepCounts.get("lead_submitted") ?? 0,
         bookings: totalBookings,
@@ -373,7 +397,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     <section className="marketing-kpi-grid">
       <article className="workspace-panel"><span>Visits</span><strong>{report.totals.visits}</strong><small>Attributed session visits</small></article>
       <article className="workspace-panel"><span>Engaged visitors</span><strong>{report.totals.engaged}</strong><small>Viewed a rental or service</small></article>
-      <article className="workspace-panel"><span>Booking starts / leads</span><strong>{report.totals.leadsOrBookings}</strong><small>Visitors progressing into the flow</small></article>
+      <article className="workspace-panel"><span>Booking starts</span><strong>{aggregatedStepCounts.get("booking_start") ?? 0}</strong><small>Visitors entering the booking flow</small></article>
       <article className="workspace-panel"><span>Bookings</span><strong>{totalBookings}</strong><small>Completed bookings during this period</small></article>
       <article className="workspace-panel"><span>Revenue</span><strong>{money(report.totals.revenueCents)}</strong><small>Attributed booking value</small></article>
       <article className="workspace-panel"><span>Ad spend / ROAS</span><strong>{roasCard.headline}</strong><small>{roasCard.detail}</small></article>
@@ -439,7 +463,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="workspace-panel marketing-sources-panel">
       <header><div><h2>Traffic source performance</h2><p>Choose a traffic source above to update the funnel, requested rental dates, most-clicked rentals, bookings, revenue, and insights.</p></div></header>
-      <div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{report.summaries.map((row) => <div key={row.source}><span>{labelForSource(row.source)}</span><span>{row.visits}</span><span>{row.engaged}</span><span>{row.detailedCounts.booking_cta_click ?? 0}</span><span>{row.detailedCounts.booking_completed ?? 0}</span><span>{money(row.revenueCents)}</span></div>)}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_cta_click ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
+      <div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{report.summaries.map((row) => <div key={row.source}><span>{labelForSource(row.source)}</span><span>{row.visits}</span><span>{row.engaged}</span><span>{row.detailedCounts.booking_start ?? 0}</span><span>{row.detailedCounts.booking_completed ?? 0}</span><span>{money(row.revenueCents)}</span></div>)}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
     </section>
 
     <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">

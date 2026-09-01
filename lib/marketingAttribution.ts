@@ -67,21 +67,38 @@ export type MarketingSourceSummary={
  roas:number|null;
  detailedCounts:Record<string,number>;
  stepCounts:Array<{key:string;label:string;count:number;progressFromPrevious:number|null;dropOffRate:number|null;}>;
+ sessionMetrics:{
+  sessionCount:number;
+  avgSessionDurationSeconds:number|null;
+  medianSessionDurationSeconds:number|null;
+  avgEngagedDurationSeconds:number|null;
+  medianEngagedDurationSeconds:number|null;
+  bounceSessions:number;
+  singlePageSessions:number;
+ };
  insight:string;
  sampleStrength:"insufficient"|"directional"|"strong";
 };
 
-const canonicalEventMap:Record<string,BookingFunnelEvent|"conversion_started">={
+export type AttributionSessionMetricsRow=AttributionSessionLike&{
+ id:string;
+ total_session_duration_seconds?:number|null;
+ engaged_duration_seconds?:number|null;
+ page_count?:number|null;
+ engaged_page_count?:number|null;
+};
+
+const canonicalEventMap:Record<string,BookingFunnelEvent|"booking_start"|"item_added">={
  landing_page_view:"landing_view",
  landing_view:"landing_view",
  service_view:"service_view",
  inventory_view:"inventory_view",
  inventory_item_view:"inventory_view",
  rental_viewed:"inventory_view",
- booking_cta_click:"booking_cta_click",
- inventory_item_clicked:"booking_cta_click",
- check_availability_clicked:"booking_cta_click",
- reserve_clicked:"booking_cta_click",
+ booking_cta_click:"booking_start",
+ inventory_item_clicked:"booking_start",
+ check_availability_clicked:"booking_start",
+ reserve_clicked:"booking_start",
  availability_check_started:"availability_check",
  availability_check:"availability_check",
  rental_availability_checked:"availability_check",
@@ -89,9 +106,9 @@ const canonicalEventMap:Record<string,BookingFunnelEvent|"conversion_started">={
  availability_date_selected:"date_selected",
  event_date_selected:"date_selected",
  event_date_changed:"date_selected",
+ booking_started:"booking_start",
+ item_added_to_cart:"item_added",
  checkout_started:"checkout_started",
- booking_started:"checkout_started",
- item_added_to_cart:"checkout_started",
  lead_submitted:"lead_submitted",
  customer_info_entered:"lead_submitted",
  booking_completed:"booking_completed",
@@ -101,9 +118,10 @@ const canonicalEventMap:Record<string,BookingFunnelEvent|"conversion_started">={
 const detailedStepOrder=[
  {key:"landing_view",label:"Visits"},
  {key:"engaged",label:"Product / Service Views"},
- {key:"booking_cta_click",label:"Booking Starts"},
+ {key:"booking_start",label:"Booking Starts"},
  {key:"availability_check",label:"Availability Checks"},
  {key:"date_selected",label:"Dates Selected"},
+ {key:"item_added",label:"Items Added"},
  {key:"checkout_started",label:"Checkout Started"},
  {key:"lead_submitted",label:"Leads"},
  {key:"booking_completed",label:"Bookings"},
@@ -201,6 +219,17 @@ function bookingCountsForAnalytics(status:string|null|undefined){
  return status==="confirmed"||status==="paid";
 }
 
+function average(values:number[]){
+ if(!values.length)return null;
+ return Math.round((values.reduce((sum,value)=>sum+value,0)/values.length)*10)/10;
+}
+
+function median(values:number[]){
+ if(!values.length)return null;
+ const sorted=[...values].sort((left,right)=>left-right),middle=Math.floor(sorted.length/2);
+ return sorted.length%2?sorted[middle]!:Math.round((((sorted[middle-1]??0)+(sorted[middle]??0))/2)*10)/10;
+}
+
 export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
  const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;booking:Set<string>;revenue:number;}>();
  for(const row of events){
@@ -230,7 +259,7 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
   const detailedCounts=Object.fromEntries([...bucket.detailed.entries()].map(([key,value])=>[key,value.size])) as Record<string,number>;
   const visits=detailedCounts.landing_view??0;
   const engaged=(detailedCounts.service_view??0)+(detailedCounts.inventory_view??0);
-  const conversionStarted=(detailedCounts.booking_cta_click??0)+(detailedCounts.availability_check??0)+(detailedCounts.date_selected??0)+(detailedCounts.checkout_started??0);
+  const conversionStarted=(detailedCounts.booking_start??0)+(detailedCounts.availability_check??0)+(detailedCounts.date_selected??0)+(detailedCounts.item_added??0)+(detailedCounts.checkout_started??0);
   const bookings=bucket.booking.size;
   detailedCounts.booking_completed=bookings;
   const leadsOrBookings=(detailedCounts.lead_submitted??0)+bookings;
@@ -245,7 +274,7 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
    const dropOffRate=index===0?null:(previous>0?Math.max(0,1-count/previous):null);
    return {key:step.key,label:step.label,count,progressFromPrevious,dropOffRate};
   });
-  const summary:MarketingSourceSummary={source,visits,engaged,conversionStarted,leadsOrBookings,bookings,customers,revenueCents,spendCents,roas,detailedCounts,stepCounts,insight:"",sampleStrength:sampleStrength(visits)};
+  const summary:MarketingSourceSummary={source,visits,engaged,conversionStarted,leadsOrBookings,bookings,customers,revenueCents,spendCents,roas,detailedCounts,stepCounts,sessionMetrics:{sessionCount:visits,avgSessionDurationSeconds:null,medianSessionDurationSeconds:null,avgEngagedDurationSeconds:null,medianEngagedDurationSeconds:null,bounceSessions:0,singlePageSessions:0},insight:"",sampleStrength:sampleStrength(visits)};
   summary.insight=buildMarketingInsight(summary);
   return summary;
  }).filter((item)=>item.visits||item.engaged||item.leadsOrBookings||item.revenueCents||item.spendCents!=null));
@@ -264,6 +293,31 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
   totals:{
    ...totals,
    roas:totals.spendCents>0?totals.revenueCents/totals.spendCents:null,
-  },
+ },
  };
+}
+
+export function attachSessionMetricsToSourceReport(report:ReturnType<typeof buildSourcePerformanceReport>,sessions:AttributionSessionMetricsRow[]){
+ const bySource=new Map<MarketingSource,AttributionSessionMetricsRow[]>();
+ for(const session of sessions){
+  const source=normalizeMarketingSource(session);
+  const bucket=bySource.get(source)??[];
+  bucket.push(session);
+  bySource.set(source,bucket);
+ }
+ for(const summary of report.summaries){
+  const bucket=bySource.get(summary.source)??[];
+  const durationValues=bucket.map((row)=>Math.max(0,Number(row.total_session_duration_seconds??0))).filter((value)=>value>0);
+  const engagedValues=bucket.map((row)=>Math.max(0,Number(row.engaged_duration_seconds??0))).filter((value)=>value>0);
+  summary.sessionMetrics={
+   sessionCount:bucket.length||summary.visits,
+   avgSessionDurationSeconds:average(durationValues),
+   medianSessionDurationSeconds:median(durationValues),
+   avgEngagedDurationSeconds:average(engagedValues),
+   medianEngagedDurationSeconds:median(engagedValues),
+   bounceSessions:bucket.filter((row)=>Math.max(0,Number(row.engaged_page_count??0))===0).length,
+   singlePageSessions:bucket.filter((row)=>Math.max(0,Number(row.page_count??0))<=1).length,
+  };
+ }
+ return report;
 }

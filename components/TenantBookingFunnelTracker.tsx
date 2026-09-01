@@ -36,7 +36,7 @@ const eventTtlMs:Partial<Record<BookingFunnelEvent,number>>={
 };
 const criticalEvents=new Set<BookingFunnelEvent>(["booking_started","customer_info_entered","checkout_started","reserve_clicked","item_added_to_cart","lead_submitted","payment_completed"]);
 type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;referrer:string;lastSessionSyncAt?:number};
-type TrackBookingFunnelOptions={inventoryItemId?:string;serviceId?:string;metadata?:Record<string,unknown>};
+type TrackBookingFunnelOptions={inventoryItemId?:string;serviceId?:string;metadata?:Record<string,unknown>;touchOnly?:boolean};
 const stored=(slug:string):Stored=>{
  const existing=localStorage.getItem(key(slug));if(existing){try{const value=JSON.parse(existing) as Stored;if(value.sessionId)return value;}catch{/* replace malformed storage */}}
  const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search)),landingUrl:location.href,referrer:document.referrer,lastSessionSyncAt:0};localStorage.setItem(key(slug),JSON.stringify(value));return value;
@@ -85,19 +85,35 @@ const logDebug=(slug:string,event:BookingFunnelEvent,message:string,details:Reco
  if(!debugEnabled())return;
  console.info("[Servonas booking funnel]",{slug,event,message,...details});
 };
+const deviceMetadata=()=>{
+ if(typeof window==="undefined")return {};
+ const ua=window.navigator.userAgent||"";
+ return {
+  browser:/Chrome\//.test(ua)?"chrome":/Safari\//.test(ua)&&!/Chrome\//.test(ua)?"safari":/Firefox\//.test(ua)?"firefox":/Edg\//.test(ua)?"edge":"other",
+  operating_system:/iPhone|iPad|iPod/.test(ua)?"ios":/Android/.test(ua)?"android":/Mac OS X/.test(ua)?"macos":/Windows/.test(ua)?"windows":/Linux/.test(ua)?"linux":"other",
+  device_type:/Mobile|Android|iPhone|iPad|iPod/.test(ua)?"mobile":"desktop",
+ };
+};
+const pageTypeForPath=(pathname:string)=>{
+ if(pathname==="/booking/checkout"||/^\/book\/[^/]+\/booking$/.test(pathname))return "checkout";
+ if(pathname==="/booking"||/^\/book\/[^/]+$/.test(pathname))return "booking";
+ return "website";
+};
 const payloadFor=(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions,touchSession:boolean)=>{
  const state=stored(slug);
  return {
   sessionId:state.sessionId,
   event,
   path:`${location.pathname}${location.search}`,
+  pageType:pageTypeForPath(location.pathname),
   landingUrl:state.landingUrl,
   referrer:state.referrer,
   attribution:state.attribution,
   inventoryItemId:options.inventoryItemId,
   serviceId:options.serviceId,
-  metadata:options.metadata??{},
+  metadata:{...deviceMetadata(),...(options.metadata??{})},
   touchSession,
+  touchOnly:Boolean(options.touchOnly),
  };
 };
 const postWithBeacon=(slug:string,event:BookingFunnelEvent,payload:ReturnType<typeof payloadFor>)=>{
@@ -118,7 +134,7 @@ export function bookingAttributionValues(slug:string):AttributionValues{if(typeo
 export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions={}){
  if(!analyticsEnabled||typeof window==="undefined"){logDebug(slug,event,"skipped",{reason:"analytics_disabled_or_server"});return;}
  if(shouldSkipEvent(slug,event,options)){logDebug(slug,event,"skipped",{reason:"deduped"});return;}
- const state=stored(slug),now=Date.now(),touchSession=event==="landing_page_view"||!state.lastSessionSyncAt||now-state.lastSessionSyncAt>=sessionTouchIntervalMs;
+ const state=stored(slug),now=Date.now(),touchSession=event==="landing_page_view"||!state.lastSessionSyncAt||now-state.lastSessionSyncAt>=sessionTouchIntervalMs||Boolean(options.touchOnly);
  if(touchSession)localStorage.setItem(key(slug),JSON.stringify({...state,lastSessionSyncAt:now}));
  const payload=payloadFor(slug,event,options,touchSession);
  if(criticalEvents.has(event)&&postWithBeacon(slug,event,payload))return;
@@ -131,6 +147,25 @@ export function TenantBookingFunnelTracker({businessSlug,initialSessionId}:{busi
   const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(!isBookingUrl(url,businessSlug))return;element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* external link remains usable */}});
   rewrite();const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});return()=>observer.disconnect();
  },[businessSlug,initialSessionId]);
+ useEffect(()=>{
+  if(!analyticsEnabled||typeof window==="undefined")return;
+  let lastTick=Date.now();
+  const flush=()=>{
+   if(document.visibilityState!=="visible"||!document.hasFocus())return;
+   const now=Date.now();
+   const elapsedSeconds=Math.max(0,Math.round((now-lastTick)/1000));
+   lastTick=now;
+   if(!elapsedSeconds)return;
+   trackBookingFunnel(businessSlug,"session_heartbeat",{touchOnly:true,metadata:{session_duration_increment_seconds:elapsedSeconds,engaged_duration_increment_seconds:elapsedSeconds}});
+  };
+  const interval=window.setInterval(flush,20_000);
+  const reset=()=>{lastTick=Date.now();};
+  document.addEventListener("visibilitychange",reset);
+  window.addEventListener("focus",reset);
+  window.addEventListener("blur",flush);
+  window.addEventListener("beforeunload",flush);
+  return()=>{window.clearInterval(interval);document.removeEventListener("visibilitychange",reset);window.removeEventListener("focus",reset);window.removeEventListener("blur",flush);window.removeEventListener("beforeunload",flush);};
+ },[businessSlug]);
  if(!analyticsEnabled)return null;
  return null;
 }
