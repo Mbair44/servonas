@@ -2454,53 +2454,53 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   return created;
  };
  for (const row of campaignRows) {
-  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id") ?? ""));
+  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
-  snapshot.campaignStatus = String(readGoogleAdsField(row, "campaign.status") ?? snapshot.campaignStatus ?? "");
-  snapshot.campaignPrimaryStatus = typeof readGoogleAdsField(row, "campaign.primaryStatus") === "string" ? String(readGoogleAdsField(row, "campaign.primaryStatus")) : null;
-  snapshot.campaignPrimaryStatusReasons = Array.isArray(readGoogleAdsField(row, "campaign.primaryStatusReasons")) ? (readGoogleAdsField(row, "campaign.primaryStatusReasons") as unknown[]).map(String) : [];
-  snapshot.startDate = typeof readGoogleAdsField(row, "campaign.startDate") === "string" ? String(readGoogleAdsField(row, "campaign.startDate")) : null;
-  snapshot.endDate = typeof readGoogleAdsField(row, "campaign.endDate") === "string" ? String(readGoogleAdsField(row, "campaign.endDate")) : null;
-  snapshot.biddingStrategyType = typeof readGoogleAdsField(row, "campaign.biddingStrategyType") === "string" ? String(readGoogleAdsField(row, "campaign.biddingStrategyType")) : null;
-  snapshot.targetGoogleSearch = typeof readGoogleAdsField(row, "campaign.networkSettings.targetGoogleSearch") === "boolean" ? Boolean(readGoogleAdsField(row, "campaign.networkSettings.targetGoogleSearch")) : null;
-  snapshot.targetSearchNetwork = typeof readGoogleAdsField(row, "campaign.networkSettings.targetSearchNetwork") === "boolean" ? Boolean(readGoogleAdsField(row, "campaign.networkSettings.targetSearchNetwork")) : null;
-  snapshot.positiveGeoTargetType = typeof readGoogleAdsField(row, "campaign.geoTargetTypeSetting.positiveGeoTargetType") === "string" ? String(readGoogleAdsField(row, "campaign.geoTargetTypeSetting.positiveGeoTargetType")) : null;
-  snapshot.negativeGeoTargetType = typeof readGoogleAdsField(row, "campaign.geoTargetTypeSetting.negativeGeoTargetType") === "string" ? String(readGoogleAdsField(row, "campaign.geoTargetTypeSetting.negativeGeoTargetType")) : null;
+  snapshot.campaignStatus = String(readGoogleAdsField(row, "campaign.status", "campaign.status") ?? snapshot.campaignStatus ?? "");
+  snapshot.campaignPrimaryStatus = typeof readGoogleAdsField(row, "campaign.primaryStatus", "campaign.primary_status") === "string" ? String(readGoogleAdsField(row, "campaign.primaryStatus", "campaign.primary_status")) : null;
+  snapshot.campaignPrimaryStatusReasons = Array.isArray(readGoogleAdsField(row, "campaign.primaryStatusReasons", "campaign.primary_status_reasons")) ? (readGoogleAdsField(row, "campaign.primaryStatusReasons", "campaign.primary_status_reasons") as unknown[]).map(String) : [];
+  snapshot.startDate = typeof readGoogleAdsField(row, "campaign.startDate", "campaign.start_date") === "string" ? String(readGoogleAdsField(row, "campaign.startDate", "campaign.start_date")) : null;
+  snapshot.endDate = typeof readGoogleAdsField(row, "campaign.endDate", "campaign.end_date") === "string" ? String(readGoogleAdsField(row, "campaign.endDate", "campaign.end_date")) : null;
+  snapshot.biddingStrategyType = typeof readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type") === "string" ? String(readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type")) : null;
+  snapshot.targetGoogleSearch = typeof readGoogleAdsField(row, "campaign.networkSettings.targetGoogleSearch", "campaign.network_settings.target_google_search") === "boolean" ? Boolean(readGoogleAdsField(row, "campaign.networkSettings.targetGoogleSearch", "campaign.network_settings.target_google_search")) : null;
+  snapshot.targetSearchNetwork = typeof readGoogleAdsField(row, "campaign.networkSettings.targetSearchNetwork", "campaign.network_settings.target_search_network") === "boolean" ? Boolean(readGoogleAdsField(row, "campaign.networkSettings.targetSearchNetwork", "campaign.network_settings.target_search_network")) : null;
+  snapshot.positiveGeoTargetType = typeof readGoogleAdsField(row, "campaign.geoTargetTypeSetting.positiveGeoTargetType", "campaign.geo_target_type_setting.positive_geo_target_type") === "string" ? String(readGoogleAdsField(row, "campaign.geoTargetTypeSetting.positiveGeoTargetType", "campaign.geo_target_type_setting.positive_geo_target_type")) : null;
+  snapshot.negativeGeoTargetType = typeof readGoogleAdsField(row, "campaign.geoTargetTypeSetting.negativeGeoTargetType", "campaign.geo_target_type_setting.negative_geo_target_type") === "string" ? String(readGoogleAdsField(row, "campaign.geoTargetTypeSetting.negativeGeoTargetType", "campaign.geo_target_type_setting.negative_geo_target_type")) : null;
  }
  for (const row of adGroupRows) {
-  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id") ?? ""));
+  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
-  const status = readGoogleAdsField(row, "adGroup.status");
-  const primaryStatus = readGoogleAdsField(row, "adGroup.primaryStatus");
-  const reasons = readGoogleAdsField(row, "adGroup.primaryStatusReasons");
-  const bid = safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros"));
+  const status = readGoogleAdsField(row, "adGroup.status", "ad_group.status");
+  const primaryStatus = readGoogleAdsField(row, "adGroup.primaryStatus", "ad_group.primary_status");
+  const reasons = readGoogleAdsField(row, "adGroup.primaryStatusReasons", "ad_group.primary_status_reasons");
+  const bid = safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros"));
   if (typeof status === "string") snapshot.adGroupStatuses.push(status);
   if (typeof primaryStatus === "string") snapshot.adGroupPrimaryStatuses.push(primaryStatus);
   if (Array.isArray(reasons)) snapshot.adGroupPrimaryStatusReasons.push(...reasons.map(String));
   if (bid > 0) snapshot.adGroupCpcBidMicros.push(bid);
  }
  for (const row of adRows) {
-  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id") ?? ""));
+  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
-  const status = readGoogleAdsField(row, "adGroupAd.status");
-  const approvalStatus = readGoogleAdsField(row, "adGroupAd.policySummary.approvalStatus");
-  const topics = readGoogleAdsField(row, "adGroupAd.policySummary.policyTopicEntries");
+  const status = readGoogleAdsField(row, "adGroupAd.status", "ad_group_ad.status");
+  const approvalStatus = readGoogleAdsField(row, "adGroupAd.policySummary.approvalStatus", "ad_group_ad.policy_summary.approval_status");
+  const topics = readGoogleAdsField(row, "adGroupAd.policySummary.policyTopicEntries", "ad_group_ad.policy_summary.policy_topic_entries");
   if (typeof status === "string") snapshot.adStatuses.push(status);
   if (typeof approvalStatus === "string") snapshot.adApprovalStatuses.push(approvalStatus);
   if (Array.isArray(topics)) snapshot.adPolicyTopics.push(...topics.map((topic) => stableJson(topic) ?? "").filter(Boolean));
  }
  for (const row of keywordRows) {
-  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id") ?? ""));
+  const campaignId = stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? ""));
   if (!campaignId) continue;
   const snapshot = ensure(campaignId);
-  const status = readGoogleAdsField(row, "adGroupCriterion.status");
-  const reasons = readGoogleAdsField(row, "adGroupCriterion.primaryStatusReasons");
-  const negative = Boolean(readGoogleAdsField(row, "adGroupCriterion.negative"));
-  const keywordText = typeof readGoogleAdsField(row, "adGroupCriterion.keyword.text") === "string" ? normalizeKeywordText(String(readGoogleAdsField(row, "adGroupCriterion.keyword.text"))) : "";
-  const bid = safeNumber(readGoogleAdsField(row, "adGroupCriterion.cpcBidMicros"));
+  const status = readGoogleAdsField(row, "adGroupCriterion.status", "ad_group_criterion.status");
+  const reasons = readGoogleAdsField(row, "adGroupCriterion.primaryStatusReasons", "ad_group_criterion.primary_status_reasons");
+  const negative = Boolean(readGoogleAdsField(row, "adGroupCriterion.negative", "ad_group_criterion.negative"));
+  const keywordText = typeof readGoogleAdsField(row, "adGroupCriterion.keyword.text", "ad_group_criterion.keyword.text") === "string" ? normalizeKeywordText(String(readGoogleAdsField(row, "adGroupCriterion.keyword.text", "ad_group_criterion.keyword.text"))) : "";
+  const bid = safeNumber(readGoogleAdsField(row, "adGroupCriterion.cpcBidMicros", "ad_group_criterion.cpc_bid_micros"));
   if (typeof status === "string") snapshot.keywordStatuses.push(status);
   if (Array.isArray(reasons)) snapshot.keywordPrimaryStatusReasons.push(...reasons.map(String));
   if (keywordText) negative ? snapshot.negativeKeywords.push(keywordText) : snapshot.positiveKeywords.push(keywordText);
