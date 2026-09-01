@@ -1728,3 +1728,11 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 /* Monitoring is informational: Google may still be beginning delivery after a serving change. */
 .google-ads-health-panel.is-monitoring{border-color:#c9dbef;background:linear-gradient(180deg,#f8fbff,#f1f7fd)}
 .google-ads-health-panel.is-monitoring .google-ads-health-badge{background:#e6f1fb;color:#27648f}
+
+/* Keep the four campaign summary pills together on wide Google Ads layouts. */
+.google-ads-overview-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1180px){.google-ads-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.google-ads-overview-grid{grid-template-columns:1fr}}
+
+/* Campaign health is a second row of the Google Ads status panel. */
+.google-ads-status-health{grid-column:1/-1;gap:10px;padding:16px 0 0;border-width:1px 0 0;border-radius:0;background:transparent!important}.google-ads-status-health .google-ads-section-heading{align-items:center}.google-ads-status-health .google-ads-section-heading h3{font-size:1rem}.google-ads-status-health .google-ads-section-heading p{margin-top:4px}.google-ads-status-health .google-ads-health-badge{background:#eef4ff}.google-ads-status-health.is-healthy .google-ads-health-badge{background:#dff7e8;color:#08783f}.google-ads-status-health.is-monitoring .google-ads-health-badge{background:#e6f1fb;color:#27648f}.google-ads-status-health.is-needs_attention .google-ads-health-badge{background:#ffefc7;color:#9b5a00}.google-ads-status-health.is-critical_issue .google-ads-health-badge{background:#ffe0e0;color:#b42318}
