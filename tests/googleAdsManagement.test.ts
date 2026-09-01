@@ -551,9 +551,16 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(actions, /google_ads_ai_keyword_review_cache_hit/);
  assert.match(actions, /google_ads_ai_keyword_review_cache_miss/);
  assert.match(actions, /snapshotHash/);
+ assert.match(actions, /google_ads_keyword_review_stale/);
+ assert.match(actions, /metrics_refresh_changed_ai_input/);
+ assert.doesNotMatch(actions.slice(actions.indexOf("export async function refreshGoogleAdsCampaignsAction"), actions.indexOf("export async function searchGoogleAdsCampaignLocationsAction")), /reviewGoogleAdsKeywordsWithAi/);
  assert.match(page, /Review keywords/);
  assert.match(page, /Review again/);
  assert.match(page, /Servonas AI review/);
+ assert.match(page, /google_ads_page_external_get_completed/);
+ assert.match(page, /google_ads_page_external_get_failed/);
+ assert.match(page, /google_ads_ai_keyword_review_cache_checked/);
+ assert.match(page, /Google Ads data changed after this review/);
  assert.match(page, /Servonas reviews a fresh Google Ads keyword snapshot only when you request it\./);
  assert.match(page, /Review in Google Ads before making changes\./);
  assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);

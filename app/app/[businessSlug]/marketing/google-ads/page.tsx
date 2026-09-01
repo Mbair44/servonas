@@ -8,7 +8,8 @@ import {
  fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
- fetchGoogleAdsSearchTerms,
+  fetchGoogleAdsSearchTerms,
+  logGoogleAdsKeywordReviewStage,
   googleAdsReadyLabel,
   loadTenantGoogleAdsAccess,
   recordGoogleAdsBetaEvent,
@@ -47,6 +48,26 @@ const relativeMinutes = 60_000;
 const relativeHours = 60 * relativeMinutes;
 const relativeDays = 24 * relativeHours;
 
+async function logGoogleAdsPageGet<T extends { data?: unknown; error?: { code?: string; message?: string; status?: number } | null }>(input: { businessId: string; stage: string; endpointPath: string; requestType: string }, request: PromiseLike<T>) {
+ const startedAt = Date.now();
+ const result = await request;
+ const error = result.error ?? null;
+ const payload = {
+  provider: "supabase",
+  endpointHost: "supabase",
+  endpointPath: input.endpointPath,
+  stage: input.stage,
+  requestType: input.requestType,
+  httpStatus: error ? Number(error.status) || 400 : 200,
+  durationMs: Date.now() - startedAt,
+  businessId: input.businessId,
+  ...(error ? { errorCode: error.code ?? null, errorMessage: error.message ?? null } : {}),
+ };
+ if (error) console.error("google_ads_page_external_get_failed", payload);
+ else console.info("google_ads_page_external_get_completed", payload);
+ return result;
+}
+
 function items(value: unknown) {
  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
@@ -60,6 +81,9 @@ function keywordReview(value: unknown) {
  const labels = Array.isArray((value as { keywordLabels?: unknown }).keywordLabels) ? (value as { keywordLabels: unknown[] }).keywordLabels.flatMap((entry) => entry && typeof entry === "object" && typeof (entry as any).id === "string" && typeof (entry as any).text === "string" ? [{ id: (entry as any).id, text: (entry as any).text }] : []) : [];
  return {
   summary: candidate.summary,
+  snapshotHash: typeof (value as { snapshotHash?: unknown }).snapshotHash === "string" ? (value as { snapshotHash: string }).snapshotHash : null,
+  model: typeof (value as { model?: unknown }).model === "string" ? (value as { model: string }).model : null,
+  keywordCount: typeof (value as { keywordCount?: unknown }).keywordCount === "number" ? (value as { keywordCount: number }).keywordCount : labels.length,
   snapshotTimestamp: typeof (value as { generatedAt?: unknown }).generatedAt === "string" ? (value as { generatedAt: string }).generatedAt : null,
   performanceDataState: candidate.performanceDataState === "early" ? "early" : "sufficient",
   keywordsReviewed: typeof candidate.keywordsReviewed === "number" ? candidate.keywordsReviewed : labels.length,
@@ -335,15 +359,15 @@ export default async function GoogleAdsPage({
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
 
  const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }] = await Promise.all([
-  supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name"),
-  supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("sort_order").order("name"),
-  supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
-  supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle(),
-  supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id").eq("business_id", business.id).maybeSingle(),
-  supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false }),
-  supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(100),
-  supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
-  supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_services_read", endpointPath: "services", requestType: "google_ads_page_services_read" }, supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name")),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_inventory_read", endpointPath: "inventory_items", requestType: "google_ads_page_inventory_read" }, supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("sort_order").order("name")),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_territories_read", endpointPath: "workforce_territories", requestType: "google_ads_page_territories_read" }, supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name")),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_website_read", endpointPath: "business_website_settings", requestType: "google_ads_page_website_read" }, supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle()),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_connection_read", endpointPath: "business_google_ads_connections", requestType: "google_ads_connection_page_read" }, supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id").eq("business_id", business.id).maybeSingle()),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_campaigns_read", endpointPath: "business_google_ads_campaigns", requestType: "google_ads_page_campaigns_read" }, supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false })),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_audit_read", endpointPath: "business_google_ads_audit_log", requestType: "google_ads_page_audit_read" }, supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(100)),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_beta_events_read", endpointPath: "business_google_ads_beta_events", requestType: "google_ads_page_beta_events_read" }, supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40)),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_feedback_read", endpointPath: "business_google_ads_beta_feedback", requestType: "google_ads_page_feedback_read" }, supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5)),
  ]);
  const { data: connection, error: connectionQueryError } = connectionQuery;
  if (connectionQueryError) {
@@ -458,14 +482,21 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   source: "direct" as const,
  })));
  const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId, campaignLocationsByCampaignId);
- const keywordReviewsByCampaignId = new Map<string, { review: NonNullable<ReturnType<typeof keywordReview>>; createdAt: string }>();
+ const keywordReviewsByCampaignId = new Map<string, { review: NonNullable<ReturnType<typeof keywordReview>>; createdAt: string; stale: boolean }>();
+ const latestKeywordReviewStaleAtByCampaignId = new Map<string, string>();
  const servingRelevantEventTypes = new Set(["google_ads_campaign_published", "google_ads_campaign_resumed", "google_ads_max_cpc_updated", "google_ads_budget_updated", "google_ads_campaign_location_added", "google_ads_campaign_location_removed"]);
  const servingRelevantChangeByCampaignId = new Map<string, string>();
  for (const entry of auditLog ?? []) {
-  if (entry.campaign_id && servingRelevantEventTypes.has(entry.event_type) && !servingRelevantChangeByCampaignId.has(entry.campaign_id) && !Number.isNaN(new Date(entry.created_at).getTime())) servingRelevantChangeByCampaignId.set(entry.campaign_id, entry.created_at);
+ if (entry.campaign_id && servingRelevantEventTypes.has(entry.event_type) && !servingRelevantChangeByCampaignId.has(entry.campaign_id) && !Number.isNaN(new Date(entry.created_at).getTime())) servingRelevantChangeByCampaignId.set(entry.campaign_id, entry.created_at);
+  if (entry.event_type === "google_ads_keyword_review_stale" && entry.campaign_id && !latestKeywordReviewStaleAtByCampaignId.has(entry.campaign_id)) latestKeywordReviewStaleAtByCampaignId.set(entry.campaign_id, entry.created_at);
   if (entry.event_type !== "google_ads_keyword_review_generated" || !entry.campaign_id || keywordReviewsByCampaignId.has(entry.campaign_id)) continue;
   const review = keywordReview(entry.metadata);
-  if (review) keywordReviewsByCampaignId.set(entry.campaign_id, { review, createdAt: entry.created_at });
+  if (review) keywordReviewsByCampaignId.set(entry.campaign_id, { review, createdAt: entry.created_at, stale: (latestKeywordReviewStaleAtByCampaignId.get(entry.campaign_id) ?? "") > entry.created_at });
+ }
+ for (const [campaignId, savedReview] of keywordReviewsByCampaignId) {
+  const campaign = (campaigns ?? []).find((entry: any) => entry.id === campaignId);
+  logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_checked", { businessId: business.id, googleCustomerId: campaign?.google_ads_customer_id ?? connection?.google_ads_customer_id ?? null, googleCampaignId: campaign?.google_campaign_id ?? null, snapshotHash: savedReview.review.snapshotHash, snapshotTimestamp: savedReview.review.snapshotTimestamp, keywordCount: savedReview.review.keywordCount, model: savedReview.review.model, durationMs: 0, cacheStatus: savedReview.stale ? "stale" : "hit" });
+  if (!savedReview.stale) logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_hit", { businessId: business.id, googleCustomerId: campaign?.google_ads_customer_id ?? connection?.google_ads_customer_id ?? null, googleCampaignId: campaign?.google_campaign_id ?? null, snapshotHash: savedReview.review.snapshotHash, snapshotTimestamp: savedReview.review.snapshotTimestamp, keywordCount: savedReview.review.keywordCount, model: savedReview.review.model, durationMs: 0, cacheStatus: "hit" });
  }
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const hasCampaigns = campaignCards.length > 0;
@@ -807,7 +838,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
       <div className="google-ads-section-heading"><div><h3>Servonas keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form className="google-ads-card-actions" action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button>{savedKeywordReview && <button className="button secondary" name="force" value="true" type="submit">Review again</button>}</form></div>
       {savedKeywordReview ? <>
-        <p className="google-ads-ai-review">Servonas AI review. Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}{savedKeywordReview.review.snapshotTimestamp ? `, based on Google Ads data from ${new Date(savedKeywordReview.review.snapshotTimestamp).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}` : ""}. {savedKeywordReview.review.performanceDataState === "early" ? "There is not enough performance data yet to judge which keywords truly convert, so this review focuses on configuration and intent." : "Recommendations use the recent campaign performance window."}</p>
+        <p className="google-ads-ai-review">Servonas AI review. Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}{savedKeywordReview.review.snapshotTimestamp ? `, based on Google Ads data from ${new Date(savedKeywordReview.review.snapshotTimestamp).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}` : ""}. {savedKeywordReview.stale ? "Google Ads data changed after this review. Review again for an updated analysis." : savedKeywordReview.review.performanceDataState === "early" ? "There is not enough performance data yet to judge which keywords truly convert, so this review focuses on configuration and intent." : "Recommendations use the recent campaign performance window."}</p>
         <div className="google-ads-health-focus">
          <strong>Servonas reviewed {savedKeywordReview.review.keywordsReviewed} active keyword{savedKeywordReview.review.keywordsReviewed === 1 ? "" : "s"}.</strong>
          <p>{savedKeywordReview.review.summary}</p>
