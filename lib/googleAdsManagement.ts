@@ -317,6 +317,37 @@ export type GoogleAdsKeywordReview = {
  recommendations: Array<{ id: string; category: "bid" | "pause_keyword" | "keep_keyword" | "add_keyword" | "match_type" | "negative_keyword" | "budget" | "conversion_tracking" | "other"; priority: "high" | "medium" | "low"; title: string; explanation: string; evidence: string[]; keywordIds: string[]; suggestedValue: GoogleAdsKeywordReviewSuggestedValue | null; canApplyInServonas: boolean }>;
 };
 
+export function googleAdsKeywordReviewSnapshotHash(snapshot: GoogleAdsKeywordReviewSnapshot) {
+ const { generatedAt: _generatedAt, ...stableSnapshot } = snapshot;
+ return createHash("sha256").update(JSON.stringify(stableSnapshot)).digest("hex");
+}
+
+export function logGoogleAdsKeywordReviewStage(event: string, metadata: Record<string, unknown>) {
+ console.info(event, metadata);
+}
+
+function keywordReviewLogMetadata(input: { businessId: string; googleCustomerId?: string | null; snapshot: GoogleAdsKeywordReviewSnapshot; snapshotHash: string; model: string; durationMs?: number; cacheStatus?: "hit" | "miss" | "bypassed" | null }) {
+ const { snapshot } = input;
+ const activeKeywords = snapshot.keywords.filter((keyword) => !keyword.negative && keyword.status === "ENABLED");
+ return {
+  businessId: input.businessId,
+  googleCustomerId: input.googleCustomerId ?? null,
+  googleCampaignId: snapshot.campaign.id,
+  snapshotHash: input.snapshotHash,
+  snapshotTimestamp: snapshot.generatedAt,
+  keywordCount: snapshot.keywords.length,
+  activeKeywordCount: activeKeywords.length,
+  searchTermCount: snapshot.searchTerms.items.length,
+  conversionGoalCount: snapshot.campaign.conversionGoals.length,
+  campaignImpressions: snapshot.campaign.impressions,
+  campaignClicks: snapshot.campaign.clicks,
+  campaignConversions: snapshot.campaign.conversions,
+  model: input.model,
+  durationMs: input.durationMs ?? null,
+  cacheStatus: input.cacheStatus ?? null,
+ };
+}
+
 const supportedGoogleAdsVersions = new Set(["v23", "v24", "v25"]);
 const configuredGoogleAdsVersion = process.env.GOOGLE_ADS_API_VERSION?.trim() || null;
 const googleAdsVersion = configuredGoogleAdsVersion && supportedGoogleAdsVersions.has(configuredGoogleAdsVersion)
@@ -2893,26 +2924,70 @@ export async function fetchGoogleAdsKeywordReviewSnapshot(input: {
  } satisfies GoogleAdsKeywordReviewSnapshot;
 }
 
-export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string; snapshot: GoogleAdsKeywordReviewSnapshot }) {
+export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string; googleCustomerId?: string | null; snapshot: GoogleAdsKeywordReviewSnapshot; snapshotHash?: string }) {
  const apiKey = process.env.OPENAI_API_KEY?.trim();
  if (!apiKey) return null as GoogleAdsKeywordReview | null;
+ const model = process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini";
+ const snapshotHash = input.snapshotHash ?? googleAdsKeywordReviewSnapshotHash(input.snapshot);
+ const startedAt = now();
+ const metadata = () => keywordReviewLogMetadata({ businessId: input.businessId, googleCustomerId: input.googleCustomerId, snapshot: input.snapshot, snapshotHash, model, durationMs: durationMs(startedAt), cacheStatus: "miss" });
+ logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_started", {
+  ...metadata(),
+  snapshotSummary: {
+   campaignId: input.snapshot.campaign.id,
+   campaignName: input.snapshot.campaign.name,
+   biddingStrategy: input.snapshot.campaign.biddingStrategy,
+   dailyBudget: input.snapshot.campaign.dailyBudgetMicros,
+   defaultMaxBid: input.snapshot.campaign.adGroupDefaultCpcMicros.length ? input.snapshot.campaign.adGroupDefaultCpcMicros : "unavailable",
+   keywordCount: input.snapshot.keywords.length,
+   enabledKeywordCount: input.snapshot.keywords.filter((keyword) => keyword.status === "ENABLED").length,
+   limitedKeywordCount: input.snapshot.keywords.filter((keyword) => keyword.primaryStatus === "LIMITED").length,
+   searchTermCount: input.snapshot.searchTerms.items.length,
+   conversionGoalCount: input.snapshot.campaign.conversionGoals.length,
+   impressions: input.snapshot.campaign.impressions,
+   clicks: input.snapshot.campaign.clicks,
+   conversions: input.snapshot.campaign.conversions,
+   earlyCampaignMode: input.snapshot.performanceDataState === "early",
+   snapshotHash,
+   dataQuality: { searchTermsAvailable: input.snapshot.searchTerms.available, bidEstimatesAvailable: input.snapshot.keywords.some((keyword) => keyword.bidEstimates.status === "available") },
+  },
+ });
  const allowedIds = new Set(input.snapshot.keywords.map((keyword) => keyword.id));
  const performanceDataState = input.snapshot.performanceDataState;
  try {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_keyword_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendations: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, category: { type: "string", enum: ["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"] }, priority: { type: "string", enum: ["high", "medium", "low"] }, title: { type: "string" }, explanation: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, keywordIds: { type: "array", items: { type: "string" } }, suggestedValue: { type: ["object", "null"], additionalProperties: false, properties: { type: { type: "string", enum: ["bid_adjustment", "keyword_list", "negative_keyword_list", "match_type_change", "budget_note", "other"] }, label: { type: "string" }, value: { type: ["string", "null"] } }, required: ["type", "label", "value"] }, canApplyInServonas: { type: "boolean" } }, required: ["id", "category", "priority", "title", "explanation", "evidence", "keywordIds", "suggestedValue", "canApplyInServonas"] } } }, required: ["summary", "recommendations"] } } }, messages: [{ role: "system", content: "You are Servonas's Google Ads keyword reviewer. Use only the supplied verified Google Ads facts. Do not invent bid estimates, demand, performance, policy state, campaign configuration, or search terms that are not present. Bid estimate fields may be unavailable. Only cite a specific Google bid estimate when a verified estimate is provided. If Google status indicates a bid limitation but no estimate is available, explain the limitation without inventing a dollar amount. Any suggested dollar amount must be clearly labeled as a Servonas recommendation, not a Google estimate. Clearly separate interpretation from facts. When performanceDataState is early, explicitly acknowledge that there is not enough performance data yet to judge true conversion winners and focus on configuration, intent, match type, duplication, location intent, and verified bid constraints. Distinguish current keywords from search terms. If searchTerms.available is false, say search-term evidence is unavailable rather than inferring it. Ground every pause or bid recommendation in the supplied facts and intent. Give 3 to 5 concise, practical recommendations. Do not claim guaranteed results." }, { role: "user", content: JSON.stringify(input.snapshot) }] }) });
-  if (!response.ok) return null;
-  const parsed = JSON.parse(String((await response.json() as any).choices?.[0]?.message?.content ?? "{}")) as any;
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_keyword_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendations: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, category: { type: "string", enum: ["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"] }, priority: { type: "string", enum: ["high", "medium", "low"] }, title: { type: "string" }, explanation: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, keywordIds: { type: "array", items: { type: "string" } }, suggestedValue: { type: ["object", "null"], additionalProperties: false, properties: { type: { type: "string", enum: ["bid_adjustment", "keyword_list", "negative_keyword_list", "match_type_change", "budget_note", "other"] }, label: { type: "string" }, value: { type: ["string", "null"] } }, required: ["type", "label", "value"] }, canApplyInServonas: { type: "boolean" } }, required: ["id", "category", "priority", "title", "explanation", "evidence", "keywordIds", "suggestedValue", "canApplyInServonas"] } } }, required: ["summary", "recommendations"] } } }, messages: [{ role: "system", content: "You are Servonas's Google Ads keyword reviewer. Use only the supplied verified Google Ads facts. Do not invent bid estimates, demand, performance, policy state, campaign configuration, or search terms that are not present. Bid estimate fields may be unavailable. Only cite a specific Google bid estimate when a verified estimate is provided. If Google status indicates a bid limitation but no estimate is available, explain the limitation without inventing a dollar amount. Any suggested dollar amount must be clearly labeled as a Servonas recommendation, not a Google estimate. Clearly separate interpretation from facts. When performanceDataState is early, explicitly acknowledge that there is not enough performance data yet to judge true conversion winners and focus on configuration, intent, match type, duplication, location intent, and verified bid constraints. Distinguish current keywords from search terms. If searchTerms.available is false, say search-term evidence is unavailable rather than inferring it. Ground every pause or bid recommendation in the supplied facts and intent. Give 3 to 5 concise, practical recommendations. Do not claim guaranteed results." }, { role: "user", content: JSON.stringify(input.snapshot) }] }) });
+  if (!response.ok) {
+   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_failed", { ...metadata(), provider: "openai", endpointHost: "api.openai.com", endpointPath: "/v1/chat/completions", httpStatus: response.status });
+   return null;
+  }
+  let parsed: any;
+  try {
+   parsed = JSON.parse(String((await response.json() as any).choices?.[0]?.message?.content ?? "{}"));
+  } catch {
+   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_validation_failed", { ...metadata(), reason: "response_not_json" });
+   return null;
+  }
   const categories = new Set(["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"]);
   const priorities = new Set(["high", "medium", "low"]);
-  const recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 5).flatMap((value: any, index: number) => {
-   if (!value || !categories.has(value.category) || !priorities.has(value.priority) || typeof value.title !== "string" || typeof value.explanation !== "string") return [];
+  const suggestedValueTypes = new Set(["bid_adjustment", "keyword_list", "negative_keyword_list", "match_type_change", "budget_note", "other"]);
+  if (typeof parsed.summary !== "string" || !Array.isArray(parsed.recommendations) || parsed.recommendations.some((value: any) => !value || typeof value.id !== "string" || !categories.has(value.category) || !priorities.has(value.priority) || typeof value.title !== "string" || typeof value.explanation !== "string" || !Array.isArray(value.evidence) || value.evidence.some((item: unknown) => typeof item !== "string") || !Array.isArray(value.keywordIds) || value.keywordIds.some((id: unknown) => typeof id !== "string") || typeof value.canApplyInServonas !== "boolean" || (value.suggestedValue !== null && (!value.suggestedValue || !suggestedValueTypes.has(value.suggestedValue.type) || typeof value.suggestedValue.label !== "string" || !(typeof value.suggestedValue.value === "string" || value.suggestedValue.value === null))))) {
+   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_validation_failed", { ...metadata(), reason: "response_schema_mismatch" });
+   return null;
+  }
+  const recommendations: GoogleAdsKeywordReview["recommendations"] = parsed.recommendations.slice(0, 5).map((value: any, index: number) => {
    const suggestedValue = value.suggestedValue && typeof value.suggestedValue === "object" && typeof value.suggestedValue.type === "string" && typeof value.suggestedValue.label === "string"
     ? { type: value.suggestedValue.type, label: value.suggestedValue.label.slice(0, 80), value: typeof value.suggestedValue.value === "string" ? value.suggestedValue.value.slice(0, 160) : null } satisfies GoogleAdsKeywordReviewSuggestedValue
     : null;
-   return [{ id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: Array.isArray(value.evidence) ? value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)) : [], keywordIds: Array.isArray(value.keywordIds) ? value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8) : [], suggestedValue, canApplyInServonas: false }];
-  }) : [];
-  return { summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 500) : "Keyword review completed.", performanceDataState, keywordsReviewed: input.snapshot.keywords.filter((keyword) => !keyword.negative).length, recommendations } satisfies GoogleAdsKeywordReview;
- } catch { return null; }
+   return { id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)), keywordIds: value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8), suggestedValue, canApplyInServonas: false };
+  });
+  const review = { summary: parsed.summary.slice(0, 500), performanceDataState, keywordsReviewed: input.snapshot.keywords.filter((keyword) => !keyword.negative).length, recommendations } satisfies GoogleAdsKeywordReview;
+  const prioritiesByCount = Object.fromEntries(["high", "medium", "low"].map((priority) => [priority, recommendations.filter((recommendation) => recommendation.priority === priority).length]));
+  logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_completed", { ...metadata(), recommendationCount: recommendations.length, categories: [...new Set(recommendations.map((recommendation) => recommendation.category))], priorities: prioritiesByCount, keywordIdsAffected: [...new Set(recommendations.flatMap((recommendation) => recommendation.keywordIds))], applyableRecommendationCount: recommendations.filter((recommendation) => recommendation.canApplyInServonas).length });
+  return review;
+ } catch (error) {
+  logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_failed", { ...metadata(), provider: "openai", endpointHost: "api.openai.com", endpointPath: "/v1/chat/completions", errorType: error instanceof Error ? error.name : "unknown" });
+  return null;
+ }
 }
 
 export async function updateGoogleAdsCampaignStatus(input: {
