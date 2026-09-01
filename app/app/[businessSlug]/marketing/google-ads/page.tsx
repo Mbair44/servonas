@@ -11,22 +11,17 @@ import {
   loadTenantGoogleAdsAccess,
   recordGoogleAdsBetaEvent,
   runGoogleAdsPermissionDiagnostic,
-  searchGoogleAdsGeoTargets,
   type GoogleAdsCustomer,
-  type GoogleAdsGeoTargetSuggestion,
 } from "@/lib/googleAdsManagement";
 import {
  addGoogleAdsNegativeKeywordAction,
- addGoogleAdsCampaignLocationAction,
  createGoogleAdsDraftAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
  refreshGoogleAdsAccountsAction,
  refreshGoogleAdsCampaignsAction,
- removeGoogleAdsCampaignLocationAction,
  runGoogleAdsPermissionDiagnosticAction,
- searchGoogleAdsCampaignLocationsAction,
  selectGoogleAdsCustomer,
  setGoogleAdsCampaignStatusAction,
  submitGoogleAdsBetaFeedbackAction,
@@ -35,6 +30,7 @@ import {
 } from "./actions";
 import { GoogleAdsDraftSubmit } from "@/components/GoogleAdsDraftSubmit";
 import { GoogleAdsManageCampaignControls } from "@/components/GoogleAdsManageCampaignControls";
+import { GoogleAdsLocationManager } from "@/components/GoogleAdsLocationManager";
 import { GoogleAdsPageLoadingOverlay } from "@/components/GoogleAdsPageLoadingOverlay";
 import { GoogleAdsOauthLauncher } from "@/components/GoogleAdsOauthLauncher";
 
@@ -320,7 +316,6 @@ export default async function GoogleAdsPage({
  let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
  let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
- let locationSearchResults: GoogleAdsGeoTargetSuggestion[] = [];
  let locationsError: string | null = null;
  if (connection?.status && connection.status !== "disconnected") {
   try {
@@ -362,22 +357,6 @@ export default async function GoogleAdsPage({
      campaignLocationsByCampaignId = new Map(campaignLocations.map((row) => [row.campaignId, row]));
     } catch (error) {
      locationsError = error instanceof Error ? error.message : "Campaign locations could not be loaded.";
-    }
-    if (query.manageLocations && query.locationQuery?.trim()) {
-     const selectedManagedCampaign = (campaigns ?? []).find((campaign: any) => String(campaign.id) === String(query.manageLocations));
-     if (selectedManagedCampaign?.google_campaign_id) {
-      try {
-       locationSearchResults = await searchGoogleAdsGeoTargets({
-        accessToken: connectionAccess.accessToken,
-        customerId: connectionAccess.customerId,
-        loginCustomerId: connectionAccess.loginCustomerId,
-        query: query.locationQuery.trim(),
-        businessId: business.id,
-       });
-      } catch (error) {
-       locationsError = error instanceof Error ? error.message : "Campaign locations could not be searched.";
-      }
-     }
     }
     try {
      topSearchTerms = await fetchGoogleAdsSearchTerms({
@@ -719,78 +698,13 @@ export default async function GoogleAdsPage({
        </div>
       </div>
       {locationsError ? <div className="workspace-notice warning">Location targeting is temporarily unavailable. {locationsError}</div> : null}
-      {(() => {
-       const locationTargeting = campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""));
-       const targetedLocations = locationTargeting?.targetedLocations ?? [];
-       const excludedLocations = locationTargeting?.excludedLocations ?? [];
-       const managingThisCampaign = String(query.manageLocations ?? "") === String(campaign.id);
-       return <>
-        <div className="google-ads-location-summary-card">
-         <div>
-          <span>Targeted locations</span>
-          <strong>{targetedLocations.length ? campaignLocationSummary(targetedLocations) : "No locations currently configured"}</strong>
-         </div>
-         <div>
-          <span>Targeting behavior</span>
-          <strong>{friendlyGeoTargetType(locationTargeting?.positiveGeoTargetType)}</strong>
-         </div>
-         <div>
-          <span>Excluded locations</span>
-          <strong>{excludedLocations.length || "None"}</strong>
-         </div>
-        </div>
-        <details className="google-ads-location-manager" open={managingThisCampaign}>
-         <summary>{targetedLocations.length ? "Manage locations" : "Add locations"}</summary>
-         <div className="google-ads-location-lists">
-          <div>
-           <strong>Targeted locations</strong>
-           {targetedLocations.length ? <div className="google-ads-location-list">{targetedLocations.map((location) => <article key={location.geoTargetConstant}>
-            <span>
-             <b>{location.canonicalName || location.name}</b>
-             <small>{location.targetType ? `${friendlyGeoTargetType(location.targetType)}${location.countryCode ? ` · ${location.countryCode}` : ""}` : location.countryCode ?? "Google Ads location"}</small>
-            </span>
-            <form action={removeGoogleAdsCampaignLocationAction.bind(null, businessSlug, campaign.id)}>
-             <input type="hidden" name="criterionResourceName" value={location.criterionResourceName ?? ""} />
-             <button className="sv-button sv-secondary" disabled={!location.criterionResourceName}>{targetedLocations.length === 1 ? "Remove last target" : "Remove"}</button>
-            </form>
-           </article>)}</div> : <p className="google-ads-location-empty">No locations are currently targeted.</p>}
-           {targetedLocations.length === 1 ? <small className="google-ads-location-warning">Removing this location will leave this campaign without any explicit location targeting.</small> : null}
-          </div>
-          {excludedLocations.length ? <div>
-           <strong>Excluded locations</strong>
-           <div className="google-ads-location-list">{excludedLocations.map((location) => <article key={location.geoTargetConstant}>
-            <span>
-             <b>{location.canonicalName || location.name}</b>
-             <small>{location.targetType ? `${friendlyGeoTargetType(location.targetType)}${location.countryCode ? ` · ${location.countryCode}` : ""}` : location.countryCode ?? "Google Ads location"}</small>
-            </span>
-           </article>)}</div>
-          </div> : null}
-         </div>
-         <form className="google-ads-location-search" action={searchGoogleAdsCampaignLocationsAction.bind(null, businessSlug, campaign.id)}>
-          <label>Search city, county, state, or ZIP
-           <input name="locationQuery" defaultValue={managingThisCampaign ? query.locationQuery ?? "" : ""} placeholder="Gilbert, Maricopa County, Arizona, 85296" />
-          </label>
-          <button className="sv-button sv-secondary">Search locations</button>
-         </form>
-         {managingThisCampaign && locationSearchResults.length ? <div className="google-ads-location-search-results">
-          <strong>Add another location</strong>
-          <div className="google-ads-location-list">{locationSearchResults.map((result) => {
-           const alreadyTargeted = targetedLocations.some((location) => location.geoTargetConstant === result.resourceName);
-           return <article key={result.resourceName}>
-            <span>
-             <b>{result.canonicalName || result.name}</b>
-             <small>{[result.targetType ? friendlyGeoTargetType(result.targetType) : null, result.countryCode].filter(Boolean).join(" · ") || "Google Ads geo target"}</small>
-            </span>
-            <form action={addGoogleAdsCampaignLocationAction.bind(null, businessSlug, campaign.id)}>
-             <input type="hidden" name="geoTargetConstant" value={result.resourceName} />
-             <button className="sv-button sv-secondary" disabled={alreadyTargeted}>{alreadyTargeted ? "Already targeted" : "Add location"}</button>
-            </form>
-           </article>;
-          })}</div>
-         </div> : null}
-        </details>
-       </>;
-      })()}
+      <GoogleAdsLocationManager
+       businessSlug={businessSlug}
+       campaignId={campaign.id}
+       initialTargeting={campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? "")) ?? null}
+       initialError={locationsError}
+       initialOpen={String(query.manageLocations ?? "") === String(campaign.id)}
+      />
      </section>
      <section className="google-ads-performance-block" aria-label="Campaign performance">
       <div className="google-ads-section-heading">

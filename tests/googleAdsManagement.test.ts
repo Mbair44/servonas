@@ -254,7 +254,14 @@ test("google ads service defaults to a supported api version instead of sunset v
 });
 
 test("google ads workspace uses beta positioning and separates servonas pricing from google spend", async () => {
- const [page,submit,actions]=await Promise.all([read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("../components/GoogleAdsDraftSubmit.tsx"),read("../app/app/[businessSlug]/marketing/google-ads/actions.ts")]);
+ const [page,submit,actions,locationManager,locationRoute,locationSearchRoute]=await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+  read("../components/GoogleAdsDraftSubmit.tsx"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../components/GoogleAdsLocationManager.tsx"),
+  read("../app/api/google-ads/campaign-locations/[businessSlug]/[campaignId]/route.ts"),
+  read("../app/api/google-ads/location-search/[businessSlug]/[campaignId]/route.ts"),
+ ]);
  assert.match(page, /Google Ads Beta/);
  assert.match(page, /Servonas Ads Beta/);
  assert.match(page, /Google advertising budget/);
@@ -324,16 +331,33 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /google-ads-keyword-section/);
  assert.match(page, /Location targeting/);
  assert.match(page, /Google Ads is the source of truth for where this campaign can appear\./);
- assert.match(page, /Manage locations/);
- assert.match(page, /Add locations/);
- assert.match(page, /No locations currently configured/);
- assert.match(page, /No locations are currently targeted\./);
- assert.match(page, /Search city, county, state, or ZIP/);
- assert.match(page, /Add location/);
- assert.match(page, /Already targeted/);
- assert.match(page, /Excluded locations/);
- assert.match(page, /Targeting behavior/);
- assert.match(page, /Removing this location will leave this campaign without any explicit location targeting\./);
+ assert.match(page, /GoogleAdsLocationManager/);
+ assert.match(locationManager, /Manage locations/);
+ assert.match(locationManager, /Add locations/);
+ assert.match(locationManager, /No locations currently configured/);
+ assert.match(locationManager, /No locations are currently targeted\./);
+ assert.match(locationManager, /Search city, county, state, or ZIP/);
+ assert.match(locationManager, /Add location/);
+ assert.match(locationManager, /Already targeted/);
+ assert.match(locationManager, /Excluded locations/);
+ assert.match(locationManager, /Targeting behavior/);
+ assert.match(locationManager, /Removing this location will leave this campaign without any explicit location targeting\./);
+ assert.match(locationManager, /Searching…/);
+ assert.match(locationManager, /Adding…/);
+ assert.match(locationManager, /Removing…/);
+ assert.ok(locationManager.includes("/api/google-ads/location-search/${encodeURIComponent(businessSlug)}/${encodeURIComponent(campaignId)}?q=${encodeURIComponent(trimmed)}"));
+ assert.ok(locationManager.includes("/api/google-ads/campaign-locations/${encodeURIComponent(businessSlug)}/${encodeURIComponent(campaignId)}"));
+ assert.match(locationRoute, /google_ads_location_add_mutation_started/);
+ assert.match(locationRoute, /google_ads_location_add_mutation_completed/);
+ assert.match(locationRoute, /google_ads_location_add_refetch_started/);
+ assert.match(locationRoute, /google_ads_location_add_refetch_completed/);
+ assert.match(locationRoute, /google_ads_location_remove_mutation_started/);
+ assert.match(locationRoute, /google_ads_location_remove_mutation_completed/);
+ assert.match(locationRoute, /google_ads_location_remove_refetch_started/);
+ assert.match(locationRoute, /google_ads_location_remove_refetch_completed/);
+ assert.doesNotMatch(locationRoute, /redirect\(`/);
+ assert.match(locationSearchRoute, /google_ads_location_search_started/);
+ assert.match(locationSearchRoute, /google_ads_location_search_completed/);
  assert.match(page, /google-ads-performance-block/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
  assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
