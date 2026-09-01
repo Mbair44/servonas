@@ -39,7 +39,9 @@ type Stored={sessionId:string;attribution:AttributionValues;landingUrl:string;re
 type TrackBookingFunnelOptions={inventoryItemId?:string;serviceId?:string;metadata?:Record<string,unknown>;touchOnly?:boolean};
 const stored=(slug:string):Stored=>{
  const existing=localStorage.getItem(key(slug));if(existing){try{const value=JSON.parse(existing) as Stored;if(value.sessionId)return value;}catch{/* replace malformed storage */}}
- const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search)),landingUrl:location.href,referrer:document.referrer,lastSessionSyncAt:0};localStorage.setItem(key(slug),JSON.stringify(value));return value;
+ let referrerSearch:URLSearchParams|undefined;
+ try{referrerSearch=document.referrer?new URL(document.referrer).searchParams:undefined;}catch{/* a malformed referrer cannot block tracking */}
+ const value={sessionId:crypto.randomUUID(),attribution:attributionFromSearch(new URLSearchParams(location.search),referrerSearch),landingUrl:location.href,referrer:document.referrer,lastSessionSyncAt:0};localStorage.setItem(key(slug),JSON.stringify(value));return value;
 };
 const bookingPathFor=(slug:string)=>`/book/${encodeURIComponent(slug)}`;
 const bookingCheckoutPathFor=(slug:string)=>`${bookingPathFor(slug)}/booking`;
