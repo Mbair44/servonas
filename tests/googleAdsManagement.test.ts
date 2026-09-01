@@ -374,7 +374,17 @@ test("google ads location targeting uses live Google campaign criteria and geo t
  assert.match(file, /SELECT campaign\.id, campaign_criterion\.criterion_id, campaign_criterion\.resource_name, campaign_criterion\.negative, campaign_criterion\.location\.geo_target_constant FROM campaign_criterion WHERE campaign\.id IN/);
  assert.match(file, /SELECT campaign\.id, campaign\.geo_target_type_setting\.positive_geo_target_type, campaign\.geo_target_type_setting\.negative_geo_target_type FROM campaign WHERE campaign\.id IN/);
  assert.match(file, /SELECT geo_target_constant\.resource_name, geo_target_constant\.id, geo_target_constant\.name, geo_target_constant\.canonical_name, geo_target_constant\.country_code, geo_target_constant\.target_type, geo_target_constant\.status FROM geo_target_constant WHERE geo_target_constant\.resource_name IN/);
- assert.match(file, /SELECT geo_target_constant\.resource_name, geo_target_constant\.id, geo_target_constant\.name, geo_target_constant\.canonical_name, geo_target_constant\.country_code, geo_target_constant\.target_type, geo_target_constant\.status FROM geo_target_constant WHERE geo_target_constant\.status = ENABLED AND \(geo_target_constant\.name LIKE/);
+ assert.match(file, /const normalizeGeoTargetSearchTerm = \(value: string\)/);
+ assert.match(file, /SELECT \$\{fields\} FROM geo_target_constant WHERE geo_target_constant\.status = ENABLED AND geo_target_constant\.name LIKE '%\$\{escaped\}%' LIMIT 12/);
+ assert.match(file, /SELECT \$\{fields\} FROM geo_target_constant WHERE geo_target_constant\.status = ENABLED AND geo_target_constant\.canonical_name LIKE '%\$\{escaped\}%' LIMIT 12/);
+ assert.match(file, /const merged = new Map<string, GoogleAdsGeoTargetSuggestion>\(\)/);
+ assert.match(file, /if \(!resourceName \|\| merged\.has\(resourceName\)\) continue/);
+ assert.match(file, /scoreGeoTargetSuggestion\(left, term\) - scoreGeoTargetSuggestion\(right, term\)/);
+ assert.match(file, /slice\(0, 12\)/);
+ assert.doesNotMatch(file, /geo_target_constant\.status = ENABLED AND \(geo_target_constant\.name LIKE/);
+ assert.match(file, /Google Ads geo target search failed/);
+ assert.match(file, /searchField: search\.searchField/);
+ assert.match(file, /sanitizedQuery: search\.query/);
  assert.match(file, /\/customers\/\$\{stripCustomerId\(input\.customerId\)\}\/campaignCriteria:mutate/);
  assert.match(file, /geoTargetConstant: input\.geoTargetConstant/);
  assert.match(file, /remove: input\.criterionResourceName/);
