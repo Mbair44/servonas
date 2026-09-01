@@ -153,7 +153,8 @@ export type GoogleAdsCampaignHealthIssueSeverity = "critical" | "warning" | "inf
 export type GoogleAdsCampaignHealthState = "healthy" | "needs_attention" | "critical_issue";
 export type GoogleAdsCampaignHealthFixAction = "increase_manual_cpc" | "setup_booking_conversion";
 export type GoogleAdsCampaignHealthDataState = "verified" | "unknown";
-export type GoogleAdsCampaignHealthDataQuality = Record<"campaign" | "adGroups" | "ads" | "keywords" | "conversionGoals", { state: GoogleAdsCampaignHealthDataState; error: string | null }>;
+export type GoogleAdsCampaignHealthQueryError = { code: string | null; message: string; requestId: string | null; googleStatus: string | null; durationMs: number; gaql: string };
+export type GoogleAdsCampaignHealthDataQuality = Record<"campaign" | "adGroups" | "ads" | "keywords" | "conversionGoals", { state: GoogleAdsCampaignHealthDataState; status: "verified" | "empty" | "error"; error: GoogleAdsCampaignHealthQueryError | null }>;
 export type GoogleAdsCampaignHealthIssue = {
  id: string;
  severity: GoogleAdsCampaignHealthIssueSeverity;
@@ -172,6 +173,7 @@ export type GoogleAdsCampaignHealthSnapshot = {
  campaignPrimaryStatus: string | null;
  campaignPrimaryStatusReasons: string[];
  adGroupIds: string[];
+ adGroupNames: string[];
  adGroupStatuses: string[];
  adGroupPrimaryStatuses: string[];
  adGroupPrimaryStatusReasons: string[];
@@ -2449,20 +2451,23 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
  if (!ids.length) return [] as GoogleAdsCampaignHealthSnapshot[];
  const queryIds = ids.join(",");
  const healthQuery = async (resource: keyof GoogleAdsCampaignHealthDataQuality, query: string) => {
+  const startedAt = now();
   try {
    return { rows: await googleAdsSearchStream(input.customerId, input.accessToken, query, input.loginCustomerId, { stage: `google_ads_campaign_health_${resource}_query`, requestType: `google_ads_campaign_health_${resource}_query`, businessId: input.businessId ?? null }), error: null };
   } catch (error) {
+   const requestError = error instanceof GoogleAdsRequestError ? error : null;
    const message = error instanceof Error ? error.message : "Google Ads health query failed.";
+   const failure = { code: requestError ? String(requestError.status) : null, message, requestId: requestError?.requestId ?? null, googleStatus: requestError?.googleStatus ?? null, durationMs: durationMs(startedAt), gaql: query } satisfies GoogleAdsCampaignHealthQueryError;
    // A failed diagnostic query must remain unknown, never become an empty result.
-   logGoogleAdsErrorDiagnostic("Google Ads campaign health query unavailable", { stage: `google_ads_campaign_health_${resource}_query`, resource, customerId: stripCustomerId(input.customerId), campaignIds: ids, error: message });
-   return { rows: [] as Record<string, unknown>[], error: message };
+   logGoogleAdsErrorDiagnostic("Google Ads campaign health query unavailable", { stage: `google_ads_campaign_health_${resource}_query`, resource, customerId: stripCustomerId(input.customerId), campaignIds: ids, loginCustomerId: input.loginCustomerId ? stripCustomerId(input.loginCustomerId) : null, gaql: query, googleRequestId: failure.requestId, googleErrorCategory: failure.googleStatus, googleErrorCode: failure.code, googleErrorMessage: failure.message, durationMs: failure.durationMs });
+   return { rows: [] as Record<string, unknown>[], error: failure };
   }
  };
  const [campaignResult, adGroupResult, adResult, keywordResult, conversionGoalResult] = await Promise.all([
-  healthQuery("campaign", `SELECT campaign.id, campaign.status, campaign.primary_status, campaign.primary_status_reasons, campaign.start_date, campaign.end_date, campaign.bidding_strategy_type, campaign.network_settings.target_google_search, campaign.network_settings.target_search_network, campaign.geo_target_type_setting.positive_geo_target_type, campaign.geo_target_type_setting.negative_geo_target_type FROM campaign WHERE campaign.id IN (${queryIds})`),
-  healthQuery("adGroups", `SELECT campaign.id, ad_group.id, ad_group.status, ad_group.primary_status, ad_group.primary_status_reasons, ad_group.cpc_bid_micros FROM ad_group WHERE campaign.id IN (${queryIds})`),
+  healthQuery("campaign", `SELECT campaign.id, campaign.status, campaign.primary_status, campaign.primary_status_reasons, campaign.bidding_strategy_type, campaign.network_settings.target_google_search, campaign.network_settings.target_search_network FROM campaign WHERE campaign.id IN (${queryIds})`),
+  healthQuery("adGroups", `SELECT campaign.id, ad_group.id, ad_group.name, ad_group.status, ad_group.primary_status, ad_group.primary_status_reasons, ad_group.cpc_bid_micros FROM ad_group WHERE campaign.id IN (${queryIds})`),
   healthQuery("ads", `SELECT campaign.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, ad_group_ad.policy_summary.policy_topic_entries FROM ad_group_ad WHERE campaign.id IN (${queryIds})`),
-  healthQuery("keywords", `SELECT campaign.id, ad_group_criterion.status, ad_group_criterion.primary_status_reasons, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.cpc_bid_micros FROM ad_group_criterion WHERE campaign.id IN (${queryIds}) AND ad_group_criterion.type = KEYWORD`),
+  healthQuery("keywords", `SELECT campaign.id, ad_group_criterion.status, ad_group_criterion.primary_status_reasons, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.cpc_bid_micros FROM keyword_view WHERE campaign.id IN (${queryIds})`),
   healthQuery("conversionGoals", "SELECT conversion_action.category, conversion_action.origin, conversion_action.primary_for_goal, conversion_action.status FROM conversion_action"),
  ]);
  const snapshots = new Map<string, GoogleAdsCampaignHealthSnapshot>();
@@ -2470,13 +2475,13 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   const current = snapshots.get(campaignId);
   if (current) return current;
   const dataQuality = {
-   campaign: { state: campaignResult.error ? "unknown" : "verified", error: campaignResult.error },
-   adGroups: { state: adGroupResult.error ? "unknown" : "verified", error: adGroupResult.error },
-   ads: { state: adResult.error ? "unknown" : "verified", error: adResult.error },
-   keywords: { state: keywordResult.error ? "unknown" : "verified", error: keywordResult.error },
-   conversionGoals: { state: conversionGoalResult.error ? "unknown" : "verified", error: conversionGoalResult.error },
+   campaign: { state: campaignResult.error ? "unknown" : "verified", status: campaignResult.error ? "error" : campaignResult.rows.length ? "verified" : "empty", error: campaignResult.error },
+   adGroups: { state: adGroupResult.error ? "unknown" : "verified", status: adGroupResult.error ? "error" : adGroupResult.rows.length ? "verified" : "empty", error: adGroupResult.error },
+   ads: { state: adResult.error ? "unknown" : "verified", status: adResult.error ? "error" : adResult.rows.length ? "verified" : "empty", error: adResult.error },
+   keywords: { state: keywordResult.error ? "unknown" : "verified", status: keywordResult.error ? "error" : keywordResult.rows.length ? "verified" : "empty", error: keywordResult.error },
+   conversionGoals: { state: conversionGoalResult.error ? "unknown" : "verified", status: conversionGoalResult.error ? "error" : conversionGoalResult.rows.length ? "verified" : "empty", error: conversionGoalResult.error },
   } satisfies GoogleAdsCampaignHealthDataQuality;
-  const created: GoogleAdsCampaignHealthSnapshot = { campaignId, biddingStrategyType: null, campaignStatus: null, campaignPrimaryStatus: null, campaignPrimaryStatusReasons: [], adGroupIds: [], adGroupStatuses: [], adGroupPrimaryStatuses: [], adGroupPrimaryStatusReasons: [], adGroupCpcBidMicros: [], keywordStatuses: [], keywordPrimaryStatusReasons: [], positiveKeywords: [], negativeKeywords: [], keywordCpcBidMicros: [], adStatuses: [], adApprovalStatuses: [], adPolicyTopics: [], startDate: null, endDate: null, targetSearchNetwork: null, targetGoogleSearch: null, positiveGeoTargetType: null, negativeGeoTargetType: null, conversionGoals: [], dataQuality };
+  const created: GoogleAdsCampaignHealthSnapshot = { campaignId, biddingStrategyType: null, campaignStatus: null, campaignPrimaryStatus: null, campaignPrimaryStatusReasons: [], adGroupIds: [], adGroupNames: [], adGroupStatuses: [], adGroupPrimaryStatuses: [], adGroupPrimaryStatusReasons: [], adGroupCpcBidMicros: [], keywordStatuses: [], keywordPrimaryStatusReasons: [], positiveKeywords: [], negativeKeywords: [], keywordCpcBidMicros: [], adStatuses: [], adApprovalStatuses: [], adPolicyTopics: [], startDate: null, endDate: null, targetSearchNetwork: null, targetGoogleSearch: null, positiveGeoTargetType: null, negativeGeoTargetType: null, conversionGoals: [], dataQuality };
   snapshots.set(campaignId, created);
   return created;
  };
@@ -2504,7 +2509,9 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   const reasons = readGoogleAdsField(row, "adGroup.primaryStatusReasons", "ad_group.primary_status_reasons");
   const bid = safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros"));
   const adGroupId = stripCustomerId(String(readGoogleAdsField(row, "adGroup.id", "ad_group.id") ?? ""));
+  const adGroupName = readGoogleAdsField(row, "adGroup.name", "ad_group.name");
   if (adGroupId) snapshot.adGroupIds.push(adGroupId);
+  if (typeof adGroupName === "string") snapshot.adGroupNames.push(adGroupName);
   if (typeof status === "string") snapshot.adGroupStatuses.push(status);
   if (typeof primaryStatus === "string") snapshot.adGroupPrimaryStatuses.push(primaryStatus);
   if (Array.isArray(reasons)) snapshot.adGroupPrimaryStatusReasons.push(...reasons.map(String));
@@ -2564,7 +2571,7 @@ export function buildGoogleAdsCampaignHealth(input: {
  const positiveKeywords = input.snapshot?.positiveKeywords ?? [];
  const negativeKeywords = input.snapshot?.negativeKeywords ?? [];
  const quality = input.snapshot?.dataQuality ?? {
-  campaign: { state: "unknown", error: "Campaign diagnostics were not loaded." }, adGroups: { state: "unknown", error: "Ad-group diagnostics were not loaded." }, ads: { state: "unknown", error: "Ad diagnostics were not loaded." }, keywords: { state: "unknown", error: "Keyword diagnostics were not loaded." }, conversionGoals: { state: "unknown", error: "Conversion-goal diagnostics were not loaded." },
+  campaign: { state: "unknown", status: "error", error: { code: null, message: "Campaign diagnostics were not loaded.", requestId: null, googleStatus: null, durationMs: 0, gaql: "" } }, adGroups: { state: "unknown", status: "error", error: { code: null, message: "Ad-group diagnostics were not loaded.", requestId: null, googleStatus: null, durationMs: 0, gaql: "" } }, ads: { state: "unknown", status: "error", error: { code: null, message: "Ad diagnostics were not loaded.", requestId: null, googleStatus: null, durationMs: 0, gaql: "" } }, keywords: { state: "unknown", status: "error", error: { code: null, message: "Keyword diagnostics were not loaded.", requestId: null, googleStatus: null, durationMs: 0, gaql: "" } }, conversionGoals: { state: "unknown", status: "error", error: { code: null, message: "Conversion-goal diagnostics were not loaded.", requestId: null, googleStatus: null, durationMs: 0, gaql: "" } },
  } satisfies GoogleAdsCampaignHealthDataQuality;
  const manualBidCandidates = [...(input.snapshot?.adGroupCpcBidMicros ?? []), ...(input.snapshot?.keywordCpcBidMicros ?? [])].filter((value) => value > 0);
  const effectiveBiddingStrategy = input.snapshot?.biddingStrategyType ?? input.campaign.bidding_strategy ?? null;
@@ -2575,7 +2582,7 @@ export function buildGoogleAdsCampaignHealth(input: {
   ? { id: "ad_group_unknown", severity: "info", title: "Ad group status could not be verified", description: "Google Ads did not return ad-group diagnostics, so Servonas cannot confirm whether an ad group is active.", currentValue: null, recommendedAction: "Refresh campaign health after Google Ads diagnostics are available.", canAutoFix: false, category: "serving" }
   : !adGroupStatuses.length || adGroupStatuses.every((status) => status === "PAUSED" || status === "REMOVED")
   ? { id: "ad_group_inactive", severity: "critical", title: "Ad group is not active", description: "This campaign does not currently have an enabled ad group that can serve.", currentValue: adGroupStatuses.length ? adGroupStatuses.join(", ") : "No ad groups found", recommendedAction: "Enable an ad group in Google Ads.", canAutoFix: false }
-  : { id: "ad_group_eligible", severity: "healthy", title: "Ad group eligible", description: "At least one ad group is enabled for this campaign.", currentValue: adGroupStatuses[0] ?? "Enabled", recommendedAction: "Keep the ad group active.", canAutoFix: false });
+  : { id: "ad_group_eligible", severity: "healthy", title: "Ad group eligible", description: "At least one ad group is enabled for this campaign.", currentValue: input.snapshot?.adGroupNames[0] ?? adGroupStatuses[0] ?? "Enabled", recommendedAction: "Keep the ad group active.", canAutoFix: false });
  if (quality.ads.state === "unknown") issues.push({ id: "ads_unknown", severity: "info", title: "Ad status could not be verified", description: "Google Ads did not return ad diagnostics, so Servonas cannot confirm ad approval or serving state.", currentValue: null, recommendedAction: "Refresh campaign health after Google Ads diagnostics are available.", canAutoFix: false, category: "serving" });
  else if (!adStatuses.length) issues.push({ id: "no_ads", severity: "critical", title: "No active ads found", description: "Google Ads confirmed that this campaign has no usable ads.", currentValue: "No ads returned", recommendedAction: "Add or repair an ad in Google Ads.", canAutoFix: false });
  else if (adApprovals.length && adApprovals.every((status) => status === "DISAPPROVED")) issues.push({ id: "ads_disapproved", severity: "critical", title: "Ads are disapproved", description: "Google policy review is blocking every ad in this campaign.", currentValue: "Disapproved", recommendedAction: "Review Google policy messages and update the ad.", canAutoFix: false });
@@ -2593,7 +2600,7 @@ export function buildGoogleAdsCampaignHealth(input: {
  const positiveKeywordSet = stringSet(positiveKeywords);
  const overlappingKeywords = [...stringSet(negativeKeywords)].filter((keyword) => positiveKeywordSet.has(keyword));
  if (overlappingKeywords.length) issues.push({ id: "negative_keyword_conflict", severity: "warning", title: "Negative keywords may block your own targeting", description: "At least one keyword appears in both your positive and negative lists, which can suppress delivery.", currentValue: overlappingKeywords.slice(0, 3).join(", "), recommendedAction: "Review the overlapping negative keywords.", canAutoFix: false });
- if (effectiveBiddingStrategy === "MANUAL_CPC") {
+ if (effectiveBiddingStrategy === "MANUAL_CPC" && quality.adGroups.state === "verified") {
   const currentManualBidMicros = manualBidCandidates.length ? Math.min(...manualBidCandidates) : Number(input.campaign.manual_cpc_bid_micros ?? 0);
   if (currentManualBidMicros > 0 && currentManualBidMicros <= googleAdsCriticalManualCpcMicros) issues.push({ id: "manual_cpc_too_low", severity: "critical", title: "Max CPC is extremely low", description: `Your current max CPC is ${microsToCurrency(currentManualBidMicros)}, which may prevent the campaign from entering competitive auctions.`, currentValue: microsToCurrency(currentManualBidMicros), recommendedAction: `Increase max CPC toward a safer starting point such as ${microsToCurrency(googleAdsRecommendedManualCpcMicros)}.`, canAutoFix: true, fixActionId: "increase_manual_cpc" });
   else if (currentManualBidMicros > googleAdsCriticalManualCpcMicros && currentManualBidMicros < googleAdsWarningManualCpcMicros) issues.push({ id: "manual_cpc_low", severity: "warning", title: "Max CPC may be too low to compete effectively", description: `The current max CPC of ${microsToCurrency(currentManualBidMicros)} may be too low for many searches.`, currentValue: microsToCurrency(currentManualBidMicros), recommendedAction: "Consider raising the bid if impressions stay low.", canAutoFix: true, fixActionId: "increase_manual_cpc" });

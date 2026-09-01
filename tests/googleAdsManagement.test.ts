@@ -430,15 +430,23 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
   read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
  ]);
  assert.match(file, /GoogleAdsCampaignHealthDataQuality/);
+ assert.match(file, /GoogleAdsCampaignHealthQueryError/);
+ assert.match(file, /status: "verified" \| "empty" \| "error"/);
  assert.match(file, /A failed diagnostic query must remain unknown, never become an empty result\./);
+ assert.match(file, /googleRequestId: failure\.requestId/);
+ assert.match(file, /googleErrorCategory: failure\.googleStatus/);
+ assert.match(file, /durationMs: failure\.durationMs/);
+ assert.doesNotMatch(file, /healthQuery\("campaign", `SELECT[^`]*campaign\.start_date[^`]*`\)/s);
+ assert.match(file, /healthQuery\("adGroups", `SELECT campaign\.id, ad_group\.id, ad_group\.name, ad_group\.status, ad_group\.primary_status, ad_group\.primary_status_reasons, ad_group\.cpc_bid_micros/);
  assert.match(file, /healthQuery\("keywords", `SELECT campaign\.id, ad_group_criterion\.status/);
- assert.match(file, /FROM ad_group_criterion WHERE campaign\.id IN/);
- assert.match(file, /ad_group_criterion\.type = KEYWORD/);
+ assert.match(file, /FROM keyword_view WHERE campaign\.id IN/);
  assert.match(file, /healthQuery\("conversionGoals", "SELECT conversion_action\.category/);
  assert.match(file, /id: "ad_group_unknown"/);
  assert.match(file, /id: "ads_unknown"/);
  assert.match(file, /id: "keywords_unknown"/);
  assert.match(file, /id: "booking_conversion_tracking"/);
+ assert.match(file, /input\.snapshot\?\.adGroupNames\[0\]/);
+ assert.match(file, /id: "manual_cpc_too_low"/);
  assert.match(file, /const categorizedIssues = issues\.map/);
  assert.match(file, /"optimization"/);
  assert.match(file, /reviewGoogleAdsCampaignHealthWithAi/);
@@ -451,6 +459,7 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(page, /Servonas recommends/);
  assert.match(page, /Conversion tracking/);
  assert.match(page, /AI recommendations temporarily unavailable\. Deterministic campaign health is still current\./);
+ assert.match(page, /Some campaign health checks could not be verified\. Verified checks are still shown below\./);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
