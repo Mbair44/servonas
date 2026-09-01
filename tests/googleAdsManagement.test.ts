@@ -462,6 +462,9 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(file, /Only use the supplied verified facts and deterministic findings\. Never invent campaign facts\./);
  assert.match(actions, /confirmCpcFix/);
  assert.match(actions, /recommended_setting_update_readiness_failed/);
+ assert.match(actions, /recommended_setting_readiness_check/);
+ assert.match(actions, /implementation: "action_specific_manual_cpc_v2"/);
+ assert.match(actions, /fix_cpc_blocked/);
  assert.match(actions, /fetchGoogleAdsManualCpcAdGroups/);
  assert.match(actions, /fetchGoogleAdsAdGroupBid/);
  assert.match(actions, /verification = await fetchGoogleAdsAdGroupBid/);

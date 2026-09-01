@@ -1924,10 +1924,14 @@ export async function loadTenantGoogleAdsAccess(businessId: string) {
   businessId,
   businessSlug: null,
  });
- const { data: connection } = await db.from("business_google_ads_connections")
+ const { data: connection, error: connectionError } = await db.from("business_google_ads_connections")
  .select("refresh_token,google_ads_customer_id,login_customer_id,accessible_customer_ids,accessible_customer_labels,accessible_root_customer_ids,accessible_root_customer_labels,selectable_customer_details,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id")
   .eq("business_id", businessId)
   .maybeSingle();
+ if (connectionError) {
+  logGoogleAdsErrorDiagnostic("Google Ads connection load failed", { stage: "load_google_ads_connection", provider: "supabase", requestType: "google_ads_connection_read", method: "GET", endpointHost: "supabase", endpointPath: "business_google_ads_connections", httpStatus: null, businessId, errorCode: connectionError.code, errorMessage: connectionError.message, durationMs: 0 });
+  throw new Error("Servonas could not load the Google Ads connection.");
+ }
  logGoogleAdsDiagnostic("Google Ads connection load completed", {
   stage: "load_google_ads_connection",
   provider: "supabase",
