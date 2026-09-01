@@ -558,30 +558,43 @@ export async function updateGoogleAdsBudgetAction(slug: string, campaignId: stri
 export async function applyRecommendedGoogleAdsSettingsAction(slug: string, campaignId: string, formData: FormData) {
  const { supabase, business, user } = await context(slug);
  const connection = await loadTenantGoogleAdsAccess(business.id);
- if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before updating campaign settings."));
- const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_id,google_ad_group_id,bidding_strategy,daily_budget_micros,manual_cpc_bid_micros,destination_url,status,created_at").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
- if (!campaign?.google_campaign_id || !campaign.google_ads_customer_id) redirect(path(slug, "error", "The selected campaign could not be verified."));
+ if (!connection?.customerId) {
+  logGoogleAdsActionError("Google Ads CPC fix blocked", { stage: "fix_cpc_blocked", implementation: "action_specific_manual_cpc_v2", action: "update_manual_cpc", businessId: business.id, campaignId, adGroupId: null, blockingReasons: ["google_ads_connection_or_selected_customer_missing"] });
+  redirect(path(slug, "error", "Reconnect Google Ads before updating campaign settings."));
+ }
+ const { data: campaign, error: campaignError } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_id,google_ad_group_id,bidding_strategy,daily_budget_micros,manual_cpc_bid_micros,destination_url,status,created_at").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
+ if (campaignError || !campaign?.google_campaign_id || !campaign.google_ads_customer_id) {
+  logGoogleAdsActionError("Google Ads CPC fix blocked", { stage: "fix_cpc_blocked", implementation: "action_specific_manual_cpc_v2", action: "update_manual_cpc", businessId: business.id, campaignId, adGroupId: null, blockingReasons: [campaignError ? "campaign_read_failed" : "campaign_google_identifiers_missing"], errorCode: campaignError?.code ?? null, errorMessage: campaignError?.message ?? null });
+  redirect(path(slug, "error", "The selected campaign could not be verified."));
+ }
  const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
- if (String(formData.get("confirmCpcFix") ?? "") !== "apply") redirect(path(slug, "error", "Confirm the max CPC change before applying it."));
+ if (String(formData.get("confirmCpcFix") ?? "") !== "apply") {
+  logGoogleAdsActionError("Google Ads CPC fix blocked", { stage: "fix_cpc_blocked", implementation: "action_specific_manual_cpc_v2", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, blockingReasons: ["confirmation_missing"] });
+  redirect(path(slug, "error", "Confirm the max CPC change before applying it."));
+ }
  const requestedCpcMicros = selectedMaximumBidMicros(formData);
- if (!requestedCpcMicros) redirect(path(slug, "error", "Enter a positive maximum bid using dollars and up to two decimal places."));
+ if (!requestedCpcMicros) {
+  logGoogleAdsActionError("Google Ads CPC fix blocked", { stage: "fix_cpc_blocked", implementation: "action_specific_manual_cpc_v2", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, blockingReasons: ["requested_cpc_invalid"] });
+  redirect(path(slug, "error", "Enter a positive maximum bid using dollars and up to two decimal places."));
+ }
  const startedAt = Date.now();
- logGoogleAdsAction("Google Ads CPC fix started", { stage: "fix_cpc_started", businessId: business.id, campaignId: campaign.google_campaign_id, requestedCpcMicros });
+ logGoogleAdsAction("Google Ads CPC fix started", { stage: "fix_cpc_started", implementation: "action_specific_manual_cpc_v2", businessId: business.id, campaignId: campaign.google_campaign_id, requestedCpcMicros });
  const selectedCustomerVerified = connection.customerId === campaign.google_ads_customer_id || connection.customerChoices.some((choice: { id: string }) => choice.id === campaign.google_ads_customer_id);
+ logGoogleAdsAction("Google Ads CPC readiness checked", { stage: "recommended_setting_readiness_check", action: "update_manual_cpc", implementation: "action_specific_manual_cpc_v2", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, campaignVerified: true, adGroupVerified: null, biddingStrategy: null, currentCpcMicros: null, requestedCpcMicros, requestedCpcValid: true, selectedCustomerVerified, blockingReasons: selectedCustomerVerified ? [] : ["selected_customer_not_verified"] });
  if (!selectedCustomerVerified) {
-  logGoogleAdsActionError("Google Ads CPC readiness failed", { stage: "recommended_setting_update_readiness_failed", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, authorized: true, campaignVerified: true, adGroupVerified: false, biddingStrategyVerified: false, currentCpcVerified: false, requestedCpcValid: true, blockingReasons: ["selected_customer_not_verified"] });
+  logGoogleAdsActionError("Google Ads CPC readiness failed", { stage: "fix_cpc_blocked", readinessStage: "recommended_setting_update_readiness_failed", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, authorized: true, campaignVerified: true, adGroupVerified: false, biddingStrategyVerified: false, currentCpcVerified: false, requestedCpcValid: true, blockingReasons: ["selected_customer_not_verified"] });
   redirect(path(slug, "error", "The selected Google Ads customer could not be verified for this campaign."));
  }
  const liveAdGroups = await fetchGoogleAdsManualCpcAdGroups({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id });
  if (!liveAdGroups.length || liveAdGroups.some((adGroup) => adGroup.biddingStrategyType !== "MANUAL_CPC")) {
   const blockingReasons = !liveAdGroups.length ? ["target_ad_group_not_found"] : ["campaign_not_manual_cpc"];
-  logGoogleAdsActionError("Google Ads CPC readiness failed", { stage: "recommended_setting_update_readiness_failed", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, authorized: true, campaignVerified: true, adGroupVerified: liveAdGroups.length > 0, biddingStrategyVerified: false, currentCpcVerified: false, requestedCpcValid: true, blockingReasons });
+  logGoogleAdsActionError("Google Ads CPC readiness failed", { stage: "fix_cpc_blocked", readinessStage: "recommended_setting_update_readiness_failed", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, authorized: true, campaignVerified: true, adGroupVerified: liveAdGroups.length > 0, biddingStrategyVerified: false, currentCpcVerified: false, requestedCpcValid: true, blockingReasons });
   redirect(path(slug, "error", !liveAdGroups.length ? "Servonas could not verify the target ad group." : "This campaign is not using Manual CPC."));
  }
  const oldCpcMicros = Math.min(...liveAdGroups.map((adGroup) => adGroup.cpcBidMicros).filter((bid) => bid > 0));
  const matchingAdGroups = liveAdGroups.filter((adGroup) => adGroup.cpcBidMicros === oldCpcMicros);
  if (!Number.isFinite(oldCpcMicros) || matchingAdGroups.length !== 1) {
-  logGoogleAdsActionError("Google Ads CPC readiness failed", { stage: "recommended_setting_update_readiness_failed", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, authorized: true, campaignVerified: true, adGroupVerified: true, biddingStrategyVerified: true, currentCpcVerified: false, requestedCpcValid: true, blockingReasons: ["current_cpc_not_uniquely_verified"] });
+  logGoogleAdsActionError("Google Ads CPC readiness failed", { stage: "fix_cpc_blocked", readinessStage: "recommended_setting_update_readiness_failed", action: "update_manual_cpc", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: null, authorized: true, campaignVerified: true, adGroupVerified: true, biddingStrategyVerified: true, currentCpcVerified: false, requestedCpcValid: true, blockingReasons: ["current_cpc_not_uniquely_verified"] });
   redirect(path(slug, "error", "Servonas could not read one verified current maximum bid for the target ad group."));
  }
  const targetAdGroup = matchingAdGroups[0]!;
