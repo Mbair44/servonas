@@ -539,6 +539,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
  const nextStepIndex = currentStepIndex === -1 ? setupSteps.length - 1 : currentStepIndex;
  const nextStep = setupSteps[nextStepIndex] ?? setupSteps[0];
  const compactActivity = (auditLog ?? []).slice(0, 4);
+ const liveCampaign = campaignCards.find(({ effectiveCardStatus }) => effectiveCardStatus === "published");
 
  await recordGoogleAdsBetaEvent({
   businessId: business.id,
@@ -555,7 +556,10 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   <header className="marketing-analytics-header">
    <div>
     <span className="sv-kicker">Marketing</span>
-    <h1>Google Ads Beta</h1>
+    <div className="google-ads-page-title-row">
+     <h1>Google Ads Beta</h1>
+     {liveCampaign && <span className="campaign-status sent">{liveCampaign.statusLabel}</span>}
+    </div>
     <p>Get more customers with Google Ads. Servonas helps build a simple Google Search campaign, choose keywords, write your ads, and track results while Google bills ad spend directly to your own account.</p>
     {business.name && <small>{business.name}</small>}
    </div>
@@ -739,7 +743,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        <h2>{campaign.campaign_name}</h2>
        <p>{campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""))?.targetedLocations ?? [])}</p>
       </div>
-      <span className={`campaign-status ${effectiveCardStatus === "published" ? "sent" : effectiveCardStatus === "paused" ? "skipped" : effectiveCardStatus === "issue" || effectiveCardStatus === "failed" || effectiveCardStatus === "removed" ? "failed" : "queued"}`}>{statusLabel}</span>
+      {campaign.id !== liveCampaign?.campaign.id && <span className={`campaign-status ${effectiveCardStatus === "published" ? "sent" : effectiveCardStatus === "paused" ? "skipped" : effectiveCardStatus === "issue" || effectiveCardStatus === "failed" || effectiveCardStatus === "removed" ? "failed" : "queued"}`}>{statusLabel}</span>}
      </header>
      <section className={`google-ads-status-callout is-${summary.tone}`} aria-label="Campaign status summary">
       <div>
