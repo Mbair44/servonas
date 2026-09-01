@@ -218,6 +218,28 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source));
   const rawEventCount = (eventsResponse.data ?? []).length;
   const latestEventAt = ((eventsResponse.data ?? []) as Array<{ occurred_at?: string | null }>).reduce<string | null>((latest, row) => row.occurred_at && (!latest || row.occurred_at > latest) ? row.occurred_at : latest, null);
+  const sessions = ((sessionsResponse.data ?? []) as Array<{
+    id: string;
+    utm_source?: string | null;
+    utm_medium?: string | null;
+    utm_campaign?: string | null;
+    utm_content?: string | null;
+    utm_term?: string | null;
+    first_referrer?: string | null;
+    first_landing_url?: string | null;
+    first_landing_path?: string | null;
+    gclid?: string | null;
+    gbraid?: string | null;
+    wbraid?: string | null;
+    fbclid?: string | null;
+    total_session_duration_seconds?: number | null;
+    engaged_duration_seconds?: number | null;
+    page_count?: number | null;
+    engaged_page_count?: number | null;
+  }>).filter((row) => source === "all" || normalizeMarketingSource(row) === source);
+  const landingEventSessionIds = new Set(events.filter((row) => ["landing_page_view", "landing_view"].includes(String(row.event_name))).map((row) => row.attribution_session_id).filter(Boolean));
+  // Sessions are authoritative visit records even if optional detail-event insertion failed.
+  const sessionVisitRows: FunnelEventRow[] = sessions.filter((session) => !landingEventSessionIds.has(session.id)).map((session) => ({ attribution_session_id: session.id, event_name: "landing_page_view", booking_attribution_sessions: session }));
   const attributedBookings = ((bookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; booking_attribution_snapshots?: unknown }>).map((row) => ({
     booking_id: row.id,
     status: row.status,
@@ -225,26 +247,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
   })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots) === source);
   const report = attachSessionMetricsToSourceReport(
-    buildSourcePerformanceReport(events, attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>),
-    ((sessionsResponse.data ?? []) as Array<{
-      id: string;
-      utm_source?: string | null;
-      utm_medium?: string | null;
-      utm_campaign?: string | null;
-      utm_content?: string | null;
-      utm_term?: string | null;
-      first_referrer?: string | null;
-      first_landing_url?: string | null;
-      first_landing_path?: string | null;
-      gclid?: string | null;
-      gbraid?: string | null;
-      wbraid?: string | null;
-      fbclid?: string | null;
-      total_session_duration_seconds?: number | null;
-      engaged_duration_seconds?: number | null;
-      page_count?: number | null;
-      engaged_page_count?: number | null;
-    }>).filter((row) => source === "all" || normalizeMarketingSource(row) === source),
+    buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>),
+    sessions,
   );
   const itemNames = new Map(((inventoryResponse.data ?? []) as Array<{ id: string; name: string | null }>).map((item) => [item.id, item.name?.trim() || "Rental item"]));
   const bookingSourceMap = new Map<string, MarketingSource>();
@@ -400,7 +404,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <details className="workspace-panel marketing-attribution-note">
       <summary>Analytics diagnostics</summary>
-      <p>Window: {window.from} to {window.to} ({business.timezone}). Business filter: {business.id}. Raw events: {rawEventCount}. Events after source filter: {events.length}. Sessions: {(sessionsResponse.data ?? []).length}. Latest event: {latestEventAt ?? "none"}. Query duration: {reportQueryDurationMs}ms.</p>
+      <p>Window: {window.from} to {window.to} ({business.timezone}). Business filter: {business.id}. Raw events: {rawEventCount}. Events after source filter: {events.length}. Sessions: {sessions.length}. Session-backed visits: {sessionVisitRows.length}. Latest event: {latestEventAt ?? "none"}. Query duration: {reportQueryDurationMs}ms.</p>
     </details>
 
     <section className="marketing-kpi-grid">

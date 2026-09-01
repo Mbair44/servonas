@@ -576,7 +576,11 @@ function safeStringArray(value: unknown) {
 
 function readGoogleAdsField<T>(record: Record<string, unknown> | undefined, camelKey: string, snakeKey: string) {
  if (!record) return undefined;
- return (record[camelKey] ?? record[snakeKey]) as T | undefined;
+ const readPath = (key: string): unknown => {
+  if (record[key] !== undefined) return record[key];
+  return key.split(".").reduce<unknown>((value, segment) => value && typeof value === "object" ? (value as Record<string, unknown>)[segment] : undefined, record);
+ };
+ return (readPath(camelKey) ?? readPath(snakeKey)) as T | undefined;
 }
 
 function geoTargetIdFromResourceName(value: string | null | undefined) {
@@ -2453,14 +2457,14 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
  const healthQuery = async (resource: keyof GoogleAdsCampaignHealthDataQuality, query: string) => {
   const startedAt = now();
   try {
-   return { rows: await googleAdsSearchStream(input.customerId, input.accessToken, query, input.loginCustomerId, { stage: `google_ads_campaign_health_${resource}_query`, requestType: `google_ads_campaign_health_${resource}_query`, businessId: input.businessId ?? null }), error: null };
+   return { rows: await googleAdsSearchStream(input.customerId, input.accessToken, query, input.loginCustomerId, { stage: `google_ads_campaign_health_${resource}_query`, requestType: `google_ads_campaign_health_${resource}_query`, businessId: input.businessId ?? null }), error: null, query };
   } catch (error) {
    const requestError = error instanceof GoogleAdsRequestError ? error : null;
    const message = error instanceof Error ? error.message : "Google Ads health query failed.";
    const failure = { code: requestError ? String(requestError.status) : null, message, requestId: requestError?.requestId ?? null, googleStatus: requestError?.googleStatus ?? null, durationMs: durationMs(startedAt), gaql: query } satisfies GoogleAdsCampaignHealthQueryError;
    // A failed diagnostic query must remain unknown, never become an empty result.
    logGoogleAdsErrorDiagnostic("Google Ads campaign health query unavailable", { stage: `google_ads_campaign_health_${resource}_query`, resource, customerId: stripCustomerId(input.customerId), campaignIds: ids, loginCustomerId: input.loginCustomerId ? stripCustomerId(input.loginCustomerId) : null, gaql: query, googleRequestId: failure.requestId, googleErrorCategory: failure.googleStatus, googleErrorCode: failure.code, googleErrorMessage: failure.message, durationMs: failure.durationMs });
-   return { rows: [] as Record<string, unknown>[], error: failure };
+   return { rows: [] as Record<string, unknown>[], error: failure, query };
   }
  };
  const [campaignResult, adGroupResult, adResult, keywordResult, conversionGoalResult] = await Promise.all([
@@ -2549,7 +2553,19 @@ export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
   status: typeof readGoogleAdsField(row, "conversionAction.status", "conversion_action.status") === "string" ? String(readGoogleAdsField(row, "conversionAction.status", "conversion_action.status")) : null,
  }));
  for (const snapshot of snapshots.values()) snapshot.conversionGoals = conversionGoals;
- return ids.map((campaignId) => ensure(campaignId));
+ const output = ids.map((campaignId) => ensure(campaignId));
+ const assertNormalized = (resource: keyof GoogleAdsCampaignHealthDataQuality, result: { rows: Record<string, unknown>[]; error: GoogleAdsCampaignHealthQueryError | null; query: string }, normalizedCount: number) => {
+  if (result.error || !result.rows.length || normalizedCount > 0) return;
+  const error = { code: "NORMALIZATION_MISMATCH", message: "Google Ads returned rows that Servonas could not normalize.", requestId: null, googleStatus: null, durationMs: 0, gaql: result.query } satisfies GoogleAdsCampaignHealthQueryError;
+  logGoogleAdsErrorDiagnostic("Google Ads campaign health normalization mismatch", { stage: "campaign_health_normalization_mismatch", resource, customerId: stripCustomerId(input.customerId), campaignIds: ids, rawCount: result.rows.length, normalizedCount, gaql: result.query });
+  for (const snapshot of output) snapshot.dataQuality[resource] = { state: "unknown", status: "error", error };
+ };
+ assertNormalized("adGroups", adGroupResult, output.reduce((count, snapshot) => count + snapshot.adGroupIds.length, 0));
+ assertNormalized("ads", adResult, output.reduce((count, snapshot) => count + snapshot.adStatuses.length, 0));
+ assertNormalized("keywords", keywordResult, output.reduce((count, snapshot) => count + snapshot.keywordStatuses.length, 0));
+ assertNormalized("campaign", campaignResult, output.filter((snapshot) => snapshot.campaignStatus || snapshot.biddingStrategyType).length);
+ assertNormalized("conversionGoals", conversionGoalResult, conversionGoals.filter((goal) => goal.category || goal.origin || goal.status || goal.primary !== null).length);
+ return output;
 }
 
 export function buildGoogleAdsCampaignHealth(input: {
@@ -2651,7 +2667,7 @@ export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: s
   deterministicFindings: input.issues.filter((issue) => issue.severity !== "healthy").map((issue) => ({ id: issue.id, category: issue.category ?? "serving", severity: issue.severity, title: issue.title, evidence: issue.currentValue ?? issue.description })),
  };
  try {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_campaign_health_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendationIds: { type: "array", items: { type: "string" } } }, required: ["summary", "recommendationIds"] } } }, messages: [{ role: "system", content: "You review Google Ads facts for a small-business owner. Only use the supplied verified facts and deterministic findings. Never invent campaign facts. Treat unknown as unknown. Do not claim causation. Prioritize serving before optimization and conversion tracking. Return only the requested JSON." }, { role: "user", content: JSON.stringify(verifiedFacts) }] }) });
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini", temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_campaign_health_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendationIds: { type: "array", items: { type: "string" } } }, required: ["summary", "recommendationIds"] } } }, messages: [{ role: "system", content: "You review Google Ads facts for a small-business owner. Only use the supplied verified facts and deterministic findings. Never invent campaign facts. Treat unknown as unknown; never treat it as an empty result or zero count. Do not claim causation. Prioritize serving before optimization and conversion tracking. Return only the requested JSON." }, { role: "user", content: JSON.stringify(verifiedFacts) }] }) });
   if (!response.ok) return null;
   const body = await response.json() as any;
   const parsed = JSON.parse(String(body.choices?.[0]?.message?.content ?? "{}")) as { summary?: unknown; recommendationIds?: unknown };

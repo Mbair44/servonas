@@ -431,10 +431,13 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  ]);
  assert.match(file, /GoogleAdsCampaignHealthDataQuality/);
  assert.match(file, /GoogleAdsCampaignHealthQueryError/);
+ assert.match(file, /key\.split\("\."\)\.reduce/);
  assert.match(file, /status: "verified" \| "empty" \| "error"/);
  assert.match(file, /A failed diagnostic query must remain unknown, never become an empty result\./);
  assert.match(file, /googleRequestId: failure\.requestId/);
  assert.match(file, /googleErrorCategory: failure\.googleStatus/);
+ assert.match(file, /campaign_health_normalization_mismatch/);
+ assert.match(file, /code: "NORMALIZATION_MISMATCH"/);
  assert.match(file, /durationMs: failure\.durationMs/);
  assert.doesNotMatch(file, /healthQuery\("campaign", `SELECT[^`]*campaign\.start_date[^`]*`\)/s);
  assert.match(file, /healthQuery\("adGroups", `SELECT campaign\.id, ad_group\.id, ad_group\.name, ad_group\.status, ad_group\.primary_status, ad_group\.primary_status_reasons, ad_group\.cpc_bid_micros/);
