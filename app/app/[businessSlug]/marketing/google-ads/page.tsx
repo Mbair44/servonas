@@ -777,6 +777,21 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        <strong>Google serving status: {effectivePrimaryStatus ? friendlyPrimaryStatus(effectivePrimaryStatus) : "Sync unavailable"}</strong>
        <span>Google campaign status: {effectiveGoogleStatus ?? "Sync unavailable"}</span>
       </div>
+      <section className={`google-ads-health-panel google-ads-status-health is-${health.state}`} aria-label="Campaign health">
+       <div className="google-ads-section-heading">
+        <div><h3>Campaign health</h3><p>{health.state === "healthy" ? "No major setup issues detected." : health.state === "monitoring" ? "Servonas is monitoring delivery while Google begins serving this campaign." : "Servonas checks for configuration problems beyond Google's serving status."}</p></div>
+        <span className="google-ads-health-badge">{healthLabel}</span>
+       </div>
+       {healthError ? <div className="workspace-notice warning">Some campaign health checks could not be verified. Verified checks are still shown below.</div> : null}
+       {health.mostImportantIssue && health.mostImportantIssue.severity !== "healthy" ? <div className="google-ads-health-focus">
+        <strong>{health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? "Your maximum bid is too low" : health.mostImportantIssue.title}</strong>
+        {health.mostImportantIssue.currentValue ? <span>Current: {health.mostImportantIssue.currentValue}</span> : null}
+        {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <><p>Your campaign is currently allowed to bid a maximum of {health.mostImportantIssue.currentValue} when someone searches for services like yours. That is likely too low to compete for local searches and may prevent your ad from being shown.</p><GoogleAdsBidAdjustment action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)} currentBidDollars={Number(health.mostImportantIssue.currentValue?.replace(/[^0-9.]/g, "") ?? 0)} recommendedBidDollars={health.recommendedManualCpcMicros / 1_000_000} dailyBudgetLabel={dailyBudgetLabel(campaign.daily_budget_micros)} /></> : <>{<p>{health.mostImportantIssue.description}</p>}{health.mostImportantIssue.recommendedAction ? <p>{health.mostImportantIssue.recommendedAction}</p> : null}</>}
+        {health.state === "monitoring" ? <small>We’ll flag this if the campaign remains at 0 impressions after {health.gracePeriodHoursRemaining} more hour{health.gracePeriodHoursRemaining === 1 ? "" : "s"}.</small> : null}
+       </div> : null}
+       {health.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{healthGroups.map((group) => <section key={group.category}><h4>{group.label}</h4>{group.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</section>)}</div></details>}
+       {health.issues.some((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc") && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc").map((issue) => <article key={`recommendation-${issue.id}`}><strong>Recommended</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
+      </section>
      </section>
      <section className="google-ads-overview-grid" aria-label="Campaign overview">
       <article className="google-ads-overview-stat">
@@ -791,25 +806,26 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        <span>Destination</span>
        <strong>{campaign.destination_url}</strong>
       </article>
-      <article className="google-ads-overview-stat">
+     <article className="google-ads-overview-stat">
        <span>Targeting</span>
        <strong>{campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id ?? ""))?.targetedLocations ?? [])}</strong>
       </article>
      </section>
-     <section className={`google-ads-health-panel is-${health.state}`} aria-label="Campaign health">
+     <section className="google-ads-performance-block" aria-label="Campaign performance">
       <div className="google-ads-section-heading">
-       <div><h3>Campaign health</h3><p>{health.state === "healthy" ? "No major setup issues detected." : health.state === "monitoring" ? "Servonas is monitoring delivery while Google begins serving this campaign." : "Servonas checks for configuration problems beyond Google's serving status."}</p></div>
-       <span className="google-ads-health-badge">{healthLabel}</span>
+       <div>
+        <h3>Performance</h3>
+        <p>{summary.performanceHint ?? "Track how many people are seeing, clicking, and converting from this campaign."}</p>
+       </div>
       </div>
-      {healthError ? <div className="workspace-notice warning">Some campaign health checks could not be verified. Verified checks are still shown below.</div> : null}
-      {health.mostImportantIssue && health.mostImportantIssue.severity !== "healthy" ? <div className="google-ads-health-focus">
-       <strong>{health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? "Your maximum bid is too low" : health.mostImportantIssue.title}</strong>
-       {health.mostImportantIssue.currentValue ? <span>Current: {health.mostImportantIssue.currentValue}</span> : null}
-       {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <><p>Your campaign is currently allowed to bid a maximum of {health.mostImportantIssue.currentValue} when someone searches for services like yours. That is likely too low to compete for local searches and may prevent your ad from being shown.</p><GoogleAdsBidAdjustment action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)} currentBidDollars={Number(health.mostImportantIssue.currentValue?.replace(/[^0-9.]/g, "") ?? 0)} recommendedBidDollars={health.recommendedManualCpcMicros / 1_000_000} dailyBudgetLabel={dailyBudgetLabel(campaign.daily_budget_micros)} /></> : <>{<p>{health.mostImportantIssue.description}</p>}{health.mostImportantIssue.recommendedAction ? <p>{health.mostImportantIssue.recommendedAction}</p> : null}</>}
-       {health.state === "monitoring" ? <small>We’ll flag this if the campaign remains at 0 impressions after {health.gracePeriodHoursRemaining} more hour{health.gracePeriodHoursRemaining === 1 ? "" : "s"}.</small> : null}
-      </div> : null}
-      {health.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{healthGroups.map((group) => <section key={group.category}><h4>{group.label}</h4>{group.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</section>)}</div></details>}
-      {health.issues.some((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc") && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc").map((issue) => <article key={`recommendation-${issue.id}`}><strong>Recommended</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
+      <dl className="google-ads-facts google-ads-performance-facts">
+       <div><dt>Impressions</dt><dd>{metric?.impressions ?? "—"}</dd></div>
+       <div><dt>Clicks</dt><dd>{metric?.clicks ?? "—"}</dd></div>
+       <div><dt>CTR</dt><dd>{metric ? `${metric.ctr.toFixed(1)}%` : "—"}</dd></div>
+       <div><dt>Avg CPC</dt><dd>{metric ? microsToMoney(metric.averageCpcMicros) : "—"}</dd></div>
+       <div><dt>Conversions</dt><dd>{metric?.conversions ?? "—"}</dd></div>
+       <div><dt>CPL</dt><dd>{metric?.conversions ? microsToMoney(metric.costPerConversionMicros) : "—"}</dd></div>
+      </dl>
      </section>
      {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
       <div className="google-ads-section-heading"><div><h3>Servonas keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form className="google-ads-card-actions" action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button>{savedKeywordReview && <button className="button secondary" name="force" value="true" type="submit">Review again</button>}</form></div>
@@ -883,22 +899,6 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        initialError={locationsError}
        initialOpen={String(query.manageLocations ?? "") === String(campaign.id)}
       />
-     </section>
-     <section className="google-ads-performance-block" aria-label="Campaign performance">
-      <div className="google-ads-section-heading">
-       <div>
-        <h3>Performance</h3>
-        <p>{summary.performanceHint ?? "Track how many people are seeing, clicking, and converting from this campaign."}</p>
-       </div>
-      </div>
-      <dl className="google-ads-facts google-ads-performance-facts">
-       <div><dt>Impressions</dt><dd>{metric?.impressions ?? "—"}</dd></div>
-       <div><dt>Clicks</dt><dd>{metric?.clicks ?? "—"}</dd></div>
-       <div><dt>CTR</dt><dd>{metric ? `${metric.ctr.toFixed(1)}%` : "—"}</dd></div>
-       <div><dt>Avg CPC</dt><dd>{metric ? microsToMoney(metric.averageCpcMicros) : "—"}</dd></div>
-       <div><dt>Conversions</dt><dd>{metric?.conversions ?? "—"}</dd></div>
-       <div><dt>CPL</dt><dd>{metric?.conversions ? microsToMoney(metric.costPerConversionMicros) : "—"}</dd></div>
-      </dl>
      </section>
      <details className="google-ads-technical-details">
       <summary>Technical details</summary>
