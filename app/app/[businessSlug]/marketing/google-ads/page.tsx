@@ -56,11 +56,20 @@ const accountCreateUrl = "https://ads.google.com/home/";
 const industryLabel = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Business";
 const dailyBudgetLabel = (micros: number | string | null | undefined) => `${microsToMoney(Number(micros ?? 0))}/day`;
 const friendlyGeoTargetType = (value: string | null | undefined) => value ? value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Unknown";
+const usStateAbbreviations: Record<string, string> = { Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY" };
+const friendlyLocationName = (value: string | null | undefined) => {
+ if (!value) return "Unknown location";
+ const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+ if (parts.at(-1) === "United States") parts.pop();
+ const state = parts.at(-1);
+ if (state && usStateAbbreviations[state]) parts[parts.length - 1] = usStateAbbreviations[state];
+ return parts.join(", ");
+};
 const campaignLocationSummary = (locations: Array<{ canonicalName: string | null; name: string }>) => {
  if (!locations.length) return "No locations set";
- const names = locations.map((location) => location.canonicalName || location.name);
- if (names.length <= 2) return names.join(", ");
- return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+ const names = locations.map((location) => friendlyLocationName(location.canonicalName || location.name));
+ if (names.length <= 2) return names.join(" · ");
+ return `${names.slice(0, 2).join(" · ")} · +${names.length - 2} more`;
 };
 const friendlyGoogleCampaignStatus = (status: string | null | undefined) => {
  if (status === "ENABLED") return "Published — Active";
@@ -173,8 +182,8 @@ function buildCampaignSummary(input: {
   return {
    tone: "healthy",
    badge: "Active",
-   headline: "Campaign is active and eligible to serve",
-   supporting: "Google has approved the campaign to run. Use the performance section below to watch traffic and conversions.",
+   headline: "Campaign is active",
+   supporting: "Google's serving status and Servonas campaign health are shown separately below.",
    technicalStatus,
    issueLabel,
    performanceHint: input.hasMetrics ? null : "Performance data will appear once the campaign starts collecting activity.",
@@ -524,9 +533,9 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
     <div>
      <span className="sv-kicker">Get started with Google Ads</span>
      <h2>{setupComplete ? "Google Ads setup complete" : nextStep.label}</h2>
-     <p>{setupComplete ? "Your connection, billing, campaign, and reporting flow are in place. Use the sections below to manage and track results." : "Servonas will guide you through setup step by step. You stay in control of your budget, and Google bills you directly."}</p>
+     <p>{setupComplete ? "Everything is ready." : "Servonas will guide you through setup step by step. You stay in control of your budget, and Google bills you directly."}</p>
     </div>
-    <div className="google-ads-beta-pricing">
+    {!setupComplete && <div className="google-ads-beta-pricing">
      <article>
       <span>Servonas Ads Beta</span>
       <strong>$0</strong>
@@ -537,7 +546,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       <strong>You choose the amount</strong>
       <small>Start small and adjust anytime. Google bills you directly.</small>
      </article>
-    </div>
+    </div>}
    </div>
    {!setupConnected && <section className="google-ads-onboarding-choice" aria-label="Google Ads onboarding">
     <div>
@@ -560,7 +569,23 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      </article>;
     })}
    </div>}
-   {setupComplete && <div className="google-ads-guide-complete"><strong>Everything needed to launch and monitor Google Ads is ready.</strong><div className="google-ads-readiness-mini">{setupSteps.map((step) => <span key={step.id} className="is-complete">{step.label}</span>)}</div></div>}
+   {setupComplete && <details className="google-ads-setup-details">
+    <summary>View setup details</summary>
+    <div className="google-ads-guide-details-body">
+     <div className="google-ads-readiness-mini">{setupSteps.map((step) => <span key={step.id} className="is-complete">{step.label}</span>)}</div>
+     <div className="google-ads-beta-pricing">
+      <article><span>Servonas Ads Beta</span><strong>$0</strong><small>Included during beta. No setup fee or monthly management fee.</small></article>
+      <article><span>Google advertising budget</span><strong>You choose the amount</strong><small>Start small and adjust anytime. Google bills you directly.</small></article>
+     </div>
+     <section className="google-ads-readiness-group">
+      <header><strong>Servonas already has these covered</strong><span>These checks help make sure your campaign has the basics it needs.</span></header>
+      <div className="google-ads-supporting-checks">
+       <article className={businessInfoReady ? "is-complete" : ""}><strong>Business info</strong><span>{businessInfoReady ? "Ready for ad drafting" : "Add email, city, or state"}</span></article>
+       <article className={landingPageReady ? "is-complete" : ""}><strong>Landing page</strong><span>{landingPageReady ? "Ready for traffic" : "Publish a site or booking page"}</span></article>
+      </div>
+     </section>
+    </div>
+   </details>}
    <div className="google-ads-guide-actions">
     {setupConnected && !billingReady && <>
      <a className="sv-button" href={billingUrl(selectedCustomerId)} target="_blank" rel="noopener noreferrer">Complete Billing with Google</a>
@@ -570,7 +595,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      </form>
     </>}
    </div>
-   <section className="google-ads-readiness-group">
+   {!setupComplete && <section className="google-ads-readiness-group">
     <header>
      <strong>Servonas already has these covered</strong>
      <span>These checks help make sure your campaign has the basics it needs.</span>
@@ -579,7 +604,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      <article className={businessInfoReady ? "is-complete" : ""}><strong>Business info</strong><span>{businessInfoReady ? "Ready for ad drafting" : "Add email, city, or state"}</span></article>
      <article className={landingPageReady ? "is-complete" : ""}><strong>Landing page</strong><span>{landingPageReady ? "Ready for traffic" : "Publish a site or booking page"}</span></article>
     </div>
-   </section>
+   </section>}
   </section>
 
   {!setupConnected ? null : <section className="workspace-panel google-ads-connection-compact">
@@ -680,8 +705,8 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        <p>{summary.supporting}</p>
       </div>
       <div className="google-ads-status-meta">
-       <strong>{summary.technicalStatus}</strong>
-       <span>Issues: {summary.issueLabel}</span>
+       <strong>Google serving status: {effectivePrimaryStatus ? friendlyPrimaryStatus(effectivePrimaryStatus) : "Sync unavailable"}</strong>
+       <span>Google campaign status: {effectiveGoogleStatus ?? "Sync unavailable"}</span>
       </div>
      </section>
      <section className="google-ads-overview-grid" aria-label="Campaign overview">
@@ -704,28 +729,21 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      </section>
      <section className={`google-ads-health-panel is-${health.state}`} aria-label="Campaign health">
       <div className="google-ads-section-heading">
-       <div>
-        <h3>Campaign health</h3>
-        <p>Is this campaign configured in a way that is likely to actually serve and perform?</p>
-       </div>
+       <div><h3>Campaign health</h3><p>{health.state === "healthy" ? "No major setup issues detected." : "Servonas checks for configuration problems beyond Google's serving status."}</p></div>
        <span className="google-ads-health-badge">{healthLabel}</span>
       </div>
       {healthError ? <div className="workspace-notice warning">Campaign health details are temporarily unavailable. {healthError}</div> : null}
-      <div className="google-ads-health-list">
-       {health.issues.slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}>
-        <strong>{issue.severity === "healthy" ? "✓" : issue.severity === "critical" ? "!" : issue.severity === "warning" ? "!" : "i"} {issue.title}</strong>
-        <span>{issue.currentValue ?? issue.description}</span>
-       </article>)}
-      </div>
       {health.mostImportantIssue && health.mostImportantIssue.severity !== "healthy" ? <div className="google-ads-health-focus">
-       <strong>Most important issue:</strong>
+       <strong>{health.mostImportantIssue.title}</strong>
+       {health.mostImportantIssue.currentValue ? <span>Current: {health.mostImportantIssue.currentValue}</span> : null}
        <p>{health.mostImportantIssue.description}</p>
-       <p>{health.mostImportantIssue.recommendedAction}</p>
+       {health.mostImportantIssue.recommendedAction ? <p>{health.mostImportantIssue.recommendedAction}</p> : null}
        {health.mostImportantIssue.fixActionId === "increase_manual_cpc" ? <form action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)}>
         <button className="sv-button">Fix recommended setting</button>
         <small>Current: {health.mostImportantIssue.currentValue} · New: {microsToMoney(health.recommendedManualCpcMicros)}</small>
        </form> : null}
       </div> : null}
+      {health.issues.length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{health.issues.slice(1, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</div></details>}
      </section>
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">
@@ -826,21 +844,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
    <section className="workspace-panel google-ads-performance">
     <header><div><h2>Performance</h2><p>Track spend, traffic, and conversions for the selected reporting window.</p></div></header>
     {metricsError && <div className="workspace-notice warning">Performance metrics are temporarily unavailable. {metricsError}</div>}
-    <form className="marketing-filter-bar" action={refreshGoogleAdsCampaignsAction.bind(null, businessSlug)}>
-     <div className="marketing-filter-group">
-      <label>From<input type="date" name="from" defaultValue={from} /></label>
-      <label>To<input type="date" name="to" defaultValue={to} /></label>
-      <label>Connected account<input value={connection?.google_ads_customer_id ?? "Not connected"} readOnly /></label>
-     </div>
-     <div className="marketing-filter-actions"><button className="sv-button">Refresh metrics</button></div>
-    </form>
-    <section className="marketing-kpi-grid" aria-label="Google Ads summary">
-     <article className="workspace-panel"><span>Active spend</span><strong>{microsToMoney(metricsTotals.spendMicros)}</strong><small>Google bills the connected account directly</small></article>
-     <article className="workspace-panel"><span>Impressions</span><strong>{metricsTotals.impressions}</strong><small>Within the selected date range</small></article>
-     <article className="workspace-panel"><span>Clicks</span><strong>{metricsTotals.clicks}</strong><small>{ctr.toFixed(1)}% CTR</small></article>
-     <article className="workspace-panel"><span>Conversions</span><strong>{metricsTotals.conversions}</strong><small>Google Ads-reported conversions</small></article>
-     <article className="workspace-panel"><span>Estimated CPL</span><strong>{metricsTotals.conversions ? microsToMoney(cplMicros) : "—"}</strong><small>Cost per conversion</small></article>
-    </section>
+    {metricsTotals.impressions === 0 && metricsTotals.clicks === 0 && metricsTotals.conversions === 0 ? <div className="google-ads-performance-empty"><strong>No traffic yet.</strong><p>Google has not recorded impressions for this campaign in the selected period. Review Campaign Health above for possible serving issues.</p><details><summary>Change reporting dates</summary><form className="marketing-filter-bar" action={refreshGoogleAdsCampaignsAction.bind(null, businessSlug)}><div className="marketing-filter-group"><label>From<input type="date" name="from" defaultValue={from} /></label><label>To<input type="date" name="to" defaultValue={to} /></label><label>Connected account<input value={connection?.google_ads_customer_id ?? "Not connected"} readOnly /></label></div><div className="marketing-filter-actions"><button className="sv-button">Refresh metrics</button></div></form></details></div> : <details className="google-ads-performance-details"><summary>View detailed performance</summary><div className="google-ads-performance-details-body"><form className="marketing-filter-bar" action={refreshGoogleAdsCampaignsAction.bind(null, businessSlug)}><div className="marketing-filter-group"><label>From<input type="date" name="from" defaultValue={from} /></label><label>To<input type="date" name="to" defaultValue={to} /></label><label>Connected account<input value={connection?.google_ads_customer_id ?? "Not connected"} readOnly /></label></div><div className="marketing-filter-actions"><button className="sv-button">Refresh metrics</button></div></form><section className="marketing-kpi-grid" aria-label="Google Ads summary"><article className="workspace-panel"><span>Active spend</span><strong>{microsToMoney(metricsTotals.spendMicros)}</strong><small>Google bills the connected account directly</small></article><article className="workspace-panel"><span>Impressions</span><strong>{metricsTotals.impressions}</strong><small>Within the selected date range</small></article><article className="workspace-panel"><span>Clicks</span><strong>{metricsTotals.clicks}</strong><small>{ctr.toFixed(1)}% CTR</small></article><article className="workspace-panel"><span>Conversions</span><strong>{metricsTotals.conversions}</strong><small>Google Ads-reported conversions</small></article><article className="workspace-panel"><span>Estimated CPL</span><strong>{metricsTotals.conversions ? microsToMoney(cplMicros) : "—"}</strong><small>Cost per conversion</small></article></section></div></details>}
    </section>
   </section>}
 
@@ -857,10 +861,10 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
    </article>
   </section>
 
-  <section className="workspace-panel google-ads-builder">
-   <header><div><h2>{hasCampaigns ? "Create another campaign" : "Build your first campaign"}</h2><p>{hasCampaigns ? "You already have a campaign in place. Open the builder when you want to launch another offer." : "Choose the offer, pick a location focus, set a budget, and let Servonas generate a draft you can review before publishing."}</p></div></header>
+  <section className={`workspace-panel google-ads-builder ${hasCampaigns ? "is-secondary" : ""}`}>
+   <header><div><h2>{hasCampaigns ? "Additional campaign" : "Build your first campaign"}</h2><p>{hasCampaigns ? "Want to promote another service or offer?" : "Choose the offer, pick a location focus, set a budget, and let Servonas generate a draft you can review before publishing."}</p></div></header>
    {hasCampaigns ? <details className="google-ads-create-more">
-    <summary>Open campaign builder</summary>
+    <summary>Create another campaign</summary>
     <form className="google-ads-form" action={createGoogleAdsDraftAction.bind(null, businessSlug)}>
      <label>What do you want to advertise?
       <select name="serviceTarget" defaultValue="">
