@@ -562,7 +562,15 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(page, /google_ads_ai_keyword_review_cache_checked/);
  assert.match(page, /Google Ads data changed after this review/);
  assert.match(page, /Servonas reviews a fresh Google Ads keyword snapshot only when you request it\./);
- assert.match(page, /Review in Google Ads before making changes\./);
+ assert.match(page, /No automatic change will be made\./);
+ assert.match(actions, /applyGoogleAdsKeywordBidRecommendationAction/);
+ assert.match(actions, /confirmKeywordBid/);
+ assert.match(actions, /updateGoogleAdsKeywordBid/);
+ assert.match(actions, /google_ads_keyword_bid_applied/);
+ assert.match(actions, /google_ads_keyword_bid_apply_failed/);
+ assert.match(page, /Your ad may not be showing high enough/);
+ assert.match(page, /Google has not provided a usable first-page bid estimate/);
+ assert.match(page, /Apply recommendation/);
  assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);
 });
 
@@ -578,6 +586,12 @@ test("keyword review keeps its core GAQL snapshot independent from unavailable b
  assert.match(file, /fetchGoogleAdsSearchTerms[\s\S]*\.catch\(\(\) => \[\]/);
  assert.match(file, /Bid estimate fields may be unavailable\./);
  assert.match(file, /without inventing a dollar amount/);
+ assert.match(file, /deriveGoogleAdsKeywordBidRecommendations/);
+ assert.match(file, /firstPageBidEstimateMicros \* 1\.1/);
+ assert.match(file, /keyword\.cpcBidMicros \* 1\.5/);
+ assert.match(file, /snapshot\.campaign\.biddingStrategy !== "MANUAL_CPC"/);
+ assert.match(file, /adGroupCriteria:mutate/);
+ assert.match(file, /Do not recommend removing, pausing, or changing a negative keyword merely because it has zero impressions/);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {

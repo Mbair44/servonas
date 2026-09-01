@@ -84,12 +84,17 @@ test("marketing spend and funnel reporting aggregate Google plus Meta and remove
     read("../lib/adPlatform.ts"),
   ]);
   assert.match(spend, /export class MultiPlatformSpendProvider/);
+  assert.match(spend, /loadGoogleAdsSpendForRange/);
+  assert.match(spend, /fetchGoogleAdsCampaignMetrics/);
+  assert.match(spend, /costMicros/);
+  assert.doesNotMatch(spend, /monthly_budget_estimate_cents/);
   assert.match(spend, /\.eq\("provider","meta"\)/);
   assert.match(spend, /facebook:metaSpendCents/);
   assert.match(funnel, /new MultiPlatformSpendProvider\(supabase\)\.getSpendBySource/);
   assert.match(funnel, /const roasCard = buildRoasCardModel/);
   assert.match(funnel, /<strong>\{roasCard\.headline\}<\/strong><small>\{roasCard\.detail\}<\/small>/);
   assert.match(funnel, /Total paid ad spend/);
+  assert.match(funnel, /Actual spend for selected dates/);
   assert.match(platform, /"Connect ad spend"/);
   assert.match(platform, /"Ad account connected"/);
   assert.match(platform, /"\$0 ad spend"/);

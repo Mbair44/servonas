@@ -273,7 +273,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
   const totalSpend = source === "all" ? report.totals.spendCents : Number(spendBySource[source] ?? 0);
-  const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to);
+  const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to, spendBySource.google_ads ?? null);
   const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: report.totals.revenueCents, roas: report.totals.roas });
   const aggregatedStepCounts = new Map<string, number>();
   for (const summary of report.summaries) {
@@ -480,8 +480,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     </section>
 
     <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">
-      {adPlatformStatuses.map((status) => <article className="workspace-panel" key={status.provider}><span>{status.providerLabel}</span><strong>{money(status.spendCents)}</strong><small>{status.state === "connected_with_data" ? `Last sync ${status.lastSuccessfulSyncAt ? new Date(status.lastSuccessfulSyncAt).toLocaleString() : "available"}` : status.state.replaceAll("_"," ")}</small></article>)}
-      <article className="workspace-panel"><span>Total paid ad spend</span><strong>{money(adPlatformStatuses.reduce((sum,row)=>sum+row.spendCents,0))}</strong><small>Google Ads + Meta Ads</small></article>
+      {adPlatformStatuses.map((status) => <article className="workspace-panel" key={status.provider}><span>{status.providerLabel}</span><strong>{money(status.spendCents)}</strong><small>{status.provider === "google_ads" ? `Actual spend for selected dates${status.lastSuccessfulSyncAt ? ` · Last sync ${new Date(status.lastSuccessfulSyncAt).toLocaleString()}` : ""}` : status.state === "connected_with_data" ? `Last sync ${status.lastSuccessfulSyncAt ? new Date(status.lastSuccessfulSyncAt).toLocaleString() : "available"}` : status.state.replaceAll("_"," ")}</small></article>)}
+      <article className="workspace-panel"><span>Total paid ad spend</span><strong>{money(adPlatformStatuses.reduce((sum,row)=>sum+row.spendCents,0))}</strong><small>Actual Google Ads + Meta Ads spend for selected dates</small></article>
     </section>
 
     <section className="workspace-panel">
