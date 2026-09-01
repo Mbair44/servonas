@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {buildSourcePerformanceReport,normalizeMarketingSource} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,buildSourcePerformanceReport,normalizeMarketingSource} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -88,6 +88,34 @@ test("does not count abandoned checkout as a booking until the persisted booking
  assert.ok(facebook);
  assert.equal(facebook.bookings,0);
  assert.equal(facebook.revenueCents,0);
+});
+
+test("facebook paid visitor who reaches /booking counts as a booking start before submit",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click"}},
+  {attribution_session_id:"s1",event_name:"booking_started",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click"}},
+ ]);
+ const facebook=report.summaries.find((row)=>row.source==="facebook");
+ assert.ok(facebook);
+ assert.equal(facebook.visits,1);
+ assert.equal(facebook.detailedCounts.booking_start,1);
+ assert.equal(facebook.stepCounts.find((step)=>step.key==="booking_start")?.count,1);
+});
+
+test("session metrics attach by normalized source without changing core funnel counts",()=>{
+ const report=attachSessionMetricsToSourceReport(buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"booking_started",booking_attribution_sessions:{gclid:"click-1"}},
+ ]),[
+  {id:"s1",gclid:"click-1",total_session_duration_seconds:42,engaged_duration_seconds:28,page_count:2,engaged_page_count:1},
+ ]);
+ const googleAds=report.summaries.find((row)=>row.source==="google_ads");
+ assert.ok(googleAds);
+ assert.equal(googleAds.sessionMetrics.sessionCount,1);
+ assert.equal(googleAds.sessionMetrics.avgSessionDurationSeconds,42);
+ assert.equal(googleAds.sessionMetrics.avgEngagedDurationSeconds,28);
+ assert.equal(googleAds.sessionMetrics.singlePageSessions,0);
+ assert.equal(googleAds.detailedCounts.booking_start,1);
 });
 
 test("replayed completion events do not double-count one persisted booking",()=>{

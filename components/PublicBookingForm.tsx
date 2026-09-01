@@ -92,7 +92,7 @@ export default function PublicBookingForm(props: Props) {
     });
   };
 
-  useEffect(() => { track("page_viewed"); trackBookingFunnel(props.publicSlug,"landing_view"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { track("page_viewed"); trackBookingFunnel(props.publicSlug,"landing_view",{metadata:{surface:"public_booking_form"}}); trackBookingFunnel(props.publicSlug,"booking_started",{metadata:{surface:"public_booking_form",entry:"booking_page"}}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const listener=(event:MessageEvent)=>{if(event.data?.type==="servonas:focus-calendar"){calendarRef.current?.focus({preventScroll:true});calendarRef.current?.scrollIntoView({behavior:"smooth",block:"start"});}};window.addEventListener("message",listener);return()=>window.removeEventListener("message",listener); }, []);
   useEffect(() => {
     if (!serviceId) { setAvailability({}); return; }
