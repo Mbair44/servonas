@@ -11,6 +11,7 @@ import {
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignLocationTargeting,
+ fetchGoogleAdsAdGroupBid,
  fetchGoogleAdsCampaignHealthSnapshots,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
@@ -573,18 +574,27 @@ export async function applyRecommendedGoogleAdsSettingsAction(slug: string, camp
  if (String(formData.get("confirmCpcFix") ?? "") !== "apply") redirect(path(slug, "error", "Confirm the max CPC change before applying it."));
  const liveSnapshot = healthSnapshots[0] ?? null;
  if (liveSnapshot?.dataQuality.adGroups.state !== "verified" || !liveSnapshot.adGroupIds[0]) redirect(path(slug, "error", "Servonas could not verify the live ad group, so no bid was changed."));
- await updateGoogleAdsAdGroupBid({
+ const startedAt = Date.now();
+ logGoogleAdsAction("Google Ads CPC fix started", { stage: "fix_cpc_started", businessId: business.id, campaignId: campaign.google_campaign_id, requestedCpcMicros: health.recommendedManualCpcMicros });
+ const liveAdGroups = (await Promise.all(liveSnapshot.adGroupIds.map((adGroupId) => fetchGoogleAdsAdGroupBid({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, adGroupId, loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id })))).filter((adGroup): adGroup is NonNullable<typeof adGroup> => Boolean(adGroup));
+ const oldCpcMicros = Math.min(...liveAdGroups.map((adGroup) => adGroup.cpcBidMicros).filter((bid) => bid > 0));
+ const matchingAdGroups = liveAdGroups.filter((adGroup) => adGroup.cpcBidMicros === oldCpcMicros);
+ if (!Number.isFinite(oldCpcMicros) || matchingAdGroups.length !== 1) redirect(path(slug, "error", "Servonas could not uniquely resolve the live ad group with the low CPC, so no bid was changed."));
+ const targetAdGroup = matchingAdGroups[0]!;
+ logGoogleAdsAction("Google Ads CPC fix ad group resolved", { stage: "fix_cpc_ad_group_resolved", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: targetAdGroup.id, oldCpcMicros, requestedCpcMicros: health.recommendedManualCpcMicros, durationMs: Date.now() - startedAt });
+ logGoogleAdsAction("Google Ads CPC fix mutation started", { stage: "fix_cpc_mutation_started", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: targetAdGroup.id, oldCpcMicros, requestedCpcMicros: health.recommendedManualCpcMicros, resourceType: "ad_group", resourceName: `customers/${campaign.google_ads_customer_id}/adGroups/${targetAdGroup.id}`, updateFields: ["cpc_bid_micros"], customerId: campaign.google_ads_customer_id });
+ const mutation = await updateGoogleAdsAdGroupBid({
   accessToken: connection.accessToken,
   customerId: campaign.google_ads_customer_id,
   loginCustomerIds: mutationAccess.loginCustomerIds,
-  adGroupId: liveSnapshot.adGroupIds[0],
+  adGroupId: targetAdGroup.id,
   cpcBidMicros: health.recommendedManualCpcMicros,
  });
- const verification = await fetchGoogleAdsCampaignHealthSnapshots({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignIds: [campaign.google_campaign_id], loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id });
- const verifiedBid = verification[0]?.adGroupCpcBidMicros.find((bid) => bid === health.recommendedManualCpcMicros);
- if (!verifiedBid) redirect(path(slug, "error", "Google Ads accepted the bid update, but Servonas could not verify the new max CPC yet. Refresh campaign health and try again shortly."));
- const refreshedHealth = buildGoogleAdsCampaignHealth({ campaign, metric: null, status: statuses[0] ?? null, locationTargeting: locations[0] ?? null, snapshot: verification[0] ?? null });
- if (refreshedHealth.issues.some((issue) => issue.id === "manual_cpc_too_low")) redirect(path(slug, "error", "Google Ads accepted the bid update, but campaign health still reports a critically low max CPC. Refresh and review the live settings."));
+ logGoogleAdsAction("Google Ads CPC fix mutation completed", { stage: "fix_cpc_mutation_completed", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: targetAdGroup.id, oldCpcMicros, requestedCpcMicros: health.recommendedManualCpcMicros, returnedResourceName: mutation.resourceName, googleRequestId: mutation.googleRequestId, durationMs: Date.now() - startedAt });
+ logGoogleAdsAction("Google Ads CPC fix refetch started", { stage: "fix_cpc_refetch_started", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: targetAdGroup.id, oldCpcMicros, requestedCpcMicros: health.recommendedManualCpcMicros });
+ const verification = await fetchGoogleAdsAdGroupBid({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, adGroupId: targetAdGroup.id, loginCustomerId: mutationAccess.resolvedLoginCustomerId, businessId: business.id });
+ logGoogleAdsAction("Google Ads CPC fix refetch completed", { stage: "fix_cpc_refetch_completed", businessId: business.id, campaignId: campaign.google_campaign_id, adGroupId: targetAdGroup.id, oldCpcMicros, requestedCpcMicros: health.recommendedManualCpcMicros, returnedResourceName: mutation.resourceName, verifiedCpcMicros: verification?.cpcBidMicros ?? null, googleRequestId: mutation.googleRequestId, durationMs: Date.now() - startedAt });
+ if (verification?.cpcBidMicros !== health.recommendedManualCpcMicros) redirect(path(slug, "error", "Google Ads did not verify the requested max CPC on the target ad group, so Servonas did not record the change."));
  await supabase.from("business_google_ads_campaigns").update({
   manual_cpc_bid_micros: health.recommendedManualCpcMicros,
   last_sync_at: new Date().toISOString(),

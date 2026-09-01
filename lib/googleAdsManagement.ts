@@ -1075,6 +1075,7 @@ async function googleAdsRequest<T>(path: string, input: GoogleAdsRequestInput) {
   customerId: targetCustomerId,
   loginCustomerId,
  });
+ Object.defineProperty(result, "__servonasGoogleAdsRequest", { value: { requestId: googleAdsRequestId(response, undefined), durationMs: durationMs(startedAt) }, enumerable: false });
  return result;
 }
 
@@ -2428,20 +2429,50 @@ export async function updateGoogleAdsAdGroupBid(input: {
  adGroupId: string;
  cpcBidMicros: number;
 }) {
- return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/adGroups:mutate`, {
+ if (!Number.isSafeInteger(input.cpcBidMicros) || input.cpcBidMicros <= 0) throw new Error("A positive whole-number CPC bid in micros is required.");
+ const customerId = stripCustomerId(input.customerId);
+ const adGroupId = stripCustomerId(input.adGroupId);
+ const resourceName = `customers/${customerId}/adGroups/${adGroupId}`;
+ const result = await googleAdsRequestWithLoginFallbacks<{ results?: Array<{ resourceName?: string }>; partialFailureError?: { message?: string } }>(`/customers/${customerId}/adGroups:mutate`, {
   accessToken: input.accessToken,
   targetCustomerId: input.customerId,
   loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: {
    operations: [{
     update: {
-     resourceName: `customers/${stripCustomerId(input.customerId)}/adGroups/${stripCustomerId(input.adGroupId)}`,
+     resourceName,
      cpcBidMicros: String(input.cpcBidMicros),
     },
     updateMask: "cpc_bid_micros",
    }],
+   partialFailure: false,
   },
  });
+ if (result.partialFailureError?.message) throw new Error(`Google Ads rejected the CPC update: ${result.partialFailureError.message}`);
+ const returnedResourceName = result.results?.find((row) => row.resourceName === resourceName)?.resourceName ?? null;
+ if (!returnedResourceName) throw new Error("Google Ads did not confirm an updated ad group for the CPC change.");
+ const requestMetadata = (result as typeof result & { __servonasGoogleAdsRequest?: { requestId: string | null } }).__servonasGoogleAdsRequest;
+ return { resourceName: returnedResourceName, googleRequestId: requestMetadata?.requestId ?? null };
+}
+
+export async function fetchGoogleAdsAdGroupBid(input: {
+ accessToken: string;
+ customerId: string;
+ adGroupId: string;
+ loginCustomerId?: string | null;
+ businessId?: string | null;
+}) {
+ const adGroupId = stripCustomerId(input.adGroupId);
+ if (!adGroupId) return null;
+ const rows = await googleAdsSearchStream(input.customerId, input.accessToken, `SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros FROM ad_group WHERE ad_group.id = ${adGroupId}`, input.loginCustomerId, { stage: "google_ads_fix_cpc_refetch", requestType: "google_ads_fix_cpc_refetch", businessId: input.businessId ?? null });
+ const row = rows.find((item) => stripCustomerId(String(readGoogleAdsField(item, "adGroup.id", "ad_group.id") ?? "")) === adGroupId);
+ if (!row) return null;
+ return {
+  id: adGroupId,
+  name: typeof readGoogleAdsField(row, "adGroup.name", "ad_group.name") === "string" ? String(readGoogleAdsField(row, "adGroup.name", "ad_group.name")) : null,
+  status: typeof readGoogleAdsField(row, "adGroup.status", "ad_group.status") === "string" ? String(readGoogleAdsField(row, "adGroup.status", "ad_group.status")) : null,
+  cpcBidMicros: safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros")),
+ };
 }
 
 export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
