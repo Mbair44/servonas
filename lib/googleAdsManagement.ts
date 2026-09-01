@@ -314,8 +314,12 @@ export type GoogleAdsKeywordReview = {
  summary: string;
  performanceDataState: "early" | "sufficient";
  keywordsReviewed: number;
- recommendations: Array<{ id: string; category: "bid" | "pause_keyword" | "keep_keyword" | "add_keyword" | "match_type" | "negative_keyword" | "budget" | "conversion_tracking" | "other"; priority: "high" | "medium" | "low"; title: string; explanation: string; evidence: string[]; keywordIds: string[]; suggestedValue: GoogleAdsKeywordReviewSuggestedValue | null; canApplyInServonas: boolean }>;
+ recommendations: Array<{ id: string; category: "bid" | "pause_keyword" | "keep_keyword" | "add_keyword" | "match_type" | "negative_keyword" | "budget" | "conversion_tracking" | "other"; actionType: "adjust_default_bid" | "adjust_keyword_bid" | "pause_keywords" | "add_keywords" | "add_negative_keywords" | "change_match_type" | "review_only"; suggestedDirection: "increase" | "decrease" | "review" | null; priority: "high" | "medium" | "low"; title: string; explanation: string; evidence: string[]; keywordIds: string[]; suggestedValue: GoogleAdsKeywordReviewSuggestedValue | null; canApplyInServonas: boolean }>;
 };
+
+export const googleAdsBidStartingIncreasePercent = Math.min(50, Math.max(1, Number(process.env.GOOGLE_ADS_BID_STARTING_INCREASE_PERCENT ?? 25)));
+export const googleAdsKeywordBidSafetyCapMicros = Math.round(Math.max(1, Number(process.env.GOOGLE_ADS_KEYWORD_BID_MAX_DOLLARS ?? 25)) * 1_000_000);
+export const googleAdsSuggestedStartingBidMicros = (currentBidMicros: number) => Math.min(googleAdsKeywordBidSafetyCapMicros, Math.round(currentBidMicros * (1 + googleAdsBidStartingIncreasePercent / 100)));
 
 export type GoogleAdsKeywordBidRecommendation = {
  keywordId: string;
@@ -3032,7 +3036,9 @@ export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string;
    const suggestedValue = value.suggestedValue && typeof value.suggestedValue === "object" && typeof value.suggestedValue.type === "string" && typeof value.suggestedValue.label === "string"
     ? { type: value.suggestedValue.type, label: value.suggestedValue.label.slice(0, 80), value: typeof value.suggestedValue.value === "string" ? value.suggestedValue.value.slice(0, 160) : null } satisfies GoogleAdsKeywordReviewSuggestedValue
     : null;
-   return { id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)), keywordIds: value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8), suggestedValue, canApplyInServonas: false };
+   const keywordIds = value.keywordIds.map(String).filter((id: string) => allowedIds.has(id)).slice(0, 8);
+   const actionType = value.category === "bid" ? (keywordIds.length ? "adjust_keyword_bid" : "adjust_default_bid") : value.category === "pause_keyword" ? "pause_keywords" : value.category === "add_keyword" ? "add_keywords" : value.category === "negative_keyword" ? "add_negative_keywords" : value.category === "match_type" ? "change_match_type" : "review_only";
+   return { id: typeof value.id === "string" ? value.id.slice(0, 80) : `review-${index + 1}`, category: value.category, actionType, suggestedDirection: value.category === "bid" ? "increase" : "review", priority: value.priority, title: value.title.slice(0, 160), explanation: value.explanation.slice(0, 600), evidence: value.evidence.filter((item: unknown) => typeof item === "string").slice(0, 5).map((item: string) => item.slice(0, 220)), keywordIds, suggestedValue, canApplyInServonas: actionType === "adjust_keyword_bid" || actionType === "adjust_default_bid" };
   });
   const review = { summary: parsed.summary.slice(0, 500), performanceDataState, keywordsReviewed: input.snapshot.keywords.filter((keyword) => !keyword.negative).length, recommendations } satisfies GoogleAdsKeywordReview;
   const prioritiesByCount = Object.fromEntries(["high", "medium", "low"].map((priority) => [priority, recommendations.filter((recommendation) => recommendation.priority === priority).length]));

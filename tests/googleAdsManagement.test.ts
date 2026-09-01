@@ -529,7 +529,16 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(file, /Use only the supplied verified Google Ads facts/);
  assert.match(file, /performanceDataState/);
  assert.match(file, /filter\(\(id: string\) => allowedIds\.has\(id\)\)/);
- assert.match(file, /canApplyInServonas: false/);
+ assert.match(file, /actionType: "adjust_default_bid" \| "adjust_keyword_bid"/);
+ assert.match(file, /googleAdsSuggestedStartingBidMicros/);
+ assert.match(file, /canApplyInServonas: actionType === "adjust_keyword_bid" \|\| actionType === "adjust_default_bid"/);
+ assert.match(actions, /confirmKeywordBid/);
+ assert.match(actions, /googleAdsKeywordBidSafetyCapMicros/);
+ assert.match(actions, /fetchGoogleAdsKeywordReviewSnapshot/);
+ assert.match(page, /name="keywordIds"/);
+ assert.match(page, /Servonas suggested starting point/);
+ assert.match(page, /name="maximumBidDollars"/);
+ assert.doesNotMatch(page, /keywordLabels\.get\(id\) \?\? id/);
  assert.match(file, /googleAdsKeywordReviewSnapshotHash/);
  assert.match(file, /google_ads_ai_keyword_review_started/);
  assert.match(file, /google_ads_ai_keyword_review_completed/);
@@ -569,7 +578,7 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(actions, /google_ads_keyword_bid_applied/);
  assert.match(actions, /google_ads_keyword_bid_apply_failed/);
  assert.match(page, /Your ad may not be showing high enough/);
- assert.match(page, /Google has not provided a usable first-page bid estimate/);
+ assert.match(page, /Google has not provided a usable first-page estimate/);
  assert.match(page, /Apply recommendation/);
  assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);
 });
