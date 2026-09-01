@@ -24,10 +24,10 @@ export function GoogleAdsManageCampaignControls({
 
  return <div className="google-ads-manage-actions">
   {statusAction && statusLabel ? <form action={statusAction}>
-   <button className="sv-button sv-secondary" data-loading-label={statusLabel}>{statusLabel}</button>
+   <button className="sv-button" data-loading-label={statusLabel}>{statusLabel}</button>
   </form> : null}
   {!isEditingBudget ? <div className="google-ads-budget-inline google-ads-budget-inline-readonly">
-   <span className="google-ads-budget-readout"><strong>Budget:</strong> {budgetLabel}</span>
+   <span className="google-ads-budget-readout" aria-label={`Current budget ${budgetLabel}`}>{budgetLabel}</span>
    <button type="button" className="sv-button sv-secondary" onClick={() => setIsEditingBudget(true)}>Change budget</button>
   </div> : <form className="google-ads-budget-inline google-ads-budget-inline-editor" action={async (formData) => {
    await updateBudgetAction(formData);
