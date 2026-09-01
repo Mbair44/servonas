@@ -23,11 +23,27 @@ test("public business website renders the lead capture popup from loaded website
  assert.match(site,/WebsiteLeadCapturePopup/);
  assert.match(site,/site\.leadCapturePopup\.enabled/);
  assert.match(page,/localStorage/);
- assert.match(page,/marketingConsent/);
+ assert.doesNotMatch(page,/name="marketingConsent"/);
+ assert.match(page,/website-lead-popup-disclosure/);
+ assert.match(page,/By submitting, you agree to receive promotional emails from \$\{site\.name\}/);
  assert.match(page,/utm_source/);
  assert.match(loader,/lead_capture_popup_enabled/);
  assert.match(actions,/website_discount_leads/);
  assert.match(actions,/lead_source:"Discount Popup"/);
+});
+
+test("popup consent is recorded only after the idempotent lead upsert succeeds",async()=>{
+ const [actions,styles]=await Promise.all([
+  read("app/sites/[siteSlug]/actions.ts"),
+  read("app/globals.css"),
+ ]);
+ assert.doesNotMatch(actions,/Please agree to receive promotional emails before continuing/);
+ assert.match(actions,/marketing_consent_granted:true/);
+ assert.match(actions,/marketing_consented_at:now/);
+ assert.match(actions,/consent_disclosure:consentDisclosure/);
+ assert.match(actions,/consent_version:createHash\("sha256"\)\.update\(consentDisclosure\)/);
+ assert.ok(actions.indexOf("const {error:leadError}")<actions.indexOf('marketing_email_status:"subscribed"'));
+ assert.match(styles,/\.website-lead-popup-disclosure\{[^}]*font-size:12px[^}]*line-height:1\.45/);
 });
 
 test("website preview can render the lead capture popup without a live submit action",async()=>{
