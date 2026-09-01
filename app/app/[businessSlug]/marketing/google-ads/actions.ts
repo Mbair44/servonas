@@ -896,12 +896,15 @@ export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: st
    snapshotHash,
    snapshotTimestamp: snapshot.generatedAt,
    keywordCount: snapshot.keywords.length,
-   activeKeywordCount: snapshot.keywords.filter((keyword) => !keyword.negative && keyword.status === "ENABLED").length,
+   enabledKeywordCount: snapshot.keywords.filter((keyword) => keyword.status === "ENABLED").length,
+   positiveKeywordCount: snapshot.keywords.filter((keyword) => !keyword.negative).length,
+   limitedKeywordCount: snapshot.keywords.filter((keyword) => keyword.primaryStatus === "LIMITED").length,
    searchTermCount: snapshot.searchTerms.items.length,
    conversionGoalCount: snapshot.campaign.conversionGoals.length,
    campaignImpressions: snapshot.campaign.impressions,
    campaignClicks: snapshot.campaign.clicks,
    campaignConversions: snapshot.campaign.conversions,
+   earlyCampaignMode: snapshot.performanceDataState === "early",
    model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini",
   };
   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_requested", reviewMetadata);
