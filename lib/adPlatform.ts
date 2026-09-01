@@ -90,7 +90,7 @@ export async function deleteMetaAccessToken(businessId: string) {
   if (error) throw new Error(`Meta credential deletion failed: ${error.message}`);
 }
 
-export async function loadAdPlatformStatuses(db: SupabaseClient, businessId: string, from: string, to: string) {
+export async function loadAdPlatformStatuses(db: SupabaseClient, businessId: string, from: string, to: string, googleSpendCentsOverride?: number | null) {
   const [metaConnectionResult, metaPerformanceResult, googleCampaignResult, googleConnectionResult] = await Promise.all([
     db.from("business_ad_platform_connections")
       .select("id,provider,external_account_id,external_account_name,connected_at,last_successful_sync_at,last_sync_attempt_at,last_sync_error,last_sync_rows,status")
@@ -144,10 +144,11 @@ export async function loadAdPlatformStatuses(db: SupabaseClient, businessId: str
     providerLabel: adPlatformLabel("meta"),
   };
 
-  const googleSpendCents = ((googleCampaignResult.data ?? []) as any[]).reduce(
+  const googleBudgetCents = ((googleCampaignResult.data ?? []) as any[]).reduce(
     (sum, row) => sum + Math.max(0, Number(row.monthly_budget_estimate_cents ?? 0)),
     0,
   );
+  const googleSpendCents = googleSpendCentsOverride === undefined ? googleBudgetCents : Math.max(0, googleSpendCentsOverride ?? 0);
   const googleConnected = Boolean(googleConnectionResult.data?.status && googleConnectionResult.data?.status !== "disconnected");
   const googleStatus: AdPlatformStatusSummary = {
     provider: "google_ads",

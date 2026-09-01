@@ -317,6 +317,30 @@ export type GoogleAdsKeywordReview = {
  recommendations: Array<{ id: string; category: "bid" | "pause_keyword" | "keep_keyword" | "add_keyword" | "match_type" | "negative_keyword" | "budget" | "conversion_tracking" | "other"; priority: "high" | "medium" | "low"; title: string; explanation: string; evidence: string[]; keywordIds: string[]; suggestedValue: GoogleAdsKeywordReviewSuggestedValue | null; canApplyInServonas: boolean }>;
 };
 
+export type GoogleAdsKeywordBidRecommendation = {
+ keywordId: string;
+ keyword: string;
+ adGroupId: string;
+ currentBidMicros: number;
+ firstPageBidEstimateMicros: number;
+ recommendedBidMicros: number;
+ increasePercent: number;
+ reason: string;
+};
+
+// Only Google-provided estimates can produce an actionable dollar recommendation.
+export function deriveGoogleAdsKeywordBidRecommendations(snapshot: GoogleAdsKeywordReviewSnapshot, maxCpcMicros: number | null = null) {
+ if (snapshot.campaign.biddingStrategy !== "MANUAL_CPC") return [] as GoogleAdsKeywordBidRecommendation[];
+ return snapshot.keywords.flatMap((keyword) => {
+  const firstPageBidEstimateMicros = keyword.bidEstimates.status === "available" ? keyword.bidEstimates.firstPageMicros ?? null : null;
+  if (keyword.negative || keyword.status !== "ENABLED" || !keyword.adGroupId || !keyword.cpcBidMicros || !firstPageBidEstimateMicros || firstPageBidEstimateMicros <= keyword.cpcBidMicros) return [];
+  const proposedBidMicros = Math.round(firstPageBidEstimateMicros * 1.1);
+  const recommendedBidMicros = Math.min(proposedBidMicros, Math.round(keyword.cpcBidMicros * 1.5), maxCpcMicros ?? Number.MAX_SAFE_INTEGER);
+  if (recommendedBidMicros <= keyword.cpcBidMicros) return [];
+  return [{ keywordId: keyword.id, keyword: keyword.text, adGroupId: keyword.adGroupId, currentBidMicros: keyword.cpcBidMicros, firstPageBidEstimateMicros, recommendedBidMicros, increasePercent: Math.round(((recommendedBidMicros / keyword.cpcBidMicros) - 1) * 100), reason: "Google provided a first-page bid estimate above the current maximum bid." }];
+ });
+}
+
 export function googleAdsKeywordReviewSnapshotHash(snapshot: GoogleAdsKeywordReviewSnapshot) {
  const { generatedAt: _generatedAt, ...stableSnapshot } = snapshot;
  return createHash("sha256").update(JSON.stringify(stableSnapshot)).digest("hex");
@@ -2551,6 +2575,27 @@ export async function updateGoogleAdsAdGroupBid(input: {
  return { resourceName: returnedResourceName, googleRequestId: requestMetadata?.requestId ?? null, httpStatus: requestMetadata?.httpStatus ?? null, mutationResultCount: result.results?.length ?? 0, partialFailure: Boolean(result.partialFailureError?.message) };
 }
 
+export async function updateGoogleAdsKeywordBid(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
+ adGroupId: string;
+ keywordId: string;
+ cpcBidMicros: number;
+}) {
+ if (!Number.isSafeInteger(input.cpcBidMicros) || input.cpcBidMicros <= 0) throw new Error("A positive whole-number keyword CPC bid in micros is required.");
+ const customerId = stripCustomerId(input.customerId);
+ const adGroupId = stripCustomerId(input.adGroupId);
+ const keywordId = stripCustomerId(input.keywordId);
+ const resourceName = `customers/${customerId}/adGroupCriteria/${adGroupId}~${keywordId}`;
+ return googleAdsRequestWithLoginFallbacks<{ results?: Array<{ resourceName?: string }>; partialFailureError?: { message?: string } }>(`/customers/${customerId}/adGroupCriteria:mutate`, {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: { operations: [{ update: { resourceName, cpcBidMicros: String(input.cpcBidMicros) }, updateMask: "cpc_bid_micros" }], partialFailure: false },
+ });
+}
+
 export async function fetchGoogleAdsAdGroupBid(input: {
  accessToken: string;
  customerId: string;
@@ -2964,7 +3009,7 @@ export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string;
  const allowedIds = new Set(input.snapshot.keywords.map((keyword) => keyword.id));
  const performanceDataState = input.snapshot.performanceDataState;
  try {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_keyword_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendations: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, category: { type: "string", enum: ["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"] }, priority: { type: "string", enum: ["high", "medium", "low"] }, title: { type: "string" }, explanation: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, keywordIds: { type: "array", items: { type: "string" } }, suggestedValue: { type: ["object", "null"], additionalProperties: false, properties: { type: { type: "string", enum: ["bid_adjustment", "keyword_list", "negative_keyword_list", "match_type_change", "budget_note", "other"] }, label: { type: "string" }, value: { type: ["string", "null"] } }, required: ["type", "label", "value"] }, canApplyInServonas: { type: "boolean" } }, required: ["id", "category", "priority", "title", "explanation", "evidence", "keywordIds", "suggestedValue", "canApplyInServonas"] } } }, required: ["summary", "recommendations"] } } }, messages: [{ role: "system", content: "You are Servonas's Google Ads keyword reviewer. Use only the supplied verified Google Ads facts. Do not invent bid estimates, demand, performance, policy state, campaign configuration, or search terms that are not present. Bid estimate fields may be unavailable. Only cite a specific Google bid estimate when a verified estimate is provided. If Google status indicates a bid limitation but no estimate is available, explain the limitation without inventing a dollar amount. Any suggested dollar amount must be clearly labeled as a Servonas recommendation, not a Google estimate. Clearly separate interpretation from facts. When performanceDataState is early, explicitly acknowledge that there is not enough performance data yet to judge true conversion winners and focus on configuration, intent, match type, duplication, location intent, and verified bid constraints. Distinguish current keywords from search terms. If searchTerms.available is false, say search-term evidence is unavailable rather than inferring it. Ground every pause or bid recommendation in the supplied facts and intent. Give 3 to 5 concise, practical recommendations. Do not claim guaranteed results." }, { role: "user", content: JSON.stringify(input.snapshot) }] }) });
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_keyword_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, recommendations: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, category: { type: "string", enum: ["bid", "pause_keyword", "keep_keyword", "add_keyword", "match_type", "negative_keyword", "budget", "conversion_tracking", "other"] }, priority: { type: "string", enum: ["high", "medium", "low"] }, title: { type: "string" }, explanation: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, keywordIds: { type: "array", items: { type: "string" } }, suggestedValue: { type: ["object", "null"], additionalProperties: false, properties: { type: { type: "string", enum: ["bid_adjustment", "keyword_list", "negative_keyword_list", "match_type_change", "budget_note", "other"] }, label: { type: "string" }, value: { type: ["string", "null"] } }, required: ["type", "label", "value"] }, canApplyInServonas: { type: "boolean" } }, required: ["id", "category", "priority", "title", "explanation", "evidence", "keywordIds", "suggestedValue", "canApplyInServonas"] } } }, required: ["summary", "recommendations"] } } }, messages: [{ role: "system", content: "You are Servonas's Google Ads keyword reviewer. Use only the supplied verified Google Ads facts. Do not invent bid estimates, demand, performance, policy state, campaign configuration, or search terms that are not present. Bid estimate fields may be unavailable. Only cite a specific Google bid estimate when a verified estimate is provided. If Google status indicates a bid limitation but no estimate is available, explain the limitation without inventing a dollar amount. Do not recommend removing, pausing, or changing a negative keyword merely because it has zero impressions; require verified search-term or campaign evidence. Any suggested dollar amount must be clearly labeled as a Servonas recommendation, not a Google estimate. Clearly separate interpretation from facts. When performanceDataState is early, explicitly acknowledge that there is not enough performance data yet to judge true conversion winners and focus on configuration, intent, match type, duplication, location intent, and verified bid constraints. Distinguish current keywords from search terms. If searchTerms.available is false, say search-term evidence is unavailable rather than inferring it. Ground every pause or bid recommendation in the supplied facts and intent. Give 3 to 5 concise, practical recommendations. Do not claim guaranteed results." }, { role: "user", content: JSON.stringify(input.snapshot) }] }) });
   if (!response.ok) {
    logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_failed", { ...metadata(), provider: "openai", endpointHost: "api.openai.com", endpointPath: "/v1/chat/completions", httpStatus: response.status });
    return null;
