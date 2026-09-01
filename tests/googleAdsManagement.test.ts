@@ -535,6 +535,13 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(file, /google_ads_ai_keyword_review_completed/);
  assert.match(file, /google_ads_ai_keyword_review_validation_failed/);
  assert.match(file, /snapshotSummary/);
+ assert.match(file, /enabledKeywordCount/);
+ assert.match(file, /positiveKeywordCount/);
+ assert.match(file, /limitedKeywordCount/);
+ assert.match(file, /negativeCount/);
+ assert.match(file, /cost: input\.snapshot\.campaign\.costMicros/);
+ assert.match(file, /searchTerms: \{ count:/);
+ assert.match(file, /conversionGoals: \{ count:/);
  assert.match(file, /keyword\.text/);
  assert.match(file, /bidEstimatesAvailable/);
  assert.match(actions, /export async function reviewGoogleAdsKeywordsAction/);

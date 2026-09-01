@@ -328,7 +328,10 @@ export function logGoogleAdsKeywordReviewStage(event: string, metadata: Record<s
 
 function keywordReviewLogMetadata(input: { businessId: string; googleCustomerId?: string | null; snapshot: GoogleAdsKeywordReviewSnapshot; snapshotHash: string; model: string; durationMs?: number; cacheStatus?: "hit" | "miss" | "bypassed" | null }) {
  const { snapshot } = input;
- const activeKeywords = snapshot.keywords.filter((keyword) => !keyword.negative && keyword.status === "ENABLED");
+ const enabledKeywordCount = snapshot.keywords.filter((keyword) => keyword.status === "ENABLED").length;
+ const positiveKeywordCount = snapshot.keywords.filter((keyword) => !keyword.negative).length;
+ const negativeKeywordCount = snapshot.keywords.filter((keyword) => keyword.negative).length;
+ const limitedKeywordCount = snapshot.keywords.filter((keyword) => keyword.primaryStatus === "LIMITED").length;
  return {
   businessId: input.businessId,
   googleCustomerId: input.googleCustomerId ?? null,
@@ -336,12 +339,16 @@ function keywordReviewLogMetadata(input: { businessId: string; googleCustomerId?
   snapshotHash: input.snapshotHash,
   snapshotTimestamp: snapshot.generatedAt,
   keywordCount: snapshot.keywords.length,
-  activeKeywordCount: activeKeywords.length,
+  enabledKeywordCount,
+  positiveKeywordCount,
+  negativeKeywordCount,
+  limitedKeywordCount,
   searchTermCount: snapshot.searchTerms.items.length,
   conversionGoalCount: snapshot.campaign.conversionGoals.length,
   campaignImpressions: snapshot.campaign.impressions,
   campaignClicks: snapshot.campaign.clicks,
   campaignConversions: snapshot.campaign.conversions,
+  earlyCampaignMode: snapshot.performanceDataState === "early",
   model: input.model,
   durationMs: input.durationMs ?? null,
   cacheStatus: input.cacheStatus ?? null,
@@ -2939,16 +2946,18 @@ export async function reviewGoogleAdsKeywordsWithAi(input: { businessId: string;
    biddingStrategy: input.snapshot.campaign.biddingStrategy,
    dailyBudget: input.snapshot.campaign.dailyBudgetMicros,
    defaultMaxBid: input.snapshot.campaign.adGroupDefaultCpcMicros.length ? input.snapshot.campaign.adGroupDefaultCpcMicros : "unavailable",
-   keywordCount: input.snapshot.keywords.length,
-   enabledKeywordCount: input.snapshot.keywords.filter((keyword) => keyword.status === "ENABLED").length,
-   limitedKeywordCount: input.snapshot.keywords.filter((keyword) => keyword.primaryStatus === "LIMITED").length,
-   searchTermCount: input.snapshot.searchTerms.items.length,
-   conversionGoalCount: input.snapshot.campaign.conversionGoals.length,
-   impressions: input.snapshot.campaign.impressions,
-   clicks: input.snapshot.campaign.clicks,
-   conversions: input.snapshot.campaign.conversions,
-   earlyCampaignMode: input.snapshot.performanceDataState === "early",
-   snapshotHash,
+   keywords: {
+    totalCount: input.snapshot.keywords.length,
+    enabledCount: input.snapshot.keywords.filter((keyword) => keyword.status === "ENABLED").length,
+    positiveCount: input.snapshot.keywords.filter((keyword) => !keyword.negative).length,
+    negativeCount: input.snapshot.keywords.filter((keyword) => keyword.negative).length,
+    limitedCount: input.snapshot.keywords.filter((keyword) => keyword.primaryStatus === "LIMITED").length,
+   },
+   searchTerms: { count: input.snapshot.searchTerms.items.length },
+   conversionGoals: { count: input.snapshot.campaign.conversionGoals.length },
+   performance: { impressions: input.snapshot.campaign.impressions, clicks: input.snapshot.campaign.clicks, conversions: input.snapshot.campaign.conversions, cost: input.snapshot.campaign.costMicros },
+   mode: { earlyCampaignMode: input.snapshot.performanceDataState === "early" },
+   snapshot: { timestamp: input.snapshot.generatedAt, hash: snapshotHash },
    dataQuality: { searchTermsAvailable: input.snapshot.searchTerms.available, bidEstimatesAvailable: input.snapshot.keywords.some((keyword) => keyword.bidEstimates.status === "available") },
   },
  });
