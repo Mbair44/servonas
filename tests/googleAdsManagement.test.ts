@@ -464,6 +464,8 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(actions, /recommended_setting_update_readiness_failed/);
  assert.match(actions, /recommended_setting_readiness_check/);
  assert.match(actions, /implementation: "action_specific_manual_cpc_v2"/);
+ assert.match(actions, /cpcActionId/);
+ assert.match(actions, /randomUUID/);
  assert.match(actions, /fix_cpc_blocked/);
  assert.match(actions, /fetchGoogleAdsManualCpcAdGroups/);
  assert.match(actions, /select\("google_ads_customer_id,google_campaign_id"\)/);
@@ -485,8 +487,32 @@ test("campaign health keeps failed diagnostics unknown and only offers verified 
  assert.match(actions, /google_ads_max_cpc_updated/);
  assert.match(page, /Servonas recommends/);
  assert.match(page, /Conversion tracking/);
- assert.match(page, /AI recommendations temporarily unavailable\. Deterministic campaign health is still current\./);
+ assert.doesNotMatch(page, /reviewGoogleAdsCampaignHealthWithAi/);
  assert.match(page, /Some campaign health checks could not be verified\. Verified checks are still shown below\./);
+});
+
+test("keyword review uses a fresh verified snapshot and only runs from an explicit action", async () => {
+ const [file, actions, page] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(file, /export async function fetchGoogleAdsKeywordReviewSnapshot/);
+ assert.match(file, /ad_group_criterion\.criterion_id/);
+ assert.match(file, /ad_group_criterion\.keyword\.match_type/);
+ assert.match(file, /metrics\.average_cpc/);
+ assert.match(file, /export async function reviewGoogleAdsKeywordsWithAi/);
+ assert.match(file, /Use only the supplied verified Google Ads facts/);
+ assert.match(file, /performanceDataState/);
+ assert.match(file, /filter\(\(id: string\) => allowedIds\.has\(id\)\)/);
+ assert.match(file, /canApplyInServonas: false/);
+ assert.match(actions, /export async function reviewGoogleAdsKeywordsAction/);
+ assert.match(actions, /fetchGoogleAdsKeywordReviewSnapshot/);
+ assert.match(actions, /google_ads_keyword_review_generated/);
+ assert.match(page, /Review keywords/);
+ assert.match(page, /Servonas reviews a fresh Google Ads keyword snapshot only when you request it\./);
+ assert.match(page, /Review in Google Ads before making changes\./);
+ assert.doesNotMatch(page, /reviewGoogleAdsKeywordsWithAi/);
 });
 
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
