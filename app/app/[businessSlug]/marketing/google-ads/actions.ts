@@ -20,6 +20,8 @@ import {
  fetchGoogleAdsKeywordReviewSnapshot,
  deriveGoogleAdsKeywordBidRecommendations,
  googleAdsKeywordReviewSnapshotHash,
+ googleAdsKeywordBidSafetyCapMicros,
+ googleAdsSuggestedStartingBidMicros,
  logGoogleAdsKeywordReviewStage,
  reviewGoogleAdsKeywordsWithAi,
  generateGoogleAdsDraft,
@@ -643,7 +645,10 @@ export async function applyRecommendedGoogleAdsSettingsAction(slug: string, camp
 export async function applyGoogleAdsKeywordBidRecommendationAction(slug: string, campaignId: string, formData: FormData) {
  const { supabase, business, user } = await context(slug);
  if (text(formData, "confirmKeywordBid") !== "apply") redirect(path(slug, "error", "Review the bid change and confirm before applying it."));
- const keywordId = text(formData, "keywordId");
+ const keywordIds = [...new Set(formData.getAll("keywordIds").map(String).map((value) => value.trim()).filter(Boolean))];
+ const requestedBidMicros = googleAdsBidDollarsToMicros(text(formData, "maximumBidDollars"));
+ if (!keywordIds.length) redirect(path(slug, "error", "Select at least one keyword before updating bids."));
+ if (!requestedBidMicros || requestedBidMicros > googleAdsKeywordBidSafetyCapMicros) redirect(path(slug, "error", `Enter a positive maximum bid at or below ${(googleAdsKeywordBidSafetyCapMicros / 1_000_000).toLocaleString("en-US", { style: "currency", currency: "USD" })}.`));
  const connection = await loadTenantGoogleAdsAccess(business.id);
  const [{ data: campaign }, { data: territories }] = await Promise.all([
   supabase.from("business_google_ads_campaigns").select("campaign_name,google_campaign_id,google_ads_customer_id,daily_budget_micros").eq("business_id", business.id).eq("id", campaignId).maybeSingle(),
@@ -654,16 +659,16 @@ export async function applyGoogleAdsKeywordBidRecommendationAction(slug: string,
  const to = new Date().toISOString().slice(0, 10);
  const fromDate = new Date(`${to}T00:00:00.000Z`); fromDate.setUTCDate(fromDate.getUTCDate() - 29);
  const snapshot = await fetchGoogleAdsKeywordReviewSnapshot({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, campaignName: campaign.campaign_name ?? null, dailyBudgetMicros: campaign.daily_budget_micros ?? null, industry: business.industry_profile ?? null, locations: (territories ?? []).map((territory) => territory.name), dateFrom: fromDate.toISOString().slice(0, 10), dateTo: to, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id });
- const recommendation = deriveGoogleAdsKeywordBidRecommendations(snapshot).find((entry) => entry.keywordId === keywordId);
- if (!recommendation) redirect(path(slug, "error", "This bid recommendation is no longer applicable. Review keywords again for current Google Ads data."));
+ if (snapshot.campaign.biddingStrategy !== "MANUAL_CPC") redirect(path(slug, "error", "This campaign uses automated bidding, so Servonas cannot safely change individual keyword bids."));
+ const selectedKeywords = snapshot.keywords.filter((keyword) => keywordIds.includes(keyword.id) && !keyword.negative && keyword.status === "ENABLED" && keyword.adGroupId && keyword.cpcBidMicros && requestedBidMicros > keyword.cpcBidMicros);
+ if (selectedKeywords.length !== keywordIds.length) redirect(path(slug, "error", "One or more selected keywords no longer have a verified lower Manual CPC bid. Review keywords again."));
  try {
-  const mutation = await updateGoogleAdsKeywordBid({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, loginCustomerIds: access.loginCustomerIds, adGroupId: recommendation.adGroupId, keywordId: recommendation.keywordId, cpcBidMicros: recommendation.recommendedBidMicros });
+  const mutations = await Promise.all(selectedKeywords.map((keyword) => updateGoogleAdsKeywordBid({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, loginCustomerIds: access.loginCustomerIds, adGroupId: keyword.adGroupId!, keywordId: keyword.id, cpcBidMicros: requestedBidMicros })));
   const verifiedSnapshot = await fetchGoogleAdsKeywordReviewSnapshot({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, campaignName: campaign.campaign_name ?? null, dailyBudgetMicros: campaign.daily_budget_micros ?? null, industry: business.industry_profile ?? null, locations: (territories ?? []).map((territory) => territory.name), dateFrom: fromDate.toISOString().slice(0, 10), dateTo: to, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id });
-  const verifiedBid = verifiedSnapshot.keywords.find((keyword) => keyword.id === recommendation.keywordId)?.cpcBidMicros;
-  if (verifiedBid !== recommendation.recommendedBidMicros) throw new Error("Google Ads did not verify the requested keyword bid.");
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_keyword_bid_applied", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, adGroupId: recommendation.adGroupId, keywordId: recommendation.keywordId, keyword: recommendation.keyword, oldBidMicros: recommendation.currentBidMicros, newBidMicros: recommendation.recommendedBidMicros, recommendationSource: "servonas_ai_keyword_review", googleMutationResult: mutation } });
+  if (selectedKeywords.some((keyword) => verifiedSnapshot.keywords.find((current) => current.id === keyword.id)?.cpcBidMicros !== requestedBidMicros)) throw new Error("Google Ads did not verify every requested keyword bid.");
+  await Promise.all(selectedKeywords.map((keyword, index) => writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_keyword_bid_applied", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, adGroupId: keyword.adGroupId, keywordId: keyword.id, keyword: keyword.text, oldBidMicros: keyword.cpcBidMicros, newBidMicros: requestedBidMicros, recommendationSource: "servonas_ai_keyword_review", googleMutationResult: mutations[index] } })));
  } catch (error) {
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_keyword_bid_apply_failed", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, keywordId, recommendationSource: "servonas_ai_keyword_review", errorType: error instanceof Error ? error.name : "unknown" } });
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_keyword_bid_apply_failed", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, keywordIds, recommendationSource: "servonas_ai_keyword_review", errorType: error instanceof Error ? error.name : "unknown" } });
   redirect(path(slug, "error", "Google Ads could not apply this keyword bid. No change was recorded as applied."));
  }
  revalidatePath(`/app/${slug}/marketing/google-ads`);
@@ -982,7 +987,7 @@ export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: st
   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_miss", { ...reviewMetadata, cacheStatus: forceReview ? "bypassed" : "miss" });
   const review = await reviewGoogleAdsKeywordsWithAi({ businessId: business.id, googleCustomerId: campaign.google_ads_customer_id, snapshot, snapshotHash });
   if (!review) throw new Error("AI keyword recommendations are temporarily unavailable.");
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 3, snapshotHash, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, model: reviewMetadata.model, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), bidRecommendations: deriveGoogleAdsKeywordBidRecommendations(snapshot), review } });
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 4, snapshotHash, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, model: reviewMetadata.model, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), bidRecommendations: deriveGoogleAdsKeywordBidRecommendations(snapshot), bidActionContext: { biddingStrategy: snapshot.campaign.biddingStrategy, dailyBudgetMicros: snapshot.campaign.dailyBudgetMicros, defaultBidMicros: snapshot.campaign.adGroupDefaultCpcMicros.at(0) ?? null, suggestedDefaultBidMicros: snapshot.campaign.adGroupDefaultCpcMicros.at(0) ? googleAdsSuggestedStartingBidMicros(snapshot.campaign.adGroupDefaultCpcMicros[0]!) : null, keywordCandidates: snapshot.keywords.filter((keyword) => !keyword.negative && keyword.status === "ENABLED" && keyword.adGroupId && keyword.cpcBidMicros).map((keyword) => ({ keywordId: keyword.id, keyword: keyword.text, adGroupId: keyword.adGroupId, currentBidMicros: keyword.cpcBidMicros, suggestedBidMicros: googleAdsSuggestedStartingBidMicros(keyword.cpcBidMicros!), status: keyword.primaryStatus, reasons: keyword.primaryStatusReasons })).slice(0, 100) }, review } });
  } catch (error) {
   redirect(path(slug, "error", error instanceof Error ? error.message : "Keyword review could not be completed."));
  }
