@@ -2475,6 +2475,26 @@ export async function fetchGoogleAdsAdGroupBid(input: {
  };
 }
 
+export async function fetchGoogleAdsManualCpcAdGroups(input: {
+ accessToken: string;
+ customerId: string;
+ campaignId: string;
+ loginCustomerId?: string | null;
+ businessId?: string | null;
+}) {
+ const campaignId = stripCustomerId(input.campaignId);
+ if (!campaignId) return [] as Array<{ campaignId: string; biddingStrategyType: string | null; id: string; name: string | null; status: string | null; cpcBidMicros: number }>;
+ const rows = await googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, campaign.bidding_strategy_type, ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros FROM ad_group WHERE campaign.id = ${campaignId} AND ad_group.status != 'REMOVED'`, input.loginCustomerId, { stage: "google_ads_fix_cpc_ad_group_lookup", requestType: "google_ads_fix_cpc_ad_group_lookup", businessId: input.businessId ?? null });
+ return rows.map((row) => ({
+  campaignId: stripCustomerId(String(readGoogleAdsField(row, "campaign.id", "campaign.id") ?? "")),
+  biddingStrategyType: typeof readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type") === "string" ? String(readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type")) : null,
+  id: stripCustomerId(String(readGoogleAdsField(row, "adGroup.id", "ad_group.id") ?? "")),
+  name: typeof readGoogleAdsField(row, "adGroup.name", "ad_group.name") === "string" ? String(readGoogleAdsField(row, "adGroup.name", "ad_group.name")) : null,
+  status: typeof readGoogleAdsField(row, "adGroup.status", "ad_group.status") === "string" ? String(readGoogleAdsField(row, "adGroup.status", "ad_group.status")) : null,
+  cpcBidMicros: safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros")),
+ })).filter((row) => row.campaignId === campaignId && row.id);
+}
+
 export async function fetchGoogleAdsCampaignHealthSnapshots(input: {
  accessToken: string;
  customerId: string;
