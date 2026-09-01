@@ -603,6 +603,25 @@ test("keyword review keeps its core GAQL snapshot independent from unavailable b
  assert.match(file, /Do not recommend removing, pausing, or changing a negative keyword merely because it has zero impressions/);
 });
 
+test("keyword review keeps internal IDs out of customer-facing recommendation content", async () => {
+ const [actions, page] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(actions, /keywordDisplays: snapshot\.keywords\.map/);
+ assert.match(actions, /matchType: keyword\.matchType/);
+ assert.match(actions, /primaryStatusReasons: keyword\.primaryStatusReasons/);
+ assert.match(page, /function customerFacingText/);
+ assert.match(page, /result\.replace\(\/\\b\\d\{6,\}/);
+ assert.match(page, /function readableRecommendationEvidence/);
+ assert.match(page, /reviewed negative keyword/);
+ assert.match(page, /Relevant keywords/);
+ assert.match(page, /Technical details/);
+ assert.match(page, /Keyword ID:/);
+ assert.match(page, /savedKeywordReview\.review\.keywordDisplays\.get\(id\) \?\? \{ \.\.\.unresolvedKeyword, id \}/);
+ assert.doesNotMatch(page, /keywordLabels\.get\(id\) \?\? id/);
+});
+
 test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
  const [file, actions, page] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),
