@@ -748,7 +748,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
        <div><h3>Campaign health</h3><p>{health.state === "healthy" ? "No major setup issues detected." : "Servonas checks for configuration problems beyond Google's serving status."}</p></div>
        <span className="google-ads-health-badge">{healthLabel}</span>
       </div>
-      {healthError ? <div className="workspace-notice warning">Campaign health details are temporarily unavailable. {healthError}</div> : null}
+      {healthError ? <div className="workspace-notice warning">Some campaign health checks could not be verified. Verified checks are still shown below.</div> : null}
       {health.mostImportantIssue && health.mostImportantIssue.severity !== "healthy" ? <div className="google-ads-health-focus">
        <strong>{health.mostImportantIssue.title}</strong>
        {health.mostImportantIssue.currentValue ? <span>Current: {health.mostImportantIssue.currentValue}</span> : null}
