@@ -165,6 +165,35 @@ export type GoogleAdsCampaignStatusSnapshot = {
  primaryStatusReasons: string[];
  issuesAvailable: boolean;
 };
+export type GoogleAdsGeoTargetSuggestion = {
+ resourceName: string;
+ id: string;
+ name: string;
+ canonicalName: string | null;
+ countryCode: string | null;
+ targetType: string | null;
+ status: string | null;
+ label: string;
+};
+export type GoogleAdsCampaignLocation = {
+ criterionId: string;
+ criterionResourceName: string | null;
+ geoTargetConstant: string;
+ geoTargetConstantId: string;
+ name: string;
+ canonicalName: string | null;
+ countryCode: string | null;
+ targetType: string | null;
+ label: string;
+ negative: boolean;
+};
+export type GoogleAdsCampaignLocationTargeting = {
+ campaignId: string;
+ targetedLocations: GoogleAdsCampaignLocation[];
+ excludedLocations: GoogleAdsCampaignLocation[];
+ positiveGeoTargetType: string | null;
+ negativeGeoTargetType: string | null;
+};
 export type GoogleAdsSearchTerm = {
  campaignId: string;
  term: string;
@@ -260,6 +289,7 @@ const normalizeGoogleAdsDate = (value: string) => {
  if (/^\d{8}$/.test(trimmed)) return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;
  throw new Error(`Invalid Google Ads date: ${value}`);
 };
+const escapeGaqlString = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 const googleAdsCustomDateRangeFilter = (dateFrom: string, dateTo: string) =>
  `segments.date BETWEEN '${normalizeGoogleAdsDate(dateFrom)}' AND '${normalizeGoogleAdsDate(dateTo)}'`;
 const limitStrings = (values: unknown[], max = 5) => values.map((value) => typeof value === "string" ? value : "").filter(Boolean).slice(0, max);
@@ -480,6 +510,27 @@ function safeStringArray(value: unknown) {
 function readGoogleAdsField<T>(record: Record<string, unknown> | undefined, camelKey: string, snakeKey: string) {
  if (!record) return undefined;
  return (record[camelKey] ?? record[snakeKey]) as T | undefined;
+}
+
+function geoTargetIdFromResourceName(value: string | null | undefined) {
+ if (!value) return null;
+ const id = value.split("/").pop()?.trim() ?? "";
+ return id || null;
+}
+
+function formatGeoTargetLabel(input: {
+ name: string | null;
+ canonicalName?: string | null;
+ countryCode?: string | null;
+ targetType?: string | null;
+}) {
+ const canonical = input.canonicalName?.trim() || null;
+ const name = input.name?.trim() || null;
+ const base = canonical || name || "Unknown location";
+ const suffix = input.targetType?.trim()
+  ? ` — ${input.targetType.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}`
+  : "";
+ return `${base}${suffix}`;
 }
 
 function extractGoogleAdsErrorPayload(value: unknown): GoogleAdsErrorResponse["error"] | null {
@@ -2440,6 +2491,243 @@ export async function fetchGoogleAdsCampaignStatuses(input: { accessToken: strin
   });
   throw error;
  }
+}
+
+export async function fetchGoogleAdsCampaignLocationTargeting(input: {
+ accessToken: string;
+ customerId: string;
+ campaignIds: string[];
+ loginCustomerId?: string | null;
+ businessId?: string | null;
+}) {
+ if (!input.campaignIds.length) return [] as GoogleAdsCampaignLocationTargeting[];
+ const ids = uniqueStrings(input.campaignIds.map(stripCustomerId).filter(Boolean));
+ if (!ids.length) return [] as GoogleAdsCampaignLocationTargeting[];
+ const criteriaQuery = `SELECT campaign.id, campaign_criterion.criterion_id, campaign_criterion.resource_name, campaign_criterion.negative, campaign_criterion.location.geo_target_constant FROM campaign_criterion WHERE campaign.id IN (${ids.join(",")})`;
+ const criteriaRows = await googleAdsSearchStream(
+  input.customerId,
+  input.accessToken,
+  criteriaQuery,
+  input.loginCustomerId ?? undefined,
+  { stage: "google_ads_campaign_location_query", requestType: "campaign_locations", businessId: input.businessId ?? null },
+ );
+ const positiveNegativeQuery = `SELECT campaign.id, campaign.geo_target_type_setting.positive_geo_target_type, campaign.geo_target_type_setting.negative_geo_target_type FROM campaign WHERE campaign.id IN (${ids.join(",")})`;
+ const settingRows = await googleAdsSearchStream(
+  input.customerId,
+  input.accessToken,
+  positiveNegativeQuery,
+  input.loginCustomerId ?? undefined,
+  { stage: "google_ads_campaign_location_settings_query", requestType: "campaign_location_settings", businessId: input.businessId ?? null },
+ );
+ const geoTargetResources = uniqueStrings(criteriaRows.map((row) => {
+  const criterion = row.campaignCriterion as Record<string, unknown> | undefined;
+  const location = criterion?.location as Record<string, unknown> | undefined;
+  return typeof readGoogleAdsField<unknown>(location, "geoTargetConstant", "geo_target_constant") === "string"
+   ? String(readGoogleAdsField<unknown>(location, "geoTargetConstant", "geo_target_constant"))
+   : "";
+ }).filter(Boolean));
+ const geoTargetByResource = new Map<string, GoogleAdsGeoTargetSuggestion>();
+ if (geoTargetResources.length) {
+  const resourceFilter = geoTargetResources.map((resourceName) => `'${escapeGaqlString(resourceName)}'`).join(",");
+  const geoTargetQuery = `SELECT geo_target_constant.resource_name, geo_target_constant.id, geo_target_constant.name, geo_target_constant.canonical_name, geo_target_constant.country_code, geo_target_constant.target_type, geo_target_constant.status FROM geo_target_constant WHERE geo_target_constant.resource_name IN (${resourceFilter})`;
+  const geoTargetRows = await googleAdsSearchStream(
+   input.customerId,
+   input.accessToken,
+   geoTargetQuery,
+   input.loginCustomerId ?? undefined,
+   { stage: "google_ads_geo_target_resolution_query", requestType: "geo_target_resolution", businessId: input.businessId ?? null },
+  );
+  for (const row of geoTargetRows) {
+   const target = row.geoTargetConstant as Record<string, unknown> | undefined;
+   const resourceName = typeof readGoogleAdsField<unknown>(target, "resourceName", "resource_name") === "string"
+    ? String(readGoogleAdsField<unknown>(target, "resourceName", "resource_name"))
+    : "";
+   if (!resourceName) continue;
+   const suggestion = {
+    resourceName,
+    id: String(readGoogleAdsField<unknown>(target, "id", "id") ?? geoTargetIdFromResourceName(resourceName) ?? ""),
+    name: String(readGoogleAdsField<unknown>(target, "name", "name") ?? "Unknown location"),
+    canonicalName: typeof readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name") === "string"
+     ? String(readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name"))
+     : null,
+    countryCode: typeof readGoogleAdsField<unknown>(target, "countryCode", "country_code") === "string"
+     ? String(readGoogleAdsField<unknown>(target, "countryCode", "country_code"))
+     : null,
+    targetType: typeof readGoogleAdsField<unknown>(target, "targetType", "target_type") === "string"
+     ? String(readGoogleAdsField<unknown>(target, "targetType", "target_type"))
+     : null,
+    status: typeof readGoogleAdsField<unknown>(target, "status", "status") === "string"
+     ? String(readGoogleAdsField<unknown>(target, "status", "status"))
+     : null,
+    label: formatGeoTargetLabel({
+     name: typeof readGoogleAdsField<unknown>(target, "name", "name") === "string" ? String(readGoogleAdsField<unknown>(target, "name", "name")) : null,
+     canonicalName: typeof readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name") === "string" ? String(readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name")) : null,
+     countryCode: typeof readGoogleAdsField<unknown>(target, "countryCode", "country_code") === "string" ? String(readGoogleAdsField<unknown>(target, "countryCode", "country_code")) : null,
+     targetType: typeof readGoogleAdsField<unknown>(target, "targetType", "target_type") === "string" ? String(readGoogleAdsField<unknown>(target, "targetType", "target_type")) : null,
+    }),
+   } satisfies GoogleAdsGeoTargetSuggestion;
+   geoTargetByResource.set(resourceName, suggestion);
+  }
+ }
+ const byCampaign = new Map<string, GoogleAdsCampaignLocationTargeting>();
+ for (const campaignId of ids) {
+  byCampaign.set(campaignId, {
+   campaignId,
+   targetedLocations: [],
+   excludedLocations: [],
+   positiveGeoTargetType: null,
+   negativeGeoTargetType: null,
+  });
+ }
+ for (const row of settingRows) {
+  const campaign = row.campaign as Record<string, unknown> | undefined;
+  const campaignId = String(readGoogleAdsField<unknown>(campaign, "id", "id") ?? "");
+  if (!campaignId) continue;
+  const target = byCampaign.get(campaignId) ?? {
+   campaignId,
+   targetedLocations: [],
+   excludedLocations: [],
+   positiveGeoTargetType: null,
+   negativeGeoTargetType: null,
+  };
+  const setting = readGoogleAdsField<Record<string, unknown> | undefined>(campaign, "geoTargetTypeSetting", "geo_target_type_setting");
+  target.positiveGeoTargetType = typeof readGoogleAdsField<unknown>(setting, "positiveGeoTargetType", "positive_geo_target_type") === "string"
+   ? String(readGoogleAdsField<unknown>(setting, "positiveGeoTargetType", "positive_geo_target_type"))
+   : null;
+  target.negativeGeoTargetType = typeof readGoogleAdsField<unknown>(setting, "negativeGeoTargetType", "negative_geo_target_type") === "string"
+   ? String(readGoogleAdsField<unknown>(setting, "negativeGeoTargetType", "negative_geo_target_type"))
+   : null;
+  byCampaign.set(campaignId, target);
+ }
+ for (const row of criteriaRows) {
+  const campaign = row.campaign as Record<string, unknown> | undefined;
+  const criterion = row.campaignCriterion as Record<string, unknown> | undefined;
+  const location = criterion?.location as Record<string, unknown> | undefined;
+  const campaignId = String(readGoogleAdsField<unknown>(campaign, "id", "id") ?? "");
+  const geoTargetConstant = typeof readGoogleAdsField<unknown>(location, "geoTargetConstant", "geo_target_constant") === "string"
+   ? String(readGoogleAdsField<unknown>(location, "geoTargetConstant", "geo_target_constant"))
+   : null;
+  if (!campaignId || !geoTargetConstant) continue;
+  const target = byCampaign.get(campaignId) ?? {
+   campaignId,
+   targetedLocations: [],
+   excludedLocations: [],
+   positiveGeoTargetType: null,
+   negativeGeoTargetType: null,
+  };
+  const resolved = geoTargetByResource.get(geoTargetConstant);
+  const criterionId = String(readGoogleAdsField<unknown>(criterion, "criterionId", "criterion_id") ?? "");
+  const entry = {
+   criterionId,
+   criterionResourceName: typeof readGoogleAdsField<unknown>(criterion, "resourceName", "resource_name") === "string"
+    ? String(readGoogleAdsField<unknown>(criterion, "resourceName", "resource_name"))
+    : null,
+   geoTargetConstant,
+   geoTargetConstantId: geoTargetIdFromResourceName(geoTargetConstant) ?? "",
+   name: resolved?.name ?? "Unknown location",
+   canonicalName: resolved?.canonicalName ?? null,
+   countryCode: resolved?.countryCode ?? null,
+   targetType: resolved?.targetType ?? null,
+   label: resolved?.label ?? formatGeoTargetLabel({ name: geoTargetIdFromResourceName(geoTargetConstant), targetType: null }),
+   negative: Boolean(readGoogleAdsField<unknown>(criterion, "negative", "negative")),
+  } satisfies GoogleAdsCampaignLocation;
+  const list = entry.negative ? target.excludedLocations : target.targetedLocations;
+  if (!list.some((item) => item.geoTargetConstant === entry.geoTargetConstant)) list.push(entry);
+  byCampaign.set(campaignId, target);
+ }
+ return [...byCampaign.values()];
+}
+
+export async function searchGoogleAdsGeoTargets(input: {
+ accessToken: string;
+ customerId: string;
+ query: string;
+ loginCustomerId?: string | null;
+ businessId?: string | null;
+}) {
+ const term = input.query.trim();
+ if (!term) return [] as GoogleAdsGeoTargetSuggestion[];
+ const escaped = escapeGaqlString(term);
+ const query = `SELECT geo_target_constant.resource_name, geo_target_constant.id, geo_target_constant.name, geo_target_constant.canonical_name, geo_target_constant.country_code, geo_target_constant.target_type, geo_target_constant.status FROM geo_target_constant WHERE geo_target_constant.status = ENABLED AND (geo_target_constant.name LIKE '%${escaped}%' OR geo_target_constant.canonical_name LIKE '%${escaped}%') LIMIT 12`;
+ const rows = await googleAdsSearchStream(
+  input.customerId,
+  input.accessToken,
+  query,
+  input.loginCustomerId ?? undefined,
+  { stage: "google_ads_geo_target_search_query", requestType: "geo_target_search", businessId: input.businessId ?? null },
+ );
+ return rows.map((row) => {
+  const target = row.geoTargetConstant as Record<string, unknown> | undefined;
+  const resourceName = typeof readGoogleAdsField<unknown>(target, "resourceName", "resource_name") === "string"
+   ? String(readGoogleAdsField<unknown>(target, "resourceName", "resource_name"))
+   : "";
+  return {
+   resourceName,
+   id: String(readGoogleAdsField<unknown>(target, "id", "id") ?? geoTargetIdFromResourceName(resourceName) ?? ""),
+   name: String(readGoogleAdsField<unknown>(target, "name", "name") ?? "Unknown location"),
+   canonicalName: typeof readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name") === "string"
+    ? String(readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name"))
+    : null,
+   countryCode: typeof readGoogleAdsField<unknown>(target, "countryCode", "country_code") === "string"
+    ? String(readGoogleAdsField<unknown>(target, "countryCode", "country_code"))
+    : null,
+   targetType: typeof readGoogleAdsField<unknown>(target, "targetType", "target_type") === "string"
+    ? String(readGoogleAdsField<unknown>(target, "targetType", "target_type"))
+    : null,
+   status: typeof readGoogleAdsField<unknown>(target, "status", "status") === "string"
+    ? String(readGoogleAdsField<unknown>(target, "status", "status"))
+    : null,
+   label: formatGeoTargetLabel({
+    name: typeof readGoogleAdsField<unknown>(target, "name", "name") === "string" ? String(readGoogleAdsField<unknown>(target, "name", "name")) : null,
+    canonicalName: typeof readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name") === "string" ? String(readGoogleAdsField<unknown>(target, "canonicalName", "canonical_name")) : null,
+    countryCode: typeof readGoogleAdsField<unknown>(target, "countryCode", "country_code") === "string" ? String(readGoogleAdsField<unknown>(target, "countryCode", "country_code")) : null,
+    targetType: typeof readGoogleAdsField<unknown>(target, "targetType", "target_type") === "string" ? String(readGoogleAdsField<unknown>(target, "targetType", "target_type")) : null,
+   }),
+  } satisfies GoogleAdsGeoTargetSuggestion;
+ }).filter((target) => target.resourceName);
+}
+
+export async function addGoogleAdsCampaignLocation(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
+ campaignId: string;
+ geoTargetConstant: string;
+}) {
+ return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/campaignCriteria:mutate`, {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: {
+   operations: [{
+    create: {
+     campaign: `customers/${stripCustomerId(input.customerId)}/campaigns/${stripCustomerId(input.campaignId)}`,
+     negative: false,
+     location: {
+      geoTargetConstant: input.geoTargetConstant,
+     },
+    },
+   }],
+  },
+ });
+}
+
+export async function removeGoogleAdsCampaignLocation(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
+ criterionResourceName: string;
+}) {
+ return googleAdsRequestWithLoginFallbacks(`/customers/${stripCustomerId(input.customerId)}/campaignCriteria:mutate`, {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: {
+   operations: [{
+    remove: input.criterionResourceName,
+   }],
+  },
+ });
 }
 
 export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string; businessId?: string | null }) {

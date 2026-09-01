@@ -6,17 +6,21 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { canManageBusiness } from "@/lib/access";
 import {
  appendGoogleAdsNegativeKeyword,
+ addGoogleAdsCampaignLocation,
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
+ fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
  generateGoogleAdsDraft,
  googleAdsErrorMessage,
  googleAdsPreferredLoginCustomerIds,
  loadTenantGoogleAdsAccess,
+ removeGoogleAdsCampaignLocation,
  publishGoogleAdsCampaign,
  recordGoogleAdsBetaEvent,
  runGoogleAdsPermissionDiagnostic,
+ searchGoogleAdsGeoTargets,
  submitGoogleAdsBetaFeedback,
  updateGoogleAdsCampaignBudget,
  updateGoogleAdsCampaignStatus,
@@ -593,6 +597,131 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, campaignCount: metrics.length } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads metrics refreshed."));
+}
+
+export async function searchGoogleAdsCampaignLocationsAction(slug: string, campaignId: string, formData: FormData) {
+ const { business } = await context(slug);
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ const query = text(formData, "locationQuery");
+ if (!connection?.customerId) redirect(path(slug, "error", "Connect Google Ads first."));
+ if (!query) redirect(`/app/${slug}/marketing/google-ads?manageLocations=${encodeURIComponent(campaignId)}`);
+ try {
+  await searchGoogleAdsGeoTargets({
+   accessToken: connection.accessToken,
+   customerId: connection.customerId,
+   loginCustomerId: connection.loginCustomerId,
+   query,
+   businessId: business.id,
+  });
+ } catch (error) {
+  const message = error instanceof Error ? error.message : "Google Ads locations could not be searched.";
+  redirect(path(slug, "error", message));
+ }
+ redirect(`/app/${slug}/marketing/google-ads?manageLocations=${encodeURIComponent(campaignId)}&locationQuery=${encodeURIComponent(query)}`);
+}
+
+export async function addGoogleAdsCampaignLocationAction(slug: string, campaignId: string, formData: FormData) {
+ const { supabase, business, user } = await context(slug);
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before changing locations."));
+ const geoTargetConstant = text(formData, "geoTargetConstant");
+ if (!geoTargetConstant) redirect(path(slug, "error", "Choose a valid Google Ads location."));
+ const { data: campaign } = await supabase.from("business_google_ads_campaigns")
+  .select("id,google_campaign_id,google_ads_customer_id")
+  .eq("business_id", business.id)
+  .eq("id", campaignId)
+  .maybeSingle();
+ if (!campaign?.google_campaign_id || !campaign.google_ads_customer_id) redirect(path(slug, "error", "The published campaign could not be found."));
+ const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+ const current = await fetchGoogleAdsCampaignLocationTargeting({
+  accessToken: connection.accessToken,
+  customerId: campaign.google_ads_customer_id,
+  campaignIds: [campaign.google_campaign_id],
+  loginCustomerId: mutationAccess.resolvedLoginCustomerId,
+  businessId: business.id,
+ });
+ const currentTargeting = current[0];
+ if (currentTargeting?.targetedLocations.some((location) => location.geoTargetConstant === geoTargetConstant)) {
+  redirect(path(slug, "error", "That location is already targeted."));
+ }
+ await addGoogleAdsCampaignLocation({
+  accessToken: connection.accessToken,
+  customerId: campaign.google_ads_customer_id,
+  loginCustomerIds: mutationAccess.loginCustomerIds,
+  campaignId: campaign.google_campaign_id,
+  geoTargetConstant,
+ });
+ const refreshed = await fetchGoogleAdsCampaignLocationTargeting({
+  accessToken: connection.accessToken,
+  customerId: campaign.google_ads_customer_id,
+  campaignIds: [campaign.google_campaign_id],
+  loginCustomerId: mutationAccess.resolvedLoginCustomerId,
+  businessId: business.id,
+ });
+ const latest = refreshed[0];
+ await supabase.from("business_google_ads_campaigns").update({
+  geo_target_summary: latest?.targetedLocations.length
+   ? latest.targetedLocations.slice(0, 3).map((location) => location.canonicalName || location.name).join(", ")
+   : "No locations currently configured",
+  last_sync_at: new Date().toISOString(),
+  updated_by: user.id,
+  updated_at: new Date().toISOString(),
+ }).eq("business_id", business.id).eq("id", campaignId);
+ await writeGoogleAdsAuditLog({
+  businessId: business.id,
+  campaignId,
+  actorUserId: user.id,
+  eventType: "google_ads_campaign_location_added",
+  metadata: { geoTargetConstant },
+ });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Campaign location added."));
+}
+
+export async function removeGoogleAdsCampaignLocationAction(slug: string, campaignId: string, formData: FormData) {
+ const { supabase, business, user } = await context(slug);
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before changing locations."));
+ const criterionResourceName = text(formData, "criterionResourceName");
+ if (!criterionResourceName) redirect(path(slug, "error", "That Google Ads location could not be removed."));
+ const { data: campaign } = await supabase.from("business_google_ads_campaigns")
+  .select("id,google_campaign_id,google_ads_customer_id")
+  .eq("business_id", business.id)
+  .eq("id", campaignId)
+  .maybeSingle();
+ if (!campaign?.google_campaign_id || !campaign.google_ads_customer_id) redirect(path(slug, "error", "The published campaign could not be found."));
+ const mutationAccess = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+ await removeGoogleAdsCampaignLocation({
+  accessToken: connection.accessToken,
+  customerId: campaign.google_ads_customer_id,
+  loginCustomerIds: mutationAccess.loginCustomerIds,
+  criterionResourceName,
+ });
+ const refreshed = await fetchGoogleAdsCampaignLocationTargeting({
+  accessToken: connection.accessToken,
+  customerId: campaign.google_ads_customer_id,
+  campaignIds: [campaign.google_campaign_id],
+  loginCustomerId: mutationAccess.resolvedLoginCustomerId,
+  businessId: business.id,
+ });
+ const latest = refreshed[0];
+ await supabase.from("business_google_ads_campaigns").update({
+  geo_target_summary: latest?.targetedLocations.length
+   ? latest.targetedLocations.slice(0, 3).map((location) => location.canonicalName || location.name).join(", ")
+   : "No locations currently configured",
+  last_sync_at: new Date().toISOString(),
+  updated_by: user.id,
+  updated_at: new Date().toISOString(),
+ }).eq("business_id", business.id).eq("id", campaignId);
+ await writeGoogleAdsAuditLog({
+  businessId: business.id,
+  campaignId,
+  actorUserId: user.id,
+  eventType: "google_ads_campaign_location_removed",
+  metadata: { criterionResourceName },
+ });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Campaign location removed."));
 }
 
 export async function runGoogleAdsPermissionDiagnosticAction(slug: string) {

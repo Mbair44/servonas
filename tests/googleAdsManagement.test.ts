@@ -322,6 +322,18 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(page, /google-ads-manage-toolbar/);
  assert.match(manageControls, /google-ads-budget-field/);
  assert.match(page, /google-ads-keyword-section/);
+ assert.match(page, /Location targeting/);
+ assert.match(page, /Google Ads is the source of truth for where this campaign can appear\./);
+ assert.match(page, /Manage locations/);
+ assert.match(page, /Add locations/);
+ assert.match(page, /No locations currently configured/);
+ assert.match(page, /No locations are currently targeted\./);
+ assert.match(page, /Search city, county, state, or ZIP/);
+ assert.match(page, /Add location/);
+ assert.match(page, /Already targeted/);
+ assert.match(page, /Excluded locations/);
+ assert.match(page, /Targeting behavior/);
+ assert.match(page, /Removing this location will leave this campaign without any explicit location targeting\./);
  assert.match(page, /google-ads-performance-block/);
  assert.match(page, /<div><dt>Google status<\/dt><dd>/);
  assert.match(page, /<div><dt>Serving status<\/dt><dd>/);
@@ -345,7 +357,35 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(styles, /\.google-ads-manage-inline-actions\{/);
  assert.match(styles, /\.google-ads-budget-field/);
  assert.match(styles, /\.google-ads-keyword-section\{/);
+ assert.match(styles, /\.google-ads-location-panel\{/);
+ assert.match(styles, /\.google-ads-location-summary-card\{/);
+ assert.match(styles, /\.google-ads-location-list article\{/);
+ assert.match(styles, /\.google-ads-location-search\{/);
  assert.match(styles, /@media\(max-width:900px\)\{\.google-ads-manage-toolbar/);
+});
+
+test("google ads location targeting uses live Google campaign criteria and geo target constant search", async () => {
+ const [file, actions, page] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(file, /export type GoogleAdsCampaignLocationTargeting = \{/);
+ assert.match(file, /SELECT campaign\.id, campaign_criterion\.criterion_id, campaign_criterion\.resource_name, campaign_criterion\.negative, campaign_criterion\.location\.geo_target_constant FROM campaign_criterion WHERE campaign\.id IN/);
+ assert.match(file, /SELECT campaign\.id, campaign\.geo_target_type_setting\.positive_geo_target_type, campaign\.geo_target_type_setting\.negative_geo_target_type FROM campaign WHERE campaign\.id IN/);
+ assert.match(file, /SELECT geo_target_constant\.resource_name, geo_target_constant\.id, geo_target_constant\.name, geo_target_constant\.canonical_name, geo_target_constant\.country_code, geo_target_constant\.target_type, geo_target_constant\.status FROM geo_target_constant WHERE geo_target_constant\.resource_name IN/);
+ assert.match(file, /SELECT geo_target_constant\.resource_name, geo_target_constant\.id, geo_target_constant\.name, geo_target_constant\.canonical_name, geo_target_constant\.country_code, geo_target_constant\.target_type, geo_target_constant\.status FROM geo_target_constant WHERE geo_target_constant\.status = ENABLED AND \(geo_target_constant\.name LIKE/);
+ assert.match(file, /\/customers\/\$\{stripCustomerId\(input\.customerId\)\}\/campaignCriteria:mutate/);
+ assert.match(file, /geoTargetConstant: input\.geoTargetConstant/);
+ assert.match(file, /remove: input\.criterionResourceName/);
+ assert.match(actions, /export async function addGoogleAdsCampaignLocationAction/);
+ assert.match(actions, /export async function removeGoogleAdsCampaignLocationAction/);
+ assert.match(actions, /That location is already targeted\./);
+ assert.match(actions, /google_ads_campaign_location_added/);
+ assert.match(actions, /google_ads_campaign_location_removed/);
+ assert.match(page, /fetchGoogleAdsCampaignLocationTargeting/);
+ assert.match(page, /campaignLocationSummary/);
+ assert.match(page, /friendlyGeoTargetType/);
 });
 
 test("google ads status sync stores and reuses the published google campaign resource name", async () => {
