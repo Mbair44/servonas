@@ -60,6 +60,7 @@ function keywordReview(value: unknown) {
  const labels = Array.isArray((value as { keywordLabels?: unknown }).keywordLabels) ? (value as { keywordLabels: unknown[] }).keywordLabels.flatMap((entry) => entry && typeof entry === "object" && typeof (entry as any).id === "string" && typeof (entry as any).text === "string" ? [{ id: (entry as any).id, text: (entry as any).text }] : []) : [];
  return {
   summary: candidate.summary,
+  snapshotTimestamp: typeof (value as { generatedAt?: unknown }).generatedAt === "string" ? (value as { generatedAt: string }).generatedAt : null,
   performanceDataState: candidate.performanceDataState === "early" ? "early" : "sufficient",
   keywordsReviewed: typeof candidate.keywordsReviewed === "number" ? candidate.keywordsReviewed : labels.length,
   keywordLabels: new Map(labels.map((label) => [label.id, label.text])),
@@ -333,7 +334,7 @@ export default async function GoogleAdsPage({
  const from = validDate(query.from) ? query.from! : monthStart(to);
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
 
- const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, { data: connection }, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }] = await Promise.all([
+ const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }] = await Promise.all([
   supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name"),
   supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("sort_order").order("name"),
   supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
@@ -344,6 +345,20 @@ export default async function GoogleAdsPage({
   supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
   supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5),
  ]);
+ const { data: connection, error: connectionQueryError } = connectionQuery;
+ if (connectionQueryError) {
+  console.error("google_ads_page_dependency_failed", {
+   provider: "supabase",
+   endpointHost: "supabase",
+   endpointPath: "business_google_ads_connections",
+   stage: "google_ads_page_connection_read",
+   requestType: "google_ads_connection_page_read",
+   httpStatus: Number((connectionQueryError as { status?: unknown }).status) || 400,
+   businessId: business.id,
+   errorCode: connectionQueryError.code,
+   errorMessage: connectionQueryError.message,
+  });
+ }
 
  let connectionAccess: Awaited<ReturnType<typeof loadTenantGoogleAdsAccess>> | null = null;
  let connectionError: string | null = null;
@@ -790,9 +805,9 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       {health.issues.some((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc") && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc").map((issue) => <article key={`recommendation-${issue.id}`}><strong>Recommended</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
      </section>
      {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
-      <div className="google-ads-section-heading"><div><h3>Servonas keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button></form></div>
+      <div className="google-ads-section-heading"><div><h3>Servonas keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form className="google-ads-card-actions" action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button>{savedKeywordReview && <button className="button secondary" name="force" value="true" type="submit">Review again</button>}</form></div>
       {savedKeywordReview ? <>
-        <p className="google-ads-ai-review">Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}. {savedKeywordReview.review.performanceDataState === "early" ? "There is not enough performance data yet to judge which keywords truly convert, so this review focuses on configuration and intent." : "Recommendations use the recent campaign performance window."}</p>
+        <p className="google-ads-ai-review">Servonas AI review. Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}{savedKeywordReview.review.snapshotTimestamp ? `, based on Google Ads data from ${new Date(savedKeywordReview.review.snapshotTimestamp).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}` : ""}. {savedKeywordReview.review.performanceDataState === "early" ? "There is not enough performance data yet to judge which keywords truly convert, so this review focuses on configuration and intent." : "Recommendations use the recent campaign performance window."}</p>
         <div className="google-ads-health-focus">
          <strong>Servonas reviewed {savedKeywordReview.review.keywordsReviewed} active keyword{savedKeywordReview.review.keywordsReviewed === 1 ? "" : "s"}.</strong>
          <p>{savedKeywordReview.review.summary}</p>

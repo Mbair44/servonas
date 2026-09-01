@@ -18,6 +18,8 @@ import {
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
  fetchGoogleAdsKeywordReviewSnapshot,
+ googleAdsKeywordReviewSnapshotHash,
+ logGoogleAdsKeywordReviewStage,
  reviewGoogleAdsKeywordsWithAi,
  generateGoogleAdsDraft,
  googleAdsErrorMessage,
@@ -865,7 +867,7 @@ export async function runGoogleAdsPermissionDiagnosticAction(slug: string) {
  redirect(`/app/${encodeURIComponent(slug)}/marketing/google-ads?success=${encodeURIComponent("Google Ads access diagnostic refreshed.")}&diagnostic=access`);
 }
 
-export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: string) {
+export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: string, formData?: FormData) {
  const { supabase, business, user } = await context(slug);
  const connection = await loadTenantGoogleAdsAccess(business.id);
  if (!connection?.customerId) redirect(path(slug, "error", "Reconnect Google Ads before reviewing keywords."));
@@ -886,9 +888,35 @@ export async function reviewGoogleAdsKeywordsAction(slug: string, campaignId: st
    industry: business.industry_profile ?? null, locations: (territories ?? []).map((territory: { name: string }) => territory.name),
    dateFrom: fromDate.toISOString().slice(0, 10), dateTo: to, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id,
   });
-  const review = await reviewGoogleAdsKeywordsWithAi({ businessId: business.id, snapshot });
+  const snapshotHash = googleAdsKeywordReviewSnapshotHash(snapshot);
+  const reviewMetadata = {
+   businessId: business.id,
+   googleCustomerId: campaign.google_ads_customer_id,
+   googleCampaignId: snapshot.campaign.id,
+   snapshotHash,
+   snapshotTimestamp: snapshot.generatedAt,
+   keywordCount: snapshot.keywords.length,
+   activeKeywordCount: snapshot.keywords.filter((keyword) => !keyword.negative && keyword.status === "ENABLED").length,
+   searchTermCount: snapshot.searchTerms.items.length,
+   conversionGoalCount: snapshot.campaign.conversionGoals.length,
+   campaignImpressions: snapshot.campaign.impressions,
+   campaignClicks: snapshot.campaign.clicks,
+   campaignConversions: snapshot.campaign.conversions,
+   model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini",
+  };
+  logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_requested", reviewMetadata);
+  const { data: priorReviews } = await supabase.from("business_google_ads_audit_log").select("metadata,created_at").eq("business_id", business.id).eq("campaign_id", campaign.id).eq("event_type", "google_ads_keyword_review_generated").order("created_at", { ascending: false }).limit(20);
+  const forceReview = formData?.get("force") === "true";
+  logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_checked", { ...reviewMetadata, cacheStatus: forceReview ? "bypassed" : null });
+  const cachedReview = forceReview ? null : (priorReviews ?? []).find((entry) => entry.metadata && typeof entry.metadata === "object" && (entry.metadata as { snapshotHash?: unknown }).snapshotHash === snapshotHash);
+  if (cachedReview) {
+   logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_hit", { ...reviewMetadata, cacheStatus: "hit" });
+   redirect(path(slug, "success", "Servonas reused the current AI keyword review."));
+  }
+  logGoogleAdsKeywordReviewStage("google_ads_ai_keyword_review_cache_miss", { ...reviewMetadata, cacheStatus: forceReview ? "bypassed" : "miss" });
+  const review = await reviewGoogleAdsKeywordsWithAi({ businessId: business.id, googleCustomerId: campaign.google_ads_customer_id, snapshot, snapshotHash });
   if (!review) throw new Error("AI keyword recommendations are temporarily unavailable.");
-  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 2, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), review } });
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_keyword_review_generated", metadata: { reviewVersion: 3, snapshotHash, generatedAt: snapshot.generatedAt, campaignGoogleId: snapshot.campaign.id, dateFrom: snapshot.dateFrom, dateTo: snapshot.dateTo, keywordCount: snapshot.keywords.length, keywordLabels: snapshot.keywords.map((keyword) => ({ id: keyword.id, text: keyword.text })).slice(0, 100), review } });
  } catch (error) {
   redirect(path(slug, "error", error instanceof Error ? error.message : "Keyword review could not be completed."));
  }
