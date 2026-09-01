@@ -4,7 +4,6 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import {
  buildGoogleAdsCampaignHealth,
- reviewGoogleAdsCampaignHealthWithAi,
  fetchGoogleAdsCampaignHealthSnapshots,
  fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
@@ -26,6 +25,7 @@ import {
  refreshGoogleAdsAccountsAction,
  refreshGoogleAdsCampaignsAction,
  runGoogleAdsPermissionDiagnosticAction,
+ reviewGoogleAdsKeywordsAction,
  selectGoogleAdsCustomer,
  setGoogleAdsCampaignStatusAction,
  submitGoogleAdsBetaFeedbackAction,
@@ -49,6 +49,16 @@ const relativeDays = 24 * relativeHours;
 
 function items(value: unknown) {
  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function keywordReview(value: unknown) {
+ if (!value || typeof value !== "object") return null;
+ const review = (value as { review?: unknown }).review;
+ if (!review || typeof review !== "object") return null;
+ const candidate = review as { summary?: unknown; performanceDataState?: unknown; recommendations?: unknown };
+ if (typeof candidate.summary !== "string" || !Array.isArray(candidate.recommendations)) return null;
+ const labels = Array.isArray((value as { keywordLabels?: unknown }).keywordLabels) ? (value as { keywordLabels: unknown[] }).keywordLabels.flatMap((entry) => entry && typeof entry === "object" && typeof (entry as any).id === "string" && typeof (entry as any).text === "string" ? [{ id: (entry as any).id, text: (entry as any).text }] : []) : [];
+ return { summary: candidate.summary, performanceDataState: candidate.performanceDataState === "early" ? "early" : "sufficient", keywordLabels: new Map(labels.map((label) => [label.id, label.text])), recommendations: candidate.recommendations.filter((entry): entry is { id: string; priority: string; title: string; explanation: string; evidence: string[]; suggestedValue: string | null; keywordIds: string[] } => Boolean(entry && typeof entry === "object" && typeof (entry as any).title === "string")).slice(0, 5) };
 }
 
 const billingUrl = (customerId: string | null | undefined) =>
@@ -315,7 +325,7 @@ export default async function GoogleAdsPage({
   supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id").eq("business_id", business.id).maybeSingle(),
   supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false }),
-  supabase.from("business_google_ads_audit_log").select("event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(8),
+  supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(20),
   supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40),
   supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5),
  ]);
@@ -418,14 +428,11 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   source: "direct" as const,
  })));
  const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId, campaignLocationsByCampaignId);
- const campaignAiReviewsByCampaignId = new Map<string, Awaited<ReturnType<typeof reviewGoogleAdsCampaignHealthWithAi>>>();
- if (process.env.OPENAI_API_KEY?.trim()) {
-  await Promise.all(campaignCards.filter(({ campaign }) => campaign.google_campaign_id).map(async ({ campaign, metric }) => {
-   const campaignId = String(campaign.google_campaign_id);
-   const health = buildGoogleAdsCampaignHealth({ campaign, metric, status: campaignStatusesByCampaignId.get(campaignId) ?? null, locationTargeting: campaignLocationsByCampaignId.get(campaignId) ?? null, snapshot: campaignHealthSnapshotsByCampaignId.get(campaignId) ?? null });
-   const review = await reviewGoogleAdsCampaignHealthWithAi({ businessId: business.id, snapshot: campaignHealthSnapshotsByCampaignId.get(campaignId) ?? null, issues: health.issues });
-   campaignAiReviewsByCampaignId.set(campaignId, review);
-  }));
+ const keywordReviewsByCampaignId = new Map<string, { review: NonNullable<ReturnType<typeof keywordReview>>; createdAt: string }>();
+ for (const entry of auditLog ?? []) {
+  if (entry.event_type !== "google_ads_keyword_review_generated" || !entry.campaign_id || keywordReviewsByCampaignId.has(entry.campaign_id)) continue;
+  const review = keywordReview(entry.metadata);
+  if (review) keywordReviewsByCampaignId.set(entry.campaign_id, { review, createdAt: entry.created_at });
  }
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const hasCampaigns = campaignCards.length > 0;
@@ -700,7 +707,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       snapshot: campaign.google_campaign_id ? campaignHealthSnapshotsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
      });
      const healthLabel = health.state === "healthy" ? "Healthy" : health.state === "critical_issue" ? "Critical issue" : "Needs attention";
-     const aiReview = campaignAiReviewsByCampaignId.get(String(campaign.google_campaign_id ?? ""));
+     const savedKeywordReview = keywordReviewsByCampaignId.get(campaign.id) ?? null;
      const healthGroups = [
       { label: "Serving", category: "serving" },
       { label: "Optimization", category: "optimization" },
@@ -757,8 +764,11 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       </div> : null}
       {health.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").length > 1 && <details className="google-ads-health-details"><summary>View health details</summary><div className="google-ads-health-list">{healthGroups.map((group) => <section key={group.category}><h4>{group.label}</h4>{group.issues.filter((issue) => issue.fixActionId !== "increase_manual_cpc").slice(0, 6).map((issue) => <article key={issue.id} className={`is-${issue.severity}`}><strong>{issue.title}</strong><span>{issue.currentValue ?? issue.description}</span></article>)}</section>)}</div></details>}
       {health.issues.some((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc") && <section className="google-ads-recommendations" aria-label="Servonas recommends"><h4>Servonas recommends</h4>{health.issues.filter((issue) => issue.fixActionId && issue.fixActionId !== "increase_manual_cpc").map((issue) => <article key={`recommendation-${issue.id}`}><strong>Recommended</strong><b>{issue.title}</b><span>{issue.description}</span>{issue.fixActionId === "setup_booking_conversion" ? <small>Booking conversion tracking is not set up yet. Guided setup is not available in this release.</small> : null}</article>)}</section>}
-      {process.env.OPENAI_API_KEY?.trim() && health.mostImportantIssue?.fixActionId !== "increase_manual_cpc" && <p className="google-ads-ai-review">{aiReview?.summary ? `AI review: ${aiReview.summary}` : "AI recommendations temporarily unavailable. Deterministic campaign health is still current."}</p>}
      </section>
+     {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
+      <div className="google-ads-section-heading"><div><h3>Keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button></form></div>
+      {savedKeywordReview ? <><p className="google-ads-ai-review">Reviewed {new Date(savedKeywordReview.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}. {savedKeywordReview.review.performanceDataState === "early" ? "Traffic is still limited, so these are configuration and intent suggestions rather than performance conclusions." : "Recommendations use the recent campaign performance window."}</p><strong>Servonas recommendation</strong><p>{savedKeywordReview.review.summary}</p>{savedKeywordReview.review.recommendations.map((recommendation) => <article key={recommendation.id}><strong>{recommendation.priority} priority</strong><b>{recommendation.title}</b><span>{recommendation.explanation}</span>{recommendation.keywordIds.length ? <small>Relevant keywords: {recommendation.keywordIds.map((id) => savedKeywordReview.review.keywordLabels.get(id) ?? id).join(", ")}</small> : null}{recommendation.evidence.length ? <small>{recommendation.evidence.join(" | ")}</small> : null}{recommendation.suggestedValue ? <small>Suggested next step: {recommendation.suggestedValue}</small> : null}<small>Review in Google Ads before making changes.</small></article>)}</> : <p className="google-ads-ai-review">No saved review yet. This does not run automatically or change Google Ads.</p>}
+     </section>}
      <section className="google-ads-manage-panel" aria-label="Manage campaign">
       <div className="google-ads-manage-toolbar">
        {campaign.status === "draft" || campaign.status === "failed" ? <div className="google-ads-manage-actions"><form action={publishGoogleAdsDraftAction.bind(null, businessSlug, campaign.id)}><GoogleAdsDraftSubmit label="Publish campaign" pendingLabel="Publishing campaign…" pendingDescription="Servonas is publishing this campaign to Google Ads. Please keep this page open." /></form></div> : <>
