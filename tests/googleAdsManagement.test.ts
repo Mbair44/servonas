@@ -425,6 +425,22 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /bidding_strategy/);
 });
 
+test("google ads hero keeps setup status, marketing navigation, and latest action together", async () => {
+ const [page, styles] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+  read("../app/globals.css"),
+ ]);
+ assert.match(page, /<section className="google-ads-hero">/);
+ assert.match(page, /className="google-ads-hero-copy"/);
+ assert.match(page, /className=\{`workspace-panel google-ads-guide/);
+ assert.match(page, /google-ads-guide-complete-check/);
+ assert.match(page, /google-ads-latest-action/);
+ assert.match(styles, /\.google-ads-hero\{display:grid;grid-template-columns:minmax\(0,1\.15fr\) minmax\(360px,\.85fr\)/);
+ assert.match(styles, /\.google-ads-guide-complete-check\{display:grid/);
+ assert.match(styles, /\.google-ads-latest-action:before\{content:"✓"/);
+ assert.match(styles, /@media\(max-width:980px\)\{\.google-ads-hero\{grid-template-columns:1fr/);
+});
+
 test("campaign health keeps failed diagnostics unknown and only offers verified recommendations", async () => {
  const [file, actions, page] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),
@@ -617,10 +633,13 @@ test("keyword review keeps internal IDs out of customer-facing recommendation co
  assert.match(page, /function readableRecommendationEvidence/);
  assert.match(page, /reviewed negative keyword/);
  assert.match(page, /Relevant keywords/);
- assert.match(page, /Technical details/);
- assert.match(page, /Keyword ID:/);
  assert.match(page, /savedKeywordReview\.review\.keywordDisplays\.get\(id\) \?\? \{ \.\.\.unresolvedKeyword, id \}/);
  assert.doesNotMatch(page, /keywordLabels\.get\(id\) \?\? id/);
+ const recommendationSection = page.slice(page.indexOf('aria-label="AI keyword review"'), page.indexOf('aria-label="Manage campaign"'));
+ assert.doesNotMatch(recommendationSection, /Technical details/);
+ assert.doesNotMatch(recommendationSection, /Keyword ID:/);
+ assert.match(recommendationSection, /Google data supporting it/);
+ assert.match(recommendationSection, /Apply recommendation/);
 });
 
 test("forced keyword reviews log a complete safe snapshot and inventory enrichment stays non-blocking", async () => {

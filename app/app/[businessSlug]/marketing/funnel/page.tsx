@@ -425,18 +425,18 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <div className="marketing-ai-insight-grid">
         {aiInsights.focus.map((insight) => <article className={`marketing-ai-insight-card is-${insight.priority}`} key={insight.id}>
           <header>
-            <span className={`marketing-ai-insight-badge is-${insight.priority}`}>{insight.priority === "positive" ? "Good news" : `${insight.priority} priority`}</span>
+            <span className={`marketing-ai-insight-badge is-${insight.priority}`}>{insight.priority === "positive" ? "Good news" : insight.priority === "high" ? "High priority" : insight.priority === "medium" ? "Needs attention" : "Monitoring"}</span>
             <strong>{insight.title}</strong>
           </header>
-          <p>{insight.simpleSummary}</p>
+          <p className="marketing-ai-insight-summary">{insight.simpleSummary}</p>
           <dl className="marketing-ai-insight-copy">
             <div><dt>Why this matters</dt><dd>{insight.whyItMatters}</dd></div>
-            <div><dt>What to do next</dt><dd>{insight.recommendedAction}</dd></div>
-            {insight.educationalExplanation ? <div><dt>What this means</dt><dd>{insight.educationalExplanation}</dd></div> : null}
+            <div><dt>Next step</dt><dd>{insight.recommendedAction}</dd></div>
           </dl>
-          <footer>
+          {insight.educationalExplanation ? <details className="marketing-ai-insight-explanation"><summary>What this means</summary><p>{insight.educationalExplanation}</p></details> : null}
+          <footer className="marketing-ai-insight-footer">
             <span>{insight.source.replaceAll("_", " ")}</span>
-            <Link className="sv-button sv-secondary" href={insight.actionHref}>{insight.actionLabel}</Link>
+            <Link className={`sv-button ${insight.priority === "high" ? "" : "sv-secondary"}`} href={insight.actionHref}>{insight.actionLabel}</Link>
           </footer>
           {role === "platform_admin" && <details className="marketing-ai-insight-debug">
             <summary>Insight diagnostics</summary>
@@ -449,11 +449,11 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         <div className="marketing-ai-insight-grid">
           {aiInsights.more.map((insight) => <article className={`marketing-ai-insight-card is-${insight.priority}`} key={insight.id}>
             <header>
-              <span className={`marketing-ai-insight-badge is-${insight.priority}`}>{insight.priority === "positive" ? "Good news" : `${insight.priority} priority`}</span>
+              <span className={`marketing-ai-insight-badge is-${insight.priority}`}>{insight.priority === "positive" ? "Good news" : insight.priority === "high" ? "High priority" : insight.priority === "medium" ? "Needs attention" : "Monitoring"}</span>
               <strong>{insight.title}</strong>
             </header>
-            <p>{insight.simpleSummary}</p>
-            <footer>
+            <p className="marketing-ai-insight-summary">{insight.simpleSummary}</p>
+            <footer className="marketing-ai-insight-footer">
               <span>{insight.source.replaceAll("_", " ")}</span>
               <Link className="sv-button sv-secondary" href={insight.actionHref}>{insight.actionLabel}</Link>
             </footer>

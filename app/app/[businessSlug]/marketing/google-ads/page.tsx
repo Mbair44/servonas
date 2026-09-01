@@ -641,7 +641,9 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
 
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page google-ads-page">
   <GoogleAdsPageLoadingOverlay />
-  <header className="marketing-analytics-header">
+  <section className="google-ads-hero">
+   <div className="google-ads-hero-copy">
+   <header className="marketing-analytics-header">
    <div>
     <span className="sv-kicker">Marketing</span>
     <div className="google-ads-page-title-row">
@@ -651,10 +653,9 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
     <p>Get more customers with Google Ads. Servonas helps build a simple Google Search campaign, choose keywords, write your ads, and track results while Google bills ad spend directly to your own account.</p>
     {business.name && <small>{business.name}</small>}
    </div>
-  </header>
-  <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`}>Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`} aria-current="page">Google Ads</Link></nav>
-  {latestAction && <section className={`workspace-notice ${latestAction.tone} google-ads-latest-action`}><strong>{latestAction.title}</strong><span>{latestAction.message}</span></section>}
-  {googleAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Google Ads is not fully configured. Add `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, and `GOOGLE_ADS_DEVELOPER_TOKEN` before connecting tenants.</div>}
+   </header>
+   <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`}>Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`} aria-current="page">Google Ads</Link></nav>
+   </div>
 
   <section className={`workspace-panel google-ads-guide ${setupComplete ? "is-complete" : ""}`}>
    <div className="google-ads-guide-intro">
@@ -685,7 +686,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
    </section>}
    <div className="google-ads-guide-progress">
     <strong>Setup progress: {setupProgressCount} of {setupSteps.length} complete</strong>
-    <span>{setupComplete ? "Everything is ready." : `Next up: ${nextStep.label}.`}</span>
+    <span>{setupComplete ? "Everything is ready." : `Next up: ${nextStep.label}.`}{setupComplete && <b className="google-ads-guide-complete-check" aria-label="Setup complete">✓</b>}</span>
    </div>
    {!setupComplete && <div className="google-ads-guide-steps">
     {setupSteps.map((step, index) => {
@@ -733,77 +734,10 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      <article className={landingPageReady ? "is-complete" : ""}><strong>Landing page</strong><span>{landingPageReady ? "Ready for traffic" : "Publish a site or booking page"}</span></article>
     </div>
    </section>}
+   </section>
   </section>
-
-  {!setupConnected ? null : <section className="workspace-panel google-ads-connection-compact">
-   <div className="google-ads-connection-summary">
-    <div>
-     <span className="sv-kicker">Connection</span>
-     <h2>Google Ads account connected</h2>
-     <p>{connection?.status === "account_access_verified" ? "Servonas can manage the selected Google Ads account." : connection?.status === "account_selected" ? "Google Ads is connected and an account has been selected." : connection?.status === "oauth_connected" || connection?.status === "account_discovery_pending" || connection?.status === "account_discovery_rate_limited" ? "Google Ads is connected. Choose the right account to keep going." : "Reconnect Google Ads to continue."}</p>
-    </div>
-    <div className="google-ads-connection-pills">
-     <span>{selectedCustomer?.label || connection?.google_ads_customer_id || "No account selected"}</span>
-     <span>{validatedManagerLabel ? "Connected through manager access" : "Direct advertiser access"}</span>
-     {role === "platform_admin" && <span>{connection?.google_authenticated_email || "Unknown Google login"}</span>}
-    </div>
-   </div>
-   {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
-    <label>Google Ads account
-     <select name="customerId" defaultValue={connection?.google_ads_customer_id ?? ""}>
-      <option value="">Choose account</option>
-      {customerChoices.map((customer) => <option key={customer.id} value={customer.id}>{customer.label}</option>)}
-     </select>
-    </label>
-    <button className="sv-button sv-secondary">Save account</button>
-   </form>}
-   {!customerChoices.length && <div className="workspace-notice warning">No Google Ads accounts were returned for this login. If you do not have one yet, create it in Google first, then reconnect it here.</div>}
-   <details className="google-ads-manage-details" open={Boolean(permissionDiagnostic)}>
-    <summary>Manage connection</summary>
-    <div className="google-ads-manage-grid">
-     <div className="google-ads-audit-list">
-      {role === "platform_admin" && <article><strong>Connected Google account</strong><span>{connection?.google_authenticated_email || "Unknown — reconnect to verify"}</span></article>}
-      {role === "platform_admin" && <article><strong>Google profile name</strong><span>{connection?.google_authenticated_name || "Unavailable"}</span></article>}
-      <article><strong>Access mode</strong><span>{validatedManagerLabel ? "Connected through manager access" : "Direct advertiser access"}</span></article>
-      <article><strong>Selected Google Ads account</strong><span>{connection?.google_ads_customer_id || "Not selected yet"}</span></article>
-      {validatedManagerLabel && role === "platform_admin" && <article><strong>Validated manager account</strong><span>{validatedManagerLabel}</span></article>}
-      {role === "platform_admin" && <article><strong>Resolved login customer</strong><span>{connectionAccess?.loginCustomerId || "Direct advertiser access"}</span></article>}
-     </div>
-     <div className="google-ads-manage-actions">
-      <form action={refreshGoogleAdsAccountsAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Refresh Google Ads accounts</button></form>
-      {!customerChoices.length && <a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a>}
-      <a className="sv-button sv-secondary" href={`/api/google-ads/connect/${businessSlug}`}>Reconnect with another Google account</a>
-      <form action={runGoogleAdsPermissionDiagnosticAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Test Google Ads access</button></form>
-      <form action={disconnectGoogleAds.bind(null, businessSlug)}><button className="sv-button sv-secondary">Disconnect</button></form>
-     </div>
-    </div>
-    {permissionDiagnostic && <div className="workspace-panel">
-     <h3>Google Ads access diagnostic</h3>
-     <div className="google-ads-audit-list">
-      <article><strong>Authenticated Google account</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.email || "Unavailable"}</span></article>
-      <article><strong>Google display name</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.name || "Unavailable"}</span></article>
-      <article><strong>Access mode</strong><span>{permissionDiagnostic.resolvedLoginCustomerId ? "Manager account" : "Direct advertiser access"}</span></article>
-      <article><strong>Manager</strong><span>{permissionDiagnostic.managerCustomerId || "Unavailable"}</span></article>
-      <article><strong>Target</strong><span>{permissionDiagnostic.targetCustomerId || "Unavailable"}</span></article>
-      <article><strong>Resolved login customer</strong><span>{permissionDiagnostic.resolvedLoginCustomerId || "Direct advertiser access"}</span></article>
-      <article><strong>Classification</strong><span>{permissionDiagnostic.classification}</span></article>
-     </div>
-     <div className="marketing-sources-table">
-      <div><b>Check</b><b>Result</b><b>Status</b><b>Details</b></div>
-      {permissionDiagnostic.checks.map((check) => <div key={check.key}>
-       <span>{check.label}</span>
-       <span>{check.passed ? "PASS" : "FAIL"}</span>
-       <span>{check.googleStatus || check.httpStatus || "OK"}</span>
-       <span>{[check.googleMessage, ...check.details].filter(Boolean).join(" | ")}</span>
-      </div>)}
-     </div>
-     <p>Accessible root customers: {permissionDiagnostic.accessibleRootCustomers.length ? permissionDiagnostic.accessibleRootCustomers.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
-     <p>Discovered manager accounts: {permissionDiagnostic.discoveredManagerAccounts.length ? permissionDiagnostic.discoveredManagerAccounts.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
-     <p>Discovered advertiser/client accounts: {permissionDiagnostic.discoveredAdvertiserAccounts.length ? permissionDiagnostic.discoveredAdvertiserAccounts.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
-     <p>`customers:listAccessibleCustomers` returned: {permissionDiagnostic.accessibleCustomers.length ? permissionDiagnostic.accessibleCustomers.join(", ") : "None returned"}</p>
-    </div>}
-   </details>
-  </section>}
+  {latestAction && <section className={`workspace-notice ${latestAction.tone} google-ads-latest-action`}><strong>{latestAction.title}</strong><span>{latestAction.message}</span></section>}
+  {googleAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Google Ads is not fully configured. Add `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, and `GOOGLE_ADS_DEVELOPER_TOKEN` before connecting tenants.</div>}
 
   {hasCampaigns && <section className="google-ads-primary-stack">
    <section className="google-ads-campaign-grid">
@@ -907,7 +841,6 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
               <strong>What Servonas recommends</strong>
               <span>{customerFacingText(recommendation.suggestedValue.label ?? "Review this recommendation", relevantKeywords)}{recommendation.suggestedValue.value ? `: ${customerFacingText(recommendation.suggestedValue.value, relevantKeywords)}` : ""}</span>
              </article> : null}
-            {relevantKeywords.length ? <details><summary>Technical details</summary><span>{relevantKeywords.map((keyword) => `Keyword ID: ${keyword.id || "unavailable"}${keyword.adGroupId ? `; Ad group ID: ${keyword.adGroupId}` : ""}`).join(" | ")}</span></details> : null}
             {recommendation.category === "bid" && bidRecommendation ? <article><strong>Suggested bid change</strong><span>{bidRecommendation.keyword}: {microsToMoney(bidRecommendation.currentBidMicros)} → {microsToMoney(bidRecommendation.recommendedBidMicros)}. Google first-page estimate: {microsToMoney(bidRecommendation.firstPageBidEstimateMicros)}. Change: +{bidRecommendation.increasePercent}%.</span>{savedKeywordReview.appliedKeywordIds.has(bidRecommendation.keywordId) ? <span>Applied: {microsToMoney(bidRecommendation.currentBidMicros)} → {microsToMoney(bidRecommendation.recommendedBidMicros)}</span> : <details><summary>Apply recommendation</summary><p>Servonas will update <strong>{bidRecommendation.keyword}</strong> from {microsToMoney(bidRecommendation.currentBidMicros)} to {microsToMoney(bidRecommendation.recommendedBidMicros)}. Your estimated daily budget remains unchanged.</p><form action={applyGoogleAdsKeywordBidRecommendationAction.bind(null, businessSlug, campaign.id)}><input type="hidden" name="keywordIds" value={bidRecommendation.keywordId} /><input type="hidden" name="maximumBidDollars" value={(bidRecommendation.recommendedBidMicros / 1_000_000).toFixed(2)} /><input type="hidden" name="confirmKeywordBid" value="apply" /><button className="button secondary" type="submit">Apply recommendation</button></form></details>}</article> : null}
             {defaultBidAction ? <article><strong>Recommended action available</strong><span>Google has not provided a precise first-page bid estimate. Servonas can still help you choose a higher maximum bid.</span><details><summary>Adjust maximum bid</summary><p>Current maximum bid: {microsToMoney(savedKeywordReview.review.bidActionContext!.defaultBidMicros!)}. Servonas suggests starting with a modest increase because Google reports some keywords may be limited by bid. Your daily budget remains {dailyBudgetLabel(savedKeywordReview.review.bidActionContext!.dailyBudgetMicros)}.</p><form action={applyRecommendedGoogleAdsSettingsAction.bind(null, businessSlug, campaign.id)}><label>Servonas suggested starting point<input name="maximumBidDollars" type="number" min="0.01" step="0.01" defaultValue={(savedKeywordReview.review.bidActionContext!.suggestedDefaultBidMicros! / 1_000_000).toFixed(2)} /></label><p>Raising your maximum bid gives Google more room to compete. It does not mean every click will cost this amount. The value above is editable before you confirm.</p><input type="hidden" name="confirmCpcFix" value="apply" /><button className="button secondary" type="submit">Confirm update</button></form></details></article> : null}
             {recommendation.category === "bid" && !bidRecommendation && bidCandidates.length && savedKeywordReview.review.bidActionContext?.biddingStrategy === "MANUAL_CPC" ? <article><strong>Recommended action available</strong><span>Google indicates these keywords may need a higher bid, but it has not provided a reliable dollar estimate. Servonas suggested starting point is based on the current bid, not a Google recommendation.</span><details><summary>Review and update</summary><p>Raising your maximum bid gives Google more room to compete when someone searches for your services. It does not mean every click will cost that amount. Your daily budget remains {dailyBudgetLabel(savedKeywordReview.review.bidActionContext.dailyBudgetMicros)}.</p><form action={applyGoogleAdsKeywordBidRecommendationAction.bind(null, businessSlug, campaign.id)}><fieldset><legend>Select keywords to update</legend>{bidCandidates.map((candidate) => <label key={candidate.keywordId}><input type="checkbox" name="keywordIds" value={candidate.keywordId} defaultChecked />{candidate.keyword} · Current maximum bid {microsToMoney(candidate.currentBidMicros)} · {candidate.reasons?.length ? "Limited by bid" : "Active"}</label>)}</fieldset><label>Servonas suggested starting point<input name="maximumBidDollars" type="number" min="0.01" step="0.01" defaultValue={(bidCandidates[0]!.suggestedBidMicros / 1_000_000).toFixed(2)} /></label><p>You are about to update the selected keywords. The value above is editable before you confirm.</p><input type="hidden" name="confirmKeywordBid" value="apply" /><button className="button secondary" type="submit">Confirm update</button></form></details></article> : null}
@@ -1169,8 +1102,78 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      <article><strong>Servonas builds the campaign</strong><span>Keyword suggestions, ad copy, budget controls, and reporting stay in Servonas.</span></article>
      <article><strong>Google serves the ads</strong><span>Your Google Ads account remains the system of record for billing, delivery, and policy review.</span></article>
      <article><strong>Support stays simple</strong><span>Beta analytics help Servonas see where onboarding stalls and where customers need help.</span></article>
+   </div>
+  </article>
+ </section>
+
+  {!setupConnected ? null : <section className="workspace-panel google-ads-connection-compact">
+   <div className="google-ads-connection-summary">
+    <div>
+     <span className="sv-kicker">Connection</span>
+     <h2>Google Ads account connected</h2>
+     <p>{connection?.status === "account_access_verified" ? "Servonas can manage the selected Google Ads account." : connection?.status === "account_selected" ? "Google Ads is connected and an account has been selected." : connection?.status === "oauth_connected" || connection?.status === "account_discovery_pending" || connection?.status === "account_discovery_rate_limited" ? "Google Ads is connected. Choose the right account to keep going." : "Reconnect Google Ads to continue."}</p>
     </div>
-   </article>
-  </section>
+    <div className="google-ads-connection-pills">
+     <span>{selectedCustomer?.label || connection?.google_ads_customer_id || "No account selected"}</span>
+     <span>{validatedManagerLabel ? "Connected through manager access" : "Direct advertiser access"}</span>
+     {role === "platform_admin" && <span>{connection?.google_authenticated_email || "Unknown Google login"}</span>}
+    </div>
+   </div>
+   {customerChoices.length > 1 && <form className="google-ads-inline-form" action={selectGoogleAdsCustomer.bind(null, businessSlug)}>
+    <label>Google Ads account
+     <select name="customerId" defaultValue={connection?.google_ads_customer_id ?? ""}>
+      <option value="">Choose account</option>
+      {customerChoices.map((customer) => <option key={customer.id} value={customer.id}>{customer.label}</option>)}
+     </select>
+    </label>
+    <button className="sv-button sv-secondary">Save account</button>
+   </form>}
+   {!customerChoices.length && <div className="workspace-notice warning">No Google Ads accounts were returned for this login. If you do not have one yet, create it in Google first, then reconnect it here.</div>}
+   <details className="google-ads-manage-details" open={Boolean(permissionDiagnostic)}>
+    <summary>Manage connection</summary>
+    <div className="google-ads-manage-grid">
+     <div className="google-ads-audit-list">
+      {role === "platform_admin" && <article><strong>Connected Google account</strong><span>{connection?.google_authenticated_email || "Unknown — reconnect to verify"}</span></article>}
+      {role === "platform_admin" && <article><strong>Google profile name</strong><span>{connection?.google_authenticated_name || "Unavailable"}</span></article>}
+      <article><strong>Access mode</strong><span>{validatedManagerLabel ? "Connected through manager access" : "Direct advertiser access"}</span></article>
+      <article><strong>Selected Google Ads account</strong><span>{connection?.google_ads_customer_id || "Not selected yet"}</span></article>
+      {validatedManagerLabel && role === "platform_admin" && <article><strong>Validated manager account</strong><span>{validatedManagerLabel}</span></article>}
+      {role === "platform_admin" && <article><strong>Resolved login customer</strong><span>{connectionAccess?.loginCustomerId || "Direct advertiser access"}</span></article>}
+     </div>
+     <div className="google-ads-manage-actions">
+      <form action={refreshGoogleAdsAccountsAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Refresh Google Ads accounts</button></form>
+      {!customerChoices.length && <a className="sv-button sv-secondary" href={accountCreateUrl} target="_blank" rel="noopener noreferrer">Create Google Ads Account</a>}
+      <a className="sv-button sv-secondary" href={`/api/google-ads/connect/${businessSlug}`}>Reconnect with another Google account</a>
+      <form action={runGoogleAdsPermissionDiagnosticAction.bind(null, businessSlug)}><button className="sv-button sv-secondary">Test Google Ads access</button></form>
+      <form action={disconnectGoogleAds.bind(null, businessSlug)}><button className="sv-button sv-secondary">Disconnect</button></form>
+     </div>
+    </div>
+    {permissionDiagnostic && <div className="workspace-panel">
+     <h3>Google Ads access diagnostic</h3>
+     <div className="google-ads-audit-list">
+      <article><strong>Authenticated Google account</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.email || "Unavailable"}</span></article>
+      <article><strong>Google display name</strong><span>{permissionDiagnostic.authenticatedGoogleAccount.name || "Unavailable"}</span></article>
+      <article><strong>Access mode</strong><span>{permissionDiagnostic.resolvedLoginCustomerId ? "Manager account" : "Direct advertiser access"}</span></article>
+      <article><strong>Manager</strong><span>{permissionDiagnostic.managerCustomerId || "Unavailable"}</span></article>
+      <article><strong>Target</strong><span>{permissionDiagnostic.targetCustomerId || "Unavailable"}</span></article>
+      <article><strong>Resolved login customer</strong><span>{permissionDiagnostic.resolvedLoginCustomerId || "Direct advertiser access"}</span></article>
+      <article><strong>Classification</strong><span>{permissionDiagnostic.classification}</span></article>
+     </div>
+     <div className="marketing-sources-table">
+      <div><b>Check</b><b>Result</b><b>Status</b><b>Details</b></div>
+      {permissionDiagnostic.checks.map((check) => <div key={check.key}>
+       <span>{check.label}</span>
+       <span>{check.passed ? "PASS" : "FAIL"}</span>
+       <span>{check.googleStatus || check.httpStatus || "OK"}</span>
+       <span>{[check.googleMessage, ...check.details].filter(Boolean).join(" | ")}</span>
+      </div>)}
+     </div>
+     <p>Accessible root customers: {permissionDiagnostic.accessibleRootCustomers.length ? permissionDiagnostic.accessibleRootCustomers.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
+     <p>Discovered manager accounts: {permissionDiagnostic.discoveredManagerAccounts.length ? permissionDiagnostic.discoveredManagerAccounts.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
+     <p>Discovered advertiser/client accounts: {permissionDiagnostic.discoveredAdvertiserAccounts.length ? permissionDiagnostic.discoveredAdvertiserAccounts.map((customer: GoogleAdsCustomer) => customer.label).join(", ") : "None returned"}</p>
+     <p>`customers:listAccessibleCustomers` returned: {permissionDiagnostic.accessibleCustomers.length ? permissionDiagnostic.accessibleCustomers.join(", ") : "None returned"}</p>
+    </div>}
+   </details>
+  </section>}
  </section></main>;
 }

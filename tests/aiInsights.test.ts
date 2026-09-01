@@ -41,9 +41,20 @@ test("marketing funnel page renders the ai insights panel and more-insights sect
   assert.match(page, /Using cached insight snapshot/);
   assert.match(page, /<summary>More insights<\/summary>/);
   assert.match(page, /Insight diagnostics/);
+  assert.match(page, /<dt>Next step<\/dt>/);
+  assert.match(page, /marketing-ai-insight-explanation/);
+  assert.match(page, /High priority/);
+  assert.match(page, /Needs attention/);
+  assert.match(page, /Monitoring/);
+  assert.match(page, /marketing-ai-insight-footer/);
+  assert.match(page, /insight\.priority === "high" \? "" : "sv-secondary"/);
   assert.match(styles, /\.marketing-ai-panel\{/);
   assert.match(styles, /\.marketing-ai-insight-grid\{/);
   assert.match(styles, /\.marketing-ai-insight-card/);
+  assert.match(styles, /\.marketing-ai-insight-card\{gap:10px;padding:15px 16px/);
+  assert.match(styles, /\.marketing-ai-insight-footer\{padding-top:10px/);
+  assert.match(styles, /@media\(max-width:900px\)\{\.marketing-ai-insight-grid\{grid-template-columns:1fr 1fr\}\}/);
+  assert.match(styles, /@media\(max-width:700px\)[\s\S]*\.marketing-ai-insight-grid\{grid-template-columns:1fr\}/);
 });
 
 test("ai insights migration creates the snapshot cache table", async () => {
