@@ -249,6 +249,9 @@ export type GoogleAdsCampaignLocationTargeting = {
 };
 export type GoogleAdsSearchTerm = {
  campaignId: string;
+ campaignName: string | null;
+ adGroupId: string | null;
+ adGroupName: string | null;
  term: string;
  clicks: number;
  impressions: number;
@@ -256,6 +259,26 @@ export type GoogleAdsSearchTerm = {
  conversions: number;
  costMicros: number;
 };
+export type GoogleAdsSearchTermReviewSnapshot = {
+ generatedAt: string;
+ dateFrom: string;
+ dateTo: string;
+ business: { industry: string | null; services: string[]; locations: string[] };
+ campaign: { id: string; name: string | null; goal: string | null };
+ currentNegativeKeywords: Array<{ text: string; matchType: string | null }>;
+ terms: GoogleAdsSearchTerm[];
+};
+export type GoogleAdsSearchTermClassification = "STRONG_MATCH" | "RELEVANT" | "WATCH" | "CONSIDER_EXCLUDING";
+export type GoogleAdsSearchTermReview = {
+ summary: string;
+ terms: Array<{ searchTerm: string; classification: GoogleAdsSearchTermClassification; confidence: "high" | "medium" | "low"; reason: string; evidence: string[]; suggestedNegativeMatchType: "EXACT" | "PHRASE" | "BROAD" | null; canApplyInServonas: boolean }>;
+};
+
+export const normalizeGoogleAdsNegativeKeyword = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+export function googleAdsSearchTermReviewSnapshotHash(snapshot: GoogleAdsSearchTermReviewSnapshot) {
+ const { generatedAt: _generatedAt, ...stableSnapshot } = snapshot;
+ return createHash("sha256").update(JSON.stringify(stableSnapshot)).digest("hex");
+}
 export type GoogleAdsKeywordReviewKeyword = {
  id: string;
  text: string;
@@ -3513,23 +3536,27 @@ export async function removeGoogleAdsCampaignLocation(input: {
  });
 }
 
-export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string; businessId?: string | null }) {
+export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string; loginCustomerId?: string | null; businessId?: string | null }) {
  if (!input.campaignIds.length) return [] as GoogleAdsSearchTerm[];
  const ids = input.campaignIds.map((value) => stripCustomerId(value)).filter(Boolean).join(",");
  const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
  const results = await googleAdsSearchStream(
   input.customerId,
   input.accessToken,
-  `SELECT campaign.id, search_term_view.search_term, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM search_term_view WHERE campaign.id IN (${ids}) AND ${dateFilter}`,
-  undefined,
+  `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name, search_term_view.search_term, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM search_term_view WHERE campaign.id IN (${ids}) AND ${dateFilter}`,
+  input.loginCustomerId,
   { stage: "google_ads_search_terms_query", requestType: "search_terms", businessId: input.businessId ?? null },
  );
  return results.map((row) => {
   const campaign = row.campaign as Record<string, unknown> | undefined;
+  const adGroup = row.adGroup as Record<string, unknown> | undefined;
   const metrics = row.metrics as Record<string, unknown> | undefined;
   const searchTermView = row.searchTermView as Record<string, unknown> | undefined;
   return {
    campaignId: String(campaign?.id ?? ""),
+   campaignName: typeof campaign?.name === "string" ? campaign.name : null,
+   adGroupId: adGroup?.id ? String(adGroup.id) : null,
+   adGroupName: typeof adGroup?.name === "string" ? adGroup.name : null,
    term: String(searchTermView?.searchTerm ?? ""),
    impressions: safeNumber(metrics?.impressions),
    clicks: safeNumber(metrics?.clicks),
@@ -3537,22 +3564,64 @@ export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; cu
    conversions: safeNumber(metrics?.conversions),
    costMicros: safeNumber(metrics?.costMicros),
   } satisfies GoogleAdsSearchTerm;
- }).filter((row) => row.campaignId && row.term);
+}).filter((row) => row.campaignId && row.term);
 }
 
-export async function appendGoogleAdsNegativeKeyword(input: { accessToken: string; customerId: string; adGroupId: string; keyword: string }) {
- return googleAdsRequest(`/customers/${stripCustomerId(input.customerId)}/adGroupCriteria:mutate`, {
+export async function fetchGoogleAdsAdGroupNegativeKeywords(input: { accessToken: string; customerId: string; campaignId: string; loginCustomerId?: string | null; businessId?: string | null }) {
+ const rows = await googleAdsSearchStream(input.customerId, input.accessToken,
+  `SELECT ad_group.id, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type FROM ad_group_criterion WHERE campaign.id = ${stripCustomerId(input.campaignId)} AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = TRUE`,
+  input.loginCustomerId, { stage: "google_ads_negative_keywords_query", requestType: "negative_keywords", businessId: input.businessId ?? null });
+ return rows.map((row) => {
+  const criterion = row.adGroupCriterion as Record<string, any> | undefined;
+  const keyword = criterion?.keyword as Record<string, unknown> | undefined;
+  const adGroup = row.adGroup as Record<string, unknown> | undefined;
+  return { adGroupId: adGroup?.id ? String(adGroup.id) : "", text: typeof keyword?.text === "string" ? keyword.text : "", matchType: typeof keyword?.matchType === "string" ? keyword.matchType : null };
+ }).filter((value) => value.adGroupId && value.text);
+}
+
+export async function appendGoogleAdsNegativeKeyword(input: { accessToken: string; customerId: string; adGroupId: string; keyword: string; matchType?: "EXACT" | "PHRASE" | "BROAD"; loginCustomerIds?: Array<string | null | undefined> }) {
+ const result = await googleAdsRequestWithLoginFallbacks<{ results?: Array<{ resourceName?: string }>; partialFailureError?: { message?: string } }>(`/customers/${stripCustomerId(input.customerId)}/adGroupCriteria:mutate`, {
   accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: {
    operations: [{
     create: {
      adGroup: `customers/${stripCustomerId(input.customerId)}/adGroups/${stripCustomerId(input.adGroupId)}`,
      negative: true,
-     keyword: { text: input.keyword.trim(), matchType: "PHRASE" },
+     keyword: { text: input.keyword.trim(), matchType: input.matchType ?? "PHRASE" },
     },
    }],
   },
  });
+ if (result.partialFailureError?.message) throw new Error(`Google Ads rejected the negative keyword: ${result.partialFailureError.message}`);
+ if (!result.results?.length) throw new Error("Google Ads did not confirm the negative keyword.");
+ return result;
+}
+
+export async function reviewGoogleAdsSearchTermsWithAi(input: { businessId: string; googleCustomerId: string; snapshot: GoogleAdsSearchTermReviewSnapshot; snapshotHash: string }) {
+ const apiKey = process.env.OPENAI_API_KEY?.trim();
+ const model = process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini";
+ const metadata = { businessId: input.businessId, googleCustomerId: input.googleCustomerId, googleCampaignId: input.snapshot.campaign.id, snapshotHash: input.snapshotHash, searchTermCount: input.snapshot.terms.length, model };
+ logGoogleAdsKeywordReviewStage("google_ads_search_term_review_started", metadata);
+ if (!apiKey || !input.snapshot.terms.length) return null as GoogleAdsSearchTermReview | null;
+ try {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_schema", json_schema: { name: "google_ads_search_term_review", strict: true, schema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, terms: { type: "array", items: { type: "object", additionalProperties: false, properties: { searchTerm: { type: "string" }, classification: { type: "string", enum: ["STRONG_MATCH", "RELEVANT", "WATCH", "CONSIDER_EXCLUDING"] }, confidence: { type: "string", enum: ["high", "medium", "low"] }, reason: { type: "string" }, evidence: { type: "array", items: { type: "string" } }, suggestedNegativeMatchType: { type: ["string", "null"], enum: ["EXACT", "PHRASE", "BROAD", null] }, canApplyInServonas: { type: "boolean" } }, required: ["searchTerm", "classification", "confidence", "reason", "evidence", "suggestedNegativeMatchType", "canApplyInServonas"] } } }, required: ["summary", "terms"] } } }, messages: [{ role: "system", content: "You review actual Google Ads search terms for a small service business. Use only supplied facts; do not invent Google data. Classify each supplied search term as STRONG_MATCH, RELEVANT, WATCH, or CONSIDER_EXCLUDING based on commercial intent, business relevance, and performance when sufficient. A clearly relevant service-intent term with zero conversions in early data must not be excluded solely for that reason. Only recommend exclusion for meaningful intent mismatch, such as purchase, job, repair, free, DIY, used, wholesale, or unrelated intent. Keep Google facts separate from your opinion, explain in plain language, never use raw IDs, never guarantee performance, and use PHRASE as the default suggested exclusion match type." }, { role: "user", content: JSON.stringify(input.snapshot) }] }) });
+  if (!response.ok) throw new Error(`OpenAI returned ${response.status}`);
+  const parsed = JSON.parse(String((await response.json() as any).choices?.[0]?.message?.content ?? "{}"));
+  const allowed = new Set(input.snapshot.terms.map((term) => normalizeGoogleAdsNegativeKeyword(term.term)));
+  const classifications = new Set<GoogleAdsSearchTermClassification>(["STRONG_MATCH", "RELEVANT", "WATCH", "CONSIDER_EXCLUDING"]);
+  const confidence = new Set(["high", "medium", "low"]);
+  if (typeof parsed.summary !== "string" || !Array.isArray(parsed.terms) || parsed.terms.some((term: any) => !term || typeof term.searchTerm !== "string" || !allowed.has(normalizeGoogleAdsNegativeKeyword(term.searchTerm)) || !classifications.has(term.classification) || !confidence.has(term.confidence) || typeof term.reason !== "string" || !Array.isArray(term.evidence) || term.evidence.some((item: unknown) => typeof item !== "string") || !["EXACT", "PHRASE", "BROAD", null].includes(term.suggestedNegativeMatchType) || typeof term.canApplyInServonas !== "boolean")) throw new Error("Malformed search-term review response.");
+  const seen = new Set<string>();
+  const terms = parsed.terms.filter((term: any) => { const key = normalizeGoogleAdsNegativeKeyword(term.searchTerm); if (seen.has(key)) return false; seen.add(key); return true; }).slice(0, input.snapshot.terms.length).map((term: any) => ({ searchTerm: term.searchTerm.trim().slice(0, 160), classification: term.classification, confidence: term.confidence, reason: term.reason.slice(0, 500), evidence: term.evidence.slice(0, 4).map((item: string) => item.slice(0, 160)), suggestedNegativeMatchType: term.classification === "CONSIDER_EXCLUDING" ? (term.suggestedNegativeMatchType ?? "PHRASE") : null, canApplyInServonas: term.classification === "CONSIDER_EXCLUDING" && Boolean(term.canApplyInServonas) }));
+  const review = { summary: parsed.summary.slice(0, 500), terms } satisfies GoogleAdsSearchTermReview;
+  logGoogleAdsKeywordReviewStage("google_ads_search_term_review_completed", { ...metadata, classificationCounts: Object.fromEntries([...classifications].map((state) => [state, terms.filter((term: { classification: GoogleAdsSearchTermClassification }) => term.classification === state).length])) });
+  return review;
+ } catch (error) {
+  logGoogleAdsKeywordReviewStage("google_ads_search_term_review_failed", { ...metadata, errorType: error instanceof Error ? error.name : "unknown" });
+  return null;
+ }
 }
 
 export async function writeGoogleAdsAuditLog(input: {

@@ -7,6 +7,11 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { canManageBusiness } from "@/lib/access";
 import {
  appendGoogleAdsNegativeKeyword,
+ fetchGoogleAdsAdGroupNegativeKeywords,
+ fetchGoogleAdsSearchTerms,
+ googleAdsSearchTermReviewSnapshotHash,
+ normalizeGoogleAdsNegativeKeyword,
+ reviewGoogleAdsSearchTermsWithAi,
  addGoogleAdsCampaignLocation,
  buildGoogleAdsCampaignHealth,
  discoverGoogleAdsAccounts,
@@ -698,6 +703,76 @@ export async function addGoogleAdsNegativeKeywordAction(slug: string, campaignId
  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_negative_keyword_added", metadata: { keyword } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Negative keyword added."));
+}
+
+export async function reviewGoogleAdsSearchTermsAction(slug: string, campaignId: string, formData?: FormData) {
+ const { supabase, business, user } = await context(slug);
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ if (!connection?.customerId || !process.env.OPENAI_API_KEY?.trim()) redirect(path(slug, "error", "Connect Google Ads and configure AI review before reviewing search terms."));
+ const [{ data: campaign }, { data: territories }, { data: services }] = await Promise.all([
+  supabase.from("business_google_ads_campaigns").select("id,campaign_name,google_campaign_id,google_ads_customer_id").eq("business_id", business.id).eq("id", campaignId).maybeSingle(),
+  supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
+  supabase.from("services").select("name").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("name"),
+ ]);
+ if (!campaign?.google_campaign_id || !campaign.google_ads_customer_id) redirect(path(slug, "error", "The published campaign could not be found."));
+ const access = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+ const to = new Date().toISOString().slice(0, 10); const fromDate = new Date(`${to}T00:00:00.000Z`); fromDate.setUTCDate(fromDate.getUTCDate() - 29);
+ const dateFrom = fromDate.toISOString().slice(0, 10);
+ try {
+  const [terms, negatives] = await Promise.all([
+   fetchGoogleAdsSearchTerms({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignIds: [campaign.google_campaign_id], dateFrom, dateTo: to, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id }),
+   fetchGoogleAdsAdGroupNegativeKeywords({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id }),
+  ]);
+  const snapshot = { generatedAt: new Date().toISOString(), dateFrom, dateTo: to, business: { industry: business.industry_profile ?? null, services: (services ?? []).map((service: { name: string }) => service.name), locations: (territories ?? []).map((territory: { name: string }) => territory.name) }, campaign: { id: campaign.google_campaign_id, name: campaign.campaign_name ?? null, goal: "Generate leads for this business" }, currentNegativeKeywords: negatives.map((negative) => ({ text: negative.text, matchType: negative.matchType })), terms };
+  const snapshotHash = googleAdsSearchTermReviewSnapshotHash(snapshot);
+  const forceReview = formData?.get("force") === "true";
+  const metadata = { businessId: business.id, googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, snapshotHash, searchTermCount: terms.length, dateFrom, dateTo: to, model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini" };
+  logGoogleAdsKeywordReviewStage("google_ads_search_term_review_requested", metadata);
+  const { data: prior } = await supabase.from("business_google_ads_audit_log").select("metadata").eq("business_id", business.id).eq("campaign_id", campaign.id).eq("event_type", "google_ads_search_term_review_generated").order("created_at", { ascending: false }).limit(20);
+  const cached = forceReview ? null : (prior ?? []).find((entry: any) => entry.metadata?.snapshotHash === snapshotHash);
+  if (cached) { logGoogleAdsKeywordReviewStage("google_ads_search_term_review_cache_hit", metadata); redirect(path(slug, "success", "Servonas reused the current search-term review.")); }
+  logGoogleAdsKeywordReviewStage("google_ads_search_term_review_cache_miss", metadata);
+  const review = await reviewGoogleAdsSearchTermsWithAi({ businessId: business.id, googleCustomerId: campaign.google_ads_customer_id, snapshot, snapshotHash });
+  if (!review) throw new Error("Search-term recommendations are temporarily unavailable.");
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId: campaign.id, actorUserId: user.id, eventType: "google_ads_search_term_review_generated", metadata: { reviewVersion: 1, snapshotHash, generatedAt: snapshot.generatedAt, dateFrom, dateTo: to, model: metadata.model, review, terms: terms.map((term) => ({ ...term, adGroupId: term.adGroupId })).slice(0, 250), negatives: snapshot.currentNegativeKeywords } });
+ } catch (error) { redirect(path(slug, "error", error instanceof Error ? error.message : "Search-term review could not be completed.")); }
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Search-term review refreshed from current Google Ads data."));
+}
+
+export async function applyGoogleAdsSearchTermNegativeKeywordsAction(slug: string, campaignId: string, formData: FormData) {
+ const { supabase, business, user } = await context(slug);
+ const terms = [...new Set(formData.getAll("terms").map(String).map((term) => term.trim()).filter(Boolean))].slice(0, 25);
+ const matchType = (["EXACT", "PHRASE", "BROAD"] as const).includes(text(formData, "matchType") as any) ? text(formData, "matchType") as "EXACT" | "PHRASE" | "BROAD" : "PHRASE";
+ if (text(formData, "confirmNegativeKeywords") !== "apply" || !terms.length) redirect(path(slug, "error", "Review the negative keyword changes and confirm before applying them."));
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("google_ads_customer_id,google_campaign_id,google_ad_group_id,negative_keywords").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
+ if (!connection?.accessToken || !campaign?.google_ads_customer_id || !campaign.google_campaign_id || !campaign.google_ad_group_id) redirect(path(slug, "error", "This campaign is not ready for negative keyword updates."));
+ const access = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+ const { data: reviews } = await supabase.from("business_google_ads_audit_log").select("metadata").eq("business_id", business.id).eq("campaign_id", campaignId).eq("event_type", "google_ads_search_term_review_generated").order("created_at", { ascending: false }).limit(1);
+ const reviewTerms = ((reviews?.[0]?.metadata as any)?.review?.terms ?? []) as Array<{ searchTerm?: string; classification?: string; canApplyInServonas?: boolean }>;
+ const allowed = new Set(reviewTerms.filter((term) => term.classification === "CONSIDER_EXCLUDING" && term.canApplyInServonas).map((term) => normalizeGoogleAdsNegativeKeyword(String(term.searchTerm ?? ""))));
+ if (terms.some((term) => !allowed.has(normalizeGoogleAdsNegativeKeyword(term)))) redirect(path(slug, "error", "Only current Servonas exclusion recommendations can be applied."));
+ try {
+  logGoogleAdsAction("google_ads_negative_keyword_add_started", { businessId: business.id, campaignId, termCount: terms.length });
+  const existing = await fetchGoogleAdsAdGroupNegativeKeywords({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id });
+  const existingTerms = new Set(existing.map((item) => normalizeGoogleAdsNegativeKeyword(item.text)));
+  const pending = terms.filter((term) => !existingTerms.has(normalizeGoogleAdsNegativeKeyword(term)));
+  if (!pending.length) redirect(path(slug, "success", "Those search terms are already excluded."));
+  const results = await Promise.all(pending.map((keyword) => appendGoogleAdsNegativeKeyword({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, adGroupId: campaign.google_ad_group_id, keyword, matchType, loginCustomerIds: access.loginCustomerIds })));
+  const verified = await fetchGoogleAdsAdGroupNegativeKeywords({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id });
+  const verifiedTerms = new Set(verified.map((item) => normalizeGoogleAdsNegativeKeyword(item.text)));
+  if (pending.some((term) => !verifiedTerms.has(normalizeGoogleAdsNegativeKeyword(term)))) throw new Error("Google Ads did not verify every new negative keyword.");
+  await supabase.from("business_google_ads_campaigns").update({ negative_keywords: [...new Set([...(Array.isArray(campaign.negative_keywords) ? campaign.negative_keywords.map(String) : []), ...pending])], last_sync_at: new Date().toISOString(), updated_by: user.id, updated_at: new Date().toISOString() }).eq("business_id", business.id).eq("id", campaignId);
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_negative_keywords_added", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, terms: pending, matchType, recommendationSource: "servonas_ai_search_term_review", googleMutationResults: results } });
+  logGoogleAdsAction("google_ads_negative_keyword_verified", { businessId: business.id, campaignId, termCount: pending.length });
+ } catch (error) {
+  logGoogleAdsActionError("google_ads_negative_keyword_add_failed", { businessId: business.id, campaignId, errorType: error instanceof Error ? error.name : "unknown" });
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_negative_keywords_add_failed", metadata: { terms, matchType, recommendationSource: "servonas_ai_search_term_review", errorType: error instanceof Error ? error.name : "unknown" } });
+  redirect(path(slug, "error", "Google Ads could not add those negative keywords. No change was recorded as applied."));
+ }
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Negative keyword added and verified in Google Ads."));
 }
 
 export async function refreshGoogleAdsCampaignsAction(slug: string, formData: FormData) {

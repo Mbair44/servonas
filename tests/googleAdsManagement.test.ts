@@ -739,9 +739,47 @@ test("google ads reporting queries use valid custom date range GAQL", async () =
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /segments\.date BETWEEN '\$\{normalizeGoogleAdsDate\(dateFrom\)\}' AND '\$\{normalizeGoogleAdsDate\(dateTo\)\}'/);
  assert.match(file, /SELECT campaign\.id, campaign\.name, campaign\.status, metrics\.impressions, metrics\.clicks, metrics\.ctr, metrics\.average_cpc, metrics\.cost_micros, metrics\.conversions, metrics\.cost_per_conversion FROM campaign WHERE campaign\.status != 'REMOVED' AND \$\{dateFilter\}/);
- assert.match(file, /SELECT campaign\.id, search_term_view\.search_term, metrics\.impressions, metrics\.clicks, metrics\.ctr, metrics\.conversions, metrics\.cost_micros FROM search_term_view WHERE campaign\.id IN \(\$\{ids\}\) AND \$\{dateFilter\}/);
+ assert.match(file, /SELECT campaign\.id, campaign\.name, ad_group\.id, ad_group\.name, search_term_view\.search_term, metrics\.impressions, metrics\.clicks, metrics\.ctr, metrics\.conversions, metrics\.cost_micros FROM search_term_view WHERE campaign\.id IN \(\$\{ids\}\) AND \$\{dateFilter\}/);
  assert.ok(file.includes("if (/^\\d{8}$/.test(trimmed)) return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;"));
  assert.doesNotMatch(file, /DURING CUSTOM_DATE_RANGE/);
+});
+
+test("search term workspace keeps Google facts separate from cached AI recommendations and verified exclusions", async () => {
+ const [service, actions, page, workspace] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+  read("../components/GoogleAdsSearchTermsWorkspace.tsx"),
+ ]);
+ assert.match(service, /export type GoogleAdsSearchTermReviewSnapshot/);
+ assert.match(service, /metrics\.impressions/);
+ assert.match(service, /googleAdsSearchTermReviewSnapshotHash/);
+ assert.match(service, /google_ads_search_term_review_started/);
+ assert.match(service, /google_ads_search_term_review_completed/);
+ assert.match(service, /CONSIDER_EXCLUDING/);
+ assert.match(service, /clearly relevant service-intent term with zero conversions/);
+ assert.match(service, /fetchGoogleAdsAdGroupNegativeKeywords/);
+ assert.match(actions, /reviewGoogleAdsSearchTermsAction/);
+ assert.match(actions, /google_ads_search_term_review_cache_hit/);
+ assert.match(actions, /google_ads_search_term_review_cache_miss/);
+ assert.match(actions, /applyGoogleAdsSearchTermNegativeKeywordsAction/);
+ assert.match(actions, /Only current Servonas exclusion recommendations can be applied/);
+ assert.match(actions, /google_ads_negative_keyword_add_started/);
+ assert.match(actions, /google_ads_negative_keyword_verified/);
+ assert.match(actions, /Google Ads did not verify every new negative keyword/);
+ assert.match(actions, /normalizeGoogleAdsNegativeKeyword/);
+ assert.match(page, /GoogleAdsSearchTermsWorkspace/);
+ assert.doesNotMatch(page.slice(page.indexOf("GoogleAdsSearchTermsWorkspace")), /search_term_view/);
+ assert.match(workspace, /const \[sort, setSort\].*= useState<keyof Term>\("impressions"\)/);
+ assert.match(workspace, /totals\.clicks \/ totals\.impressions/);
+ assert.match(workspace, /Filtered total/);
+ assert.match(workspace, /Why Servonas suggests this/);
+ assert.match(workspace, /Google data:/);
+ assert.match(workspace, /Already excluded/);
+ assert.match(workspace, /Add as negative keywords/);
+ assert.match(workspace, /role="dialog"/);
+ assert.match(workspace, /Search terms are what customers typed, not the keywords you configured/);
+ assert.doesNotMatch(workspace, /criterionId|resourceName|adGroupId/);
 });
 
 test("google ads page derives pause resume controls from synced google campaign status and treats missing status as sync unavailable", async () => {
