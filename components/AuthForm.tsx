@@ -71,7 +71,8 @@ export default function AuthForm({
     }
     window.location.assign(actionResult.redirectTo);
   },[actionResult]);
-  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");if(isWebsiteFirstSource(source))setWebsiteAcquisitionSessionId(acquisitionSessionId(source));}catch{}},[contentLead,source]);
+  const acquisitionSource=isWebsiteFirstSource(source)||source==="servonas.com";
+  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");if(acquisitionSource&&source)setWebsiteAcquisitionSessionId(acquisitionSessionId(source));}catch{}},[acquisitionSource,contentLead,source]);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
   const passwordMissing=attempted&&requiresConfirmation&&!password;
   const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
@@ -89,7 +90,7 @@ export default function AuthForm({
   if (next) preservedQuery.set("next", next);
   if (email) preservedQuery.set("email", email);
   if (contentLead) preservedQuery.set("utm_content", contentLead);
-  if (isWebsiteFirstSource(source)) preservedQuery.set("source", source);
+  if (acquisitionSource&&source) preservedQuery.set("source", source);
   const queryString = preservedQuery.toString();
 
   return (
@@ -102,7 +103,7 @@ export default function AuthForm({
         <form action={formAction} className="auth-form" noValidate onSubmit={preventInvalidPasswordSubmit}>
           {next && <input type="hidden" name="next" value={next} />}
           {isSignup&&contentLead&&<input type="hidden" name="utmContent" value={contentLead}/>}
-          {isSignup&&isWebsiteFirstSource(source)&&<input type="hidden" name="source" value={source}/>}
+          {isSignup&&acquisitionSource&&source&&<input type="hidden" name="source" value={source}/>}
           {isSignup&&websiteAcquisitionSessionId&&<input type="hidden" name="acquisitionSessionId" value={websiteAcquisitionSessionId}/>}
           {isSignup&&marketingVisitorId&&<input type="hidden" name="marketingVisitorId" value={marketingVisitorId}/>}
           {isSignup&&marketingSessionId&&<input type="hidden" name="marketingSessionId" value={marketingSessionId}/>}

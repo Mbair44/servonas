@@ -1,11 +1,10 @@
 "use client";
 
-import type { WebsiteFirstSource } from "@/lib/websiteFirstConfig";
-import { AcquisitionBuilderLinkTracker, AcquisitionFunnelTracker } from "@/components/AcquisitionFunnelTracker";
+import { AcquisitionBuilderLinkTracker, AcquisitionFunnelTracker, AcquisitionSignupLinkTracker } from "@/components/AcquisitionFunnelTracker";
 
-export function MarketingLandingAttribution({ source }: { source: WebsiteFirstSource }) {
+export function MarketingLandingAttribution({ source, trackSignup = false }: { source: string; trackSignup?: boolean }) {
   return <>
     <AcquisitionFunnelTracker industry={source} event="marketing_landing_view" />
-    <AcquisitionBuilderLinkTracker industry={source} />
+    {trackSignup ? <AcquisitionSignupLinkTracker industry={source} /> : <AcquisitionBuilderLinkTracker industry={source} />}
   </>;
 }

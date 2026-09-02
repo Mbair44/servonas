@@ -104,6 +104,19 @@ test("handles zero denominators safely", () => {
   assert.equal(report.landingPages[0].sessionToBusinessRate, 0);
 });
 
+test("includes Servonas home-page signup stages alongside website-builder stages", () => {
+ const report = buildAcquisitionReport([{ ...sessions[0], id: "root-session", industry: "servonas.com", first_landing_path: "/", first_landing_url: "https://servonas.com/", gclid: null, gbraid: null, wbraid: null, utm_source: null, utm_medium: null, utm_campaign: null, utm_term: null, utm_content: null }], [
+  { acquisition_session_id: "root-session", event_name: "marketing_landing_view" },
+  { acquisition_session_id: "root-session", event_name: "servonas_signup_started" },
+  { acquisition_session_id: "root-session", event_name: "servonas_signup_completed" },
+ ]);
+ assert.equal(report.landingPages[0].path, "/");
+ assert.equal(report.landingPages[0].signupStarts, 1);
+ assert.equal(report.landingPages[0].signups, 1);
+ assert.equal(report.overall.signupStarts, 1);
+ assert.equal(report.overall.signups, 1);
+});
+
 test("builds expected date ranges", () => {
   const now = new Date("2026-08-20T12:00:00.000Z");
   assert.deepEqual(acquisitionDateRange("today", undefined, undefined, now, "America/Phoenix"), {

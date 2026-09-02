@@ -30,6 +30,8 @@ type LandingPageStats = {
   path: string;
   sessions: number;
   builderStarts: number;
+  signupStarts: number;
+  signups: number;
   previews: number;
   businesses: number;
   sessionToBuilderRate: number;
@@ -95,7 +97,7 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
     eventMap.set(event.acquisition_session_id, bucket);
   }
 
-  const pageSets = new Map<string, { sessions: Set<string>; builder: Set<string>; preview: Set<string>; business: Set<string> }>();
+  const pageSets = new Map<string, { sessions: Set<string>; builder: Set<string>; signupStarts: Set<string>; signups: Set<string>; preview: Set<string>; business: Set<string> }>();
   const sourceSets = new Map<string, Set<string>>();
   const attributionSets = new Map<string, { row: AttributionRow; sessions: Set<string> }>();
 
@@ -103,9 +105,11 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
     const landingPage = normalizeAcquisitionLandingPagePath(session.first_landing_path, session.first_landing_url);
     const source = classifyAcquisitionSource(session);
     const sessionEvents = eventMap.get(session.id) ?? new Set<string>();
-    const page = pageSets.get(landingPage) ?? { sessions: new Set<string>(), builder: new Set<string>(), preview: new Set<string>(), business: new Set<string>() };
+    const page = pageSets.get(landingPage) ?? { sessions: new Set<string>(), builder: new Set<string>(), signupStarts: new Set<string>(), signups: new Set<string>(), preview: new Set<string>(), business: new Set<string>() };
     page.sessions.add(session.id);
     if (sessionEvents.has("website_builder_started")) page.builder.add(session.id);
+    if (sessionEvents.has("servonas_signup_started")) page.signupStarts.add(session.id);
+    if (sessionEvents.has("servonas_signup_completed")) page.signups.add(session.id);
     if (sessionEvents.has("website_preview_viewed")) page.preview.add(session.id);
     if (sessionEvents.has("business_created")) page.business.add(session.id);
     pageSets.set(landingPage, page);
@@ -149,6 +153,8 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
   const landingPages: LandingPageStats[] = [...pageSets.entries()].map(([path, value]) => {
     const sessionsCount = value.sessions.size;
     const builderStarts = value.builder.size;
+    const signupStarts = value.signupStarts.size;
+    const signups = value.signups.size;
     const previews = value.preview.size;
     const businesses = value.business.size;
     const sessionDropOff = Math.max(0, sessionsCount - builderStarts);
@@ -163,6 +169,8 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
       path,
       sessions: sessionsCount,
       builderStarts,
+      signupStarts,
+      signups,
       previews,
       businesses,
       sessionToBuilderRate: percent(builderStarts, sessionsCount),
@@ -186,6 +194,8 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
 
   const overallSessions = sessions.length;
   const overallBuilderStarts = new Set(events.filter((event) => event.event_name === "website_builder_started").map((event) => event.acquisition_session_id)).size;
+  const overallSignupStarts = new Set(events.filter((event) => event.event_name === "servonas_signup_started").map((event) => event.acquisition_session_id)).size;
+  const overallSignups = new Set(events.filter((event) => event.event_name === "servonas_signup_completed").map((event) => event.acquisition_session_id)).size;
   const overallPreviews = new Set(events.filter((event) => event.event_name === "website_preview_viewed").map((event) => event.acquisition_session_id)).size;
   const overallBusinesses = new Set(events.filter((event) => event.event_name === "business_created").map((event) => event.acquisition_session_id)).size;
 
@@ -196,6 +206,8 @@ export function buildAcquisitionReport(sessions: AcquisitionSessionRow[], events
     overall: {
       sessions: overallSessions,
       builderStarts: overallBuilderStarts,
+      signupStarts: overallSignupStarts,
+      signups: overallSignups,
       previews: overallPreviews,
       businesses: overallBusinesses,
       sessionToBuilderRate: percent(overallBuilderStarts, overallSessions),
