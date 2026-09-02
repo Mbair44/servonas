@@ -51,10 +51,10 @@ export async function signUp(formData: FormData) {
   const password = value(formData, "password");
   const confirm = value(formData, "confirmPassword");
   const utmContent=value(formData,"utmContent");
-  const rawSource=value(formData,"source"),source=isWebsiteFirstSource(rawSource)?rawSource:"";
+  const rawSource=value(formData,"source"),websiteSource=isWebsiteFirstSource(rawSource),source=websiteSource?rawSource:rawSource==="servonas.com"?rawSource:"";
   const marketingVisitorId=value(formData,"marketingVisitorId"),marketingSessionId=value(formData,"marketingSessionId");
   const acquisitionSessionId=value(formData,"acquisitionSessionId");
-  const next = value(formData, "next") || (source?`/onboarding?source=${source}`:"/app");
+  const next = value(formData, "next") || (websiteSource?`/onboarding?source=${source}`:"/app");
   const safeNext = next.startsWith("/")&&!next.startsWith("//") ? next : "/app";
   const signupPath = `/signup?next=${encodeURIComponent(safeNext)}&email=${encodeURIComponent(email)}${source?`&source=${source}`:""}${/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(utmContent)?`&utm_content=${encodeURIComponent(utmContent)}`:""}`;
 

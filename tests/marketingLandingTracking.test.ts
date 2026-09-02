@@ -9,6 +9,21 @@ test("shared marketing landing attribution wrapper initializes landing and build
  assert.match(component,/AcquisitionFunnelTracker/);
  assert.match(component,/marketing_landing_view/);
  assert.match(component,/AcquisitionBuilderLinkTracker/);
+ assert.match(component,/AcquisitionSignupLinkTracker/);
+});
+
+test("Servonas home-page visits and signup handoff enter the acquisition funnel",async()=>{
+ const [home,auth,actions,tracker]=await Promise.all([
+  read("app/page.tsx"),
+  read("components/AuthForm.tsx"),
+  read("app/auth/actions.ts"),
+  read("components/AcquisitionFunnelTracker.tsx"),
+ ]);
+ assert.match(home,/MarketingLandingAttribution source="servonas\.com" trackSignup/);
+ assert.match(home,/data-acquisition-signup href="\/signup\?source=servonas\.com"/);
+ assert.match(tracker,/servonas_signup_started/);
+ assert.match(auth,/source==="servonas\.com"/);
+ assert.match(actions,/rawSource==="servonas\.com"/);
 });
 
 test("all paid-traffic industry landing pages use shared landing attribution",async()=>{
