@@ -3,6 +3,7 @@ import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { acquisitionDateRange } from "@/lib/acquisitionReporting";
+import { dateInTimeZone } from "@/lib/bookingTime";
 import {
   attachSessionMetricsToSourceReport,
   buildSessionDurationBuckets,
@@ -190,6 +191,10 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const { supabase, business, role } = await requireWorkspace(businessSlug);
   if (!canManageBusiness(role)) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can view marketing analytics.</div></section></main>;
   const window = acquisitionDateRange(q.range, q.from, q.to, new Date(), business.timezone);
+  // `window.to` is an exclusive timestamp for database queries. Keep the form on
+  // the inclusive calendar day the customer chose so submitting never extends it.
+  const reportFromDate = /^\d{4}-\d{2}-\d{2}$/.test(q.from ?? "") ? q.from! : dateInTimeZone(new Date(window.from), business.timezone);
+  const reportToDate = /^\d{4}-\d{2}-\d{2}$/.test(q.to ?? "") ? q.to! : dateInTimeZone(new Date(), business.timezone);
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
@@ -387,8 +392,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link><Link href={`/app/${businessSlug}/marketing/meta-ads`}>Meta Ads</Link></nav>
     <section className="workspace-panel marketing-filter-panel">
       <form className="marketing-filter-bar" method="get">
-        <label>From<input type="date" name="from" defaultValue={window.from.slice(0, 10)} /></label>
-        <label>To<input type="date" name="to" defaultValue={window.to.slice(0, 10)} /></label>
+        <label>From<input type="date" name="from" defaultValue={reportFromDate} /></label>
+        <label>To<input type="date" name="to" defaultValue={reportToDate} /></label>
         <label>Traffic source<select name="source" defaultValue={source}><option value="all">All traffic</option>{marketingSources.map((value) => <option key={value} value={value}>{labelForSource(value)}</option>)}</select></label>
         <input type="hidden" name="month" value={selectedMonth} />
         <input type="hidden" name="date" value={selectedDate} />
@@ -502,13 +507,13 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <div className="marketing-requested-dates-layout">
         <div className="booking-calendar marketing-requested-calendar">
           <div className="booking-calendar-head">
-            <Link href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: window.from.slice(0, 10), to: window.to.slice(0, 10), source, month: shiftMonth(selectedMonth, -1), date: selectedDate })}`} aria-label="Previous month">‹</Link>
+            <Link href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: reportFromDate, to: reportToDate, source, month: shiftMonth(selectedMonth, -1), date: selectedDate })}`} aria-label="Previous month">‹</Link>
             <h2>{monthLabel(selectedMonth)}</h2>
-            <Link href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: window.from.slice(0, 10), to: window.to.slice(0, 10), source, month: shiftMonth(selectedMonth, 1), date: selectedDate })}`} aria-label="Next month">›</Link>
+            <Link href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: reportFromDate, to: reportToDate, source, month: shiftMonth(selectedMonth, 1), date: selectedDate })}`} aria-label="Next month">›</Link>
           </div>
           <form className="marketing-month-jump" method="get">
-            <input type="hidden" name="from" value={window.from.slice(0, 10)} />
-            <input type="hidden" name="to" value={window.to.slice(0, 10)} />
+            <input type="hidden" name="from" value={reportFromDate} />
+            <input type="hidden" name="to" value={reportToDate} />
             <input type="hidden" name="source" value={source} />
             <input type="hidden" name="date" value={selectedDate} />
             <label>Jump to month<input type="month" name="month" defaultValue={selectedMonth} /></label>
@@ -516,7 +521,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
           </form>
           <div className="booking-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div>
           <div className="booking-calendar-grid marketing-demand-grid">
-            {cells.map((cell, index) => cell.date ? <Link key={cell.date} href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: window.from.slice(0, 10), to: window.to.slice(0, 10), source, month: selectedMonth, date: cell.date })}`} className={`marketing-demand-day${selectedDate === cell.date ? " selected" : ""}`}><strong>{cell.day}</strong><small>{cell.count}</small></Link> : <span key={`blank-${index}`} className="marketing-demand-day blank" />)}
+            {cells.map((cell, index) => cell.date ? <Link key={cell.date} href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: reportFromDate, to: reportToDate, source, month: selectedMonth, date: cell.date })}`} className={`marketing-demand-day${selectedDate === cell.date ? " selected" : ""}`}><strong>{cell.day}</strong><small>{cell.count}</small></Link> : <span key={`blank-${index}`} className="marketing-demand-day blank" />)}
           </div>
         </div>
         <aside className="workspace-panel marketing-requested-date-detail">

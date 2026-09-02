@@ -117,6 +117,13 @@ test("includes Servonas home-page signup stages alongside website-builder stages
  assert.equal(report.overall.signups, 1);
 });
 
+test("acquisition schema accepts the root-site signup-start event", async () => {
+ const migration = await (await import("node:fs/promises")).readFile(new URL("../supabase/migrations/20260902000100_allow_servonas_root_acquisition_events.sql", import.meta.url), "utf8");
+ assert.match(migration, /drop constraint if exists website_acquisition_events_event_name_check/);
+ assert.match(migration, /'servonas_signup_started'/);
+ assert.match(migration, /'servonas_signup_completed'/);
+});
+
 test("builds expected date ranges", () => {
   const now = new Date("2026-08-20T12:00:00.000Z");
   assert.deepEqual(acquisitionDateRange("today", undefined, undefined, now, "America/Phoenix"), {

@@ -952,6 +952,9 @@ test("marketing funnel page preserves date controls plus requested dates and ren
  ]);
  assert.match(page, /name="from"/);
  assert.match(page, /name="to"/);
+ assert.match(page, /const reportToDate = .*q\.to.*dateInTimeZone\(new Date\(\), business\.timezone\)/);
+ assert.match(page, /defaultValue=\{reportToDate\}/);
+ assert.doesNotMatch(page, /name="to" defaultValue=\{window\.to\.slice\(0, 10\)\}/);
  assert.match(page, /name="source"/);
  assert.match(page, /Update report/);
  assert.match(page, /Quick filters/);
