@@ -412,8 +412,7 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(styles, /\.google-ads-health-list/);
  assert.match(page, /google-ads-recommendation-card/);
  assert.match(page, /google-ads-recommendation-priority/);
- assert.match(page, /Make exact match/);
- assert.match(page, /Make selected exact match/);
+ assert.match(page, /GoogleAdsExactMatchKeywordReview/);
  assert.doesNotMatch(page, /<strong>Apply status<\/strong>/);
  assert.match(styles, /\.google-ads-recommendation-card\{overflow:hidden/);
  assert.match(styles, /\.google-ads-recommendation-facts/);
@@ -433,9 +432,11 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
 });
 
 test("exact-match recommendations add only confirmed non-duplicate keywords", async () => {
- const [service, actions] = await Promise.all([
+ const [service, actions, component, styles] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),
   read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../components/GoogleAdsExactMatchKeywordReview.tsx"),
+  read("../app/globals.css"),
  ]);
  assert.match(service, /export async function appendGoogleAdsExactMatchKeywords/);
  assert.match(service, /matchType: "EXACT"/);
@@ -444,6 +445,14 @@ test("exact-match recommendations add only confirmed non-duplicate keywords", as
  assert.match(actions, /normalizeKeyword/);
  assert.match(actions, /google_ads_exact_match_keywords_added/);
  assert.match(actions, /Google Ads did not verify every exact-match keyword/);
+ assert.match(component, /Make exact-match versions/);
+ assert.match(component, /Select all/);
+ assert.match(component, /Clear/);
+ assert.match(component, /Phrase.*Exact/);
+ assert.match(component, /disabled=\{selectedCount === 0\}/);
+ assert.match(component, /Add \$\{selectedCount\} exact-match keyword/);
+ assert.match(styles, /\.google-ads-exact-match-list label\.is-selected/);
+ assert.match(styles, /@media\(max-width:640px\)\{\.google-ads-exact-match-utilities/);
 });
 
 test("google ads hero keeps setup status, marketing navigation, and latest action together", async () => {
