@@ -71,7 +71,7 @@ export default function AuthForm({
     }
     window.location.assign(actionResult.redirectTo);
   },[actionResult]);
-  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");if(isWebsiteFirstSource(source))setWebsiteAcquisitionSessionId(acquisitionSessionId());}catch{}},[contentLead,source]);
+  useEffect(()=>{try{if(!contentLead)setContentLead(window.localStorage.getItem("servonas.utm_content")??"");setMarketingVisitorId(window.localStorage.getItem("servonas.visitor_id")??"");setMarketingSessionId(window.sessionStorage.getItem("servonas.session_id")??"");if(isWebsiteFirstSource(source))setWebsiteAcquisitionSessionId(acquisitionSessionId(source));}catch{}},[contentLead,source]);
   const passwordsDiffer=requiresConfirmation&&confirmation.length>0&&password!==confirmation;
   const passwordMissing=attempted&&requiresConfirmation&&!password;
   const passwordTooShort=requiresConfirmation&&password.length>0&&password.length<8;
