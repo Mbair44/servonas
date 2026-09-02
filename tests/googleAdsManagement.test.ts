@@ -412,7 +412,8 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(styles, /\.google-ads-health-list/);
  assert.match(page, /google-ads-recommendation-card/);
  assert.match(page, /google-ads-recommendation-priority/);
- assert.match(page, /Review suggested keywords/);
+ assert.match(page, /Make exact match/);
+ assert.match(page, /Make selected exact match/);
  assert.doesNotMatch(page, /<strong>Apply status<\/strong>/);
  assert.match(styles, /\.google-ads-recommendation-card\{overflow:hidden/);
  assert.match(styles, /\.google-ads-recommendation-facts/);
@@ -431,6 +432,20 @@ test("google ads workspace uses beta positioning and separates servonas pricing 
  assert.match(actions, /bidding_strategy/);
 });
 
+test("exact-match recommendations add only confirmed non-duplicate keywords", async () => {
+ const [service, actions] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+ ]);
+ assert.match(service, /export async function appendGoogleAdsExactMatchKeywords/);
+ assert.match(service, /matchType: "EXACT"/);
+ assert.match(actions, /export async function applyGoogleAdsExactMatchRecommendationAction/);
+ assert.match(actions, /confirmExactMatch/);
+ assert.match(actions, /normalizeKeyword/);
+ assert.match(actions, /google_ads_exact_match_keywords_added/);
+ assert.match(actions, /Google Ads did not verify every exact-match keyword/);
+});
+
 test("google ads hero keeps setup status, marketing navigation, and latest action together", async () => {
  const [page, styles] = await Promise.all([
   read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
@@ -438,6 +453,8 @@ test("google ads hero keeps setup status, marketing navigation, and latest actio
  ]);
  assert.match(page, /<section className="google-ads-hero">/);
  assert.match(page, /className="google-ads-hero-copy"/);
+ assert.doesNotMatch(page, /aria-label="Marketing sections"/);
+ assert.match(page, /href=\{campaign\.destination_url\} target="_blank" rel="noopener noreferrer"/);
  assert.match(page, /className=\{`workspace-panel google-ads-guide/);
  assert.match(page, /google-ads-guide-complete-check/);
  assert.match(page, /google-ads-latest-action/);

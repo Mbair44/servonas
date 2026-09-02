@@ -3603,6 +3603,21 @@ export async function appendGoogleAdsNegativeKeyword(input: { accessToken: strin
  return result;
 }
 
+export async function appendGoogleAdsExactMatchKeywords(input: { accessToken: string; customerId: string; keywords: Array<{ adGroupId: string; text: string }>; loginCustomerIds?: Array<string | null | undefined> }) {
+ const customerId = stripCustomerId(input.customerId);
+ const keywords = input.keywords.map((keyword) => ({ adGroupId: stripCustomerId(keyword.adGroupId), text: keyword.text.trim() })).filter((keyword) => keyword.adGroupId && keyword.text);
+ if (!keywords.length) throw new Error("Select at least one keyword to add as exact match.");
+ const result = await googleAdsRequestWithLoginFallbacks<{ results?: Array<{ resourceName?: string }>; partialFailureError?: { message?: string } }>(`/customers/${customerId}/adGroupCriteria:mutate`, {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: { operations: keywords.map((keyword) => ({ create: { adGroup: `customers/${customerId}/adGroups/${keyword.adGroupId}`, keyword: { text: keyword.text, matchType: "EXACT" } } })), partialFailure: false },
+ });
+ if (result.partialFailureError?.message) throw new Error(`Google Ads rejected the exact-match keywords: ${result.partialFailureError.message}`);
+ if ((result.results?.length ?? 0) !== keywords.length) throw new Error("Google Ads did not confirm every exact-match keyword.");
+ return result;
+}
+
 export async function reviewGoogleAdsSearchTermsWithAi(input: { businessId: string; googleCustomerId: string; snapshot: GoogleAdsSearchTermReviewSnapshot; snapshotHash: string }) {
  const apiKey = process.env.OPENAI_API_KEY?.trim();
  const model = process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini";
