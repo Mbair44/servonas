@@ -4,6 +4,7 @@ import { useState } from "react";
 
 type Suggestion = { id: string; text: string; matchType: string | null };
 type ApplyAction = (formData: FormData) => void | Promise<void>;
+const matchTypeLabel = (value: string | null) => value ? value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Phrase";
 
 export function GoogleAdsExactMatchKeywordReview({ suggestions, action }: { suggestions: Suggestion[]; action: ApplyAction }) {
  const [selected, setSelected] = useState(() => new Set(suggestions.map((suggestion) => suggestion.id)));
@@ -24,7 +25,7 @@ export function GoogleAdsExactMatchKeywordReview({ suggestions, action }: { sugg
    <div className="google-ads-exact-match-utilities"><span>{suggestions.length} keyword{suggestions.length === 1 ? "" : "s"} suggested</span>{suggestions.length > 1 && <div><button type="button" onClick={selectAll}>Select all</button><button type="button" onClick={clear}>Clear</button></div>}</div>
    <form action={action}>
     <div className="google-ads-exact-match-list">
-     {suggestions.map((keyword) => { const checked = selected.has(keyword.id); return <label key={keyword.id} className={checked ? "is-selected" : ""}><input type="checkbox" name="keywordIds" value={keyword.id} checked={checked} onChange={() => toggle(keyword.id)} /><span><strong>{keyword.text}</strong><small>{keyword.matchType ? keyword.matchType.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Phrase"} → Exact</small></span></label>; })}
+     {suggestions.map((keyword) => { const checked = selected.has(keyword.id); return <label key={keyword.id} className={checked ? "is-selected" : ""}><input type="checkbox" name="keywordIds" value={keyword.id} checked={checked} onChange={() => toggle(keyword.id)} /><span><strong>{keyword.text}</strong><small>{matchTypeLabel(keyword.matchType)} → Exact</small></span></label>; })}
     </div>
     <input type="hidden" name="confirmExactMatch" value="apply" />
     <footer><span>{selectedCount} selected</span><button className="sv-button" type="submit" disabled={selectedCount === 0}>{label}</button></footer>
