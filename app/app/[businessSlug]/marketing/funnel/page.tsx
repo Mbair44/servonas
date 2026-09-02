@@ -435,7 +435,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
           </dl>
           {insight.educationalExplanation ? <details className="marketing-ai-insight-explanation"><summary>What this means</summary><p>{insight.educationalExplanation}</p></details> : null}
           <footer className="marketing-ai-insight-footer">
-            <span>{insight.source.replaceAll("_", " ")}</span>
+            <span className="marketing-ai-insight-source">{insight.source.replaceAll("_", " ")}</span>
             <Link className={`sv-button ${insight.priority === "high" ? "" : "sv-secondary"}`} href={insight.actionHref}>{insight.actionLabel}</Link>
           </footer>
           {role === "platform_admin" && <details className="marketing-ai-insight-debug">
@@ -454,7 +454,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
             </header>
             <p className="marketing-ai-insight-summary">{insight.simpleSummary}</p>
             <footer className="marketing-ai-insight-footer">
-              <span>{insight.source.replaceAll("_", " ")}</span>
+              <span className="marketing-ai-insight-source">{insight.source.replaceAll("_", " ")}</span>
               <Link className="sv-button sv-secondary" href={insight.actionHref}>{insight.actionLabel}</Link>
             </footer>
           </article>)}

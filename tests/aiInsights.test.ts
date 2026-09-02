@@ -47,12 +47,15 @@ test("marketing funnel page renders the ai insights panel and more-insights sect
   assert.match(page, /Needs attention/);
   assert.match(page, /Monitoring/);
   assert.match(page, /marketing-ai-insight-footer/);
+  assert.match(page, /marketing-ai-insight-source/);
   assert.match(page, /insight\.priority === "high" \? "" : "sv-secondary"/);
   assert.match(styles, /\.marketing-ai-panel\{/);
   assert.match(styles, /\.marketing-ai-insight-grid\{/);
   assert.match(styles, /\.marketing-ai-insight-card/);
   assert.match(styles, /\.marketing-ai-insight-card\{gap:10px;padding:15px 16px/);
-  assert.match(styles, /\.marketing-ai-insight-footer\{padding-top:10px/);
+  assert.match(styles, /\.marketing-ai-insight-footer\{display:flex;align-items:center;justify-content:space-between/);
+  assert.match(styles, /background:transparent;box-shadow:none/);
+  assert.match(styles, /\.marketing-ai-insight-debug summary\{color:#98a2b3/);
   assert.match(styles, /@media\(max-width:900px\)\{\.marketing-ai-insight-grid\{grid-template-columns:1fr 1fr\}\}/);
   assert.match(styles, /@media\(max-width:700px\)[\s\S]*\.marketing-ai-insight-grid\{grid-template-columns:1fr\}/);
 });

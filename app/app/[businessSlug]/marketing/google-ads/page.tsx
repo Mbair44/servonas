@@ -40,6 +40,7 @@ import { GoogleAdsLocationManager } from "@/components/GoogleAdsLocationManager"
 import { GoogleAdsPageLoadingOverlay } from "@/components/GoogleAdsPageLoadingOverlay";
 import { GoogleAdsOauthLauncher } from "@/components/GoogleAdsOauthLauncher";
 import { GoogleAdsBidAdjustment } from "@/components/GoogleAdsBidAdjustment";
+import { GoogleAdsSearchTermsWorkspace } from "@/components/GoogleAdsSearchTermsWorkspace";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const microsToMoney = (micros: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(micros / 1_000_000);
@@ -129,6 +130,14 @@ function keywordReview(value: unknown) {
   bidActionContext,
   recommendations: candidate.recommendations.filter((entry): entry is { id: string; category?: string; actionType?: "adjust_default_bid" | "adjust_keyword_bid" | "pause_keywords" | "add_keywords" | "add_negative_keywords" | "change_match_type" | "review_only"; suggestedDirection?: "increase" | "decrease" | "review" | null; priority: string; title: string; explanation: string; evidence: string[]; suggestedValue: { label?: string; value?: string | null } | null; keywordIds: string[]; canApplyInServonas?: boolean } => Boolean(entry && typeof entry === "object" && typeof (entry as any).title === "string")).slice(0, 5),
  };
+}
+
+function searchTermReview(value: unknown) {
+ if (!value || typeof value !== "object") return null;
+ const record = value as any; const review = record.review;
+ if (!review || typeof review.summary !== "string" || !Array.isArray(review.terms)) return null;
+ const terms = review.terms.filter((term: any) => term && typeof term.searchTerm === "string" && ["STRONG_MATCH", "RELEVANT", "WATCH", "CONSIDER_EXCLUDING"].includes(term.classification) && ["high", "medium", "low"].includes(term.confidence) && typeof term.reason === "string" && Array.isArray(term.evidence)).map((term: any) => ({ searchTerm: term.searchTerm, classification: term.classification, confidence: term.confidence, reason: term.reason, evidence: term.evidence.filter((item: unknown) => typeof item === "string"), suggestedNegativeMatchType: ["EXACT", "PHRASE", "BROAD"].includes(term.suggestedNegativeMatchType) ? term.suggestedNegativeMatchType : null, canApplyInServonas: Boolean(term.canApplyInServonas) }));
+ return terms.length || review.terms.length === 0 ? { summary: review.summary, terms, createdAt: typeof record.generatedAt === "string" ? record.generatedAt : null, dateFrom: typeof record.dateFrom === "string" ? record.dateFrom : null, dateTo: typeof record.dateTo === "string" ? record.dateTo : null, negatives: Array.isArray(record.negatives) ? record.negatives.map((item: any) => typeof item?.text === "string" ? item.text : "").filter(Boolean) : [] } : null;
 }
 
 const recommendationBadge = (category: string | null | undefined) => {
@@ -497,6 +506,7 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
       campaignIds: publishedIds,
       dateFrom: from,
       dateTo: to,
+      loginCustomerId: connectionAccess.loginCustomerId,
       businessId: business.id,
      });
     } catch (error) {
@@ -543,6 +553,12 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
  const hasOfferOptions = Boolean((services?.length ?? 0) || (inventory?.length ?? 0));
  const hasCampaigns = campaignCards.length > 0;
  const publishedCampaigns = (campaigns ?? []).filter((campaign: any) => ["published", "paused"].includes(campaign.status));
+ const searchTermReviewsByCampaignId = new Map<string, NonNullable<ReturnType<typeof searchTermReview>>>();
+ for (const entry of auditLog ?? []) {
+  if (entry.event_type !== "google_ads_search_term_review_generated" || !entry.campaign_id || searchTermReviewsByCampaignId.has(entry.campaign_id)) continue;
+  const review = searchTermReview(entry.metadata);
+  if (review) searchTermReviewsByCampaignId.set(entry.campaign_id, review);
+ }
  const selectedCustomerId = connection?.google_ads_customer_id ?? null;
  const selectedCustomer = customerChoices.find((customer) => customer.id === selectedCustomerId) ?? null;
  const validatedManagerLabel = selectedCustomer?.loginCustomerId
@@ -1066,10 +1082,10 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   {!hasCampaigns && <section className="workspace-panel marketing-empty-state"><strong>No Google Ads campaigns yet</strong><p>Connect Google Ads, generate a draft, and publish your first simple search campaign from Servonas.</p></section>}
 
   <section className="marketing-secondary-grid">
-   <article className="workspace-panel">
-    <h2>Search terms</h2>
+   <article className="google-ads-search-workspaces">
     {searchTermsError && <div className="workspace-notice warning">Search terms are temporarily unavailable. {searchTermsError}</div>}
-    {topSearchTerms.length ? <div className="marketing-sources-table"><div><b>Term</b><b>Clicks</b><b>CTR</b><b>Conversions</b><b>Cost</b></div>{topSearchTerms.slice(0, 8).map((term) => <div key={`${term.campaignId}:${term.term}`}><span>{term.term}</span><span>{term.clicks}</span><span>{term.ctr.toFixed(1)}%</span><span>{term.conversions}</span><span>{microsToMoney(term.costMicros)}</span></div>)}</div> : <div className="google-ads-compact-empty"><strong>Search terms are not ready yet.</strong><p>Search terms will appear after Google records traffic for this campaign.</p></div>}
+    {publishedCampaigns.map((campaign: any) => { const review = searchTermReviewsByCampaignId.get(campaign.id) ?? null; return <GoogleAdsSearchTermsWorkspace key={campaign.id} businessSlug={businessSlug} campaignId={campaign.id} campaignName={campaign.campaign_name} terms={topSearchTerms.filter((term) => term.campaignId === String(campaign.google_campaign_id))} review={review ? { summary: review.summary, terms: review.terms, createdAt: review.createdAt ?? "", dateFrom: review.dateFrom ?? from, dateTo: review.dateTo ?? to } : null} alreadyExcluded={[...items(campaign.negative_keywords), ...(review?.negatives ?? [])]} dateFrom={from} dateTo={to} />; })}
+    {!publishedCampaigns.length && <section className="workspace-panel google-ads-search-workspace"><h2>Search terms</h2><div className="google-ads-compact-empty"><strong>Search terms are not ready yet.</strong><p>Publish a campaign and wait for Google to record traffic.</p></div></section>}
    </article>
    <article className="workspace-panel">
     <h2>Recent Google Ads activity</h2>
