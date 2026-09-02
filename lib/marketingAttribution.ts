@@ -88,6 +88,8 @@ export type AttributionSessionMetricsRow=AttributionSessionLike&{
  engaged_page_count?:number|null;
 };
 
+export type SessionDurationBucket={key:"under_1_second"|"one_to_four_seconds"|"five_to_nine_seconds"|"ten_or_more_seconds";label:string;count:number;};
+
 const canonicalEventMap:Record<string,BookingFunnelEvent|"booking_start"|"item_added">={
  landing_page_view:"landing_view",
  landing_view:"landing_view",
@@ -230,6 +232,29 @@ function median(values:number[]){
  return sorted.length%2?sorted[middle]!:Math.round((((sorted[middle-1]??0)+(sorted[middle]??0))/2)*10)/10;
 }
 
+export function buildSessionDurationBuckets(sessions:AttributionSessionMetricsRow[]):SessionDurationBucket[]{
+ const buckets:SessionDurationBucket[]=[
+  {key:"under_1_second",label:"Under 1 second",count:0},
+  {key:"one_to_four_seconds",label:"1-4 seconds",count:0},
+  {key:"five_to_nine_seconds",label:"5-9 seconds",count:0},
+  {key:"ten_or_more_seconds",label:"10+ seconds",count:0},
+ ];
+ for(const session of sessions){
+  const seconds=Math.max(0,Number(session.total_session_duration_seconds??0));
+  if(seconds<1)buckets[0]!.count+=1;
+  else if(seconds<5)buckets[1]!.count+=1;
+  else if(seconds<10)buckets[2]!.count+=1;
+  else buckets[3]!.count+=1;
+ }
+ return buckets;
+}
+
+function distinctCount(sets:Array<Set<string>|undefined>){
+ const identities=new Set<string>();
+ for(const set of sets)for(const identity of set??[])identities.add(identity);
+ return identities.size;
+}
+
 export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
  const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;booking:Set<string>;revenue:number;}>();
  for(const row of events){
@@ -258,8 +283,25 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
   const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
   const detailedCounts=Object.fromEntries([...bucket.detailed.entries()].map(([key,value])=>[key,value.size])) as Record<string,number>;
   const visits=detailedCounts.landing_view??0;
-  const engaged=(detailedCounts.service_view??0)+(detailedCounts.inventory_view??0);
-  const conversionStarted=(detailedCounts.booking_start??0)+(detailedCounts.availability_check??0)+(detailedCounts.date_selected??0)+(detailedCounts.item_added??0)+(detailedCounts.checkout_started??0);
+  // Funnel stages describe people, not the number of telemetry signals a person generated.
+  // A visitor who enters booking is engaged even if they arrive directly at the booking flow.
+  const engaged=distinctCount([
+   bucket.detailed.get("service_view"),
+   bucket.detailed.get("inventory_view"),
+   bucket.detailed.get("booking_start"),
+   bucket.detailed.get("availability_check"),
+   bucket.detailed.get("date_selected"),
+   bucket.detailed.get("item_added"),
+   bucket.detailed.get("checkout_started"),
+   bucket.detailed.get("lead_submitted"),
+  ]);
+  const conversionStarted=distinctCount([
+   bucket.detailed.get("booking_start"),
+   bucket.detailed.get("availability_check"),
+   bucket.detailed.get("date_selected"),
+   bucket.detailed.get("item_added"),
+   bucket.detailed.get("checkout_started"),
+  ]);
   const bookings=bucket.booking.size;
   detailedCounts.booking_completed=bookings;
   const leadsOrBookings=(detailedCounts.lead_submitted??0)+bookings;

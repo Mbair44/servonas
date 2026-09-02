@@ -101,6 +101,7 @@ const pageTypeForPath=(pathname:string)=>{
  if(pathname==="/booking"||/^\/book\/[^/]+$/.test(pathname))return "booking";
  return "website";
 };
+const isEmbeddedBooking=()=>new URLSearchParams(location.search).get("embed")==="1";
 const payloadFor=(slug:string,event:BookingFunnelEvent,options:TrackBookingFunnelOptions,touchSession:boolean)=>{
  const state=stored(slug);
  return {
@@ -146,9 +147,9 @@ export function trackBookingFunnel(slug:string,event:BookingFunnelEvent,options:
 export function TenantBookingFunnelTracker({businessSlug,initialSessionId}:{businessSlug:string;initialSessionId?:string}){
  const sent=useRef(false);
  useEffect(()=>{if(!analyticsEnabled)return;if(initialSessionId&&/^[0-9a-f-]{36}$/i.test(initialSessionId)){const current=stored(businessSlug);localStorage.setItem(key(businessSlug),JSON.stringify({...current,sessionId:initialSessionId}));}if(sent.current)return;sent.current=true;trackBookingFunnel(businessSlug,"landing_page_view");
-  // Reaching a dedicated booking route is the beginning of a booking attempt.
-  // The server event key makes refreshes and back/forward navigation idempotent.
-  if(pageTypeForPath(location.pathname)==="booking")trackBookingFunnel(businessSlug,"booking_started",{metadata:{surface:"booking_page",entry:"route_load"}});
+  // An embedded widget can load with the website, before the visitor shows booking intent.
+  // Keep its visit but wait for an explicit action before recording a booking start.
+  if(pageTypeForPath(location.pathname)==="booking"&&!isEmbeddedBooking())trackBookingFunnel(businessSlug,"booking_started",{metadata:{surface:"booking_page",entry:"route_load"}});
   const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(!isBookingUrl(url,businessSlug))return;element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* external link remains usable */}});
   rewrite();const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});return()=>observer.disconnect();
  },[businessSlug,initialSessionId]);

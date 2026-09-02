@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,buildSourcePerformanceReport,normalizeMarketingSource} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,buildSessionDurationBuckets,buildSourcePerformanceReport,normalizeMarketingSource} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -118,6 +118,24 @@ test("Facebook attribution survives the booking route and counts one idempotent 
  assert.equal(facebook?.detailedCounts.booking_start,1);
 });
 
+test("counts engagement and conversion stages by unique visitor rather than added event rows",()=>{
+ const report=buildSourcePerformanceReport([
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"inventory_item_clicked",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"booking_cta_click",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"reserve_clicked",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"booking_started",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s1",event_name:"checkout_started",booking_attribution_sessions:{gclid:"click-1"}},
+  {attribution_session_id:"s2",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-2"}},
+  {attribution_session_id:"s2",event_name:"booking_started",booking_attribution_sessions:{gclid:"click-2"}},
+ ]);
+ const googleAds=report.summaries.find((row)=>row.source==="google_ads");
+ assert.ok(googleAds);
+ assert.equal(googleAds.detailedCounts.booking_start,2);
+ assert.equal(googleAds.engaged,2);
+ assert.equal(googleAds.conversionStarted,2);
+});
+
 test("session metrics attach by normalized source without changing core funnel counts",()=>{
  const report=attachSessionMetricsToSourceReport(buildSourcePerformanceReport([
   {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-1"}},
@@ -132,6 +150,17 @@ test("session metrics attach by normalized source without changing core funnel c
  assert.equal(googleAds.sessionMetrics.avgEngagedDurationSeconds,28);
  assert.equal(googleAds.sessionMetrics.singlePageSessions,0);
  assert.equal(googleAds.detailedCounts.booking_start,1);
+});
+
+test("groups active session duration into readable time-on-site buckets",()=>{
+ const buckets=buildSessionDurationBuckets([
+  {id:"s1",total_session_duration_seconds:0},
+  {id:"s2",total_session_duration_seconds:4},
+  {id:"s3",total_session_duration_seconds:9},
+  {id:"s4",total_session_duration_seconds:10},
+  {id:"s5",total_session_duration_seconds:42},
+ ]);
+ assert.deepEqual(buckets.map((bucket)=>bucket.count),[1,1,1,2]);
 });
 
 test("replayed completion events do not double-count one persisted booking",()=>{
