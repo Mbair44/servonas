@@ -779,11 +779,12 @@ test("google ads reporting queries use valid custom date range GAQL", async () =
 });
 
 test("search term workspace keeps Google facts separate from cached AI recommendations and verified exclusions", async () => {
- const [service, actions, page, workspace] = await Promise.all([
+ const [service, actions, page, workspace, css] = await Promise.all([
   read("../lib/googleAdsManagement.ts"),
   read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
   read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
   read("../components/GoogleAdsSearchTermsWorkspace.tsx"),
+  read("../app/globals.css"),
  ]);
  assert.match(service, /export type GoogleAdsSearchTermReviewSnapshot/);
  assert.match(service, /metrics\.impressions/);
@@ -815,7 +816,17 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.match(workspace, />Next<\/button>/);
  assert.match(workspace, /Google data:/);
  assert.match(workspace, /Already excluded/);
- assert.match(workspace, /Add as negative keywords/);
+ assert.match(workspace, /Add \{negativeKeywordLabel\}/);
+ assert.match(workspace, /const negativeKeywordLabel = `\$\{selectedCount\} negative keyword/);
+ assert.match(workspace, /Google will be less likely to show your ad for searches matching these terms\./);
+ assert.match(workspace, /Clear selection/);
+ assert.match(workspace, /selectedCount > 0 && <div className="google-ads-search-bulk">/);
+ assert.match(workspace, /setSelected\(\[\]\)/);
+ assert.doesNotMatch(workspace, />Exclude<\/button>/);
+ assert.doesNotMatch(workspace, /<th>Action<\/th>/);
+ assert.match(css, /google-ads-search-bulk\{justify-content:space-between;border-top/);
+ assert.match(css, /google-ads-search-table tbody tr:has\(input\[type="checkbox"\]:checked\)>td/);
+ assert.match(css, /@media\(max-width:640px\)\{\.google-ads-search-bulk>div\{display:grid\}/);
  assert.match(workspace, /role="dialog"/);
  assert.match(workspace, /Search terms are what customers typed, not the keywords you configured/);
  assert.doesNotMatch(workspace, /criterionId|resourceName|adGroupId/);
