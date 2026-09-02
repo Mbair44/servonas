@@ -24,7 +24,9 @@ test("booking tracker payload can carry service identifiers for service funnels"
  assert.match(tracker,/type TrackBookingFunnelOptions=\{inventoryItemId\?:string;serviceId\?:string;metadata\?:Record<string,unknown>;touchOnly\?:boolean\}/);
  assert.match(tracker,/serviceId:options\.serviceId/);
  assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"service_view",\{serviceId/);
- assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"booking_started",\{metadata:\{surface:"public_booking_form",entry:"booking_page"\}\}\)/);
+ assert.match(tracker,/const isEmbeddedBooking=\(\)=>new URLSearchParams\(location\.search\)\.get\("embed"\)==="1";/);
+ assert.match(tracker,/pageTypeForPath\(location\.pathname\)==="booking"&&!isEmbeddedBooking\(\)/);
+ assert.match(bookingForm,/if\(!props\.embedded\)trackBookingFunnel\(props\.publicSlug,"booking_started",\{metadata:\{surface:"public_booking_form",entry:"booking_page"\}\}\)/);
  assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"availability_check",\{serviceId/);
  assert.match(requestForm,/trackBookingFunnel\(businessSlug,"service_view",\{serviceId:event\.target\.value/);
 });

@@ -66,6 +66,7 @@ export default async function PublicBookingPage({
             googleMapsApiKey={googleMapsApiKey}
             publicSlug={businessSlug}
             timezone={settings.timezone ?? "America/Phoenix"}
+            embedded={embedded}
           />
         )}
       </section>

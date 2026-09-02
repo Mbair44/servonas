@@ -53,7 +53,7 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
     ):!services?.length?(
      <div className="booking-empty">No services are available for online booking yet.</div>
     ):(
-     <PublicBookingForm action={submitPublicBooking.bind(null,bookingSlug)} services={services} schedule={schedule} collectAddress={Boolean(settings.collect_address)} intakeQuestions={settings.intake_questions??[]} businessName={businessName??"this business"} maximumDaysAhead={Number(settings.maximum_days_ahead??60)} googleMapsApiKey={googleMapsApiKey} publicSlug={bookingSlug} timezone={settings.timezone??"America/Phoenix"}/>
+     <PublicBookingForm action={submitPublicBooking.bind(null,bookingSlug)} services={services} schedule={schedule} collectAddress={Boolean(settings.collect_address)} intakeQuestions={settings.intake_questions??[]} businessName={businessName??"this business"} maximumDaysAhead={Number(settings.maximum_days_ahead??60)} googleMapsApiKey={googleMapsApiKey} publicSlug={bookingSlug} timezone={settings.timezone??"America/Phoenix"} embedded={embedded}/>
     )}
    </section>
    <footer>{embedded?<>Powered by <b>Servonas</b></>:<>Powered by <b>Servonas</b> · <Link href={`/book/${bookingSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${bookingSlug}/terms`}>Text Messaging Terms</Link></>}</footer>

@@ -5,6 +5,7 @@ import { canManageBusiness } from "@/lib/access";
 import { acquisitionDateRange } from "@/lib/acquisitionReporting";
 import {
   attachSessionMetricsToSourceReport,
+  buildSessionDurationBuckets,
   type AttributedBookingRow,
   buildSourcePerformanceReport,
   labelForSource,
@@ -250,6 +251,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>),
     sessions,
   );
+  const sessionDurationBuckets = buildSessionDurationBuckets(sessions);
   const itemNames = new Map(((inventoryResponse.data ?? []) as Array<{ id: string; name: string | null }>).map((item) => [item.id, item.name?.trim() || "Rental item"]));
   const bookingSourceMap = new Map<string, MarketingSource>();
   for (const row of snapshotsResponse.data ?? []) {
@@ -409,7 +411,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="marketing-kpi-grid">
       <article className="workspace-panel"><span>Visits</span><strong>{report.totals.visits}</strong><small>Attributed session visits</small></article>
-      <article className="workspace-panel"><span>Engaged visitors</span><strong>{report.totals.engaged}</strong><small>Viewed a rental or service</small></article>
+      <article className="workspace-panel"><span>Engaged visitors</span><strong>{report.totals.engaged}</strong><small>Viewed an offering or entered booking</small></article>
       <article className="workspace-panel"><span>Booking starts</span><strong>{aggregatedStepCounts.get("booking_start") ?? 0}</strong><small>Visitors entering the booking flow</small></article>
       <article className="workspace-panel"><span>Bookings</span><strong>{totalBookings}</strong><small>Completed bookings during this period</small></article>
       <article className="workspace-panel"><span>Revenue</span><strong>{money(report.totals.revenueCents)}</strong><small>Attributed booking value</small></article>
@@ -472,6 +474,11 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         })}
         <div><span>Revenue</span><span>{money(report.totals.revenueCents)}</span><span>—</span><span>—</span></div>
       </div>
+    </section>
+
+    <section className="workspace-panel">
+      <header><div><h2>Time on site</h2><p>Active time while the page was visible and in use during the selected period.</p></div></header>
+      <div className="marketing-sources-table"><div><b>Session length</b><b>Sessions</b></div>{sessionDurationBuckets.map((bucket)=><div key={bucket.key}><span>{bucket.label}</span><span>{bucket.count}</span></div>)}</div>
     </section>
 
     <section className="workspace-panel marketing-sources-panel">
