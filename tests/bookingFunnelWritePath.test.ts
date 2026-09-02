@@ -12,6 +12,9 @@ test("booking funnel route persists service_id and structured diagnostics",async
  assert.match(route,/stage:"session_upsert"/);
  assert.match(route,/stage:"event_insert"/);
  assert.match(route,/hasFbclid:Boolean\(attribution\.fbclid\)/);
+ assert.match(route,/bookingSettings\?\.business_id/);
+ assert.match(route,/business_website_settings/);
+ assert.match(route,/\.eq\("status","published"\)/);
 });
 
 test("booking tracker payload can carry service identifiers for service funnels",async()=>{
