@@ -448,10 +448,12 @@ test("exact-match recommendations add only confirmed non-duplicate keywords", as
  assert.match(component, /Make exact-match versions/);
  assert.match(component, /Select all/);
  assert.match(component, /Clear/);
- assert.match(component, /Phrase.*Exact/);
+ assert.match(component, /matchTypeLabel\(keyword\.matchType\).*Exact/);
+ assert.match(component, /const matchTypeLabel/);
  assert.match(component, /disabled=\{selectedCount === 0\}/);
  assert.match(component, /Add \$\{selectedCount\} exact-match keyword/);
  assert.match(styles, /\.google-ads-exact-match-list label\.is-selected/);
+ assert.match(styles, /google-ads-exact-match-body footer\{[^}]*background:#fff/);
  assert.match(styles, /@media\(max-width:640px\)\{\.google-ads-exact-match-utilities/);
 });
 
