@@ -779,6 +779,11 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.match(workspace, /totals\.clicks \/ totals\.impressions/);
  assert.match(workspace, /Filtered total/);
  assert.match(workspace, /Why Servonas suggests this/);
+ assert.match(workspace, /const searchTermsPageSize = 25/);
+ assert.match(workspace, /const pagedTerms = visible\.slice/);
+ assert.match(workspace, /aria-label="Search terms pages"/);
+ assert.match(workspace, />Previous<\/button>/);
+ assert.match(workspace, />Next<\/button>/);
  assert.match(workspace, /Google data:/);
  assert.match(workspace, /Already excluded/);
  assert.match(workspace, /Add as negative keywords/);
