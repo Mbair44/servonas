@@ -747,6 +747,7 @@ test("google ads reporting queries use valid custom date range GAQL", async () =
  assert.match(file, /SELECT campaign\.id, campaign\.name, ad_group\.id, ad_group\.name, search_term_view\.search_term, metrics\.impressions, metrics\.clicks, metrics\.ctr, metrics\.conversions, metrics\.cost_micros FROM search_term_view WHERE campaign\.id IN \(\$\{ids\}\) AND \$\{dateFilter\}/);
  assert.ok(file.includes("if (/^\\d{8}$/.test(trimmed)) return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;"));
  assert.doesNotMatch(file, /DURING CUSTOM_DATE_RANGE/);
+ assert.match(file, /ctr: impressions > 0 \? clicks \/ impressions : 0/);
 });
 
 test("search term workspace keeps Google facts separate from cached AI recommendations and verified exclusions", async () => {
@@ -779,6 +780,11 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.match(workspace, /totals\.clicks \/ totals\.impressions/);
  assert.match(workspace, /Filtered total/);
  assert.match(workspace, /Why Servonas suggests this/);
+ assert.match(workspace, /const searchTermsPageSize = 25/);
+ assert.match(workspace, /const pagedTerms = visible\.slice/);
+ assert.match(workspace, /aria-label="Search terms pages"/);
+ assert.match(workspace, />Previous<\/button>/);
+ assert.match(workspace, />Next<\/button>/);
  assert.match(workspace, /Google data:/);
  assert.match(workspace, /Already excluded/);
  assert.match(workspace, /Add as negative keywords/);

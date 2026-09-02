@@ -3129,13 +3129,17 @@ export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string
   { stage: "google_ads_campaign_metrics_query", requestType: "campaign_metrics", businessId: input.businessId ?? null },
  );
  return results.map((row) => {
-  const campaign = row.campaign as Record<string, unknown> | undefined;
-  const metrics = row.metrics as Record<string, unknown> | undefined;
+ const campaign = row.campaign as Record<string, unknown> | undefined;
+ const metrics = row.metrics as Record<string, unknown> | undefined;
+  const impressions = safeNumber(metrics?.impressions);
+  const clicks = safeNumber(metrics?.clicks);
   return {
    campaignId: String(campaign?.id ?? ""),
-   impressions: safeNumber(metrics?.impressions),
-   clicks: safeNumber(metrics?.clicks),
-   ctr: safeNumber(metrics?.ctr),
+   impressions,
+   clicks,
+   // Google returns CTR as a fraction. Deriving it from the displayed counts
+   // keeps every consumer on the same unit and avoids rounding mismatches.
+   ctr: impressions > 0 ? clicks / impressions : 0,
    averageCpcMicros: safeNumber(metrics?.averageCpc),
    costMicros: safeNumber(metrics?.costMicros),
    conversions: safeNumber(metrics?.conversions),
