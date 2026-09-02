@@ -7,6 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { canManageBusiness } from "@/lib/access";
 import {
  appendGoogleAdsNegativeKeyword,
+ appendGoogleAdsExactMatchKeywords,
  fetchGoogleAdsAdGroupNegativeKeywords,
  fetchGoogleAdsSearchTerms,
  googleAdsSearchTermReviewSnapshotHash,
@@ -678,6 +679,41 @@ export async function applyGoogleAdsKeywordBidRecommendationAction(slug: string,
  }
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Keyword bid updated and verified in Google Ads."));
+}
+
+export async function applyGoogleAdsExactMatchRecommendationAction(slug: string, campaignId: string, formData: FormData) {
+ const { supabase, business, user } = await context(slug);
+ if (text(formData, "confirmExactMatch") !== "apply") redirect(path(slug, "error", "Review the exact-match keywords and confirm before adding them."));
+ const keywordIds = [...new Set(formData.getAll("keywordIds").map(String).map((value) => value.trim()).filter(Boolean))];
+ if (!keywordIds.length) redirect(path(slug, "error", "Select at least one keyword to add as exact match."));
+ const connection = await loadTenantGoogleAdsAccess(business.id);
+ const [{ data: campaign }, { data: territories }] = await Promise.all([
+  supabase.from("business_google_ads_campaigns").select("campaign_name,google_campaign_id,google_ads_customer_id,daily_budget_micros").eq("business_id", business.id).eq("id", campaignId).maybeSingle(),
+  supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name"),
+ ]);
+ if (!connection?.accessToken || !campaign?.google_campaign_id || !campaign.google_ads_customer_id) redirect(path(slug, "error", "Reconnect Google Ads before adding exact-match keywords."));
+ const access = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+ const to = new Date().toISOString().slice(0, 10);
+ const fromDate = new Date(`${to}T00:00:00.000Z`); fromDate.setUTCDate(fromDate.getUTCDate() - 29);
+ const snapshotInput = { accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, campaignId: campaign.google_campaign_id, campaignName: campaign.campaign_name ?? null, dailyBudgetMicros: campaign.daily_budget_micros ?? null, industry: business.industry_profile ?? null, locations: (territories ?? []).map((territory) => territory.name), dateFrom: fromDate.toISOString().slice(0, 10), dateTo: to, loginCustomerId: access.resolvedLoginCustomerId, businessId: business.id };
+ const snapshot = await fetchGoogleAdsKeywordReviewSnapshot(snapshotInput);
+ const normalizeKeyword = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+ const selected = snapshot.keywords.filter((keyword) => keywordIds.includes(keyword.id) && !keyword.negative && keyword.status === "ENABLED" && keyword.adGroupId && keyword.matchType !== "EXACT");
+ if (selected.length !== keywordIds.length) redirect(path(slug, "error", "One or more selected keywords are no longer active phrase or broad-match keywords. Review keywords again."));
+ const duplicates = new Set(snapshot.keywords.filter((keyword) => !keyword.negative && keyword.matchType === "EXACT").map((keyword) => normalizeKeyword(keyword.text)));
+ const pending = selected.filter((keyword) => !duplicates.has(normalizeKeyword(keyword.text)));
+ if (!pending.length) redirect(path(slug, "success", "Those exact-match keywords already exist in Google Ads."));
+ try {
+  const mutation = await appendGoogleAdsExactMatchKeywords({ accessToken: connection.accessToken, customerId: campaign.google_ads_customer_id, loginCustomerIds: access.loginCustomerIds, keywords: pending.map((keyword) => ({ adGroupId: keyword.adGroupId!, text: keyword.text })) });
+  const verified = await fetchGoogleAdsKeywordReviewSnapshot(snapshotInput);
+  if (pending.some((keyword) => !verified.keywords.some((current) => !current.negative && current.matchType === "EXACT" && normalizeKeyword(current.text) === normalizeKeyword(keyword.text)))) throw new Error("Google Ads did not verify every exact-match keyword.");
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_exact_match_keywords_added", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, keywords: pending.map((keyword) => ({ adGroupId: keyword.adGroupId, keyword: keyword.text, oldMatchType: keyword.matchType, newMatchType: "EXACT" })), recommendationSource: "servonas_ai_keyword_review", googleMutationResult: mutation } });
+ } catch (error) {
+  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_exact_match_keywords_add_failed", metadata: { googleCustomerId: campaign.google_ads_customer_id, googleCampaignId: campaign.google_campaign_id, keywordIds, recommendationSource: "servonas_ai_keyword_review", errorType: error instanceof Error ? error.name : "unknown" } });
+  redirect(path(slug, "error", "Google Ads could not add these exact-match keywords. No change was recorded as applied."));
+ }
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", `Added ${pending.length} exact-match keyword${pending.length === 1 ? "" : "s"} and verified Google Ads.`));
 }
 
 export async function addGoogleAdsNegativeKeywordAction(slug: string, campaignId: string, formData: FormData) {
