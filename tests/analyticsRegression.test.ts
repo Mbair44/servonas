@@ -23,4 +23,6 @@ test("analytics ingestion uses the same public feature gate as browser tracking"
  assert.match(bookingPage, /Sessions are authoritative visit records even if optional detail-event insertion failed\./);
  assert.match(bookingPage, /buildSourcePerformanceReport\(\[\.\.\.events, \.\.\.sessionVisitRows\]/);
  assert.match(bookingPage, /Query duration:/);
+ assert.match(bookingPage, /Timing diagnostics:/);
+ assert.match(bookingPage, /final flush missing/);
 });

@@ -154,13 +154,13 @@ test("session metrics attach by normalized source without changing core funnel c
 
 test("groups active session duration into readable time-on-site buckets",()=>{
  const buckets=buildSessionDurationBuckets([
-  {id:"s1",total_session_duration_seconds:0},
-  {id:"s2",total_session_duration_seconds:4},
-  {id:"s3",total_session_duration_seconds:9},
-  {id:"s4",total_session_duration_seconds:10},
-  {id:"s5",total_session_duration_seconds:42},
+  {id:"unavailable",total_session_duration_seconds:0},
+  {id:"s1",total_session_duration_milliseconds:500},
+  {id:"s2",total_session_duration_milliseconds:2500},
+  {id:"s3",total_session_duration_milliseconds:7000},
+  {id:"s4",total_session_duration_milliseconds:12_000},
  ]);
- assert.deepEqual(buckets.map((bucket)=>bucket.count),[1,1,1,2]);
+ assert.deepEqual(buckets.map((bucket)=>bucket.count),[1,1,1,1,1]);
 });
 
 test("replayed completion events do not double-count one persisted booking",()=>{

@@ -215,7 +215,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_google_ads_campaigns").select("id,status,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
-    supabase.from("booking_attribution_sessions").select("id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,total_session_duration_seconds,engaged_duration_seconds,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
+    supabase.from("booking_attribution_sessions").select("id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
   ]);
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
@@ -240,6 +240,10 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     fbclid?: string | null;
     total_session_duration_seconds?: number | null;
     engaged_duration_seconds?: number | null;
+    total_session_duration_milliseconds?: number | null;
+    engaged_duration_milliseconds?: number | null;
+    duration_source?: "heartbeat" | "final_flush" | "inferred" | null;
+    duration_final_flush_received?: boolean | null;
     page_count?: number | null;
     engaged_page_count?: number | null;
   }>).filter((row) => source === "all" || normalizeMarketingSource(row) === source);
@@ -257,6 +261,16 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     sessions,
   );
   const sessionDurationBuckets = buildSessionDurationBuckets(sessions);
+  const timedDurationSeconds = sessions.flatMap((session) => session.total_session_duration_milliseconds == null ? [] : [Math.max(0, Number(session.total_session_duration_milliseconds) / 1000)]).sort((left, right) => left - right);
+  const timingDiagnostics = {
+    available: timedDurationSeconds.length,
+    unavailable: sessions.length - timedDurationSeconds.length,
+    min: timedDurationSeconds[0] ?? null,
+    average: timedDurationSeconds.length ? timedDurationSeconds.reduce((sum, value) => sum + value, 0) / timedDurationSeconds.length : null,
+    median: timedDurationSeconds.length ? timedDurationSeconds[Math.floor(timedDurationSeconds.length / 2)] ?? null : null,
+    max: timedDurationSeconds.at(-1) ?? null,
+    finalFlushMissing: sessions.filter((session) => session.total_session_duration_milliseconds != null && !session.duration_final_flush_received).length,
+  };
   const itemNames = new Map(((inventoryResponse.data ?? []) as Array<{ id: string; name: string | null }>).map((item) => [item.id, item.name?.trim() || "Rental item"]));
   const bookingSourceMap = new Map<string, MarketingSource>();
   for (const row of snapshotsResponse.data ?? []) {
@@ -412,6 +426,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     <details className="workspace-panel marketing-attribution-note">
       <summary>Analytics diagnostics</summary>
       <p>Window: {window.from} to {window.to} ({business.timezone}). Business filter: {business.id}. Raw events: {rawEventCount}. Events after source filter: {events.length}. Sessions: {sessions.length}. Session-backed visits: {sessionVisitRows.length}. Latest event: {latestEventAt ?? "none"}. Query duration: {reportQueryDurationMs}ms.</p>
+      <p>Timing diagnostics: {timingDiagnostics.available} timed, {timingDiagnostics.unavailable} unavailable, min {timingDiagnostics.min ?? "—"}s, median {timingDiagnostics.median ?? "—"}s, average {timingDiagnostics.average == null ? "—" : timingDiagnostics.average.toFixed(1)}s, max {timingDiagnostics.max ?? "—"}s, final flush missing {timingDiagnostics.finalFlushMissing}.</p>
     </details>
 
     <section className="marketing-kpi-grid">
