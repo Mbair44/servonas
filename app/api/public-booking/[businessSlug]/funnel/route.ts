@@ -62,7 +62,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryIte
  }
  return parts.join(":").slice(0,500);
 };
-const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const db=getSupabaseAdmin();if(!db)return null;const {data:settings}=await db.from("booking_settings").select("business_id").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();return settings?.business_id??null;},["booking-funnel-business-id"],{revalidate:300});
+const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const db=getSupabaseAdmin();if(!db)return null;const {data:bookingSettings}=await db.from("booking_settings").select("business_id").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();if(bookingSettings?.business_id)return bookingSettings.business_id;const {data:websiteSettings}=await db.from("business_website_settings").select("business_id").ilike("public_slug",businessSlug).eq("status","published").maybeSingle();return websiteSettings?.business_id??null;},["booking-funnel-business-id"],{revalidate:300});
 
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
  if(!bookingFunnelEnabled())return new NextResponse(null,{status:204});
