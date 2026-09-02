@@ -1733,8 +1733,12 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 
 /* Keep the four campaign summary pills together on wide Google Ads layouts. */
 .google-ads-overview-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.google-ads-overview-destination{min-width:0}
+.google-ads-overview-destination strong{overflow:hidden;font-size:clamp(.8rem,1.1vw,1.05rem);letter-spacing:-.035em;text-overflow:ellipsis;white-space:nowrap;word-break:normal}
 @media(max-width:1180px){.google-ads-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:900px){.google-ads-overview-grid{grid-template-columns:1fr}}
+
+.google-ads-facts dt{display:flex;align-items:center;gap:5px}.google-ads-metric-help{position:relative;display:inline-grid;place-items:center;width:15px;height:15px;border-radius:999px;background:#e7efff;color:#155eef;font-size:10px;font-style:normal;font-weight:900;line-height:1;cursor:help}.google-ads-metric-help:hover,.google-ads-metric-help:focus-visible{outline:2px solid #bfd4ff;outline-offset:2px}.google-ads-metric-help:hover:after,.google-ads-metric-help:focus-visible:after{content:attr(data-tooltip);position:absolute;z-index:20;top:calc(100% + 8px);left:0;width:220px;padding:9px 10px;border:1px solid #cbd9f5;border-radius:9px;background:#17203a;color:#fff;font-size:.72rem;font-weight:650;line-height:1.4;text-align:left;text-transform:none;letter-spacing:normal;box-shadow:0 10px 22px rgba(16,24,40,.18)}
 
 /* Campaign health is a second row of the Google Ads status panel. */
 .google-ads-status-health{grid-column:1/-1;gap:10px;padding:16px 0 0;border-width:1px 0 0;border-radius:0;background:transparent!important}.google-ads-status-health .google-ads-section-heading{align-items:center}.google-ads-status-health .google-ads-section-heading h3{font-size:1rem}.google-ads-status-health .google-ads-section-heading p{margin-top:4px}.google-ads-status-health .google-ads-health-badge{background:#eef4ff}.google-ads-status-health.is-healthy .google-ads-health-badge{background:#dff7e8;color:#08783f}.google-ads-status-health.is-monitoring .google-ads-health-badge{background:#e6f1fb;color:#27648f}.google-ads-status-health.is-needs_attention .google-ads-health-badge{background:#ffefc7;color:#9b5a00}.google-ads-status-health.is-critical_issue .google-ads-health-badge{background:#ffe0e0;color:#b42318}
