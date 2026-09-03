@@ -982,3 +982,22 @@ test("marketing funnel page preserves date controls plus requested dates and ren
  assert.match(css, /marketing-requested-dates-layout/);
  assert.match(css, /marketing-rental-item-cards/);
 });
+
+test("google ads issue checks use documented billing and account signals and sync issue notifications", async () => {
+ const [file, helper, page, actions] = await Promise.all([
+  read("../lib/googleAdsManagement.ts"),
+  read("../lib/marketingIssues.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+ ]);
+ assert.match(file, /SELECT customer_client\.id, customer_client\.descriptive_name, customer_client\.level, customer_client\.status, customer_client\.manager FROM customer_client WHERE customer_client\.level = 0 LIMIT 1/);
+ assert.match(file, /SELECT billing_setup\.id, billing_setup\.status, billing_setup\.payments_account, billing_setup\.payments_account_info\.payments_account_id, billing_setup\.payments_account_info\.payments_account_name FROM billing_setup/);
+ assert.match(file, /apiLimitation: "Google Ads API does not expose the exact payment-threshold warning text seen in the Google Ads UI\."/);
+ assert.match(file, /export async function checkGoogleAdsBusinessIssues/);
+ assert.match(helper, /marketing-issue:\$\{issue\.dedupeKey\}/);
+ assert.match(helper, /status: "resolved"/);
+ assert.match(helper, /onConflict: "business_id,dedupe_key"/);
+ assert.match(page, /Check Google Ads status/);
+ assert.match(page, /business_marketing_issues/);
+ assert.match(actions, /checkGoogleAdsBusinessIssues\(\{ businessId: business\.id, businessSlug: slug, force: true, freshnessMinutes: 0 \}\)/);
+});

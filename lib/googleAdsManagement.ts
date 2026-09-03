@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { recordAssistantProviderUsage } from "./assistant/usage";
+import { syncBusinessMarketingIssues, type MarketingIssueInput } from "./marketingIssues";
 
 type TokenResponse = { access_token?: string; refresh_token?: string; id_token?: string; error?: string; error_description?: string };
 type GoogleAdsListResponse = { resourceNames?: string[] };
@@ -198,6 +199,14 @@ export type GoogleAdsCampaignHealthSnapshot = {
 export type GoogleAdsCampaignHealthAiReview = {
  summary: string;
  recommendationIds: string[];
+};
+export type GoogleAdsAccountHealthSnapshot = {
+ customerId: string;
+ customerStatus: string | null;
+ billingStatuses: string[];
+ paymentsAccountIds: string[];
+ requestWarnings: string[];
+ checkedAt: string;
 };
 export type GoogleAdsCampaignMetrics = {
  campaignId: string;
@@ -2890,8 +2899,111 @@ export function buildGoogleAdsCampaignHealth(input: {
   zeroImpressions,
   withinNoImpressionGracePeriod,
   gracePeriodHoursRemaining,
-  servingRelevantChangeAt,
+ servingRelevantChangeAt,
  };
+}
+
+function googleAdsIssueSeverity(value: "critical" | "warning" | "info" | "healthy") {
+ return value === "healthy" ? "info" as const : value;
+}
+
+async function fetchGoogleAdsAccountHealthSnapshot(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerId?: string | null;
+ businessId: string;
+}) {
+ const [customerRows, billingRows] = await Promise.all([
+  googleAdsSearchStream(input.customerId, input.accessToken, "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level, customer_client.status, customer_client.manager FROM customer_client WHERE customer_client.level = 0 LIMIT 1", input.loginCustomerId, { stage: "google_ads_account_health_customer", requestType: "google_ads_account_health_customer", businessId: input.businessId }),
+  googleAdsSearchStream(input.customerId, input.accessToken, "SELECT billing_setup.id, billing_setup.status, billing_setup.payments_account, billing_setup.payments_account_info.payments_account_id, billing_setup.payments_account_info.payments_account_name FROM billing_setup", input.loginCustomerId, { stage: "google_ads_account_health_billing", requestType: "google_ads_account_health_billing", businessId: input.businessId }),
+ ]);
+ const customerStatus = typeof readGoogleAdsField(customerRows[0], "customerClient.status", "customer_client.status") === "string" ? String(readGoogleAdsField(customerRows[0], "customerClient.status", "customer_client.status")) : null;
+ return {
+  customerId: stripCustomerId(input.customerId),
+  customerStatus,
+  billingStatuses: billingRows.map((row) => String(readGoogleAdsField(row, "billingSetup.status", "billing_setup.status") ?? "")).filter(Boolean),
+  paymentsAccountIds: billingRows.map((row) => String(readGoogleAdsField(row, "billingSetup.paymentsAccountInfo.paymentsAccountId", "billing_setup.payments_account_info.payments_account_id") ?? "")).filter(Boolean),
+  requestWarnings: [],
+  checkedAt: new Date().toISOString(),
+ } satisfies GoogleAdsAccountHealthSnapshot;
+}
+
+function buildGoogleAdsAccountIssues(input: {
+ connectionStatus: GoogleAdsConnectionStatus;
+ customerId: string;
+ accountHealth: GoogleAdsAccountHealthSnapshot | null;
+ failure?: { type: string; message: string; googleStatus?: string | null; requestId?: string | null } | null;
+}) {
+ const issues: MarketingIssueInput[] = [];
+ if (input.connectionStatus === "reauthorization_required") issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: "oauth_reauthorization_required", severity: "critical", title: "Google Ads connection needs to be reconnected", message: "Servonas can no longer refresh the connected Google Ads access. Reconnect Google Ads to restore account checks and campaign management.", recommendedAction: "Reconnect Google Ads in Servonas.", dedupeKey: `google_ads:${input.customerId}:oauth_reauthorization_required` });
+ if (input.failure) {
+  const criticalFailure = new Set(["PERMISSION_DENIED", "AUTHENTICATION_ERROR", "CUSTOMER_NOT_FOUND"]);
+  issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: input.failure.type, severity: criticalFailure.has(input.failure.googleStatus ?? "") ? "critical" : "warning", title: criticalFailure.has(input.failure.googleStatus ?? "") ? "Google Ads account access needs attention" : "Google Ads status check could not finish", message: criticalFailure.has(input.failure.googleStatus ?? "") ? "Servonas could not access the selected Google Ads account with the current permissions." : "Servonas could not complete the latest Google Ads account health check.", recommendedAction: criticalFailure.has(input.failure.googleStatus ?? "") ? "Reconnect Google Ads or verify account access in Google Ads." : "Try checking Google Ads status again shortly.", dedupeKey: `google_ads:${input.customerId}:${input.failure.type}`, metadata: { googleStatus: input.failure.googleStatus ?? null, requestId: input.failure.requestId ?? null, technicalMessage: input.failure.message } });
+ }
+ const health = input.accountHealth;
+ if (!health) return issues;
+ if (!health.billingStatuses.length) issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: "billing_setup_missing", severity: "critical", title: "Google Ads billing needs attention", message: "Servonas could not find an active Google Ads billing setup for this account. Ads may not serve until billing is configured.", recommendedAction: "Open Google Ads and review the billing setup for this account.", externalResourceType: "google_ads_customer", externalResourceId: input.customerId, dedupeKey: `google_ads:${input.customerId}:billing_setup_missing` });
+ if (health.billingStatuses.some((status) => status === "CANCELLED")) issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: "billing_setup_inactive", severity: "critical", title: "Google Ads billing is inactive", message: "Google Ads reported a cancelled billing setup for this account. Ads may stop serving until billing is restored.", recommendedAction: "Open Google Ads and restore or replace the billing setup.", externalResourceType: "google_ads_customer", externalResourceId: input.customerId, dedupeKey: `google_ads:${input.customerId}:billing_setup_inactive` });
+ if (health.billingStatuses.some((status) => status === "APPROVED_HELD")) issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: "billing_setup_held", severity: "warning", title: "Google Ads billing needs review", message: "Google Ads reported a held billing setup. This is the closest documented billing signal Servonas can verify through the API.", recommendedAction: "Open Google Ads billing and review the payments account.", externalResourceType: "google_ads_customer", externalResourceId: input.customerId, dedupeKey: `google_ads:${input.customerId}:billing_setup_held`, metadata: { apiLimitation: "Google Ads API does not expose the exact payment-threshold warning text seen in the Google Ads UI." } });
+ if (health.customerStatus === "SUSPENDED") issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: "account_suspended", severity: "critical", title: "Google Ads account is suspended", message: "Google Ads reported that this advertiser account is suspended, which can stop ads from serving.", recommendedAction: "Open Google Ads and resolve the suspension before relying on this account.", externalResourceType: "google_ads_customer", externalResourceId: input.customerId, dedupeKey: `google_ads:${input.customerId}:account_suspended` });
+ if (health.customerStatus === "CANCELED" || health.customerStatus === "CLOSED") issues.push({ provider: "google_ads", integrationAccountId: input.customerId, issueType: "account_closed", severity: "critical", title: "Google Ads account is closed", message: "Google Ads reported that this advertiser account is closed or canceled, so it cannot keep serving ads.", recommendedAction: "Reconnect a usable Google Ads account or reopen the account in Google Ads.", externalResourceType: "google_ads_customer", externalResourceId: input.customerId, dedupeKey: `google_ads:${input.customerId}:account_closed` });
+ return issues;
+}
+
+export async function checkGoogleAdsBusinessIssues(input: {
+ businessId: string;
+ businessSlug: string;
+ force?: boolean;
+ freshnessMinutes?: number;
+}) {
+ const db = getSupabaseAdmin();
+ if (!db) throw new Error("Google Ads issue checks are unavailable.");
+ const freshnessMinutes = input.freshnessMinutes ?? 20;
+ const { data: connectionRow } = await db.from("business_google_ads_connections").select("google_ads_customer_id,last_issue_check_at,status").eq("business_id", input.businessId).maybeSingle();
+ const selectedCustomerId = typeof connectionRow?.google_ads_customer_id === "string" ? connectionRow.google_ads_customer_id : null;
+ const lastIssueCheckAt = typeof connectionRow?.last_issue_check_at === "string" ? connectionRow.last_issue_check_at : null;
+ if (!input.force && selectedCustomerId && lastIssueCheckAt && Date.now() - new Date(lastIssueCheckAt).getTime() < freshnessMinutes * 60_000) return { checked: false, stale: false, lastIssueCheckAt, issueCount: 0 };
+ try {
+  const connection = await loadTenantGoogleAdsAccess(input.businessId);
+  if (!connection?.customerId) {
+   await syncBusinessMarketingIssues({ businessId: input.businessId, businessSlug: input.businessSlug, provider: "google_ads", integrationAccountId: null, issues: [], actionUrl: `/app/${input.businessSlug}/marketing/google-ads`, checkSucceeded: true });
+   return { checked: false, stale: false, lastIssueCheckAt: null, issueCount: 0 };
+  }
+  const { data: campaigns } = await db.from("business_google_ads_campaigns").select("id,campaign_name,google_campaign_id,google_ads_customer_id,status,daily_budget_micros,bidding_strategy,manual_cpc_bid_micros,destination_url,created_at").eq("business_id", input.businessId).in("status", ["published", "paused", "archived"]);
+  const campaignIds = (campaigns ?? []).map((campaign) => campaign.google_campaign_id ?? "").filter(Boolean);
+  const [statusRows, snapshotRows, locationRows, metricRows, accountHealth] = await Promise.all([
+   campaignIds.length ? fetchGoogleAdsCampaignStatuses({ accessToken: connection.accessToken, customerId: connection.customerId, campaignIds, loginCustomerId: connection.loginCustomerId, businessId: input.businessId }) : Promise.resolve([] as GoogleAdsCampaignStatusSnapshot[]),
+   campaignIds.length ? fetchGoogleAdsCampaignHealthSnapshots({ accessToken: connection.accessToken, customerId: connection.customerId, campaignIds, loginCustomerId: connection.loginCustomerId, businessId: input.businessId }) : Promise.resolve([] as GoogleAdsCampaignHealthSnapshot[]),
+   campaignIds.length ? fetchGoogleAdsCampaignLocationTargeting({ accessToken: connection.accessToken, customerId: connection.customerId, campaignIds, loginCustomerId: connection.loginCustomerId, businessId: input.businessId }) : Promise.resolve([] as GoogleAdsCampaignLocationTargeting[]),
+   campaignIds.length ? fetchGoogleAdsCampaignMetrics({ accessToken: connection.accessToken, customerId: connection.customerId, dateFrom: monthStart(new Date().toISOString().slice(0, 10)), dateTo: new Date().toISOString().slice(0, 10), businessId: input.businessId }) : Promise.resolve([] as GoogleAdsCampaignMetrics[]),
+   fetchGoogleAdsAccountHealthSnapshot({ accessToken: connection.accessToken, customerId: connection.customerId, loginCustomerId: connection.loginCustomerId, businessId: input.businessId }),
+  ]);
+  const statusesByCampaignId = new Map(statusRows.map((row) => [row.campaignId, row]));
+  const snapshotsByCampaignId = new Map(snapshotRows.map((row) => [row.campaignId, row]));
+  const locationsByCampaignId = new Map(locationRows.map((row) => [row.campaignId, row]));
+  const metricsByCampaignId = new Map(metricRows.map((row) => [row.campaignId, row]));
+  const issues = buildGoogleAdsAccountIssues({ connectionStatus: connection.status, customerId: connection.customerId, accountHealth });
+  for (const campaign of campaigns ?? []) {
+   if (!campaign.google_campaign_id || !campaign.google_ads_customer_id) continue;
+   const health = buildGoogleAdsCampaignHealth({ campaign, metric: metricsByCampaignId.get(campaign.google_campaign_id) ?? null, status: statusesByCampaignId.get(campaign.google_campaign_id) ?? null, locationTargeting: locationsByCampaignId.get(campaign.google_campaign_id) ?? null, snapshot: snapshotsByCampaignId.get(campaign.google_campaign_id) ?? null, servingRelevantChangeAt: campaign.created_at ?? null });
+   for (const issue of health.issues) {
+    if (issue.severity === "healthy" || issue.category === "optimization") continue;
+    issues.push({ provider: "google_ads", integrationAccountId: campaign.google_ads_customer_id, issueType: `campaign_${issue.id}`, severity: issue.id === "campaign_paused" ? "info" : googleAdsIssueSeverity(issue.severity), title: issue.title, message: issue.description, recommendedAction: issue.recommendedAction, externalResourceType: "google_ads_campaign", externalResourceId: campaign.google_campaign_id, dedupeKey: `google_ads:${campaign.google_ads_customer_id}:campaign:${campaign.google_campaign_id}:${issue.id}`, metadata: { campaignId: campaign.id, googleCampaignId: campaign.google_campaign_id, campaignName: campaign.campaign_name, category: issue.category ?? "serving", currentValue: issue.currentValue ?? null } });
+   }
+  }
+  const checkedAt = new Date().toISOString();
+  await syncBusinessMarketingIssues({ businessId: input.businessId, businessSlug: input.businessSlug, provider: "google_ads", integrationAccountId: connection.customerId, issues, actionUrl: `/app/${input.businessSlug}/marketing/google-ads`, actionLabel: "View details", checkSucceeded: true });
+  await db.from("business_google_ads_connections").update({ last_issue_check_at: checkedAt, last_issue_check_error: null, updated_at: checkedAt }).eq("business_id", input.businessId);
+  return { checked: true, stale: false, lastIssueCheckAt: checkedAt, issueCount: issues.length };
+ } catch (error) {
+  const requestError = error instanceof GoogleAdsRequestError ? error : null;
+  const { data: connection } = await db.from("business_google_ads_connections").select("google_ads_customer_id,status").eq("business_id", input.businessId).maybeSingle();
+  const customerId = typeof connection?.google_ads_customer_id === "string" ? connection.google_ads_customer_id : "unknown";
+  const issues = buildGoogleAdsAccountIssues({ connectionStatus: (connection?.status as GoogleAdsConnectionStatus | null) ?? "disconnected", customerId, accountHealth: null, failure: { type: "account_check_failed", message: error instanceof Error ? error.message : "Google Ads status check failed.", googleStatus: requestError?.googleStatus ?? null, requestId: requestError?.requestId ?? null } });
+  if (issues.length) await syncBusinessMarketingIssues({ businessId: input.businessId, businessSlug: input.businessSlug, provider: "google_ads", integrationAccountId: customerId, issues, actionUrl: `/app/${input.businessSlug}/marketing/google-ads`, actionLabel: "View details", checkSucceeded: false });
+  await db.from("business_google_ads_connections").update({ last_issue_check_failed_at: new Date().toISOString(), last_issue_check_error: error instanceof Error ? error.message.slice(0, 500) : "Google Ads status check failed.", updated_at: new Date().toISOString() }).eq("business_id", input.businessId);
+  return { checked: false, stale: true, lastIssueCheckAt, issueCount: issues.length };
+ }
 }
 
 export async function reviewGoogleAdsCampaignHealthWithAi(input: { businessId: string; snapshot: GoogleAdsCampaignHealthSnapshot | null; issues: GoogleAdsCampaignHealthIssue[]; withinGracePeriod?: boolean; gracePeriodHoursRemaining?: number }) {
