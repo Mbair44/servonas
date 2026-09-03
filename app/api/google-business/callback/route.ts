@@ -3,7 +3,7 @@ import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
 import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {discoverGoogleBusinessLocations,exchangeGoogleBusinessCode,GoogleBusinessApiError,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,persistGoogleBusinessConnection} from "@/lib/googleBusinessProfile";
+import {discoverGoogleBusinessLocations,exchangeGoogleBusinessCode,GoogleBusinessApiError,GoogleBusinessPersistenceError,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,persistGoogleBusinessConnection} from "@/lib/googleBusinessProfile";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {canManageBusiness,managementAuthorizationSource} from "@/lib/access";
 import {platformAdminRole} from "@/lib/platformAccess";
@@ -12,6 +12,27 @@ const appUrl=()=>process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com";
 const destination=(slug:string,kind:"success"|"error",message:string)=>new URL(`/app/${encodeURIComponent(slug)}/settings/website?${kind}=${encodeURIComponent(message)}`,appUrl());
 const log=(event:string,details:Record<string,unknown>={})=>console.info(event,{provider:"google_business_profile",...details});
 type SavedState={state:string;businessSlug:string;businessId:string};
+const persistenceDiagnostics=(error:unknown)=>error instanceof GoogleBusinessPersistenceError?{
+ persistenceType:error.metadata.persistenceType,
+ resourceName:error.metadata.tableName,
+ endpointPath:error.metadata.endpointPath,
+ method:error.metadata.method,
+ operation:error.metadata.operation,
+ conflictKey:error.metadata.conflictKey,
+ httpStatus:error.metadata.httpStatus,
+ databaseErrorCode:error.metadata.databaseErrorCode,
+ safeErrorMessage:error.metadata.safeErrorMessage,
+}:{
+ persistenceType:null,
+ resourceName:null,
+ endpointPath:null,
+ method:null,
+ operation:null,
+ conflictKey:null,
+ httpStatus:null,
+ databaseErrorCode:null,
+ safeErrorMessage:error instanceof Error?error.message:"Google Business credential persistence failed.",
+};
 
 export async function GET(request:Request){
  const callbackId=`gbc-${randomUUID()}`,url=new URL(request.url),code=url.searchParams.get("code"),state=url.searchParams.get("state"),returnedScope=url.searchParams.get("scope"),oauthError=url.searchParams.get("error"),issuer=url.searchParams.get("iss"),requestId=request.headers.get("x-vercel-id")||request.headers.get("x-request-id")||null,requestHost=url.host,environment=process.env.VERCEL_ENV||process.env.NODE_ENV||"unknown";
@@ -95,8 +116,9 @@ export async function GET(request:Request){
  }catch(error){
   const safeMessage=error instanceof Error?error.message:"Google Business Profile connection failed.",redirectDestination=destination(saved.businessSlug,"error",safeMessage),event=stage==="token_exchange"?"google_business_token_exchange_failed":stage==="account_discovery"?"google_business_account_discovery_failed":null;
   if(event)log(event,{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,stage,httpStatus:error instanceof GoogleBusinessTokenExchangeError?error.httpStatus:null,googleErrorCode:error instanceof GoogleBusinessTokenExchangeError?error.googleErrorCode:error instanceof Error?error.name:"unknown",safeGoogleErrorDescription:safeMessage});
+  if(error instanceof GoogleBusinessPersistenceError)log("google_business_credentials_persist_failed",{googleBusinessCallbackId:callbackId,businessId:saved.businessId,businessSlug:saved.businessSlug,...persistenceDiagnostics(error)});
   if(error instanceof GoogleBusinessApiError&&error.httpStatus===429)log("google_business_retry_exhausted",{googleBusinessOperationId:callbackId,businessId:saved.businessId,stage,service:error.service,endpoint:error.endpoint,httpStatus:error.httpStatus,retryAfter:error.retryAfter,retryAttempt:0});
-  log("google_business_callback_failed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,stage,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id,errorCode:error instanceof Error?error.name:"unknown",safeMessage,redirectDestination:redirectDestination.pathname});
+  log("google_business_callback_failed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,stage,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id,errorCode:error instanceof GoogleBusinessPersistenceError?error.metadata.databaseErrorCode??error.name:error instanceof Error?error.name:"unknown",safeMessage,redirectDestination:redirectDestination.pathname,...(error instanceof GoogleBusinessPersistenceError?persistenceDiagnostics(error):{})});
   return redirect({stage,success:false,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id,errorCode:error instanceof Error?error.name:"unknown"});
  }
 }
