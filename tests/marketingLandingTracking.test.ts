@@ -30,7 +30,7 @@ test("Servonas home-page visits and signup handoff enter the acquisition funnel"
 });
 
 test("all paid-traffic industry landing pages use shared landing attribution",async()=>{
- const [shared,serverWrapper,car,pest,hvac,plumbing,landscaping,cleaning,powerwashing,junkRemoval,floral,eventPartyRentals]=await Promise.all([
+ const [shared,serverWrapper,car,pest,hvac,plumbing,landscaping,cleaning,powerwashing,junkRemoval,christmasLights,floral,eventPartyRentals]=await Promise.all([
   read("components/WebsiteIndustryLanding.tsx"),
   read("components/ServerMarketingLandingAttribution.tsx"),
   read("app/car-detailing-website/page.tsx"),
@@ -41,6 +41,7 @@ test("all paid-traffic industry landing pages use shared landing attribution",as
   read("app/cleaning-website/page.tsx"),
   read("app/powerwashing-website/page.tsx"),
   read("app/junk-removal-website/page.tsx"),
+  read("app/christmas-lights-website/page.tsx"),
   read("app/floral-event-website/page.tsx"),
   read("app/event-party-rentals-website/page.tsx"),
  ]);
@@ -54,6 +55,7 @@ test("all paid-traffic industry landing pages use shared landing attribution",as
  assert.match(cleaning,/WebsiteIndustryLanding/);
  assert.match(powerwashing,/WebsiteIndustryLanding/);
  assert.match(junkRemoval,/WebsiteIndustryLanding/);
+ assert.match(christmasLights,/WebsiteIndustryLanding/);
  assert.match(floral,/WebsiteIndustryLanding/);
  assert.match(eventPartyRentals,/WebsiteIndustryLanding/);
 });
@@ -79,5 +81,5 @@ test("header start-free CTA preserves website-builder source on industry landing
  assert.match(header,/source=|URLSearchParams\(\{source\}\)/);
  assert.match(header,/gad_source/);
  assert.match(header,/gad_campaignid/);
- for(const source of ["pest-control-website","car-detailing-website","hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","junk-removal-website","floral-event-website","event-party-rentals-website"])assert.match(config,new RegExp(source));
+ for(const source of ["pest-control-website","car-detailing-website","hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","junk-removal-website","christmas-lights-website","floral-event-website","event-party-rentals-website"])assert.match(config,new RegExp(source));
 });

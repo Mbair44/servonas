@@ -9,6 +9,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {normalizeWebsitePhone,websiteRequestErrors} from "@/lib/website";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
+const values=(data:FormData,key:string)=>data.getAll(key).map(value=>String(value).trim()).filter(Boolean);
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const popupState=(error?:string,success?:boolean,_couponCode?:string|null,successMessage?:string)=>({error,success,successMessage});
@@ -53,14 +54,43 @@ async function ensurePopupDiscount(db:any,input:{businessId:string;userId:string
 }
 
 export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequestState,data:FormData):Promise<WebsiteRequestState>{
- const values=Object.fromEntries([...data.entries()].filter(([key,value])=>typeof value==="string"&&key!=="companyWebsite").map(([key,value])=>[key,String(value)]));
- const fail=(error:string,fieldErrors:Record<string,string>={}):WebsiteRequestState=>({error,fieldErrors,values});
+ const formValues=Object.fromEntries([...data.entries()].filter(([key,value])=>typeof value==="string"&&key!=="companyWebsite").map(([key,value])=>[key,String(value)]));
+ if(data.has("decoratedAreas"))formValues.decoratedAreas=values(data,"decoratedAreas").join("\n");
+ const fail=(error:string,fieldErrors:Record<string,string>={}):WebsiteRequestState=>({error,fieldErrors,values:formValues});
  if(text(data,"companyWebsite"))return {success:"Thank you. The business will follow up shortly."};
  const db=getSupabaseAdmin();if(!db)return fail("Online requests are temporarily unavailable. Please call the business directly.");
  const {data:website}=await db.from("business_website_settings").select("id,business_id,request_service_enabled,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!website||!website.request_service_enabled)return fail("This website is not currently accepting online requests.");
- const name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),description=text(data,"description"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey");
+ const requestVariant=text(data,"requestVariant"),name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey");
+ const christmasAreas=values(data,"decoratedAreas");
+ const description=requestVariant==="christmas_quote"?[
+  "Christmas lighting quote request",
+  `Decorated areas: ${christmasAreas.length?christmasAreas.join(", "):"Not provided"}`,
+  `Lighting preference: ${text(data,"lightingPreference")||"Not provided"}`,
+  `Preferred installation timing: ${text(data,"installationTiming")||"Not provided"}`,
+  text(data,"specificDate")?`Requested date: ${text(data,"specificDate")}`:null,
+  [
+   text(data,"squareFootage")&&`Approx. square footage: ${text(data,"squareFootage")}`,
+   text(data,"stories")&&`Stories: ${text(data,"stories")}`,
+   text(data,"rooflineLength")&&`Roofline length: ${text(data,"rooflineLength")}`,
+   text(data,"treeCount")&&`Tree count: ${text(data,"treeCount")}`,
+   text(data,"treeHeights")&&`Tree heights: ${text(data,"treeHeights")}`,
+  ].filter(Boolean).length?`Property details: ${[
+   text(data,"squareFootage")&&`${text(data,"squareFootage")} sq ft`,
+   text(data,"stories")&&`${text(data,"stories")} stories`,
+   text(data,"rooflineLength")&&`roofline ${text(data,"rooflineLength")}`,
+   text(data,"treeCount")&&`${text(data,"treeCount")} trees`,
+   text(data,"treeHeights")&&`tree heights ${text(data,"treeHeights")}`,
+  ].filter(Boolean).join(", ")}`:null,
+  text(data,"projectNotes")?`Project notes: ${text(data,"projectNotes")}`:null,
+  "Photo uploads requested: follow up with customer to collect property photos.",
+ ].filter(Boolean).join("\n"):text(data,"description");
  const fieldErrors=websiteRequestErrors({name,phone,email,address,description,requestKey});
+ if(requestVariant==="christmas_quote"){
+  if(!christmasAreas.length)fieldErrors.decoratedAreas="Choose at least one area or select the design-help option.";
+  if(!text(data,"lightingPreference"))fieldErrors.lightingPreference="Choose a lighting preference.";
+  if(!text(data,"installationTiming"))fieldErrors.installationTiming="Choose preferred timing.";
+ }
  let serviceId:string|null=null;
  if(serviceValue&&serviceValue!=="other"){
   const {data:service}=await db.from("services").select("id").eq("business_id",website.business_id).eq("id",serviceValue).eq("active",true).eq("is_deleted",false).maybeSingle();

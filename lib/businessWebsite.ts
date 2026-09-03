@@ -105,7 +105,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const {includeExternalReviews=false}=options;
  const businessId=String(settings.business_id);
  const [businessResult,servicesResult,rentalItemsResult,rentalCategoriesResult,hoursResult,territoriesResult,bookingResult,websiteOnboardingResult,promotionResult]=await Promise.allSettled([
-  db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile").eq("id",businessId).eq("is_deleted",false).maybeSingle(),
+  db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile,industry_other").eq("id",businessId).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",businessId).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
   db.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,length_ft,width_ft,height_ft,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override").eq("business_id",businessId).eq("active",true),
   db.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",businessId).order("sort_order").order("name"),
@@ -144,10 +144,11 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const platformUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"");
  const bookingSlug=booking?.public_slug?String(booking.public_slug):settings.public_slug?String(settings.public_slug):business.slug?String(business.slug):null;
  const isJunkRemoval=websiteOnboarding?.source==="junk-removal-website"||business.industry_profile==="junk_removal";
+ const isChristmasLights=websiteOnboarding?.source==="christmas-lights-website"||business.industry_other==="christmas_light_installation";
  // Party-rental websites are booking-first. Once Online Booking itself is
  // enabled, do not let a stale/omitted website checkbox hide the embedded
  // inventory calendar from the public site.
- const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||(!isJunkRemoval&&settings.booking_enabled&&booking?.enabled)));
+ const bookingEnabled=Boolean(bookingSlug&&(business.industry_profile==="party_rental"||(!isJunkRemoval&&!isChristmasLights&&settings.booking_enabled&&booking?.enabled)));
  let googleProfile:null|Awaited<ReturnType<typeof getGoogleBusinessProfileReviews>>=null;
  let googleRating:null|Awaited<ReturnType<typeof getGoogleBusinessRating>>=null;
  if(includeExternalReviews){
@@ -172,9 +173,9 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   bookingSlug,customDomain:settings.domain_status==="connected"&&settings.custom_domain?normalizeWebsiteDomain(String(settings.custom_domain)):null,name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
   metaPixelId:sanitizeMetaPixelId(settings.meta_pixel_id),
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",floralFontStyle:settings.floral_font_style??"elegant",floralAccentColor:settings.floral_accent_color??"#b85c7c",floralBackgroundColor:settings.floral_background_color??"#fffafc",floralPhotoLayout:settings.floral_photo_layout??"hero_right",
-  heroHeading:settings.hero_heading??(isJunkRemoval?"Got Junk? We’ll Make It Disappear.":`${business.name} keeps your home or business running smoothly.`),
-  heroSubheading:settings.hero_subheading??(isJunkRemoval?"Furniture, appliances, yard debris, garage cleanouts, and more. Tell us what needs to go and we’ll take care of the heavy lifting.":"Reliable local service, clear communication, and a team that is ready when you need help."),
-  aboutText:settings.about_text??(isJunkRemoval?`${business.name} helps homeowners and businesses clear out unwanted items with fast response, upfront estimates, and dependable local service.`:`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`),instagramUrl:settings.instagram_url??null,
+  heroHeading:settings.hero_heading??(isJunkRemoval?"Got Junk? We’ll Make It Disappear.":isChristmasLights?"Professional Christmas Light Installation Without the Hassle":`${business.name} keeps your home or business running smoothly.`),
+  heroSubheading:settings.hero_subheading??(isJunkRemoval?"Furniture, appliances, yard debris, garage cleanouts, and more. Tell us what needs to go and we’ll take care of the heavy lifting.":isChristmasLights?"We design, install, maintain, and remove your Christmas lights so you can enjoy the season without climbing a ladder.":"Reliable local service, clear communication, and a team that is ready when you need help."),
+  aboutText:settings.about_text??(isJunkRemoval?`${business.name} helps homeowners and businesses clear out unwanted items with fast response, upfront estimates, and dependable local service.`:isChristmasLights?`${business.name} creates polished holiday lighting displays for homes and commercial properties with design help, professional installation, in-season maintenance, and organized takedown after the season.`:`${business.name} is a local service business committed to dependable work and a straightforward customer experience. Tell us what you need and our team will help you take the next step.`),instagramUrl:settings.instagram_url??null,
   googleReviewUrl:googleRating?.googleMapsUri??settings.google_review_url,googleRating:googleProfile?.rating??googleRating?.rating??null,googleReviewCount:googleProfile?.reviewCount??googleRating?.reviewCount??null,googleReviews:googleProfile?.reviews.length?googleProfile.reviews.map(review=>({...review,fromGoogleProfile:true})):manualReviews,photoUrls:(settings.photo_urls??[]).filter(Boolean),photoMotionStyle:settings.photo_motion_style==="ken_burns"?"ken_burns":"static",requestEnabled:settings.request_service_enabled??true,
   bookingEnabled,bookingUrl:bookingEnabled&&bookingSlug?`${platformUrl}/book/${encodeURIComponent(bookingSlug)}`:null,
   announcementText:promotion?.announcement_text??null,

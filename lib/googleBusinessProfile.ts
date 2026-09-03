@@ -43,7 +43,8 @@ export async function exchangeGoogleBusinessCode(code:string){const {clientId,cl
 async function refreshAccessToken(refreshToken:string){const {clientId,clientSecret}=credentials();if(!clientId||!clientSecret)throw new Error("Google Business OAuth is not configured.");return (await tokenRequest(new URLSearchParams({refresh_token:refreshToken,client_id:clientId,client_secret:clientSecret,grant_type:"refresh_token"}))).access_token!;}
 
 async function googleRequest<T>(input:{url:string;accessToken:string;method?:string;service:string;endpoint:string;body?:string;context:GoogleBusinessRequestContext}){
- const sequenceNumber=(input.context.requestCounter?.current=(input.context.requestCounter?.current??0)+1) ?? 1;
+ const requestCounter=input.context.requestCounter;
+ const sequenceNumber=requestCounter?(requestCounter.current=(requestCounter.current??0)+1):1;
  const startedAt=Date.now();
  log("google_business_api_request_started",{googleBusinessOperationId:input.context.googleBusinessOperationId,stage:input.context.stage,service:input.service,endpoint:input.endpoint,method:input.method??"GET",businessId:input.context.businessId,accountId:input.context.accountId??null,locationId:input.context.locationId??null,requestSequenceNumber:sequenceNumber,retryAttempt:input.context.retryAttempt??0});
  const response=await fetch(input.url,{method:input.method??"GET",headers:{Authorization:`Bearer ${input.accessToken}`,...(input.body?{"Content-Type":"application/json"}:{})},body:input.body,cache:"no-store"});
