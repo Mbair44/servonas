@@ -12,6 +12,7 @@ import {normalizeInstagramUrl} from "@/lib/socialLinks";
 import {resolveGoogleAddress} from "@/lib/googleAddress";
 import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
 import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
+import {GoogleBusinessPersistenceError,retryGoogleBusinessLocationDiscovery} from "@/lib/googleBusinessProfile";
 import {buildWebsiteAiImagePrompt,estimateWebsiteAiImageCost,normalizeWebsiteAiImageQuality,normalizeWebsiteAiImageSize,websiteAiImageFeature,websiteAiImageLimit,type WebsiteAiImageGenerationKind,type WebsiteAiImageType} from "@/lib/websiteAiImages";
 import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
 
@@ -591,6 +592,24 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
 
 export async function disconnectGoogleBusinessProfile(slug:string){
  const {business,role}=await requireWorkspaceCapability(slug,"business_onboarding");if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can disconnect Google."));const admin=getSupabaseAdmin();if(!admin)redirect(target(slug,"error","Google connection storage is unavailable."));const {error}=await admin.from("business_google_profile_connections").delete().eq("business_id",business.id);if(error)redirect(target(slug,"error","Google Business Profile could not be disconnected."));revalidatePath(`/app/${slug}/settings/website`);redirect(target(slug,"success","Google Business Profile disconnected."));
+}
+
+export async function retryGoogleBusinessProfileDiscovery(slug:string){
+ const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can retry Google Business discovery."));
+ try{
+  const result=await retryGoogleBusinessLocationDiscovery({businessId:business.id,businessName:business.name,actorUserId:user.id,connectedBy:user.id,googleBusinessOperationId:`gbr-retry-${business.id}-${Date.now()}`});
+  revalidatePath(`/app/${slug}/settings/website`);
+  if(result.ok)redirect(target(slug,"success",result.userMessage));
+  if(result.rateLimited){
+   const when=result.retryAfter?` Retry after ${new Date(result.retryAfter).toLocaleString("en-US")}.`:"";
+   redirect(target(slug,"success",`${result.userMessage}${when}`));
+  }
+  redirect(target(slug,"success",result.userMessage));
+ }catch(error){
+  if(error instanceof GoogleBusinessPersistenceError)redirect(target(slug,"error",error.metadata.safeErrorMessage));
+  redirect(target(slug,"error",error instanceof Error?error.message:"Google Business discovery could not be retried."));
+ }
 }
 
 export async function setWebsitePublished(slug:string,data:FormData){
