@@ -612,6 +612,10 @@ test("keyword review uses a fresh verified snapshot and only runs from an explic
  assert.match(actions, /snapshotHash/);
  assert.match(actions, /google_ads_keyword_review_stale/);
  assert.match(actions, /metrics_refresh_changed_ai_input/);
+ assert.match(actions, /const metricsPath =/);
+ assert.match(actions, /Choose a valid reporting date range\./);
+ assert.match(actions, /totals = metrics\.reduce/);
+ assert.match(actions, /redirect\(metricsPath\(slug, dateFrom, dateTo/);
  assert.doesNotMatch(actions.slice(actions.indexOf("export async function refreshGoogleAdsCampaignsAction"), actions.indexOf("export async function searchGoogleAdsCampaignLocationsAction")), /reviewGoogleAdsKeywordsWithAi/);
  assert.match(page, /Review keywords/);
  assert.match(page, /Review again/);

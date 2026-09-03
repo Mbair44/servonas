@@ -54,6 +54,9 @@ import { requireWorkspace } from "@/lib/workspace";
 const path = (slug: string, kind: "error" | "success", message: string) =>
  `/app/${encodeURIComponent(slug)}/marketing/google-ads?${kind}=${encodeURIComponent(message)}`;
 
+const metricsPath = (slug: string, from: string, to: string, message: string) =>
+ `/app/${encodeURIComponent(slug)}/marketing/google-ads?${new URLSearchParams({ from, to, success: message }).toString()}`;
+
 const text = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
 const numberValue = (data: FormData, key: string) => {
  const numeric = Number(text(data, key));
@@ -817,6 +820,7 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  if (!connection?.customerId) redirect(path(slug, "error", "Connect Google Ads first."));
  const dateFrom = text(formData, "from");
  const dateTo = text(formData, "to");
+ if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo) || dateFrom > dateTo) redirect(path(slug, "error", "Choose a valid reporting date range."));
  const metrics = await fetchGoogleAdsCampaignMetrics({ accessToken: connection.accessToken, customerId: connection.customerId, dateFrom, dateTo, businessId: business.id });
  const byCampaignId = new Map(metrics.map((row) => [row.campaignId, row]));
  const [{ data: campaigns }, { data: territories }, { data: priorReviews }] = await Promise.all([
@@ -881,9 +885,11 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
    logGoogleAdsActionError("Google Ads keyword review freshness check failed", { stage: "google_ads_keyword_review_refresh_freshness", provider: "google_ads_api", businessId: business.id, campaignId: campaign.id, errorType: error instanceof Error ? error.name : "unknown" });
   }
  }));
- await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, campaignCount: metrics.length, staleReviewCampaignCount: staleReviewCampaignIds.length } });
+ const refreshedAt = new Date().toISOString();
+ const totals = metrics.reduce((sum, metric) => ({ impressions: sum.impressions + metric.impressions, clicks: sum.clicks + metric.clicks, conversions: sum.conversions + metric.conversions, costMicros: sum.costMicros + metric.costMicros }), { impressions: 0, clicks: 0, conversions: 0, costMicros: 0 });
+ await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, refreshedAt, campaignCount: metrics.length, totals, staleReviewCampaignCount: staleReviewCampaignIds.length } });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
- redirect(path(slug, "success", "Google Ads metrics refreshed."));
+ redirect(metricsPath(slug, dateFrom, dateTo, `Live Google Ads metrics refreshed at ${new Date(refreshedAt).toLocaleTimeString()}.`));
 }
 
 export async function searchGoogleAdsCampaignLocationsAction(slug: string, campaignId: string, formData: FormData) {
