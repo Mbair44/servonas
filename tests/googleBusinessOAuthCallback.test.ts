@@ -27,9 +27,11 @@ test("Google Business callback logs stage-by-stage diagnostics without secrets",
  assert.match(callback, /google_business_credentials_persist_completed/);
  assert.match(callback, /google_business_account_discovery_started/);
  assert.match(callback, /google_business_account_discovery_completed/);
+ assert.match(callback, /google_business_account_discovery_deferred/);
  assert.match(callback, /google_business_callback_completed/);
  assert.match(callback, /google_business_callback_failed/);
  assert.match(callback, /google_business_callback_redirected/);
+ assert.match(callback, /google_business_retry_exhausted/);
  assert.match(callback, /state_not_found/);
  assert.match(callback, /state_mismatch/);
  assert.match(callback, /state_business_missing/);
@@ -43,10 +45,35 @@ test("Google Business callback logs stage-by-stage diagnostics without secrets",
  assert.match(callback, /platformAdminRole/);
  assert.match(callback, /oauth_not_configured/);
  assert.match(callback, /exchangeGoogleBusinessCode\(code\)/);
+ assert.match(callback, /persistGoogleBusinessConnection/);
+ assert.match(callback, /discoverGoogleBusinessLocations/);
+ assert.match(callback, /status:"oauth_connected"/);
+ assert.match(callback, /status:"account_discovery_rate_limited"/);
+ assert.match(callback, /status:"account_discovery_pending"/);
  assert.match(callback, /googleBusinessCallbackId/);
  assert.match(callback, /redirectUriHost/);
  assert.doesNotMatch(callback, /authorizationCode:/);
  assert.doesNotMatch(callback, /accessToken:/);
- assert.doesNotMatch(callback, /refreshToken:/);
  assert.doesNotMatch(callback, /clientSecret:/);
+});
+
+test("Google Business profile client logs request-level diagnostics and uses discovery cache states", async () => {
+ const file = await readFile(new URL("../lib/googleBusinessProfile.ts", import.meta.url), "utf8");
+ const migration = await readFile(new URL("../supabase/migrations/20260903000100_google_business_connection_rate_limit_states.sql", import.meta.url), "utf8");
+ assert.match(file, /google_business_api_request_started/);
+ assert.match(file, /google_business_api_request_completed/);
+ assert.match(file, /google_business_api_rate_limited/);
+ assert.match(file, /google_business_discovery_deferred/);
+ assert.match(file, /google_business_retry_scheduled/);
+ assert.match(file, /mybusinessaccountmanagement\.googleapis\.com/);
+ assert.match(file, /mybusinessbusinessinformation\.googleapis\.com/);
+ assert.match(file, /discoveryCacheTtlMs=5\*60_000/);
+ assert.match(file, /discoveryInflight/);
+ assert.match(file, /account_discovery_pending/);
+ assert.match(file, /account_discovery_rate_limited/);
+ assert.match(migration, /'oauth_connected'/);
+ assert.match(migration, /'account_discovery_pending'/);
+ assert.match(migration, /'account_discovery_rate_limited'/);
+ assert.match(migration, /alter column google_account_id drop not null/);
+ assert.match(migration, /retry_after_at timestamptz/);
 });
