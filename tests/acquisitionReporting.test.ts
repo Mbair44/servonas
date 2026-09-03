@@ -12,6 +12,9 @@ const sessions = [
     first_landing_url: "https://servonas.com/hvac-website?gclid=111",
     first_referrer: "",
     first_seen_at: "2026-08-20T10:00:00.000Z",
+    active_duration_ms: 800,
+    timing_available: true,
+    final_flush_received: true,
     gclid: "111",
     gbraid: null,
     wbraid: null,
@@ -28,6 +31,9 @@ const sessions = [
     first_landing_url: "https://servonas.com/hvac-website?gbraid=222",
     first_referrer: "",
     first_seen_at: "2026-08-20T11:00:00.000Z",
+    active_duration_ms: 8_200,
+    timing_available: true,
+    final_flush_received: true,
     gclid: null,
     gbraid: "222",
     wbraid: null,
@@ -44,6 +50,9 @@ const sessions = [
     first_landing_url: "https://servonas.com/pest-control-website?utm_source=facebook&utm_campaign=meta",
     first_referrer: "https://facebook.com/",
     first_seen_at: "2026-08-19T11:00:00.000Z",
+    active_duration_ms: null,
+    timing_available: false,
+    final_flush_received: false,
     gclid: null,
     gbraid: null,
     wbraid: "333",
@@ -83,11 +92,13 @@ test("rolls multiple click IDs into one landing page and deduplicates stages per
   assert.equal(report.landingPages[0].builderStarts, 2);
   assert.equal(report.landingPages[0].previews, 1);
   assert.equal(report.landingPages[0].businesses, 1);
-  assert.equal(report.landingPages[0].sessionToBuilderRate, 100);
-  assert.equal(report.landingPages[0].builderToPreviewRate, 50);
-  assert.equal(report.landingPages[0].previewToBusinessRate, 100);
-  assert.equal(report.landingPages[0].sessionToBusinessRate, 50);
-  assert.equal(report.landingPages[0].builderDropOff, 1);
+  assert.equal(report.landingPages[0].avgActiveTimeMs, 4500);
+  assert.equal(report.landingPages[0].medianActiveTimeMs, 4500);
+  assert.equal(report.overall.sessionToBuilderRate, 100);
+  assert.equal(report.overall.builderToPreviewRate, 50);
+  assert.equal(report.overall.previewToBusinessRate, 100);
+  assert.equal(report.overall.sessionToBusinessRate, 50);
+  assert.equal(report.landingPages[0].dropOff?.count, 1);
 });
 
 test("preserves gclid gbraid wbraid and utm values in attribution drill-down", () => {
@@ -99,9 +110,9 @@ test("preserves gclid gbraid wbraid and utm values in attribution drill-down", (
 
 test("handles zero denominators safely", () => {
   const report = buildAcquisitionReport([{ ...sessions[0], id: "session-4", first_landing_path: "/landscaping-website", first_landing_url: "https://servonas.com/landscaping-website", gclid: null, gbraid: null, wbraid: null, utm_source: null, utm_medium: null, utm_campaign: null, utm_term: null, utm_content: null }], []);
-  assert.equal(report.landingPages[0].builderToPreviewRate, 0);
-  assert.equal(report.landingPages[0].previewToBusinessRate, 0);
-  assert.equal(report.landingPages[0].sessionToBusinessRate, 0);
+  assert.equal(report.overall.builderToPreviewRate, 0);
+  assert.equal(report.overall.previewToBusinessRate, 0);
+  assert.equal(report.overall.sessionToBusinessRate, 0);
 });
 
 test("includes Servonas home-page signup stages alongside website-builder stages", () => {
@@ -115,6 +126,24 @@ test("includes Servonas home-page signup stages alongside website-builder stages
  assert.equal(report.landingPages[0].signups, 1);
  assert.equal(report.overall.signupStarts, 1);
  assert.equal(report.overall.signups, 1);
+});
+
+test("keeps timing unavailable separate from true quick exits", () => {
+ const report = buildAcquisitionReport(sessions, [
+  { acquisition_session_id: "session-1", event_name: "pricing_viewed" },
+  { acquisition_session_id: "session-1", event_name: "demo_clicked" },
+  { acquisition_session_id: "session-2", event_name: "builder_started" },
+ ]);
+ assert.equal(report.timeOnSite.reliableTimingSessions, 2);
+ assert.equal(report.timeOnSite.reliableTimingPercentage, 66.7);
+ assert.equal(report.timeOnSite.medianActiveTimeMs, 4500);
+ assert.equal(report.timeOnSite.averageActiveTimeMs, 4500);
+ assert.equal(report.timeOnSite.maxActiveTimeMs, 8200);
+ assert.equal(report.timeOnSite.buckets.find((bucket) => bucket.key === "under_1_second")?.count, 1);
+ assert.equal(report.timeOnSite.buckets.find((bucket) => bucket.key === "five_to_nine_seconds")?.count, 1);
+ assert.equal(report.timeOnSite.buckets.find((bucket) => bucket.key === "timing_unavailable")?.count, 1);
+ assert.equal(report.landingPages.find((page) => page.path === "/hvac-website")?.pricingViews, 1);
+ assert.equal(report.landingPages.find((page) => page.path === "/hvac-website")?.demoActions, 1);
 });
 
 test("acquisition schema accepts the root-site signup-start event", async () => {

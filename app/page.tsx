@@ -50,7 +50,7 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
      <span className="sv-kicker">Service business management software</span>
      <h1>Run your entire service business from <span>first call to final payment.</span></h1>
      <p>Servonas brings customers, estimates, jobs, scheduling, field teams, online booking, websites, communication, invoices, and payments together in one connected platform.</p>
-     <div className="sv-actions"><Link className="sv-button home-primary-cta" data-acquisition-signup href="/signup?source=servonas.com">Start Free <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" href="/demo">See Servonas in action</Link></div>
+     <div className="sv-actions"><Link className="sv-button home-primary-cta" data-acquisition-signup data-acquisition-primary-cta data-acquisition-location="home_hero_primary" href="/signup?source=servonas.com">Start Free <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" data-acquisition-demo data-acquisition-secondary-cta data-acquisition-location="home_hero_demo" href="/demo">See Servonas in action</Link></div>
      <div className="home-proof"><span>✓ Built for service businesses</span><span>✓ Office and field tools</span><span>✓ Booking through payment</span></div>
     </div>
 
@@ -105,7 +105,7 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
 
   <section className="home-final-cta"><div className="sv-container">
    <div><span className="sv-kicker">Ready to run a clearer operation?</span><h2>Build your service business on Servonas.</h2><p>Create your workspace, add your team, and start organizing customers and field work in one place.</p></div>
-   <div className="sv-actions"><Link className="sv-button sv-light" data-acquisition-signup href="/signup?source=servonas.com">Start Free</Link><Link className="home-contact-link" href="/contact">Talk to us →</Link></div>
+   <div className="sv-actions"><Link className="sv-button sv-light" data-acquisition-signup data-acquisition-primary-cta data-acquisition-location="home_final_primary" href="/signup?source=servonas.com">Start Free</Link><Link className="home-contact-link" data-acquisition-secondary-cta data-acquisition-location="home_final_contact" href="/contact">Talk to us →</Link></div>
   </div></section>
  </main>;
 }
