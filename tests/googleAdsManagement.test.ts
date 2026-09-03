@@ -798,6 +798,8 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.match(service, /CONSIDER_EXCLUDING/);
  assert.match(service, /clearly relevant service-intent term with zero conversions/);
  assert.match(service, /fetchGoogleAdsAdGroupNegativeKeywords/);
+ assert.match(service, /export async function fetchGoogleAdsAdGroupTotals/);
+ assert.match(service, /FROM ad_group WHERE campaign\.id IN \(\$\{ids\}\) AND \$\{dateFilter\}/);
  assert.match(actions, /reviewGoogleAdsSearchTermsAction/);
  assert.match(actions, /google_ads_search_term_review_cache_hit/);
  assert.match(actions, /google_ads_search_term_review_cache_miss/);
@@ -811,7 +813,13 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.doesNotMatch(page.slice(page.indexOf("GoogleAdsSearchTermsWorkspace")), /search_term_view/);
  assert.match(workspace, /const \[sort, setSort\].*= useState<keyof Term>\("impressions"\)/);
  assert.match(workspace, /totals\.clicks \/ totals\.impressions/);
- assert.match(workspace, /Filtered total/);
+ assert.match(workspace, /Total: Search terms/);
+ assert.match(workspace, /Total: Other search terms/);
+ assert.match(workspace, /Total: Ad group/);
+ assert.match(workspace, /Google does not show every individual search query\./);
+ assert.match(workspace, /visible search-term rows may not add up to the full ad-group totals/);
+ assert.match(workspace, /const totals = summarize\(terms\)/);
+ assert.match(workspace, /const adGroupTotalsSummary = summarize\(adGroupTotals\)/);
  assert.match(workspace, /Why Servonas suggests this/);
  assert.match(workspace, /const searchTermsPageSize = 25/);
  assert.match(workspace, /const pagedTerms = visible\.slice/);
@@ -834,6 +842,7 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.match(workspace, /role="dialog"/);
  assert.match(workspace, /Search terms are what customers typed, not the keywords you configured/);
  assert.doesNotMatch(workspace, /criterionId|resourceName|adGroupId/);
+ assert.match(page, /adGroupTotals=\{adGroupTotalsByCampaignId\.get/);
 });
 
 test("google ads page derives pause resume controls from synced google campaign status and treats missing status as sync unavailable", async () => {

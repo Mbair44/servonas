@@ -268,6 +268,17 @@ export type GoogleAdsSearchTerm = {
  conversions: number;
  costMicros: number;
 };
+export type GoogleAdsAdGroupTotal = {
+ campaignId: string;
+ campaignName: string | null;
+ adGroupId: string;
+ adGroupName: string | null;
+ impressions: number;
+ clicks: number;
+ ctr: number;
+ conversions: number;
+ costMicros: number;
+};
 export type GoogleAdsSearchTermReviewSnapshot = {
  generatedAt: string;
  dateFrom: string;
@@ -3681,6 +3692,35 @@ export async function fetchGoogleAdsSearchTerms(input: { accessToken: string; cu
    costMicros: safeNumber(metrics?.costMicros),
   } satisfies GoogleAdsSearchTerm;
 }).filter((row) => row.campaignId && row.term);
+}
+
+export async function fetchGoogleAdsAdGroupTotals(input: { accessToken: string; customerId: string; campaignIds: string[]; dateFrom: string; dateTo: string; loginCustomerId?: string | null; businessId?: string | null }) {
+ if (!input.campaignIds.length) return [] as GoogleAdsAdGroupTotal[];
+ const ids = input.campaignIds.map((value) => stripCustomerId(value)).filter(Boolean).join(",");
+ const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
+ const results = await googleAdsSearchStream(
+  input.customerId,
+  input.accessToken,
+  `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM ad_group WHERE campaign.id IN (${ids}) AND ${dateFilter}`,
+  input.loginCustomerId,
+  { stage: "google_ads_ad_group_totals_query", requestType: "ad_group_totals", businessId: input.businessId ?? null },
+ );
+ return results.map((row) => {
+  const campaign = row.campaign as Record<string, unknown> | undefined;
+  const adGroup = row.adGroup as Record<string, unknown> | undefined;
+  const metrics = row.metrics as Record<string, unknown> | undefined;
+  return {
+   campaignId: String(campaign?.id ?? ""),
+   campaignName: typeof campaign?.name === "string" ? campaign.name : null,
+   adGroupId: String(adGroup?.id ?? ""),
+   adGroupName: typeof adGroup?.name === "string" ? adGroup.name : null,
+   impressions: safeNumber(metrics?.impressions),
+   clicks: safeNumber(metrics?.clicks),
+   ctr: safeNumber(metrics?.ctr),
+   conversions: safeNumber(metrics?.conversions),
+   costMicros: safeNumber(metrics?.costMicros),
+  } satisfies GoogleAdsAdGroupTotal;
+ }).filter((row) => row.campaignId && row.adGroupId);
 }
 
 export async function fetchGoogleAdsAdGroupNegativeKeywords(input: { accessToken: string; customerId: string; campaignId: string; loginCustomerId?: string | null; businessId?: string | null }) {
