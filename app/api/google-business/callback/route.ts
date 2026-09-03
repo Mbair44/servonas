@@ -5,6 +5,8 @@ import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {exchangeGoogleBusinessCode,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,listGoogleBusinessLocations} from "@/lib/googleBusinessProfile";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
+import {canManageBusiness,managementAuthorizationSource} from "@/lib/access";
+import {platformAdminRole} from "@/lib/platformAccess";
 
 const appUrl=()=>process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com";
 const destination=(slug:string,kind:"success"|"error",message:string)=>new URL(`/app/${encodeURIComponent(slug)}/settings/website?${kind}=${encodeURIComponent(message)}`,appUrl());
@@ -34,10 +36,17 @@ export async function GET(request:Request){
  log("google_business_state_validation_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,stateFound:true,stateExpired:null,stateConsumed:null,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:null,createdAt:null,expiresAt:null,validationPassed:true});
  log("google_business_callback_workspace_resolution_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug});
  const supabase=await createSupabaseServerClient(),{data:{user}}=await supabase.auth.getUser(),platformAdminAccess=isServonasPlatformAdmin(user);
+ const workspaceDb=platformAdminAccess?getSupabaseAdmin():supabase,{data:stateBusiness}=workspaceDb?await workspaceDb.from("businesses").select("id,owner_user_id").eq("id",saved.businessId).eq("slug",saved.businessSlug).eq("is_deleted",false).maybeSingle():{data:null};
+ if(!stateBusiness){
+  const redirectDestination=destination(saved.businessSlug,"error","Google authorization is not permitted for this workspace.");
+  log("google_business_callback_workspace_resolution_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,userId:user?.id??null,businessId:saved.businessId,businessSlug:saved.businessSlug,authorized:false,platformAdminAccess,authorizationSource:"none"});
+  log("google_business_callback_failed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,stage:"workspace_resolution",errorCode:"workspace_business_mismatch",safeMessage:"Google authorization is not permitted for this workspace.",redirectDestination:redirectDestination.pathname,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user?.id??null});
+  return redirect({stage:"workspace_resolution",success:false,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user?.id??null,errorCode:"workspace_business_mismatch"});
+ }
  const {data:membership}=user?await supabase.from("business_members").select("role").eq("business_id",saved.businessId).eq("user_id",user.id).maybeSingle():{data:null};
- const authorized=Boolean(user&&membership&&["owner","admin"].includes(membership.role));
- log("google_business_callback_workspace_resolution_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,userId:user?.id??null,businessId:saved.businessId,businessSlug:saved.businessSlug,authorized,platformAdminAccess});
- if(!user||!membership||!["owner","admin"].includes(membership.role)){
+ const role=platformAdminAccess?platformAdminRole:stateBusiness.owner_user_id===user?.id?"owner":membership?.role??null,authorized=Boolean(user&&canManageBusiness(role)),authorizationSource=user?managementAuthorizationSource(role,platformAdminAccess):"none";
+ log("google_business_callback_workspace_resolution_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,userId:user?.id??null,businessId:saved.businessId,businessSlug:saved.businessSlug,authorized,platformAdminAccess,authorizationSource});
+ if(!user||!authorized){
   const errorCode=!user?"missing_servonas_session":!membership?"workspace_membership_missing":"workspace_role_not_permitted",redirectDestination=destination(saved.businessSlug,"error","Google authorization is not permitted for this workspace.");
   log("google_business_callback_failed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,stage:"workspace_resolution",errorCode,safeMessage:"Google authorization is not permitted for this workspace.",redirectDestination:redirectDestination.pathname,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user?.id??null});
   return redirect({stage:"workspace_resolution",success:false,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user?.id??null,errorCode});
