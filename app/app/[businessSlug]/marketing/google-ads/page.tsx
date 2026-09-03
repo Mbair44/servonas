@@ -9,6 +9,7 @@ import {
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
   fetchGoogleAdsSearchTerms,
+  checkGoogleAdsBusinessIssues,
   logGoogleAdsKeywordReviewStage,
   googleAdsReadyLabel,
   loadTenantGoogleAdsAccess,
@@ -22,6 +23,7 @@ import {
  applyGoogleAdsKeywordBidRecommendationAction,
  applyGoogleAdsExactMatchRecommendationAction,
  createGoogleAdsDraftAction,
+ checkGoogleAdsStatusAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
@@ -421,18 +423,20 @@ export default async function GoogleAdsPage({
  const to = validDate(query.to) ? query.to! : today;
  const from = validDate(query.from) ? query.from! : monthStart(to);
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
+ await checkGoogleAdsBusinessIssues({ businessId: business.id, businessSlug, freshnessMinutes: 20 }).catch(() => null);
 
- const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }] = await Promise.all([
+ const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_services_read", endpointPath: "services", requestType: "google_ads_page_services_read" }, supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name")),
   // Inventory enriches offer choices only; it is intentionally independent of Google Ads rendering.
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_inventory_read", endpointPath: "inventory_items", requestType: "google_ads_page_inventory_read" }, supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("created_at", { ascending: false }).order("name")),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_territories_read", endpointPath: "workforce_territories", requestType: "google_ads_page_territories_read" }, supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name")),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_website_read", endpointPath: "business_website_settings", requestType: "google_ads_page_website_read" }, supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle()),
-  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_connection_read", endpointPath: "business_google_ads_connections", requestType: "google_ads_connection_page_read" }, supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id").eq("business_id", business.id).maybeSingle()),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_connection_read", endpointPath: "business_google_ads_connections", requestType: "google_ads_connection_page_read" }, supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id,last_issue_check_at,last_issue_check_failed_at,last_issue_check_error").eq("business_id", business.id).maybeSingle()),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_campaigns_read", endpointPath: "business_google_ads_campaigns", requestType: "google_ads_page_campaigns_read" }, supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false })),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_audit_read", endpointPath: "business_google_ads_audit_log", requestType: "google_ads_page_audit_read" }, supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(100)),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_beta_events_read", endpointPath: "business_google_ads_beta_events", requestType: "google_ads_page_beta_events_read" }, supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40)),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_feedback_read", endpointPath: "business_google_ads_beta_feedback", requestType: "google_ads_page_feedback_read" }, supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5)),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_marketing_issues_read", endpointPath: "business_marketing_issues", requestType: "google_ads_marketing_issues_read" }, supabase.from("business_marketing_issues").select("*").eq("business_id", business.id).eq("provider", "google_ads").eq("status", "active").order("updated_at", { ascending: false })),
  ]);
  const { data: connection, error: connectionQueryError } = connectionQuery;
  if (connectionQueryError) {
@@ -600,8 +604,13 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   totals.conversions += metric.conversions;
   return totals;
  }, { spendMicros: 0, impressions: 0, clicks: 0, conversions: 0 });
- const ctr = metricsTotals.impressions ? (metricsTotals.clicks / metricsTotals.impressions) * 100 : 0;
- const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metricsTotals.conversions : 0;
+const ctr = metricsTotals.impressions ? (metricsTotals.clicks / metricsTotals.impressions) * 100 : 0;
+const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metricsTotals.conversions : 0;
+ const activeMarketingIssues = (marketingIssues ?? []) as Array<{ id: string; title: string; message: string; severity: "info" | "warning" | "critical"; recommended_action: string | null; metadata: Record<string, unknown>; updated_at: string }>;
+ const criticalIssueCount = activeMarketingIssues.filter((issue) => issue.severity === "critical").length;
+ const warningIssueCount = activeMarketingIssues.filter((issue) => issue.severity === "warning").length;
+ const accountHealthLabel = criticalIssueCount ? "Needs immediate attention" : warningIssueCount ? "Needs attention" : connection?.status === "reauthorization_required" ? "Reconnect required" : setupConnected ? "Connected" : "Not connected";
+ const issueCheckTime = formatTimestamp(connection?.last_issue_check_at ?? connection?.last_issue_check_failed_at ?? null, business.timezone);
  const latestAction = query.error
   ? { tone: "error", title: "Latest action needs attention", message: query.error }
   : query.success
@@ -682,8 +691,16 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      <h1>Google Ads Beta</h1>
      {liveCampaign && <span className="campaign-status sent">{liveCampaign.statusLabel}</span>}
     </div>
-    <p>Get more customers with Google Ads. Servonas helps build a simple Google Search campaign, choose keywords, write your ads, and track results while Google bills ad spend directly to your own account.</p>
-    {business.name && <small>{business.name}</small>}
+   <p>Get more customers with Google Ads. Servonas helps build a simple Google Search campaign, choose keywords, write your ads, and track results while Google bills ad spend directly to your own account.</p>
+   {business.name && <small>{business.name}</small>}
+   <div className="google-ads-account-health">
+    <strong>Google Ads status</strong>
+    <span>{setupConnected ? "Connected" : "Not connected"} · {hasCampaigns ? "Campaign active" : "No live campaign"} · {accountHealthLabel}</span>
+    <small>Last checked {issueCheckTime.relative}{issueCheckTime.absolute ? ` · ${issueCheckTime.absolute}` : ""}</small>
+   </div>
+   <form action={checkGoogleAdsStatusAction.bind(null, businessSlug)} className="google-ads-status-refresh">
+    <button className="sv-button sv-secondary">Check Google Ads status</button>
+   </form>
    </div>
    </header>
    </div>
@@ -769,6 +786,17 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   </section>
   {latestAction && <section className={`workspace-notice ${latestAction.tone} google-ads-latest-action`}><strong>{latestAction.title}</strong><span>{latestAction.message}</span></section>}
   {googleAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Google Ads is not fully configured. Add `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, and `GOOGLE_ADS_DEVELOPER_TOKEN` before connecting tenants.</div>}
+  {activeMarketingIssues.length ? <section className="google-ads-account-issues" aria-label="Google Ads account issues">
+   {activeMarketingIssues.slice(0, 3).map((issue) => <article key={issue.id} className={`workspace-notice ${issue.severity === "critical" ? "error" : issue.severity === "warning" ? "warning" : "info"}`}>
+    <strong>{issue.title}</strong>
+    <span>{issue.message}</span>
+    <small>{issue.recommended_action ?? "Review Google Ads and Servonas for details."}</small>
+    <div className="google-ads-account-issue-actions">
+     <a className="sv-button sv-secondary" href={connection?.google_ads_customer_id ? billingUrl(connection.google_ads_customer_id) : "https://ads.google.com/home/"} target="_blank" rel="noopener noreferrer">Fix in Google Ads</a>
+     <Link className="sv-button sv-secondary" href={`/app/${businessSlug}/notifications?category=marketing`}>View details</Link>
+    </div>
+   </article>)}
+  </section> : null}
 
   {hasCampaigns && <section className="google-ads-primary-stack">
    <section className="google-ads-campaign-grid">

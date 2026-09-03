@@ -15,6 +15,7 @@ import {
  reviewGoogleAdsSearchTermsWithAi,
  addGoogleAdsCampaignLocation,
  buildGoogleAdsCampaignHealth,
+ checkGoogleAdsBusinessIssues,
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignLocationTargeting,
@@ -888,8 +889,17 @@ export async function refreshGoogleAdsCampaignsAction(slug: string, formData: Fo
  const refreshedAt = new Date().toISOString();
  const totals = metrics.reduce((sum, metric) => ({ impressions: sum.impressions + metric.impressions, clicks: sum.clicks + metric.clicks, conversions: sum.conversions + metric.conversions, costMicros: sum.costMicros + metric.costMicros }), { impressions: 0, clicks: 0, conversions: 0, costMicros: 0 });
  await writeGoogleAdsAuditLog({ businessId: business.id, actorUserId: user.id, eventType: "google_ads_metrics_refreshed", metadata: { dateFrom, dateTo, refreshedAt, campaignCount: metrics.length, totals, staleReviewCampaignCount: staleReviewCampaignIds.length } });
+ await checkGoogleAdsBusinessIssues({ businessId: business.id, businessSlug: slug, force: true, freshnessMinutes: 0 });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(metricsPath(slug, dateFrom, dateTo, `Live Google Ads metrics refreshed at ${new Date(refreshedAt).toLocaleTimeString()}.`));
+}
+
+export async function checkGoogleAdsStatusAction(slug: string) {
+ const { business } = await context(slug);
+ await checkGoogleAdsBusinessIssues({ businessId: business.id, businessSlug: slug, force: true, freshnessMinutes: 0 });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ revalidatePath(`/app/${slug}/notifications`);
+ redirect(path(slug, "success", "Google Ads account status refreshed."));
 }
 
 export async function searchGoogleAdsCampaignLocationsAction(slug: string, campaignId: string, formData: FormData) {
