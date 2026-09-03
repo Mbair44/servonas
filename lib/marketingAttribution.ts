@@ -82,6 +82,18 @@ export type MarketingSourceSummary={
 
 export type AttributionSessionMetricsRow=AttributionSessionLike&{
  id:string;
+ browser?:string|null;
+ operating_system?:string|null;
+ device_type?:string|null;
+ first_interaction_type?:string|null;
+ first_interaction_label?:string|null;
+ first_interaction_identifier?:string|null;
+ first_interaction_path?:string|null;
+ first_interaction_at?:string|null;
+ time_to_first_interaction_milliseconds?:number|null;
+ meaningful_interaction_count?:number|null;
+ automated_classification?:"human_likely"|"automated_likely"|"unknown"|null;
+ automated_classification_reason?:string|null;
  total_session_duration_seconds?:number|null;
  engaged_duration_seconds?:number|null;
  total_session_duration_milliseconds?:number|null;
@@ -93,6 +105,15 @@ export type AttributionSessionMetricsRow=AttributionSessionLike&{
 };
 
 export type SessionDurationBucket={key:"timing_unavailable"|"under_1_second"|"one_to_four_seconds"|"five_to_nine_seconds"|"ten_or_more_seconds";label:string;count:number;};
+export type SessionQualitySource="meta_ads"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
+export type SessionEngagementClassification="engaged"|"quick_exit"|"neutral";
+export type AutomatedTrafficClassification="human_likely"|"automated_likely"|"unknown";
+export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;};
+export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;source:string;count:number}>;insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number}>;primaryInsight:string|null;supportingObservation:string|null;};
+
+export const defaultSessionEngagementThresholdMs=10_000;
+const quickExitThresholdMs=5_000;
+const qualityMeaningfulTypes=new Set(["button_click","link_click","booking_cta_click","phone_click","sms_click","email_click","form_start","form_submit","booking_started","product_service_selection","checkout_started","lead_submitted","payment_completed","reserve_clicked","item_added_to_cart"]);
 
 const canonicalEventMap:Record<string,BookingFunnelEvent|"booking_start"|"item_added">={
  landing_page_view:"landing_view",
@@ -254,6 +275,202 @@ export function buildSessionDurationBuckets(sessions:AttributionSessionMetricsRo
   else buckets[4]!.count+=1;
  }
  return buckets;
+}
+
+function sourceLabelForQuality(source:SessionQualitySource){
+ return ({meta_ads:"Meta Ads",google_ads:"Google Ads",organic_search:"Organic Search",direct:"Direct",referral:"Referral",email:"Email",sms:"SMS",unknown:"Unknown"} as Record<SessionQualitySource,string>)[source];
+}
+
+function cleanValue(value:string|null|undefined){
+ return value?.trim()||"";
+}
+
+function sessionDurationMs(session:AttributionSessionMetricsRow){
+ if(session.total_session_duration_milliseconds != null) return Math.max(0, Number(session.total_session_duration_milliseconds));
+ if(session.total_session_duration_seconds != null && Number(session.total_session_duration_seconds) > 0) return Math.max(0, Number(session.total_session_duration_seconds) * 1000);
+ return null;
+}
+
+function deviceLabel(session:AttributionSessionMetricsRow){
+ const value=clean(session.device_type);
+ if(value==="mobile")return "Mobile";
+ if(value==="tablet")return "Tablet";
+ if(value==="desktop")return "Desktop";
+ return "Unknown";
+}
+
+export function classifySessionQualitySource(session:AttributionSessionLike&{utm_medium?:string|null}):SessionQualitySource{
+ const utmSource=clean(session.utm_source);
+ const utmMedium=clean(session.utm_medium);
+ const host=referrerHost(session.first_referrer);
+ if(clean(session.gclid)||clean(session.gbraid)||clean(session.wbraid))return "google_ads";
+ if(clean(session.fbclid))return "meta_ads";
+ if(utmMedium==="sms"||utmSource==="sms"||utmSource==="text")return "sms";
+ if(utmMedium==="email"||utmSource==="email")return "email";
+ if(["fb","facebook","instagram","meta"].includes(utmSource)&&(utmMedium.includes("paid")||utmMedium.includes("social")||utmMedium.includes("cpc")))return "meta_ads";
+ if(utmSource==="google"&&(utmMedium.includes("paid")||utmMedium.includes("cpc")||utmMedium.includes("ppc")))return "google_ads";
+ if(utmMedium==="organic"||(!utmSource&&/(google|bing|yahoo)\./.test(host)))return "organic_search";
+ if(utmMedium==="referral"||(!utmSource&&host))return "referral";
+ if(!utmSource&&!host)return "direct";
+ return "unknown";
+}
+
+export function automatedTrafficClassification(session:AttributionSessionMetricsRow):AutomatedTrafficClassification{
+ if(session.automated_classification==="automated_likely")return "automated_likely";
+ if(session.automated_classification==="human_likely")return "human_likely";
+ const browser=clean(session.browser);
+ return browser? "human_likely":"unknown";
+}
+
+export function sessionEngagementClassification(session:AttributionSessionMetricsRow,engagementThresholdMs=defaultSessionEngagementThresholdMs):SessionEngagementClassification{
+ const durationMs=sessionDurationMs(session) ?? 0;
+ const pageCount=Math.max(0,Number(session.page_count ?? 0));
+ const interactionCount=Math.max(0,Number(session.meaningful_interaction_count ?? 0));
+ const firstInteractionType=cleanValue(session.first_interaction_type).toLowerCase();
+ const hasMeaningfulInteraction=interactionCount>0 || qualityMeaningfulTypes.has(firstInteractionType);
+ const automated=automatedTrafficClassification(session)==="automated_likely";
+ const engaged=hasMeaningfulInteraction || pageCount>1 || durationMs>=engagementThresholdMs;
+ if(engaged)return "engaged";
+ if(!automated && durationMs>0 && durationMs<quickExitThresholdMs && pageCount<=1 && !hasMeaningfulInteraction)return "quick_exit";
+ return "neutral";
+}
+
+function medianMs(values:number[]){
+ if(!values.length)return null;
+ const sorted=[...values].sort((left,right)=>left-right),middle=Math.floor(sorted.length/2);
+ return sorted.length%2?sorted[middle]!:Math.round((sorted[middle-1]!+sorted[middle]!)/2);
+}
+
+function bucketObservation(details:SessionQualityDetail[]){
+ if(!details.length)return {insight:null,observation:null};
+ const quickExits=details.filter((detail)=>detail.engagementClassification==="quick_exit");
+ const mobileQuickExits=quickExits.filter((detail)=>detail.device==="Mobile");
+ const automated=details.filter((detail)=>detail.automatedClassification==="automated_likely");
+ const immediateCtas=details.filter((detail)=>detail.timeToFirstInteractionMs != null && detail.timeToFirstInteractionMs < 1000 && /booking_cta_click|phone_click|sms_click|email_click|button_click/i.test(detail.firstInteraction ?? ""));
+ if(automated.length/details.length>=0.4)return {insight:"A significant share of these short sessions looks automated, so raw bounce numbers may overstate the problem.",observation:`Likely automated traffic: ${automated.length}`};
+ if(immediateCtas.length && immediateCtas.length/details.length>=0.3)return {insight:"Many short sessions are actually taking action quickly, so low time on site is not always a problem here.",observation:`${immediateCtas.length} session${immediateCtas.length===1?"":"s"} clicked a CTA almost immediately.`};
+ if(mobileQuickExits.length && mobileQuickExits.length>=Math.max(2,Math.ceil(quickExits.length*0.6)))return {insight:"Most quick exits in this bucket are on mobile. Review the first mobile screen and keep the main CTA above the fold.",observation:`${mobileQuickExits.length} of ${quickExits.length} quick exits came from mobile visitors.`};
+ return {insight:null,observation:null};
+}
+
+export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[],input:{includeAutomated?:boolean;engagementThresholdMs?:number}={}):SessionQualityReport{
+ const includeAutomated=input.includeAutomated ?? true;
+ const engagementThresholdMs=input.engagementThresholdMs ?? defaultSessionEngagementThresholdMs;
+ const details=sessions.map((session):SessionQualityDetail=>{
+  const source=classifySessionQualitySource(session);
+  const automatedClassification=automatedTrafficClassification(session);
+  const campaignName=cleanValue(session.utm_campaign) || null;
+  const campaignId=cleanValue(session.utm_content) || null;
+  return {
+   id:session.id,
+   startedAt:(session as {session_started_at?:string|null}).session_started_at ?? null,
+   source,
+   campaignName,
+   campaignId,
+   sourceLabel:sourceLabelForQuality(source),
+   landingPage:cleanValue(session.first_landing_path) || "/",
+   device:deviceLabel(session),
+   browser:cleanValue(session.browser) || "Unknown",
+   sessionLengthMs:sessionDurationMs(session),
+   timeToFirstInteractionMs:session.time_to_first_interaction_milliseconds == null ? null : Math.max(0, Number(session.time_to_first_interaction_milliseconds)),
+   firstInteraction:cleanValue(session.first_interaction_type) || null,
+   firstInteractionLabel:cleanValue(session.first_interaction_label) || null,
+   pagesViewed:Math.max(0, Number(session.page_count ?? 0)),
+   engagementClassification:sessionEngagementClassification(session,engagementThresholdMs),
+   automatedClassification,
+  };
+ });
+ const visibleDetails=includeAutomated?details:details.filter((detail)=>detail.automatedClassification!=="automated_likely");
+ const buckets=buildSessionDurationBuckets(visibleDetails.map((detail)=>({id:detail.id,total_session_duration_milliseconds:detail.sessionLengthMs ?? null}))).map((bucket)=>({bucket,details:visibleDetails.filter((detail)=>bucket.key===(detail.sessionLengthMs==null?"timing_unavailable":detail.sessionLengthMs<1000?"under_1_second":detail.sessionLengthMs<5000?"one_to_four_seconds":detail.sessionLengthMs<10_000?"five_to_nine_seconds":"ten_or_more_seconds"))}));
+ const bucketReports=buckets.map(({bucket,details:bucketDetails})=>{
+  const sourceCounts=new Map<SessionQualitySource,number>();
+  const landingCounts=new Map<string,number>();
+  const deviceCounts=new Map<string,number>();
+  const campaignCounts=new Map<string,{name:string;campaignId:string|null;source:string;count:number}>();
+  for(const detail of bucketDetails){
+   sourceCounts.set(detail.source,(sourceCounts.get(detail.source) ?? 0)+1);
+   landingCounts.set(detail.landingPage,(landingCounts.get(detail.landingPage) ?? 0)+1);
+   deviceCounts.set(detail.device,(deviceCounts.get(detail.device) ?? 0)+1);
+   if(detail.campaignName || detail.campaignId){
+    const key=`${detail.campaignName ?? "Unknown"}:${detail.campaignId ?? ""}:${detail.sourceLabel}`;
+    const current=campaignCounts.get(key) ?? {name:detail.campaignName ?? "Unknown campaign",campaignId:detail.campaignId,source:detail.sourceLabel,count:0};
+    current.count+=1;
+    campaignCounts.set(key,current);
+   }
+  }
+  const suggestion=bucketObservation(bucketDetails);
+  return {
+   ...bucket,
+   percentage:visibleDetails.length?bucket.count/visibleDetails.length:0,
+   automatedCount:bucketDetails.filter((detail)=>detail.automatedClassification==="automated_likely").length,
+   details:bucketDetails.sort((left,right)=>(right.startedAt ?? "").localeCompare(left.startedAt ?? "")),
+   sourceBreakdown:[...sourceCounts.entries()].map(([key,count])=>({key,label:sourceLabelForQuality(key),count,percentage:bucketDetails.length?count/bucketDetails.length:0})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label)),
+   landingPages:[...landingCounts.entries()].map(([path,count])=>({path,count})).sort((left,right)=>right.count-left.count || left.path.localeCompare(right.path)).slice(0,6),
+   deviceBreakdown:[...deviceCounts.entries()].map(([label,count])=>({label,count,percentage:bucketDetails.length?count/bucketDetails.length:0})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label)),
+   campaignBreakdown:[...campaignCounts.values()].sort((left,right)=>right.count-left.count || left.name.localeCompare(right.name)).slice(0,6),
+   insight:suggestion.insight,
+   observation:suggestion.observation,
+  };
+ });
+ const activeDurations=visibleDetails.flatMap((detail)=>detail.sessionLengthMs == null ? [] : [detail.sessionLengthMs]);
+ const firstInteractionTimes=visibleDetails.flatMap((detail)=>detail.timeToFirstInteractionMs == null ? [] : [detail.timeToFirstInteractionMs]);
+ const landingPagePerformance=[...visibleDetails.reduce((map,detail)=>{
+  const current=map.get(detail.landingPage) ?? {path:detail.landingPage,sessions:0,engaged:0,quickExits:0,totalDurationMs:0,durationCount:0,ctaCount:0};
+  current.sessions+=1;
+  if(detail.engagementClassification==="engaged")current.engaged+=1;
+  if(detail.engagementClassification==="quick_exit")current.quickExits+=1;
+  if(detail.sessionLengthMs != null){current.totalDurationMs+=detail.sessionLengthMs;current.durationCount+=1;}
+  if(/booking_cta_click|phone_click|sms_click|email_click|button_click/i.test(detail.firstInteraction ?? ""))current.ctaCount+=1;
+  map.set(detail.landingPage,current);
+  return map;
+ },new Map<string,{path:string;sessions:number;engaged:number;quickExits:number;totalDurationMs:number;durationCount:number;ctaCount:number}>()).values()].map((row)=>({path:row.path,sessions:row.sessions,engaged:row.engaged,quickExits:row.quickExits,avgActiveTimeMs:row.durationCount?Math.round(row.totalDurationMs/row.durationCount):null,ctaInteractionRate:row.sessions?row.ctaCount/row.sessions:0})).sort((left,right)=>right.sessions-left.sessions || left.path.localeCompare(right.path)).slice(0,8);
+ const quickExitSessions=visibleDetails.filter((detail)=>detail.engagementClassification==="quick_exit");
+ const automatedSessions=details.filter((detail)=>detail.automatedClassification==="automated_likely");
+ let primaryInsight:string|null=null;
+ let supportingObservation:string|null=null;
+ if(visibleDetails.length && quickExitSessions.length/visibleDetails.length>=0.7 && visibleDetails.filter((detail)=>detail.sessionLengthMs != null && detail.sessionLengthMs < 1000 && detail.engagementClassification==="quick_exit").length/visibleDetails.length>=0.5){
+  primaryInsight="A large share of visitors are leaving almost immediately. Review the first mobile screen, page speed, and whether the landing page matches the ad they clicked.";
+ }else{
+  const leadingCampaign=new Map<string,number>();
+  for(const detail of quickExitSessions){
+   if(!detail.campaignName)continue;
+   const key=`${detail.campaignName}:${detail.sourceLabel}`;
+   leadingCampaign.set(key,(leadingCampaign.get(key) ?? 0)+1);
+  }
+  const topCampaign=[...leadingCampaign.entries()].sort((left,right)=>right[1]-left[1])[0];
+  if(topCampaign && topCampaign[1]>=Math.max(3,Math.ceil(quickExitSessions.length*0.5))){
+   const [campaignName,sourceLabel]=topCampaign[0].split(":");
+   primaryInsight=`Most quick exits are coming from your ${campaignName} ${sourceLabel} traffic. Consider sending those visitors to a more specific landing page instead of your general homepage.`;
+  }else if(quickExitSessions.length && quickExitSessions.filter((detail)=>detail.device==="Mobile").length>=Math.max(3,Math.ceil(quickExitSessions.length*0.6))){
+   primaryInsight="Most short sessions are on mobile. Review the first mobile screen and make sure your main CTA is visible without scrolling.";
+  }
+ }
+ if(!primaryInsight && visibleDetails.filter((detail)=>detail.sessionLengthMs != null && detail.sessionLengthMs < 1000 && detail.engagementClassification==="engaged").length>=Math.max(2,Math.ceil(visibleDetails.length*0.2))){
+  primaryInsight="Many short sessions are actually taking action quickly. Your time-on-site metric looks low, but these visitors are engaging.";
+ }
+ if(!primaryInsight && automatedSessions.length>=Math.max(3,Math.ceil(details.length*0.25))){
+  primaryInsight="A significant portion of very short sessions appears to be automated traffic, so raw bounce numbers may overstate the problem.";
+ }
+ if(primaryInsight){
+  const worstLanding=landingPagePerformance[0] && landingPagePerformance.slice().sort((left,right)=>right.quickExits-left.quickExits || right.sessions-left.sessions)[0];
+  if(worstLanding)supportingObservation=`${worstLanding.path} had ${worstLanding.quickExits} quick exit${worstLanding.quickExits===1?"":"s"} from ${worstLanding.sessions} session${worstLanding.sessions===1?"":"s"}.`;
+ }else if(landingPagePerformance[0]){
+  supportingObservation=`${landingPagePerformance[0].path} generated the most visits in this report window.`;
+ }
+ return {
+  includeAutomated,
+  totalSessions:sessions.length,
+  visibleSessions:visibleDetails.length,
+  engagedSessions:visibleDetails.filter((detail)=>detail.engagementClassification==="engaged").length,
+  quickExits:quickExitSessions.length,
+  likelyAutomatedSessions:automatedSessions.length,
+  medianActiveSessionDurationMs:medianMs(activeDurations),
+  medianTimeToFirstInteractionMs:medianMs(firstInteractionTimes),
+  buckets:bucketReports,
+  landingPagePerformance,
+  primaryInsight,
+  supportingObservation,
+ };
 }
 
 function distinctCount(sets:Array<Set<string>|undefined>){
