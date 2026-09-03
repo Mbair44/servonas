@@ -10,6 +10,7 @@ type GoogleBusinessRequestContext={googleBusinessOperationId:string;stage:string
 type GoogleBusinessDiscoveryContext={googleBusinessOperationId:string;businessId:string;actorUserId:string;stage:string;force?:boolean;businessName:string};
 type GoogleBusinessDiscoveryCacheEntry={expiresAt:number;result:GoogleBusinessDiscoveryResult};
 type GoogleBusinessDiscoveryPersistInput={businessId:string;connectedBy:string;refreshToken:string;status:GoogleBusinessConnectionStatus;googleAccountId?:string|null;googleLocationId?:string|null;locationTitle?:string|null;lastDiscoveryAttemptAt?:string|null;lastDiscoverySuccessAt?:string|null;retryAfterAt?:string|null;lastDiscoveryErrorCode?:string|null;lastDiscoveryErrorMessage?:string|null;};
+export type GoogleBusinessPersistenceMetadata={persistenceType:"supabase";tableName:"business_google_profile_connections";endpointPath:"/rest/v1/business_google_profile_connections";method:"POST";operation:"upsert";conflictKey:"business_id";httpStatus:number|null;databaseErrorCode:string|null;safeErrorMessage:string;};
 
 export class GoogleBusinessTokenExchangeError extends Error {
  constructor(message:string,readonly httpStatus:number,readonly googleErrorCode:string|null){super(message);this.name="GoogleBusinessTokenExchangeError";}
@@ -17,6 +18,10 @@ export class GoogleBusinessTokenExchangeError extends Error {
 
 export class GoogleBusinessApiError extends Error {
  constructor(message:string,readonly httpStatus:number,readonly service:string,readonly endpoint:string,readonly retryAfter:string|null,readonly googleStatus:string|null){super(message);this.name="GoogleBusinessApiError";}
+}
+
+export class GoogleBusinessPersistenceError extends Error {
+ constructor(message:string,readonly metadata:GoogleBusinessPersistenceMetadata){super(message);this.name="GoogleBusinessPersistenceError";}
 }
 
 export type GoogleProfileReview={reviewId:string;author:string;authorUri:string|null;rating:number;text:string;publishedAt:string|null;reply:string|null;replyUpdatedAt:string|null};
@@ -34,6 +39,35 @@ function log(event:string,details:Record<string,unknown>={}){console.info(event,
 function clean(value:string|null|undefined,max=200){const next=value?.trim();return next?next.slice(0,max):"";}
 function parseRetryAfter(header:string|null){const value=clean(header,120);if(!value)return null;const seconds=Number(value);if(Number.isFinite(seconds)&&seconds>=0)return new Date(Date.now()+seconds*1000).toISOString();const date=Date.parse(value);return Number.isNaN(date)?null:new Date(date).toISOString();}
 function discoveryKey(input:{businessId:string;actorUserId:string}){return `${input.businessId}:${input.actorUserId}`;}
+const persistenceResourceName="business_google_profile_connections" as const;
+const persistenceEndpointPath="/rest/v1/business_google_profile_connections" as const;
+const persistenceMethod="POST" as const;
+const persistenceOperation="upsert" as const;
+const persistenceConflictKey="business_id" as const;
+const persistenceType="supabase" as const;
+const databaseErrorCode=(error:unknown)=>{
+ const value=error as {code?:unknown;message?:unknown;details?:unknown;hint?:unknown;name?:unknown;status?:unknown}|null;
+ if(typeof value?.code==="string"&&value.code.trim())return value.code;
+ const message=[value?.message,value?.details,value?.hint,value?.name].filter((part):part is string=>typeof part==="string"&&part.length>0).join(" ");
+ return message.match(/\b(42P01|23502|23503|23505|42703|PGRST\d+)\b/i)?.[1]??null;
+};
+const safePersistenceMessage=(error:unknown)=>{
+ const code=databaseErrorCode(error);
+ if(code==="42P01"||code==="PGRST205")return "Google Business credential storage is not installed in this database yet.";
+ if(code==="42703"||code==="PGRST204")return "Google Business credential storage is missing a required schema update.";
+ if(code==="23502")return "Google Business credential storage is missing the nullable account-discovery schema update.";
+ return error instanceof Error&&error.message?error.message:"Google Business credential persistence failed.";
+};
+const persistenceStatus=(error:unknown)=>{
+ const value=error as {status?:unknown;code?:unknown}|null;
+ if(typeof value?.status==="number")return value.status;
+ if(typeof value?.status==="string"&&/^\d{3}$/.test(value.status))return Number(value.status);
+ if(typeof value?.code==="string"){
+  const match=value.code.match(/\b(\d{3})\b/);
+  if(match)return Number(match[1]);
+ }
+ return null;
+};
 
 async function tokenRequest(params:URLSearchParams){
  const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:params,cache:"no-store"});
@@ -64,7 +98,7 @@ export async function persistGoogleBusinessConnection(input:GoogleBusinessDiscov
  const db=getSupabaseAdmin();if(!db)throw new Error("Google connection storage is unavailable.");
  const now=new Date().toISOString();
  const {error}=await db.from("business_google_profile_connections").upsert({business_id:input.businessId,connected_by:input.connectedBy,refresh_token:input.refreshToken,google_account_id:input.googleAccountId??null,google_location_id:input.googleLocationId??null,location_title:input.locationTitle??null,status:input.status,connected_at:now,updated_at:now,last_discovery_attempt_at:input.lastDiscoveryAttemptAt??null,last_discovery_success_at:input.lastDiscoverySuccessAt??null,retry_after_at:input.retryAfterAt??null,last_discovery_error_code:input.lastDiscoveryErrorCode??null,last_discovery_error_message:input.lastDiscoveryErrorMessage??null},{onConflict:"business_id"});
- if(error)throw error;
+ if(error)throw new GoogleBusinessPersistenceError(safePersistenceMessage(error),{persistenceType,tableName:persistenceResourceName,endpointPath:persistenceEndpointPath,method:persistenceMethod,operation:persistenceOperation,conflictKey:persistenceConflictKey,httpStatus:persistenceStatus(error),databaseErrorCode:databaseErrorCode(error),safeErrorMessage:safePersistenceMessage(error)});
 }
 
 async function listGoogleBusinessLocationsUncached(accessToken:string,context:GoogleBusinessDiscoveryContext){
