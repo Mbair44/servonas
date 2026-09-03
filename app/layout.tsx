@@ -10,6 +10,7 @@ import {AssistantPopover} from "@/components/AssistantPopover";
 import {MarketingAnalytics} from "@/components/MarketingAnalytics";
 import {ConsentAwareGoogleTag} from "@/components/ConsentAwareGoogleTag";
 import {HeaderSignupLink} from "@/components/HeaderSignupLink";
+import {NotificationBell} from "@/components/NotificationBell";
 
 export const metadata = {
   title: "Servonas | The Operating System for Service Businesses",
@@ -54,7 +55,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <ConsentAwareGoogleTag/>
     {!barePublicShell&&<header className={`sv-header${user?" sv-header-authenticated":""}`}><div className="sv-container sv-nav">
       {user
-        ? <div className="authenticated-ribbon-actions"><AssistantPopover/><AuthenticatedAccountMenu name={accountName} email={accountEmail}/></div>
+        ? <div className="authenticated-ribbon-actions"><AssistantPopover/><NotificationBell/><AuthenticatedAccountMenu name={accountName} email={accountEmail}/></div>
         : <><Link className="sv-brand" href="/" aria-label="Servonas home"><img src="/servonas-logo.svg" alt="Servonas" /></Link>
           <nav className="sv-navlinks"><Link href="/features">Features</Link><Link href="/industries">Industries</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link><Link href="/contact">Contact</Link><Link className="sv-mobile-login" href="/login">Log in</Link><HeaderSignupLink/></nav></>}
     </div></header>}
