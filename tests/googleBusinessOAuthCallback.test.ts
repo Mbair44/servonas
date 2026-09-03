@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import {managementAuthorizationSource} from "../lib/access.ts";
+
+test("workspace authorization follows the canonical management roles",()=>{
+ assert.equal(managementAuthorizationSource("owner",false),"workspace_membership");
+ assert.equal(managementAuthorizationSource("admin",false),"workspace_membership");
+ assert.equal(managementAuthorizationSource(null,true),"platform_admin");
+ assert.equal(managementAuthorizationSource(null,false),"none");
+ assert.equal(managementAuthorizationSource("manager",false),"none");
+});
 
 test("Google Business callback logs stage-by-stage diagnostics without secrets", async () => {
  const callback = await readFile(new URL("../app/api/google-business/callback/route.ts", import.meta.url), "utf8");
@@ -26,7 +35,12 @@ test("Google Business callback logs stage-by-stage diagnostics without secrets",
  assert.match(callback, /state_business_missing/);
  assert.match(callback, /missing_servonas_session/);
  assert.match(callback, /workspace_membership_missing/);
+ assert.match(callback, /workspace_business_mismatch/);
+ assert.match(callback, /owner_user_id===user\?\.id/);
  assert.match(callback, /workspace_role_not_permitted/);
+ assert.match(callback, /authorizationSource/);
+ assert.match(callback, /managementAuthorizationSource/);
+ assert.match(callback, /platformAdminRole/);
  assert.match(callback, /oauth_not_configured/);
  assert.match(callback, /exchangeGoogleBusinessCode\(code\)/);
  assert.match(callback, /googleBusinessCallbackId/);
