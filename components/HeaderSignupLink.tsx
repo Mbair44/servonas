@@ -4,7 +4,7 @@ import Link from "next/link";
 import {usePathname,useSearchParams} from "next/navigation";
 import {websiteFirstSources,type WebsiteFirstSource} from "@/lib/websiteFirstConfig";
 
-const attributionKeys=["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid"] as const;
+const attributionKeys=["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid","gad_source","gad_campaignid"] as const;
 const websiteFirstPaths=new Map<string,WebsiteFirstSource>(websiteFirstSources.map(source=>[`/${source}`,source]));
 
 export function HeaderSignupLink(){

@@ -2,6 +2,7 @@ import Link from "next/link";
 const industries=[
 ["Pest control","Recurring treatments, route-aware dispatch, field technicians, invoicing, and payments.","/industries/pest-control"],
 ["Junk removal","Turn Facebook and Google traffic into quote requests for cleanouts, bulky-item pickup, and haul-away jobs.","/junk-removal-website"],
+["Christmas lights","Capture seasonal quote requests for holiday lighting installs, maintenance, takedowns, and premium local service.","/christmas-lights-website"],
 ["Cleaning services","Recurring clients, team scheduling, checklists, customer notes, and billing.","/industries/cleaning"],
 ["Lawn & landscaping","Property maintenance, crews, estimates, routes, equipment, and payments.","/industries/landscaping"],
 ["Event & party rentals","Inventory quantities, galleries, blocked dates, delivery, deposits, and pickup.","/industries/event-party-rentals"],

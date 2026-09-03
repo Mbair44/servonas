@@ -48,7 +48,7 @@ test("shared business website renders junk-removal-specific quote-first sections
   assert.match(code, /What we don’t take/);
   assert.match(code, /Neighbors love having their space back/);
   assert.match(code, /business-site-sticky-cta/);
-  assert.match(code, /variant=\{isJunk\?"quote":"service"\}/);
+  assert.match(code, /variant=\{isJunk\?"quote":isChristmasLights\?"christmas":"service"\}/);
 });
 
 test("database migrations accept junk_removal and junk-removal-website", async () => {

@@ -3,7 +3,7 @@ import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
 import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {exchangeGoogleBusinessCode,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,listGoogleBusinessLocations} from "@/lib/googleBusinessProfile";
+import {discoverGoogleBusinessLocations,exchangeGoogleBusinessCode,GoogleBusinessApiError,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,persistGoogleBusinessConnection} from "@/lib/googleBusinessProfile";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {canManageBusiness,managementAuthorizationSource} from "@/lib/access";
 import {platformAdminRole} from "@/lib/platformAccess";
@@ -64,22 +64,38 @@ export async function GET(request:Request){
   const token=await exchangeGoogleBusinessCode(code);
   log("google_business_token_exchange_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,hasAccessToken:Boolean(token.access_token),hasRefreshToken:Boolean(token.refresh_token),expiresIn:token.expires_in??null,tokenType:token.token_type??null,returnedScope:token.scope??returnedScope});
   if(!token.refresh_token)throw new Error("Google did not provide long-term access. Remove Servonas from Google account permissions and connect again.");
-  stage="account_discovery";log("google_business_account_discovery_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId});
-  const locations=await listGoogleBusinessLocations(token.access_token!);const db=getSupabaseAdmin();if(!db)throw new Error("Google connection storage is unavailable.");
-  const {data:business}=await db.from("businesses").select("name").eq("id",saved.businessId).maybeSingle(),wanted=business?.name.trim().toLowerCase(),matches=locations.filter(location=>location.title.trim().toLowerCase()===wanted),location=matches.length===1?matches[0]:locations.length===1?locations[0]:null;
-  if(!location)throw new Error(locations.length?"Google returned multiple profiles and none uniquely matched this Servonas business name.":"No Google Business Profile was found for this account.");
-  log("google_business_account_discovery_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,locationCount:locations.length,selectedLocationTitle:location.title});
-  stage="credential_persistence";log("google_business_credentials_persist_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,hasRefreshToken:true});
-  const {data:existing}=await db.from("business_google_profile_connections").select("business_id").eq("business_id",saved.businessId).maybeSingle();
-  const {data:credential,error}=await db.from("business_google_profile_connections").upsert({business_id:saved.businessId,connected_by:user.id,refresh_token:token.refresh_token,google_account_id:location.accountId,google_location_id:location.locationId,location_title:location.title,status:"connected",connected_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:"business_id"}).select("business_id").single();
-  if(error||!credential)throw new Error("Google connection could not be saved. Apply the Google Business Profile migration.");
-  log("google_business_credentials_persist_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,credentialRowId:credential.business_id,hasRefreshToken:true,updatedExistingCredential:Boolean(existing)});
-  const redirectDestination=destination(saved.businessSlug,"success",`Google Business Profile connected: ${location.title}`);
+  stage="credential_persistence";log("google_business_credentials_persist_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,hasRefreshToken:true,connectionStatus:"oauth_connected"});
+  await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"oauth_connected"});
+  log("google_business_credentials_persist_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,credentialRowId:saved.businessId,hasRefreshToken:true,connectionStatus:"oauth_connected"});
+  stage="account_discovery";log("google_business_account_discovery_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId});
+  const db=getSupabaseAdmin();if(!db)throw new Error("Google connection storage is unavailable.");
+  const {data:business}=await db.from("businesses").select("name").eq("id",saved.businessId).maybeSingle();
+  const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??""});
+  if(discovery.rateLimited){
+   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",lastDiscoveryAttemptAt:new Date().toISOString(),retryAfterAt:discovery.retryAfter,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage});
+   log("google_business_account_discovery_deferred",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId,status:"account_discovery_rate_limited",retryAfter:discovery.retryAfter,accountManagementCalls:discovery.accountManagementCalls,businessInformationCalls:discovery.businessInformationCalls});
+   const redirectDestination=destination(saved.businessSlug,"success","Google Business connected, but Google temporarily limited account lookup. Try again shortly without reconnecting.");
+   log("google_business_callback_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug,tokenExchangeCompleted:true,credentialsPersisted:true,accountDiscoveryCompleted:false,redirectDestination:redirectDestination.pathname});
+   return redirect({stage:"account_discovery",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
+  }
+  if(!discovery.location){
+   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_pending",lastDiscoveryAttemptAt:new Date().toISOString(),lastDiscoveryErrorCode:"location_selection_pending",lastDiscoveryErrorMessage:discovery.userMessage});
+   log("google_business_account_discovery_deferred",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId,status:"account_discovery_pending",locationCount:discovery.locations.length,accountManagementCalls:discovery.accountManagementCalls,businessInformationCalls:discovery.businessInformationCalls});
+   const redirectDestination=destination(saved.businessSlug,"success","Google Business connected. Servonas saved the OAuth connection and will finish profile discovery next.");
+   log("google_business_callback_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug,tokenExchangeCompleted:true,credentialsPersisted:true,accountDiscoveryCompleted:false,redirectDestination:redirectDestination.pathname});
+   return redirect({stage:"account_discovery",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
+  }
+  log("google_business_account_discovery_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,locationCount:discovery.locations.length,selectedLocationTitle:discovery.location.title,accountManagementCalls:discovery.accountManagementCalls,businessInformationCalls:discovery.businessInformationCalls,duplicateAccountRequests:discovery.duplicateAccountRequests,retries:discovery.retries});
+  stage="credential_persistence";log("google_business_credentials_persist_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,hasRefreshToken:true,connectionStatus:"connected"});
+  await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"connected",googleAccountId:discovery.location.accountId,googleLocationId:discovery.location.locationId,locationTitle:discovery.location.title,lastDiscoveryAttemptAt:new Date().toISOString(),lastDiscoverySuccessAt:new Date().toISOString(),retryAfterAt:null,lastDiscoveryErrorCode:null,lastDiscoveryErrorMessage:null});
+  log("google_business_credentials_persist_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,credentialRowId:saved.businessId,hasRefreshToken:true,connectionStatus:"connected"});
+  const redirectDestination=destination(saved.businessSlug,"success",`Google Business Profile connected: ${discovery.location.title}`);
   log("google_business_callback_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug,tokenExchangeCompleted:true,credentialsPersisted:true,accountDiscoveryCompleted:true,redirectDestination:redirectDestination.pathname});
   return redirect({stage:"success",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
  }catch(error){
   const safeMessage=error instanceof Error?error.message:"Google Business Profile connection failed.",redirectDestination=destination(saved.businessSlug,"error",safeMessage),event=stage==="token_exchange"?"google_business_token_exchange_failed":stage==="account_discovery"?"google_business_account_discovery_failed":null;
   if(event)log(event,{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,stage,httpStatus:error instanceof GoogleBusinessTokenExchangeError?error.httpStatus:null,googleErrorCode:error instanceof GoogleBusinessTokenExchangeError?error.googleErrorCode:error instanceof Error?error.name:"unknown",safeGoogleErrorDescription:safeMessage});
+  if(error instanceof GoogleBusinessApiError&&error.httpStatus===429)log("google_business_retry_exhausted",{googleBusinessOperationId:callbackId,businessId:saved.businessId,stage,service:error.service,endpoint:error.endpoint,httpStatus:error.httpStatus,retryAfter:error.retryAfter,retryAttempt:0});
   log("google_business_callback_failed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,stage,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id,errorCode:error instanceof Error?error.name:"unknown",safeMessage,redirectDestination:redirectDestination.pathname});
   return redirect({stage,success:false,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id,errorCode:error instanceof Error?error.name:"unknown"});
  }

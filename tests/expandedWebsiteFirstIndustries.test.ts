@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");
-const industries=["hvac","plumbing","landscaping","cleaning","powerwashing","junk-removal"] as const;
+const industries=["hvac","plumbing","landscaping","cleaning","powerwashing","junk-removal","christmas-lights"] as const;
 
 test("expanded industry landing pages preserve attribution and enter shared website-first signup",async()=>{
  const config=await read("lib/websiteFirstConfig.ts");
@@ -41,7 +41,7 @@ test("migration safely expands sources and maps canonical business profiles",asy
 
 test("generated sites recognize each new website source",async()=>{
  const site=await read("components/BusinessWebsite.tsx");
- for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","junk-removal-website"])assert.match(site,new RegExp(source));
+ for(const source of ["hvac-website","plumbing-website","landscaping-website","cleaning-website","powerwashing-website","junk-removal-website","christmas-lights-website"])assert.match(site,new RegExp(source));
  assert.match(site,/industryPresentation/);
 });
 
@@ -79,4 +79,23 @@ test("floral and event design has a complete website-first landing and demo flow
  assert.match(site,/Request a Consultation/);
  assert.match(sql,/'other','floral_event'/);
  assert.match(sql,/create or replace function public\.create_website_first_workspace/);
+});
+
+test("christmas lights adds a quote-first seasonal website flow",async()=>{
+ const [config,landing,demo,site,form,sql]=await Promise.all([
+  read("lib/websiteFirstConfig.ts"),
+  read("app/christmas-lights-website/page.tsx"),
+  read("app/demo/christmas-lights/page.tsx"),
+  read("components/BusinessWebsite.tsx"),
+  read("components/WebsiteRequestForm.tsx"),
+  read("supabase/migrations/20260903000200_add_christmas_lights_website_industry.sql"),
+ ]);
+ for(const source of [config,landing,demo,site,sql])assert.match(source,/christmas-lights-website/);
+ assert.match(landing,/Christmas Light Installation Website Builder/);
+ assert.match(demo,/Merry Glow Holiday Lighting/);
+ assert.match(config,/Professional Christmas Light Installation Without the Hassle/);
+ assert.match(site,/Holiday installs customers look forward to every year/);
+ assert.match(form,/What would you like decorated\?/);
+ assert.match(form,/lightingPreference/);
+ assert.match(sql,/'other','christmas_light_installation'/);
 });

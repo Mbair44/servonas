@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import {MarketingContentAttribution} from "@/components/MarketingContentAttribution";
-import {MarketingLandingAttribution} from "@/components/MarketingLandingAttribution";
+import {ServerMarketingLandingAttribution} from "@/components/ServerMarketingLandingAttribution";
 
 export const metadata: Metadata = {
  title: "Service Business Management Software | Servonas",
@@ -39,9 +39,9 @@ const workflow=[
 ];
 
 export default async function HomePage({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
- const content=(await searchParams).utm_content?.trim()??"",validContent=/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(content)?content:"";
+ const params=await searchParams,content=params.utm_content?.trim()??"",validContent=/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(content)?content:"";
  return <main className="marketing-home">
-  <MarketingLandingAttribution source="servonas.com" trackSignup />
+  <ServerMarketingLandingAttribution source="servonas.com" path="/" searchParams={params} trackSignup />
   {validContent&&<MarketingContentAttribution content={validContent}/>} 
   <section className="home-hero">
    <div className="home-hero-glow one"/><div className="home-hero-glow two"/>

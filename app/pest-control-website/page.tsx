@@ -1,7 +1,7 @@
 import type {Metadata} from "next";
 import Image from "next/image";
 import Link from "next/link";
-import {MarketingLandingAttribution} from "@/components/MarketingLandingAttribution";
+import {ServerMarketingLandingAttribution} from "@/components/ServerMarketingLandingAttribution";
 
 export const metadata:Metadata={
  title:"Free Pest Control Website | Servonas",
@@ -21,14 +21,14 @@ const included=[
  ["▱","Customer texting","Keep customers informed with business messaging tools."],
  ["✓","Job management","Track each job from scheduling through completion."],
 ];
-const attributionKeys=["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid"] as const;
+const attributionKeys=["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","gbraid","wbraid","gad_source","gad_campaignid"] as const;
 
 function signupHref(params:Record<string,string|string[]|undefined>){const query=new URLSearchParams({source:"pest-control-website"});for(const key of attributionKeys){const raw=params[key],value=Array.isArray(raw)?raw[0]:raw;if(value)query.set(key,value.slice(0,500));}return `/onboarding?${query}`;}
 function demoHref(params:Record<string,string|string[]|undefined>){const query=new URLSearchParams();for(const key of attributionKeys){const raw=params[key],value=Array.isArray(raw)?raw[0]:raw;if(value)query.set(key,value.slice(0,500));}const suffix=query.toString();return `/demo/pest-control${suffix?`?${suffix}`:""}`;}
 
 export default async function PestControlWebsitePage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const params=await searchParams,signup=signupHref(params),demo=demoHref(params);
- return <main className="pcw-page"><MarketingLandingAttribution source="pest-control-website"/>
+ return <main className="pcw-page"><ServerMarketingLandingAttribution source="pest-control-website" path="/pest-control-website" searchParams={params}/>
   <section className="pcw-hero"><div className="pcw-orb pcw-orb-one"/><div className="pcw-orb pcw-orb-two"/><div className="sv-container pcw-hero-grid">
    <div className="pcw-hero-copy"><span className="sv-kicker">Websites for pest control companies</span><h1>We&apos;ll Build Your Pest Control Website. <span>Free.</span></h1><p>Get a professional website, your first-year standard domain, online booking, scheduling, customers, invoices, payments, and more.</p><div className="sv-actions"><Link className="sv-button pcw-primary" data-acquisition-builder href={signup}>Build My Free Website <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" href={demo}>View Example Website</Link></div><div className="pcw-hero-proof"><span>✓ First-year domain included</span><span>✓ Built for small pest businesses</span><span>✓ Mobile friendly</span><span>✓ No existing website needed</span></div></div>
    <div className="pcw-hero-visual"><div className="pcw-photo"><Image src="/images/pest-control-technician-spraying.png" alt="Pest control professional treating the exterior of a customer's home" fill priority sizes="(max-width: 900px) 100vw, 46vw"/></div><div className="pcw-site-preview"><span>YOUR NEW WEBSITE</span><strong>Professional. Local. Ready to book.</strong><small>Website + business tools, connected from day one.</small></div><div className="pcw-free-badge"><b>FREE</b><span>pilot website build</span></div></div>

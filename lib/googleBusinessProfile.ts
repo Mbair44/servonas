@@ -1,15 +1,39 @@
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
 type TokenResponse={access_token?:string;refresh_token?:string;expires_in?:number;token_type?:string;scope?:string;error?:string;error_description?:string};
+type GoogleLocation={name?:string;title?:string};
+type GoogleApiErrorPayload={error?:{message?:string;status?:string}};
+type GoogleBusinessAccountsResponse={accounts?:{name?:string}[]};
+type GoogleBusinessLocationsResponse={locations?:GoogleLocation[]};
+type GoogleBusinessConnectionStatus="connected"|"reauthorization_required"|"oauth_connected"|"account_discovery_pending"|"account_discovery_rate_limited";
+type GoogleBusinessRequestContext={googleBusinessOperationId:string;stage:string;businessId:string;accountId?:string|null;locationId?:string|null;retryAttempt?:number;requestCounter?:{current:number}};
+type GoogleBusinessDiscoveryContext={googleBusinessOperationId:string;businessId:string;actorUserId:string;stage:string;force?:boolean;businessName:string};
+type GoogleBusinessDiscoveryCacheEntry={expiresAt:number;result:GoogleBusinessDiscoveryResult};
+type GoogleBusinessDiscoveryPersistInput={businessId:string;connectedBy:string;refreshToken:string;status:GoogleBusinessConnectionStatus;googleAccountId?:string|null;googleLocationId?:string|null;locationTitle?:string|null;lastDiscoveryAttemptAt?:string|null;lastDiscoverySuccessAt?:string|null;retryAfterAt?:string|null;lastDiscoveryErrorCode?:string|null;lastDiscoveryErrorMessage?:string|null;};
+
 export class GoogleBusinessTokenExchangeError extends Error {
  constructor(message:string,readonly httpStatus:number,readonly googleErrorCode:string|null){super(message);this.name="GoogleBusinessTokenExchangeError";}
 }
-type GoogleLocation={name?:string;title?:string};
+
+export class GoogleBusinessApiError extends Error {
+ constructor(message:string,readonly httpStatus:number,readonly service:string,readonly endpoint:string,readonly retryAfter:string|null,readonly googleStatus:string|null){super(message);this.name="GoogleBusinessApiError";}
+}
+
 export type GoogleProfileReview={reviewId:string;author:string;authorUri:string|null;rating:number;text:string;publishedAt:string|null;reply:string|null;replyUpdatedAt:string|null};
 export type GoogleProfileReviews={rating:number;reviewCount:number;reviews:GoogleProfileReview[]};
+export type GoogleBusinessLocationMatch={accountId:string;locationId:string;title:string};
+export type GoogleBusinessDiscoveryResult={status:GoogleBusinessConnectionStatus;location:GoogleBusinessLocationMatch|null;locations:GoogleBusinessLocationMatch[];rateLimited:boolean;retryAfter:string|null;userMessage:string;duplicateAccountRequests:number;accountManagementCalls:number;businessInformationCalls:number;retries:number;};
 
 const credentials=()=>({clientId:process.env.GOOGLE_BUSINESS_CLIENT_ID?.trim(),clientSecret:process.env.GOOGLE_BUSINESS_CLIENT_SECRET?.trim()});
 export const googleBusinessRedirectUri=()=>`${(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"")}/api/google-business/callback`;
+const discoveryCacheTtlMs=5*60_000;
+const discoveryCache=new Map<string,GoogleBusinessDiscoveryCacheEntry>();
+const discoveryInflight=new Map<string,Promise<GoogleBusinessDiscoveryResult>>();
+
+function log(event:string,details:Record<string,unknown>={}){console.info(event,{provider:"google_business_profile",...details});}
+function clean(value:string|null|undefined,max=200){const next=value?.trim();return next?next.slice(0,max):"";}
+function parseRetryAfter(header:string|null){const value=clean(header,120);if(!value)return null;const seconds=Number(value);if(Number.isFinite(seconds)&&seconds>=0)return new Date(Date.now()+seconds*1000).toISOString();const date=Date.parse(value);return Number.isNaN(date)?null:new Date(date).toISOString();}
+function discoveryKey(input:{businessId:string;actorUserId:string}){return `${input.businessId}:${input.actorUserId}`;}
 
 async function tokenRequest(params:URLSearchParams){
  const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:params,cache:"no-store"});
@@ -17,27 +41,101 @@ async function tokenRequest(params:URLSearchParams){
 }
 export async function exchangeGoogleBusinessCode(code:string){const {clientId,clientSecret}=credentials();if(!clientId||!clientSecret)throw new Error("Google Business OAuth is not configured.");return tokenRequest(new URLSearchParams({code,client_id:clientId,client_secret:clientSecret,redirect_uri:googleBusinessRedirectUri(),grant_type:"authorization_code"}));}
 async function refreshAccessToken(refreshToken:string){const {clientId,clientSecret}=credentials();if(!clientId||!clientSecret)throw new Error("Google Business OAuth is not configured.");return (await tokenRequest(new URLSearchParams({refresh_token:refreshToken,client_id:clientId,client_secret:clientSecret,grant_type:"refresh_token"}))).access_token!;}
-async function googleGet<T>(url:string,accessToken:string){const response=await fetch(url,{headers:{Authorization:`Bearer ${accessToken}`},cache:"no-store"});const result=await response.json() as T&{error?:{message?:string}};if(!response.ok)throw new Error(result.error?.message||`Google Business Profile HTTP ${response.status}`);return result;}
 
-export async function listGoogleBusinessLocations(accessToken:string){
- const accounts=await googleGet<{accounts?:{name?:string}[]}>("https://mybusinessaccountmanagement.googleapis.com/v1/accounts",accessToken),locations:{accountId:string;locationId:string;title:string}[]=[];
- for(const account of accounts.accounts??[]){if(!account.name)continue;const result=await googleGet<{locations?:GoogleLocation[]}>(`https://mybusinessbusinessinformation.googleapis.com/v1/${account.name}/locations?readMask=name,title&pageSize=100`,accessToken);for(const location of result.locations??[]){const locationId=location.name?.split("/").pop();if(locationId)locations.push({accountId:account.name.split("/").pop()!,locationId,title:location.title||"Google Business Profile"});}}
- return locations;
+async function googleRequest<T>(input:{url:string;accessToken:string;method?:string;service:string;endpoint:string;body?:string;context:GoogleBusinessRequestContext}){
+ const requestCounter=input.context.requestCounter;
+ const sequenceNumber=requestCounter?(requestCounter.current=(requestCounter.current??0)+1):1;
+ const startedAt=Date.now();
+ log("google_business_api_request_started",{googleBusinessOperationId:input.context.googleBusinessOperationId,stage:input.context.stage,service:input.service,endpoint:input.endpoint,method:input.method??"GET",businessId:input.context.businessId,accountId:input.context.accountId??null,locationId:input.context.locationId??null,requestSequenceNumber:sequenceNumber,retryAttempt:input.context.retryAttempt??0});
+ const response=await fetch(input.url,{method:input.method??"GET",headers:{Authorization:`Bearer ${input.accessToken}`,...(input.body?{"Content-Type":"application/json"}:{})},body:input.body,cache:"no-store"});
+ const durationMs=Date.now()-startedAt;
+ const payload=await response.json().catch(()=>null) as (T&GoogleApiErrorPayload)|null;
+ if(response.status===429){
+  const retryAfter=parseRetryAfter(response.headers.get("retry-after"));
+  log("google_business_api_rate_limited",{googleBusinessOperationId:input.context.googleBusinessOperationId,stage:input.context.stage,service:input.service,endpoint:input.endpoint,httpStatus:429,retryAfter,retryAttempt:input.context.retryAttempt??0,businessId:input.context.businessId,accountId:input.context.accountId??null,locationId:input.context.locationId??null,requestSequenceNumber:sequenceNumber,durationMs});
+  throw new GoogleBusinessApiError(payload?.error?.message||"Google Business Profile rate limited the request.",429,input.service,input.endpoint,retryAfter,payload?.error?.status??null);
+ }
+ if(!response.ok)throw new GoogleBusinessApiError(payload?.error?.message||`Google Business Profile HTTP ${response.status}`,response.status,input.service,input.endpoint,parseRetryAfter(response.headers.get("retry-after")),payload?.error?.status??null);
+ log("google_business_api_request_completed",{googleBusinessOperationId:input.context.googleBusinessOperationId,stage:input.context.stage,service:input.service,endpoint:input.endpoint,method:input.method??"GET",businessId:input.context.businessId,accountId:input.context.accountId??null,locationId:input.context.locationId??null,requestSequenceNumber:sequenceNumber,retryAttempt:input.context.retryAttempt??0,responseStatus:response.status,durationMs});
+ return payload as T;
+}
+
+export async function persistGoogleBusinessConnection(input:GoogleBusinessDiscoveryPersistInput){
+ const db=getSupabaseAdmin();if(!db)throw new Error("Google connection storage is unavailable.");
+ const now=new Date().toISOString();
+ const {error}=await db.from("business_google_profile_connections").upsert({business_id:input.businessId,connected_by:input.connectedBy,refresh_token:input.refreshToken,google_account_id:input.googleAccountId??null,google_location_id:input.googleLocationId??null,location_title:input.locationTitle??null,status:input.status,connected_at:now,updated_at:now,last_discovery_attempt_at:input.lastDiscoveryAttemptAt??null,last_discovery_success_at:input.lastDiscoverySuccessAt??null,retry_after_at:input.retryAfterAt??null,last_discovery_error_code:input.lastDiscoveryErrorCode??null,last_discovery_error_message:input.lastDiscoveryErrorMessage??null},{onConflict:"business_id"});
+ if(error)throw error;
+}
+
+async function listGoogleBusinessLocationsUncached(accessToken:string,context:GoogleBusinessDiscoveryContext){
+ const requestCounter={current:0};
+ let duplicateAccountRequests=0;
+ let accountManagementCalls=0;
+ let businessInformationCalls=0;
+ const retries=0;
+ accountManagementCalls+=1;
+ const accounts=await googleRequest<GoogleBusinessAccountsResponse>({url:"https://mybusinessaccountmanagement.googleapis.com/v1/accounts",accessToken,service:"mybusinessaccountmanagement.googleapis.com",endpoint:"/v1/accounts",context:{googleBusinessOperationId:context.googleBusinessOperationId,stage:context.stage,businessId:context.businessId,retryAttempt:0,requestCounter}});
+ for(const account of accounts.accounts??[]){if(account.name==="/accounts")duplicateAccountRequests+=1;}
+ const locations:GoogleBusinessLocationMatch[]=[];
+ for(const account of accounts.accounts??[]){
+  if(!account.name)continue;
+  const accountId=account.name.split("/").pop()||null;
+  businessInformationCalls+=1;
+  const result=await googleRequest<GoogleBusinessLocationsResponse>({url:`https://mybusinessbusinessinformation.googleapis.com/v1/${account.name}/locations?readMask=name,title&pageSize=100`,accessToken,service:"mybusinessbusinessinformation.googleapis.com",endpoint:`/v1/${account.name}/locations`,context:{googleBusinessOperationId:context.googleBusinessOperationId,stage:context.stage,businessId:context.businessId,accountId,retryAttempt:0,requestCounter}});
+  for(const location of result.locations??[]){const locationId=location.name?.split("/").pop();if(locationId&&accountId)locations.push({accountId,locationId,title:location.title||"Google Business Profile"});}
+ }
+ return {locations,duplicateAccountRequests,accountManagementCalls,businessInformationCalls,retries};
+}
+
+export async function discoverGoogleBusinessLocations(accessToken:string,input:GoogleBusinessDiscoveryContext):Promise<GoogleBusinessDiscoveryResult>{
+ const key=discoveryKey(input);
+ const cached=discoveryCache.get(key);
+ if(!input.force&&cached&&cached.expiresAt>Date.now()){
+  log("google_business_discovery_deferred",{googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,stage:input.stage,reason:"cached_discovery_valid",cacheTtlMs:Math.max(0,cached.expiresAt-Date.now())});
+  return cached.result;
+ }
+ const running=discoveryInflight.get(key);
+ if(!input.force&&running){
+  log("google_business_discovery_deferred",{googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,stage:input.stage,reason:"inflight_reused"});
+  return running;
+ }
+ const work=(async()=>{
+  try{
+   const listed=await listGoogleBusinessLocationsUncached(accessToken,input);
+   const wanted=input.businessName.trim().toLowerCase();
+   const matches=listed.locations.filter((location)=>location.title.trim().toLowerCase()===wanted);
+   const location=matches.length===1?matches[0]:listed.locations.length===1?listed.locations[0]:null;
+   const result:GoogleBusinessDiscoveryResult={status:location?"connected":"account_discovery_pending",location,locations:listed.locations,rateLimited:false,retryAfter:null,userMessage:location?`Google Business Profile connected: ${location.title}`:listed.locations.length?"Google Business is connected, but Servonas needs a later discovery step to choose the right profile.":"Google Business is connected, but no Google Business Profile was found yet.",duplicateAccountRequests:listed.duplicateAccountRequests,accountManagementCalls:listed.accountManagementCalls,businessInformationCalls:listed.businessInformationCalls,retries:listed.retries};
+   discoveryCache.set(key,{expiresAt:Date.now()+discoveryCacheTtlMs,result});
+   return result;
+  }catch(error){
+   if(error instanceof GoogleBusinessApiError&&error.httpStatus===429){
+    const result:GoogleBusinessDiscoveryResult={status:"account_discovery_rate_limited",location:null,locations:[],rateLimited:true,retryAfter:error.retryAfter,userMessage:"Google Business connected, but Google temporarily limited account lookup. Try again shortly without reconnecting.",duplicateAccountRequests:0,accountManagementCalls:1,businessInformationCalls:0,retries:0};
+    discoveryCache.set(key,{expiresAt:Date.now()+Math.min(discoveryCacheTtlMs,60_000),result});
+    log("google_business_retry_scheduled",{googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,stage:input.stage,service:error.service,endpoint:error.endpoint,httpStatus:error.httpStatus,retryAfter:error.retryAfter,retryAttempt:0});
+    return result;
+   }
+   throw error;
+  }finally{
+   discoveryInflight.delete(key);
+  }
+ })();
+ discoveryInflight.set(key,work);
+ return work;
 }
 
 const stars:Record<string,number>={ONE:1,TWO:2,THREE:3,FOUR:4,FIVE:5};
 export async function getGoogleBusinessProfileReviews(businessId:string):Promise<GoogleProfileReviews|null>{
- const db=getSupabaseAdmin();if(!db)return null;const {data:connection}=await db.from("business_google_profile_connections").select("refresh_token,google_account_id,google_location_id,status").eq("business_id",businessId).maybeSingle();if(!connection||connection.status!=="connected")return null;
- try{const accessToken=await refreshAccessToken(connection.refresh_token),result=await googleGet<{averageRating?:number;totalReviewCount?:number;reviews?:{reviewId?:string;reviewer?:{displayName?:string;profilePhotoUrl?:string};starRating?:string;comment?:string;createTime?:string;reviewReply?:{comment?:string;updateTime?:string}}[]}>(`https://mybusiness.googleapis.com/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews?pageSize=50&orderBy=updateTime%20desc`,accessToken);return {rating:Number(result.averageRating||0),reviewCount:Number(result.totalReviewCount||0),reviews:(result.reviews??[]).map(review=>({reviewId:review.reviewId||"",author:review.reviewer?.displayName||"Google user",authorUri:null,rating:stars[review.starRating||""]||0,text:review.comment||"",publishedAt:review.createTime||null,reply:review.reviewReply?.comment||null,replyUpdatedAt:review.reviewReply?.updateTime||null})).filter(review=>review.rating>0&&review.text&&review.reviewId)};}catch(error){console.error("Google Business Profile review sync failed",{businessId,message:error instanceof Error?error.message:"unknown"});return null;}
+ const db=getSupabaseAdmin();if(!db)return null;const {data:connection}=await db.from("business_google_profile_connections").select("refresh_token,google_account_id,google_location_id,status").eq("business_id",businessId).maybeSingle();if(!connection||connection.status!=="connected"||!connection.google_account_id||!connection.google_location_id)return null;
+ try{const accessToken=await refreshAccessToken(connection.refresh_token),result=await googleRequest<{averageRating?:number;totalReviewCount?:number;reviews?:{reviewId?:string;reviewer?:{displayName?:string;profilePhotoUrl?:string};starRating?:string;comment?:string;createTime?:string;reviewReply?:{comment?:string;updateTime?:string}}[]}>({url:`https://mybusiness.googleapis.com/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews?pageSize=50&orderBy=updateTime%20desc`,accessToken,service:"mybusiness.googleapis.com",endpoint:`/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews`,context:{googleBusinessOperationId:`gbr-${businessId}`,stage:"review_sync",businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,retryAttempt:0,requestCounter:{current:0}}});return {rating:Number(result.averageRating||0),reviewCount:Number(result.totalReviewCount||0),reviews:(result.reviews??[]).map(review=>({reviewId:review.reviewId||"",author:review.reviewer?.displayName||"Google user",authorUri:null,rating:stars[review.starRating||""]||0,text:review.comment||"",publishedAt:review.createTime||null,reply:review.reviewReply?.comment||null,replyUpdatedAt:review.reviewReply?.updateTime||null})).filter(review=>review.rating>0&&review.text&&review.reviewId)};}catch(error){console.error("Google Business Profile review sync failed",{businessId,message:error instanceof Error?error.message:"unknown"});return null;}
 }
 
 export async function postGoogleBusinessProfileReviewReply(input:{businessId:string;reviewId:string;reply:string}){
  const db=getSupabaseAdmin();if(!db)throw new Error("Google Business Profile is unavailable.");
  const {data:connection}=await db.from("business_google_profile_connections").select("refresh_token,google_account_id,google_location_id,status").eq("business_id",input.businessId).maybeSingle();
- if(!connection||connection.status!=="connected")throw new Error("Connect Google Business Profile before posting a reply.");
+ if(!connection||connection.status!=="connected"||!connection.google_account_id||!connection.google_location_id)throw new Error("Connect Google Business Profile before posting a reply.");
  const accessToken=await refreshAccessToken(connection.refresh_token),url=`https://mybusiness.googleapis.com/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews/${encodeURIComponent(input.reviewId)}/reply`;
- const response=await fetch(url,{method:"PUT",headers:{Authorization:`Bearer ${accessToken}`,"Content-Type":"application/json"},body:JSON.stringify({comment:input.reply}),cache:"no-store"});
- if(!response.ok){const result=await response.json().catch(()=>null) as {error?:{message?:string}}|null;throw new Error(result?.error?.message||"Google could not post the reply.");}
+ await googleRequest<unknown>({url,method:"PUT",body:JSON.stringify({comment:input.reply}),accessToken,service:"mybusiness.googleapis.com",endpoint:`/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews/${encodeURIComponent(input.reviewId)}/reply`,context:{googleBusinessOperationId:`gbr-${input.businessId}`,stage:"review_reply",businessId:input.businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,retryAttempt:0,requestCounter:{current:0}}});
 }
 
 export async function generateGoogleBusinessReviewReply(input:{businessName:string;author:string;rating:number;review:string}){
