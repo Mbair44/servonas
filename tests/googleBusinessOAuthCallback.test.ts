@@ -77,3 +77,17 @@ test("Google Business profile client logs request-level diagnostics and uses dis
  assert.match(migration, /alter column google_account_id drop not null/);
  assert.match(migration, /retry_after_at timestamptz/);
 });
+
+test("website settings expose retrying Google Business discovery from the saved connection", async () => {
+ const [page,actions,file]=await Promise.all([
+  readFile(new URL("../app/app/[businessSlug]/settings/website/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/app/[businessSlug]/settings/website/actions.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/googleBusinessProfile.ts", import.meta.url), "utf8"),
+ ]);
+ assert.match(page,/Retry Google lookup/);
+ assert.match(page,/Uses the saved Google Business connection\. No reconnect required\./);
+ assert.match(actions,/retryGoogleBusinessProfileDiscovery/);
+ assert.match(actions,/retryGoogleBusinessLocationDiscovery/);
+ assert.match(file,/retryGoogleBusinessLocationDiscovery/);
+ assert.match(file,/Reconnect Google Business Profile before retrying account discovery\./);
+});

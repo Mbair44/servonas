@@ -25,4 +25,8 @@ test("analytics ingestion uses the same public feature gate as browser tracking"
  assert.match(bookingPage, /Query duration:/);
  assert.match(bookingPage, /Timing diagnostics:/);
  assert.match(bookingPage, /final flush missing/);
+ assert.match(bookingPage, /Include likely automated traffic/);
+ assert.match(bookingPage, /Servonas insight/);
+ assert.match(bookingPage, /Landing page performance/);
+ assert.match(bookingPage, /Median time to first interaction/);
 });

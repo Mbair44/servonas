@@ -23,6 +23,10 @@ test("booking tracker payload can carry service identifiers for service funnels"
  const requestForm=await read("components/WebsiteRequestForm.tsx");
  assert.match(tracker,/type TrackBookingFunnelOptions = \{ inventoryItemId\?: string; serviceId\?: string; metadata\?: Record<string, unknown>; touchOnly\?: boolean; beacon\?: boolean \}/);
  assert.match(tracker,/serviceId: options\.serviceId/);
+ assert.match(tracker,/usePathname\(\)/);
+ assert.match(tracker,/useSearchParams\(\)/);
+ assert.match(tracker,/trackBookingFunnel\(businessSlug, "form_start"/);
+ assert.match(tracker,/trackBookingFunnel\(businessSlug, "product_service_selection"/);
  assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"service_view",\{serviceId/);
  assert.match(tracker,/const isEmbeddedBooking = \(\) => new URLSearchParams\(location\.search\)\.get\("embed"\) === "1";/);
  assert.match(tracker,/pageTypeForPath\(location\.pathname\) === "booking" && !isEmbeddedBooking\(\)/);
@@ -60,8 +64,9 @@ test("booking attribution migration preserves fbclid and immutable landing metad
 
 test("booking funnel route updates session metrics without inflating event counts",async()=>{
  const route=await read("app/api/public-booking/[businessSlug]/funnel/route.ts");
- const migration=await read("supabase/migrations/20260831000400_booking_funnel_session_engagement.sql");
- const timingMigration=await read("supabase/migrations/20260902000200_booking_funnel_duration_quality.sql");
+  const migration=await read("supabase/migrations/20260831000400_booking_funnel_session_engagement.sql");
+  const timingMigration=await read("supabase/migrations/20260902000200_booking_funnel_duration_quality.sql");
+  const qualityMigration=await read("supabase/migrations/20260903000200_booking_funnel_session_quality.sql");
  assert.match(route,/touchOnly:Boolean\(body\.touchOnly\)/);
  assert.match(route,/if\(body\.touchOnly\|\|event==="session_heartbeat"\)return new NextResponse\(null,\{status:204\}\);/);
  assert.match(route,/total_session_duration_seconds/);
@@ -73,6 +78,13 @@ test("booking funnel route updates session metrics without inflating event count
  assert.match(route,/active_duration_increment_milliseconds/);
  assert.match(route,/duration_final_flush_received/);
  assert.match(route,/duration_source/);
+ assert.match(route,/first_interaction_type/);
+ assert.match(route,/meaningful_interaction_count/);
+ assert.match(route,/automated_classification/);
+ assert.match(route,/automationClassification/);
  assert.match(timingMigration,/total_session_duration_milliseconds bigint/);
  assert.match(timingMigration,/duration_final_flush_received boolean not null default false/);
+ assert.match(qualityMigration,/time_to_first_interaction_milliseconds bigint/);
+ assert.match(qualityMigration,/automated_classification text not null default 'unknown'/);
+ assert.match(qualityMigration,/meaningful_interaction_count integer not null default 0/);
 });

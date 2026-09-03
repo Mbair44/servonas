@@ -6,9 +6,10 @@ import { acquisitionDateRange } from "@/lib/acquisitionReporting";
 import { dateInTimeZone } from "@/lib/bookingTime";
 import {
   attachSessionMetricsToSourceReport,
-  buildSessionDurationBuckets,
+  buildSessionQualityReport,
   type AttributedBookingRow,
   buildSourcePerformanceReport,
+  defaultSessionEngagementThresholdMs,
   labelForSource,
   marketingSources,
   normalizeMarketingSource,
@@ -21,6 +22,7 @@ import { resolveAiInsights, buildPreviousPeriodReport } from "@/lib/aiInsights";
 
 const money = (cents: number | null) => cents == null ? "Ad spend not connected" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const percent = (value: number | null) => value == null ? "—" : `${Math.round(value * 100)}%`;
+const ms = (value: number | null) => value == null ? "—" : value < 1000 ? `${Math.round(value)}ms` : `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sourceOptions = ["all", ...marketingSources] as const;
 type SourceFilter = typeof sourceOptions[number];
@@ -185,7 +187,7 @@ function sourceLabel(source: SourceFilter) {
   return source === "all" ? "All traffic" : labelForSource(source);
 }
 
-export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; month?: string; date?: string }> }) {
+export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; month?: string; date?: string; includeAutomated?: string }> }) {
   const { businessSlug } = await params;
   const q = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
@@ -195,6 +197,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   // the inclusive calendar day the customer chose so submitting never extends it.
   const reportFromDate = /^\d{4}-\d{2}-\d{2}$/.test(q.from ?? "") ? q.from! : dateInTimeZone(new Date(window.from), business.timezone);
   const reportToDate = /^\d{4}-\d{2}-\d{2}$/.test(q.to ?? "") ? q.to! : dateInTimeZone(new Date(), business.timezone);
+  const includeAutomated = q.includeAutomated !== "0";
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
@@ -215,7 +218,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_google_ads_campaigns").select("id,status,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
-    supabase.from("booking_attribution_sessions").select("id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
+    supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
   ]);
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
@@ -260,7 +263,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>),
     sessions,
   );
-  const sessionDurationBuckets = buildSessionDurationBuckets(sessions);
+  const sessionQuality = buildSessionQualityReport(sessions, { includeAutomated, engagementThresholdMs: defaultSessionEngagementThresholdMs });
   const timedDurationSeconds = sessions.flatMap((session) => session.total_session_duration_milliseconds == null ? [] : [Math.max(0, Number(session.total_session_duration_milliseconds) / 1000)]).sort((left, right) => left - right);
   const timingDiagnostics = {
     available: timedDurationSeconds.length,
@@ -293,7 +296,6 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {});
   const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
-  const totalSpend = source === "all" ? report.totals.spendCents : Number(spendBySource[source] ?? 0);
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to, spendBySource.google_ads ?? null);
   const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: report.totals.revenueCents, roas: report.totals.roas });
   const aggregatedStepCounts = new Map<string, number>();
@@ -498,7 +500,60 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="workspace-panel">
       <header><div><h2>Time on site</h2><p>Active time while the page was visible and in use during the selected period.</p></div></header>
-      <div className="marketing-sources-table"><div><b>Session length</b><b>Sessions</b></div>{sessionDurationBuckets.map((bucket)=><div key={bucket.key}><span>{bucket.label}</span><span>{bucket.count}</span></div>)}</div>
+      <div className="marketing-session-quality-header">
+        <div className="marketing-session-quality-metrics">
+          <article><span>Total sessions</span><strong>{sessionQuality.visibleSessions}</strong><small>{includeAutomated ? `${sessionQuality.totalSessions} including likely automated traffic` : "Likely automated traffic excluded from the metrics below"}</small></article>
+          <article><span>Engaged sessions</span><strong>{sessionQuality.engagedSessions}</strong><small>Meaningful interaction, another page, or at least {Math.round(defaultSessionEngagementThresholdMs / 1000)} seconds of active time.</small></article>
+          <article><span>Quick exits</span><strong>{sessionQuality.quickExits}</strong><small>Short likely-human visits with no meaningful interaction and no second page view.</small></article>
+          <article><span>Likely automated sessions</span><strong>{sessionQuality.likelyAutomatedSessions}</strong><small>Classified from crawler, preview, and prefetch signals.</small></article>
+          <article><span>Median active session duration</span><strong>{ms(sessionQuality.medianActiveSessionDurationMs)}</strong><small>Visible-tab active time only.</small></article>
+          <article><span>Median time to first interaction</span><strong>{ms(sessionQuality.medianTimeToFirstInteractionMs)}</strong><small>How quickly visitors first click, tap, start a form, or begin booking.</small></article>
+        </div>
+        <form className="marketing-session-quality-toggle" method="get">
+          <input type="hidden" name="from" value={reportFromDate} />
+          <input type="hidden" name="to" value={reportToDate} />
+          <input type="hidden" name="source" value={source} />
+          <input type="hidden" name="month" value={selectedMonth} />
+          <input type="hidden" name="date" value={selectedDate} />
+          <label><input type="checkbox" name="includeAutomated" value="1" defaultChecked={includeAutomated} /> Include likely automated traffic</label>
+          <button className="sv-button sv-secondary sv-small">Update</button>
+        </form>
+      </div>
+      <div className="marketing-session-insight-card">
+        <div>
+          <span className="sv-kicker">Servonas insight</span>
+          <strong>{sessionQuality.primaryInsight ?? "Visitors are generating a usable mix of engagement data. Use the buckets below to see where short sessions are coming from."}</strong>
+          {sessionQuality.supportingObservation ? <p>{sessionQuality.supportingObservation}</p> : null}
+        </div>
+      </div>
+      <div className="marketing-session-bucket-list">
+        {sessionQuality.buckets.map((bucket) => <details className="marketing-session-bucket" key={bucket.key}>
+          <summary>
+            <span><strong>{bucket.label}</strong><small>{bucket.count} sessions · {Math.round(bucket.percentage * 100)}%</small></span>
+            <small>{bucket.automatedCount ? `Likely automated traffic: ${bucket.automatedCount}` : "View details"}</small>
+          </summary>
+          <div className="marketing-session-bucket-detail">
+            <div className="marketing-session-bucket-grid">
+              <article><h3>Source breakdown</h3><div className="marketing-conversion-list">{bucket.sourceBreakdown.length ? bucket.sourceBreakdown.map((entry) => <div key={entry.key}><dt>{entry.label}</dt><dd>{entry.count} · {Math.round(entry.percentage * 100)}%</dd></div>) : <div><dt>No attribution yet</dt><dd>These sessions do not have enough source data yet.</dd></div>}</div></article>
+              <article><h3>Landing pages</h3><div className="marketing-conversion-list">{bucket.landingPages.length ? bucket.landingPages.map((entry) => <div key={entry.path}><dt>{entry.path}</dt><dd>{entry.count}</dd></div>) : <div><dt>No landing pages</dt><dd>Historical sessions are missing landing-page detail.</dd></div>}</div></article>
+              <article><h3>Device mix</h3><div className="marketing-conversion-list">{bucket.deviceBreakdown.length ? bucket.deviceBreakdown.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.count} · {Math.round(entry.percentage * 100)}%</dd></div>) : <div><dt>Unknown</dt><dd>No device detail yet.</dd></div>}</div></article>
+              <article><h3>Campaigns</h3><div className="marketing-conversion-list">{bucket.campaignBreakdown.length ? bucket.campaignBreakdown.map((entry) => <div key={`${entry.name}-${entry.campaignId ?? "none"}-${entry.source}`}><dt>{entry.name}</dt><dd>{entry.source}{entry.campaignId ? ` · ${entry.campaignId}` : ""} · {entry.count}</dd></div>) : <div><dt>No campaign detail</dt><dd>Campaign values appear when UTM or click-id data is available.</dd></div>}</div></article>
+            </div>
+            {bucket.insight ? <div className="marketing-session-bucket-note"><strong>{bucket.insight}</strong>{bucket.observation ? <p>{bucket.observation}</p> : null}</div> : null}
+            <details className="marketing-session-table-wrap">
+              <summary>View sessions</summary>
+              <div className="marketing-session-table">
+                <div><b>Timestamp</b><b>Source</b><b>Campaign</b><b>Landing page</b><b>Device</b><b>Browser</b><b>Session length</b><b>Time to first interaction</b><b>First interaction</b><b>Pages viewed</b><b>Engagement</b><b>Automated</b></div>
+                {bucket.details.map((detail) => <div key={detail.id}><span>{detail.startedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short", timeZone: business.timezone }).format(new Date(detail.startedAt)) : "—"}</span><span>{detail.sourceLabel}</span><span>{detail.campaignName ?? detail.campaignId ?? "—"}</span><span>{detail.landingPage}</span><span>{detail.device}</span><span>{detail.browser}</span><span>{ms(detail.sessionLengthMs)}</span><span>{ms(detail.timeToFirstInteractionMs)}</span><span>{detail.firstInteractionLabel ?? detail.firstInteraction ?? "—"}</span><span>{detail.pagesViewed}</span><span>{detail.engagementClassification.replaceAll("_", " ")}</span><span>{detail.automatedClassification.replaceAll("_", " ")}</span></div>)}
+              </div>
+            </details>
+          </div>
+        </details>)}
+      </div>
+      <div className="marketing-session-landing-panel">
+        <header><div><h3>Landing page performance</h3><p>See whether the homepage or a specific landing page is driving engagement, quick exits, and CTA clicks.</p></div></header>
+        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>Engaged</b><b>Quick exits</b><b>Avg active time</b><b>CTA interaction rate</b></div>{sessionQuality.landingPagePerformance.map((row) => <div key={row.path}><span>{row.path}</span><span>{row.sessions}</span><span>{row.engaged}</span><span>{row.quickExits}</span><span>{ms(row.avgActiveTimeMs)}</span><span>{Math.round(row.ctaInteractionRate * 100)}%</span></div>)}</div>
+      </div>
     </section>
 
     <section className="workspace-panel marketing-sources-panel">

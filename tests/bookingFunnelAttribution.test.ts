@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,buildSessionDurationBuckets,buildSourcePerformanceReport,normalizeMarketingSource} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,normalizeMarketingSource,sessionEngagementClassification} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -161,6 +161,43 @@ test("groups active session duration into readable time-on-site buckets",()=>{
   {id:"s4",total_session_duration_milliseconds:12_000},
  ]);
  assert.deepEqual(buckets.map((bucket)=>bucket.count),[1,1,1,1,1]);
+});
+
+test("visitor arriving from Meta who clicks Book Now within 700ms is engaged, not a quick exit",()=>{
+ const report=buildSessionQualityReport([
+  {id:"s1",utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click",first_landing_path:"/",device_type:"mobile",browser:"safari",total_session_duration_milliseconds:700,time_to_first_interaction_milliseconds:700,first_interaction_type:"booking_cta_click",first_interaction_label:"Book Now",meaningful_interaction_count:1,page_count:1,automated_classification:"human_likely"},
+ ]);
+ assert.equal(report.engagedSessions,1);
+ assert.equal(report.quickExits,0);
+ assert.equal(report.buckets.find((bucket)=>bucket.key==="under_1_second")?.details[0]?.engagementClassification,"engaged");
+});
+
+test("short human-like Meta visit with no action is classified as a quick exit",()=>{
+ const report=buildSessionQualityReport([
+  {id:"s1",utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click",first_landing_path:"/",device_type:"mobile",browser:"safari",total_session_duration_milliseconds:600,page_count:1,meaningful_interaction_count:0,automated_classification:"human_likely"},
+ ]);
+ assert.equal(report.engagedSessions,0);
+ assert.equal(report.quickExits,1);
+ assert.equal(report.buckets.find((bucket)=>bucket.key==="under_1_second")?.details[0]?.engagementClassification,"quick_exit");
+});
+
+test("Facebook link-preview crawler is classified as automated_likely",()=>{
+ assert.equal(automatedTrafficClassification({id:"crawler",browser:"other",automated_classification:"automated_likely",total_session_duration_milliseconds:0}),"automated_likely");
+});
+
+test("session-quality report preserves first-touch attribution after navigation and can exclude automated sessions",()=>{
+ const report=buildSessionQualityReport([
+  {id:"meta-human",utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click",first_landing_path:"/",last_path:"/booking",device_type:"mobile",browser:"safari",total_session_duration_milliseconds:1800,page_count:2,time_to_first_interaction_milliseconds:700,first_interaction_type:"booking_cta_click",meaningful_interaction_count:1,automated_classification:"human_likely"},
+  {id:"meta-preview",utm_source:"facebook",fbclid:"meta-preview",first_landing_path:"/",device_type:"desktop",browser:"other",total_session_duration_milliseconds:200,page_count:1,automated_classification:"automated_likely"},
+ ],{includeAutomated:false});
+ assert.equal(report.visibleSessions,1);
+ assert.equal(report.totalSessions,2);
+ assert.equal(report.buckets.find((bucket)=>bucket.key==="one_to_four_seconds")?.sourceBreakdown[0]?.label,"Meta Ads");
+ assert.equal(report.landingPagePerformance[0]?.path,"/");
+});
+
+test("session engagement classification stays neutral for historical rows missing new fields",()=>{
+ assert.equal(sessionEngagementClassification({id:"historic",total_session_duration_seconds:0,page_count:0}),"neutral");
 });
 
 test("replayed completion events do not double-count one persisted booking",()=>{

@@ -10,7 +10,7 @@ type GoogleBusinessRequestContext={googleBusinessOperationId:string;stage:string
 type GoogleBusinessDiscoveryContext={googleBusinessOperationId:string;businessId:string;actorUserId:string;stage:string;force?:boolean;businessName:string};
 type GoogleBusinessDiscoveryCacheEntry={expiresAt:number;result:GoogleBusinessDiscoveryResult};
 type GoogleBusinessDiscoveryPersistInput={businessId:string;connectedBy:string;refreshToken:string;status:GoogleBusinessConnectionStatus;googleAccountId?:string|null;googleLocationId?:string|null;locationTitle?:string|null;lastDiscoveryAttemptAt?:string|null;lastDiscoverySuccessAt?:string|null;retryAfterAt?:string|null;lastDiscoveryErrorCode?:string|null;lastDiscoveryErrorMessage?:string|null;};
-export type GoogleBusinessPersistenceMetadata={persistenceType:"supabase";tableName:"business_google_profile_connections";endpointPath:"/rest/v1/business_google_profile_connections";method:"POST";operation:"upsert";conflictKey:"business_id";httpStatus:number|null;databaseErrorCode:string|null;safeErrorMessage:string;};
+export type GoogleBusinessPersistenceMetadata={persistenceType:"supabase";tableName:"business_google_profile_connections";endpointPath:"/rest/v1/business_google_profile_connections";method:"GET"|"POST";operation:"select"|"upsert";conflictKey:"business_id";httpStatus:number|null;databaseErrorCode:string|null;safeErrorMessage:string;};
 
 export class GoogleBusinessTokenExchangeError extends Error {
  constructor(message:string,readonly httpStatus:number,readonly googleErrorCode:string|null){super(message);this.name="GoogleBusinessTokenExchangeError";}
@@ -28,6 +28,7 @@ export type GoogleProfileReview={reviewId:string;author:string;authorUri:string|
 export type GoogleProfileReviews={rating:number;reviewCount:number;reviews:GoogleProfileReview[]};
 export type GoogleBusinessLocationMatch={accountId:string;locationId:string;title:string};
 export type GoogleBusinessDiscoveryResult={status:GoogleBusinessConnectionStatus;location:GoogleBusinessLocationMatch|null;locations:GoogleBusinessLocationMatch[];rateLimited:boolean;retryAfter:string|null;userMessage:string;duplicateAccountRequests:number;accountManagementCalls:number;businessInformationCalls:number;retries:number;};
+export type GoogleBusinessRediscoveryResult={ok:boolean;status:GoogleBusinessConnectionStatus;rateLimited:boolean;retryAfter:string|null;userMessage:string;locationTitle:string|null;locationCount:number;};
 
 const credentials=()=>({clientId:process.env.GOOGLE_BUSINESS_CLIENT_ID?.trim(),clientSecret:process.env.GOOGLE_BUSINESS_CLIENT_SECRET?.trim()});
 export const googleBusinessRedirectUri=()=>`${(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"")}/api/google-business/callback`;
@@ -101,6 +102,10 @@ export async function persistGoogleBusinessConnection(input:GoogleBusinessDiscov
  if(error)throw new GoogleBusinessPersistenceError(safePersistenceMessage(error),{persistenceType,tableName:persistenceResourceName,endpointPath:persistenceEndpointPath,method:persistenceMethod,operation:persistenceOperation,conflictKey:persistenceConflictKey,httpStatus:persistenceStatus(error),databaseErrorCode:databaseErrorCode(error),safeErrorMessage:safePersistenceMessage(error)});
 }
 
+export async function refreshGoogleBusinessAccessToken(refreshToken:string){
+ return refreshAccessToken(refreshToken);
+}
+
 async function listGoogleBusinessLocationsUncached(accessToken:string,context:GoogleBusinessDiscoveryContext){
  const requestCounter={current:0};
  let duplicateAccountRequests=0;
@@ -156,6 +161,28 @@ export async function discoverGoogleBusinessLocations(accessToken:string,input:G
  })();
  discoveryInflight.set(key,work);
  return work;
+}
+
+export async function retryGoogleBusinessLocationDiscovery(input:{businessId:string;businessName:string;actorUserId:string;connectedBy:string;googleBusinessOperationId:string;force?:boolean;}):Promise<GoogleBusinessRediscoveryResult>{
+ const db=getSupabaseAdmin();if(!db)throw new Error("Google connection storage is unavailable.");
+ const {data:connection,error}=await db.from("business_google_profile_connections").select("refresh_token,status,retry_after_at").eq("business_id",input.businessId).maybeSingle();
+ if(error)throw new GoogleBusinessPersistenceError(safePersistenceMessage(error),{persistenceType,tableName:persistenceResourceName,endpointPath:persistenceEndpointPath,method:"GET",operation:"select",conflictKey:persistenceConflictKey,httpStatus:persistenceStatus(error),databaseErrorCode:databaseErrorCode(error),safeErrorMessage:safePersistenceMessage(error)});
+ if(!connection?.refresh_token)throw new Error("Reconnect Google Business Profile before retrying account discovery.");
+ const retryAfterAt=typeof connection.retry_after_at==="string"?connection.retry_after_at:null;
+ if(!input.force&&retryAfterAt&&new Date(retryAfterAt).getTime()>Date.now())return{ok:false,status:connection.status??"account_discovery_rate_limited",rateLimited:true,retryAfter:retryAfterAt,userMessage:"Google temporarily limited account lookup. Try again after the retry time shown below.",locationTitle:null,locationCount:0};
+ const accessToken=await refreshAccessToken(connection.refresh_token);
+ const discovery=await discoverGoogleBusinessLocations(accessToken,{googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,actorUserId:input.actorUserId,stage:"account_discovery_retry",businessName:input.businessName,force:input.force});
+ const now=new Date().toISOString();
+ if(discovery.rateLimited){
+  await persistGoogleBusinessConnection({businessId:input.businessId,connectedBy:input.connectedBy,refreshToken:connection.refresh_token,status:"account_discovery_rate_limited",lastDiscoveryAttemptAt:now,retryAfterAt:discovery.retryAfter,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage});
+  return{ok:false,status:"account_discovery_rate_limited",rateLimited:true,retryAfter:discovery.retryAfter,userMessage:discovery.userMessage,locationTitle:null,locationCount:discovery.locations.length};
+ }
+ if(!discovery.location){
+  await persistGoogleBusinessConnection({businessId:input.businessId,connectedBy:input.connectedBy,refreshToken:connection.refresh_token,status:"account_discovery_pending",lastDiscoveryAttemptAt:now,retryAfterAt:null,lastDiscoveryErrorCode:"location_selection_pending",lastDiscoveryErrorMessage:discovery.userMessage});
+  return{ok:false,status:"account_discovery_pending",rateLimited:false,retryAfter:null,userMessage:discovery.userMessage,locationTitle:null,locationCount:discovery.locations.length};
+ }
+ await persistGoogleBusinessConnection({businessId:input.businessId,connectedBy:input.connectedBy,refreshToken:connection.refresh_token,status:"connected",googleAccountId:discovery.location.accountId,googleLocationId:discovery.location.locationId,locationTitle:discovery.location.title,lastDiscoveryAttemptAt:now,lastDiscoverySuccessAt:now,retryAfterAt:null,lastDiscoveryErrorCode:null,lastDiscoveryErrorMessage:null});
+ return{ok:true,status:"connected",rateLimited:false,retryAfter:null,userMessage:`Google Business Profile connected: ${discovery.location.title}`,locationTitle:discovery.location.title,locationCount:discovery.locations.length};
 }
 
 const stars:Record<string,number>={ONE:1,TWO:2,THREE:3,FOUR:4,FIVE:5};
