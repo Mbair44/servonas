@@ -1,6 +1,9 @@
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
-type TokenResponse={access_token?:string;refresh_token?:string;error?:string;error_description?:string};
+type TokenResponse={access_token?:string;refresh_token?:string;expires_in?:number;token_type?:string;scope?:string;error?:string;error_description?:string};
+export class GoogleBusinessTokenExchangeError extends Error {
+ constructor(message:string,readonly httpStatus:number,readonly googleErrorCode:string|null){super(message);this.name="GoogleBusinessTokenExchangeError";}
+}
 type GoogleLocation={name?:string;title?:string};
 export type GoogleProfileReview={reviewId:string;author:string;authorUri:string|null;rating:number;text:string;publishedAt:string|null;reply:string|null;replyUpdatedAt:string|null};
 export type GoogleProfileReviews={rating:number;reviewCount:number;reviews:GoogleProfileReview[]};
@@ -10,7 +13,7 @@ export const googleBusinessRedirectUri=()=>`${(process.env.NEXT_PUBLIC_APP_URL||
 
 async function tokenRequest(params:URLSearchParams){
  const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:params,cache:"no-store"});
- const result=await response.json() as TokenResponse;if(!response.ok||!result.access_token)throw new Error(result.error_description||result.error||"Google authorization failed.");return result;
+ const result=await response.json() as TokenResponse;if(!response.ok||!result.access_token)throw new GoogleBusinessTokenExchangeError(result.error_description||result.error||"Google authorization failed.",response.status,result.error||null);return result;
 }
 export async function exchangeGoogleBusinessCode(code:string){const {clientId,clientSecret}=credentials();if(!clientId||!clientSecret)throw new Error("Google Business OAuth is not configured.");return tokenRequest(new URLSearchParams({code,client_id:clientId,client_secret:clientSecret,redirect_uri:googleBusinessRedirectUri(),grant_type:"authorization_code"}));}
 async function refreshAccessToken(refreshToken:string){const {clientId,clientSecret}=credentials();if(!clientId||!clientSecret)throw new Error("Google Business OAuth is not configured.");return (await tokenRequest(new URLSearchParams({refresh_token:refreshToken,client_id:clientId,client_secret:clientSecret,grant_type:"refresh_token"}))).access_token!;}
