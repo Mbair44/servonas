@@ -8,6 +8,7 @@ import {
  fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
+ fetchGoogleAdsAdGroupTotals,
   fetchGoogleAdsSearchTerms,
   checkGoogleAdsBusinessIssues,
   logGoogleAdsKeywordReviewStage,
@@ -463,6 +464,7 @@ let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleA
 let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
 let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>();
  let campaignHealthSnapshotsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignHealthSnapshots>>[number]>();
+ let adGroupTotalsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsAdGroupTotals>>>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
  let locationsError: string | null = null;
  let healthError: string | null = null;
@@ -519,6 +521,18 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
     } catch (error) {
      healthError = error instanceof Error ? error.message : "Campaign health details could not be loaded.";
     }
+    try {
+     const adGroupTotals = await fetchGoogleAdsAdGroupTotals({
+      accessToken: connectionAccess.accessToken,
+      customerId: connectionAccess.customerId,
+      campaignIds: publishedIds,
+      dateFrom: from,
+      dateTo: to,
+      loginCustomerId: connectionAccess.loginCustomerId,
+      businessId: business.id,
+     });
+     adGroupTotalsByCampaignId = new Map(publishedIds.map((id) => [id, adGroupTotals.filter((row) => row.campaignId === id)]));
+    } catch {}
     try {
      topSearchTerms = await fetchGoogleAdsSearchTerms({
       accessToken: connectionAccess.accessToken,
@@ -1113,7 +1127,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
   <section className="marketing-secondary-grid">
    <article className="google-ads-search-workspaces">
     {searchTermsError && <div className="workspace-notice warning">Search terms are temporarily unavailable. {searchTermsError}</div>}
-    {publishedCampaigns.map((campaign: any) => { const review = searchTermReviewsByCampaignId.get(campaign.id) ?? null; return <GoogleAdsSearchTermsWorkspace key={campaign.id} businessSlug={businessSlug} campaignId={campaign.id} campaignName={campaign.campaign_name} terms={topSearchTerms.filter((term) => term.campaignId === String(campaign.google_campaign_id))} review={review ? { summary: review.summary, terms: review.terms, createdAt: review.createdAt ?? "", dateFrom: review.dateFrom ?? from, dateTo: review.dateTo ?? to } : null} alreadyExcluded={[...items(campaign.negative_keywords), ...(review?.negatives ?? [])]} dateFrom={from} dateTo={to} />; })}
+    {publishedCampaigns.map((campaign: any) => { const review = searchTermReviewsByCampaignId.get(campaign.id) ?? null; return <GoogleAdsSearchTermsWorkspace key={campaign.id} businessSlug={businessSlug} campaignId={campaign.id} campaignName={campaign.campaign_name} terms={topSearchTerms.filter((term) => term.campaignId === String(campaign.google_campaign_id))} adGroupTotals={adGroupTotalsByCampaignId.get(String(campaign.google_campaign_id)) ?? []} review={review ? { summary: review.summary, terms: review.terms, createdAt: review.createdAt ?? "", dateFrom: review.dateFrom ?? from, dateTo: review.dateTo ?? to } : null} alreadyExcluded={[...items(campaign.negative_keywords), ...(review?.negatives ?? [])]} dateFrom={from} dateTo={to} />; })}
     {!publishedCampaigns.length && <section className="workspace-panel google-ads-search-workspace"><h2>Search terms</h2><div className="google-ads-compact-empty"><strong>Search terms are not ready yet.</strong><p>Publish a campaign and wait for Google to record traffic.</p></div></section>}
    </article>
    <article className="workspace-panel">
