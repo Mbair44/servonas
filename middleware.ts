@@ -28,9 +28,9 @@ export async function middleware(request:NextRequest){
     ?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`
     :path==="/booking"
      ?`/sites/domain/${encodeURIComponent(hostname)}/booking`
-     :path==="/booking/checkout"
+      :path==="/booking/checkout"
       ?`/sites/domain/${encodeURIComponent(hostname)}/booking/checkout`
-      :`/sites/domain/${encodeURIComponent(hostname)}`;
+      :`/sites/domain/${encodeURIComponent(hostname)}${path}`;
   return NextResponse.rewrite(destination,{request:{headers:bareShellHeaders}});
  }
  const requestHeaders=new Headers(request.headers);
