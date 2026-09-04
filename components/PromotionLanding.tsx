@@ -1,0 +1,9 @@
+import Link from "next/link";
+import {promotionStatus} from "@/lib/promotions";
+const money=(value:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(value/100);
+export function PromotionLanding({promotion,business,items,baseBookingUrl}:{promotion:any;business:any;items:any[];baseBookingUrl:string}){
+ const status=promotionStatus({...promotion,...promotion.discounts},Number(promotion.redemption_count??0));const sold=status==="sold_out"||status==="expired";
+ const discount=promotion.discounts,offer=discount.discount_type==="percentage"?`${discount.discount_value/100}% off`:money(discount.discount_value)+" off";
+ const url=`${baseBookingUrl}?promotion=${encodeURIComponent(discount.code)}`;
+ return <main className="public-booking" style={{"--booking-brand":business.primary_color??"#1769f5"} as React.CSSProperties}><section className="public-booking-card"><small>Limited-time offer from {business.name}</small><h1>{sold?"This offer has been claimed.":promotion.headline}</h1><p>{sold?"Browse available rentals and find the right fit for your event.":promotion.subheadline}</p>{!sold&&<Link className="sv-button" href={url}>{promotion.cta_text}</Link>}<h2>{sold?"Available rentals":`Eligible rentals: ${offer}`}</h2><div className="discount-grid">{items.map(item=><article className="workspace-panel" key={item.id}>{item.image_url&&<img src={item.image_url} alt=""/>}<strong>{item.name}</strong><span>{money(item.daily_price_cents)}</span>{!sold&&<Link href={`${url}&item=${item.id}`}>Choose this rental</Link>}</article>)}</div><h2>Promotion details</h2><p>{promotion.terms||"Discount applies only to eligible rentals. Taxes, delivery, setup, and unrelated add-ons are excluded unless stated otherwise."}</p>{promotion.status==="active"&&discount.usage_limit!=null&&<p><b>{Math.max(0,discount.usage_limit-Number(promotion.redemption_count??0))}</b> promotional spots remaining.</p>}</section></main>;
+}

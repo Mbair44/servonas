@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import {calculatePromotion,promotionStatus} from "../lib/promotions.ts";
+const rule:any={id:"d",business_id:"b",name:"Launch",code:"LAUNCH50",discount_type:"percentage",discount_value:5000,applies_to:"selected_items",minimum_subtotal_cents:null,starts_at:null,expires_at:null,usage_limit:5,per_customer_limit:1,first_time_customer_only:false,is_active:true};
+test("category promotion discounts one qualifying rental, never unrelated items",()=>{const r=calculatePromotion(rule,[{id:"bounce",quantity:2,unitPriceCents:20000},{id:"chair",quantity:1,unitPriceCents:5000}],new Set(["bounce"]),1);assert.equal(r.ok&&r.discountCents,10000);});
+test("promotion status becomes expired or sold out",()=>{assert.equal(promotionStatus({...rule,status:"active",expires_at:"2020-01-01"},0,new Date("2021-01-01")),"expired");assert.equal(promotionStatus({...rule,status:"active"},5),"sold_out");});
