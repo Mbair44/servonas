@@ -3,7 +3,7 @@ import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
 import {createSupabaseServerClient} from "@/lib/supabaseServer";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {discoverGoogleBusinessLocations,exchangeGoogleBusinessCode,GoogleBusinessApiError,GoogleBusinessPersistenceError,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,persistGoogleBusinessConnection} from "@/lib/googleBusinessProfile";
+import {discoverGoogleBusinessLocations,exchangeGoogleBusinessCode,GoogleBusinessApiError,GoogleBusinessPersistenceError,GoogleBusinessTokenExchangeError,googleBusinessRedirectUri,nextGoogleBusinessDiscoveryRetry,persistGoogleBusinessConnection} from "@/lib/googleBusinessProfile";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {canManageBusiness,managementAuthorizationSource} from "@/lib/access";
 import {platformAdminRole} from "@/lib/platformAccess";
@@ -93,9 +93,10 @@ export async function GET(request:Request){
   const {data:business}=await db.from("businesses").select("name").eq("id",saved.businessId).maybeSingle();
   const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??""});
   if(discovery.rateLimited){
-   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",lastDiscoveryAttemptAt:new Date().toISOString(),retryAfterAt:discovery.retryAfter,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage});
-   log("google_business_account_discovery_deferred",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId,status:"account_discovery_rate_limited",retryAfter:discovery.retryAfter,accountManagementCalls:discovery.accountManagementCalls,businessInformationCalls:discovery.businessInformationCalls});
-   const redirectDestination=destination(saved.businessSlug,"success","Google Business connected, but Google temporarily limited account lookup. Try again shortly without reconnecting.");
+   const retry=nextGoogleBusinessDiscoveryRetry(1,discovery.retryAfter,discovery.retryInfoSeconds);
+   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",lastDiscoveryAttemptAt:new Date().toISOString(),retryAfterAt:retry.at,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage,discoveryRetryAttemptCount:1,discoveryOperationId:callbackId,discoveryRetrySource:retry.source,discoveryDiagnostics:discovery.diagnostics});
+   log("google_business_account_discovery_deferred",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId,status:"account_discovery_rate_limited",retryAfter:retry.at,retrySource:retry.source,accountManagementCalls:discovery.accountManagementCalls,businessInformationCalls:discovery.businessInformationCalls,...discovery.diagnostics});
+   const redirectDestination=destination(saved.businessSlug,"success","Google Business is connected. Google is temporarily limiting account requests, so Servonas will retry later.");
    log("google_business_callback_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug,tokenExchangeCompleted:true,credentialsPersisted:true,accountDiscoveryCompleted:false,redirectDestination:redirectDestination.pathname});
    return redirect({stage:"account_discovery",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
   }
