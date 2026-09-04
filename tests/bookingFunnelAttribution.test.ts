@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,normalizeMarketingSource,sessionEngagementClassification} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,normalizeMarketingSource,normalizeSessionAttribution,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -29,6 +29,17 @@ test("normalizes fbclid-backed Meta visits even when referrer is missing",()=>{
  assert.equal(normalizeMarketingSource({fbclid:"meta-click-1"}),"facebook");
  assert.equal(normalizeMarketingSource({fbclid:"meta-click-1",utm_source:"instagram"}),"instagram");
  assert.equal(normalizeMarketingSource({utm_source:"fb",utm_medium:"paid"}),"facebook");
+});
+
+test("normalizes Meta attribution into human-readable hierarchy fields",()=>{
+ const normalized=normalizeSessionAttribution({utm_source:"fb",utm_medium:"paid_social",utm_campaign:"Holiday Leads",utm_term:"Phoenix Ad Set | Carousel Ad",utm_content:"2381 | 4477",utm_id:"9911",fbclid:"meta-click",first_landing_url:"https://example.com/?fbclid=meta-click"});
+ assert.equal(normalized.providerLabel,"Meta Ads");
+ assert.equal(normalized.platformLabel,"Facebook");
+ assert.equal(normalized.channelLabel,"Paid Social");
+ assert.equal(normalized.campaignName,"Holiday Leads");
+ assert.equal(normalized.campaignId,"9911");
+ assert.equal(normalized.adSetName,"Phoenix Ad Set");
+ assert.equal(normalized.adName,"Carousel Ad");
 });
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{
@@ -192,12 +203,19 @@ test("session-quality report preserves first-touch attribution after navigation 
  ],{includeAutomated:false});
  assert.equal(report.visibleSessions,1);
  assert.equal(report.totalSessions,2);
+ assert.equal(report.verifiedSessions,1);
+ assert.equal(report.unverifiedSessions,0);
  assert.equal(report.buckets.find((bucket)=>bucket.key==="one_to_four_seconds")?.sourceBreakdown[0]?.label,"Meta Ads");
  assert.equal(report.landingPagePerformance[0]?.path,"/");
+ assert.equal(report.landingPagePerformance[0]?.trafficSources[0]?.label,"Meta Ads");
 });
 
 test("session engagement classification stays neutral for historical rows missing new fields",()=>{
  assert.equal(sessionEngagementClassification({id:"historic",total_session_duration_seconds:0,page_count:0}),"neutral");
+});
+
+test("historical rows without timing stay unverified instead of becoming fake zero-length sessions",()=>{
+ assert.equal(verificationStatusForSession({id:"historic",total_session_duration_seconds:0,page_count:1}),"unverified_activity");
 });
 
 test("replayed completion events do not double-count one persisted booking",()=>{

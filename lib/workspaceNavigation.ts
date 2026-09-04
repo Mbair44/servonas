@@ -37,6 +37,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
    {id:"discounts",label:"Discounts",href:`${base}/marketing/discounts`},
    {id:"google-ads",label:"Google Ads",href:`${base}/marketing/google-ads`},
    {id:"meta-ads",label:"Meta Ads",href:`${base}/marketing/meta-ads`},
+   {id:"seo",label:"Local SEO",href:`${base}/marketing/seo`},
   ]},
   {id:"workforce",label:"Workforce",children:[
    {id:"team",label:"Team",href:`${base}/team`},

@@ -108,8 +108,11 @@ export type SessionDurationBucket={key:"timing_unavailable"|"under_1_second"|"on
 export type SessionQualitySource="meta_ads"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
 export type SessionEngagementClassification="engaged"|"quick_exit"|"neutral";
 export type AutomatedTrafficClassification="human_likely"|"automated_likely"|"unknown";
-export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;};
-export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;source:string;count:number}>;insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number}>;primaryInsight:string|null;supportingObservation:string|null;};
+export type SessionVerificationStatus="verified_activity"|"unverified_activity";
+export type AttributionBreakdownEntry={label:string;count:number;};
+export type SessionAttributionBreakdown={providerLabel:string;platformLabel:string|null;channelLabel:string|null;campaignName:string|null;campaignId:string|null;adSetName:string|null;adSetId:string|null;adName:string|null;adId:string|null;rawUtmSource:string|null;rawUtmMedium:string|null;rawUtmCampaign:string|null;rawUtmTerm:string|null;rawUtmContent:string|null;rawUtmId:string|null;fbclid:string|null;gclid:string|null;gbraid:string|null;wbraid:string|null;rawLandingUrl:string|null;};
+export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;verificationStatus:SessionVerificationStatus;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;attribution:SessionAttributionBreakdown;};
+export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;verifiedSessions:number;unverifiedSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;source:string;count:number}>;verificationBreakdown:AttributionBreakdownEntry[];insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number;trafficSources:AttributionBreakdownEntry[];campaigns:AttributionBreakdownEntry[];devices:AttributionBreakdownEntry[];}>;primaryInsight:string|null;supportingObservation:string|null;};
 
 export const defaultSessionEngagementThresholdMs=10_000;
 const quickExitThresholdMs=5_000;
@@ -299,6 +302,131 @@ function deviceLabel(session:AttributionSessionMetricsRow){
  return "Unknown";
 }
 
+function verifiedActivity(session:AttributionSessionMetricsRow){
+ return session.total_session_duration_milliseconds != null
+  || (session.total_session_duration_seconds != null && Number(session.total_session_duration_seconds) > 0)
+  || session.duration_source === "heartbeat"
+  || session.duration_source === "final_flush"
+  || Boolean(session.duration_final_flush_received);
+}
+
+export function verificationStatusForSession(session:AttributionSessionMetricsRow):SessionVerificationStatus{
+ return verifiedActivity(session) ? "verified_activity" : "unverified_activity";
+}
+
+function normalizePathname(value:string){
+ const trimmed=value.trim();
+ if(!trimmed)return "/";
+ try{
+  const parsed=trimmed.startsWith("http://") || trimmed.startsWith("https://") ? new URL(trimmed) : new URL(trimmed, "https://servonas.local");
+  const pathname=parsed.pathname || "/";
+  return pathname === "/" ? "/" : pathname.replace(/\/+$/,"") || "/";
+ }catch{
+  const fallback=trimmed.split("#")[0]!.split("?")[0]!;
+  return fallback === "/" ? "/" : fallback.replace(/\/+$/,"") || "/";
+ }
+}
+
+function cleanCampaignToken(value:string|null|undefined){
+ return value?.trim() || null;
+}
+
+function splitMetaUtmTerm(value:string|null|undefined){
+ const tokens=(value?.split("|") ?? []).map((token)=>token.trim()).filter(Boolean);
+ return {adSetName:tokens[0] ?? null,adName:tokens[1] ?? null};
+}
+
+function splitMetaUtmContent(value:string|null|undefined){
+ const tokens=(value?.split("|") ?? []).map((token)=>token.trim()).filter(Boolean);
+ return {adSetId:tokens[0] ?? null,adId:tokens[1] ?? null};
+}
+
+export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_id?:string|null;first_landing_url?:string|null;}):SessionAttributionBreakdown{
+ const utmSource=cleanValue(session.utm_source).toLowerCase();
+ const utmMedium=cleanValue(session.utm_medium).toLowerCase();
+ const referrer=referrerHost(session.first_referrer);
+ const rawUtmSource=cleanCampaignToken(session.utm_source);
+ const rawUtmMedium=cleanCampaignToken(session.utm_medium);
+ const rawUtmCampaign=cleanCampaignToken(session.utm_campaign);
+ const rawUtmTerm=cleanCampaignToken(session.utm_term);
+ const rawUtmContent=cleanCampaignToken(session.utm_content);
+ const rawUtmId=cleanCampaignToken((session as {utm_id?:string|null}).utm_id);
+ const sourceLooksMeta=["fb","facebook","instagram","ig","meta"].includes(utmSource) || Boolean(cleanValue(session.fbclid)) || /facebook|instagram/.test(referrer);
+ const sourceLooksGoogle=Boolean(cleanValue(session.gclid) || cleanValue(session.gbraid) || cleanValue(session.wbraid)) || (utmSource==="google" && /(paid|cpc|ppc|search|display)/.test(utmMedium));
+ if(sourceLooksMeta){
+  const termParts=splitMetaUtmTerm(rawUtmTerm);
+  const contentParts=splitMetaUtmContent(rawUtmContent);
+  return {
+   providerLabel:"Meta Ads",
+   platformLabel:utmSource==="instagram" || utmSource==="ig" || /instagram/.test(referrer) ? "Instagram" : "Facebook",
+   channelLabel:utmMedium==="paid" || utmMedium==="paid_social" ? "Paid Social" : rawUtmMedium,
+   campaignName:rawUtmCampaign,
+   campaignId:rawUtmId,
+   adSetName:termParts.adSetName,
+   adSetId:contentParts.adSetId,
+   adName:termParts.adName,
+   adId:contentParts.adId,
+   rawUtmSource,
+   rawUtmMedium,
+   rawUtmCampaign,
+   rawUtmTerm,
+   rawUtmContent,
+   rawUtmId,
+   fbclid:cleanCampaignToken(session.fbclid),
+   gclid:cleanCampaignToken(session.gclid),
+   gbraid:cleanCampaignToken(session.gbraid),
+   wbraid:cleanCampaignToken(session.wbraid),
+   rawLandingUrl:cleanCampaignToken(session.first_landing_url),
+  };
+ }
+ if(sourceLooksGoogle){
+  return {
+   providerLabel:"Google Ads",
+   platformLabel:"Google",
+   channelLabel:utmMedium==="paid" || utmMedium==="cpc" || utmMedium==="ppc" ? "Paid Search" : rawUtmMedium,
+   campaignName:rawUtmCampaign,
+   campaignId:rawUtmId,
+   adSetName:null,
+   adSetId:null,
+   adName:rawUtmContent,
+   adId:null,
+   rawUtmSource,
+   rawUtmMedium,
+   rawUtmCampaign,
+   rawUtmTerm,
+   rawUtmContent,
+   rawUtmId,
+   fbclid:cleanCampaignToken(session.fbclid),
+   gclid:cleanCampaignToken(session.gclid),
+   gbraid:cleanCampaignToken(session.gbraid),
+   wbraid:cleanCampaignToken(session.wbraid),
+   rawLandingUrl:cleanCampaignToken(session.first_landing_url),
+  };
+ }
+ return {
+  providerLabel:sourceLabelForQuality(classifySessionQualitySource(session)),
+  platformLabel:null,
+  channelLabel:rawUtmMedium,
+  campaignName:rawUtmCampaign,
+  campaignId:rawUtmId,
+  adSetName:null,
+  adSetId:null,
+  adName:rawUtmContent,
+  adId:null,
+  rawUtmSource,
+  rawUtmMedium,
+  rawUtmCampaign,
+  rawUtmTerm,
+  rawUtmContent,
+  rawUtmId,
+  fbclid:cleanCampaignToken(session.fbclid),
+  gclid:cleanCampaignToken(session.gclid),
+  gbraid:cleanCampaignToken(session.gbraid),
+  wbraid:cleanCampaignToken(session.wbraid),
+  rawLandingUrl:cleanCampaignToken(session.first_landing_url),
+ };
+}
+
 export function classifySessionQualitySource(session:AttributionSessionLike&{utm_medium?:string|null}):SessionQualitySource{
  const utmSource=clean(session.utm_source);
  const utmMedium=clean(session.utm_medium);
@@ -361,6 +489,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   const automatedClassification=automatedTrafficClassification(session);
   const campaignName=cleanValue(session.utm_campaign) || null;
   const campaignId=cleanValue(session.utm_content) || null;
+  const attribution=normalizeSessionAttribution(session);
   return {
    id:session.id,
    startedAt:(session as {session_started_at?:string|null}).session_started_at ?? null,
@@ -368,16 +497,18 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
    campaignName,
    campaignId,
    sourceLabel:sourceLabelForQuality(source),
-   landingPage:cleanValue(session.first_landing_path) || "/",
+   landingPage:normalizePathname(cleanValue(session.first_landing_path) || "/"),
    device:deviceLabel(session),
    browser:cleanValue(session.browser) || "Unknown",
    sessionLengthMs:sessionDurationMs(session),
+   verificationStatus:verificationStatusForSession(session),
    timeToFirstInteractionMs:session.time_to_first_interaction_milliseconds == null ? null : Math.max(0, Number(session.time_to_first_interaction_milliseconds)),
    firstInteraction:cleanValue(session.first_interaction_type) || null,
    firstInteractionLabel:cleanValue(session.first_interaction_label) || null,
    pagesViewed:Math.max(0, Number(session.page_count ?? 0)),
    engagementClassification:sessionEngagementClassification(session,engagementThresholdMs),
    automatedClassification,
+   attribution,
   };
  });
  const visibleDetails=includeAutomated?details:details.filter((detail)=>detail.automatedClassification!=="automated_likely");
@@ -387,6 +518,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   const landingCounts=new Map<string,number>();
   const deviceCounts=new Map<string,number>();
   const campaignCounts=new Map<string,{name:string;campaignId:string|null;source:string;count:number}>();
+  const verificationCounts=new Map<string,number>();
   for(const detail of bucketDetails){
    sourceCounts.set(detail.source,(sourceCounts.get(detail.source) ?? 0)+1);
    landingCounts.set(detail.landingPage,(landingCounts.get(detail.landingPage) ?? 0)+1);
@@ -397,6 +529,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
     current.count+=1;
     campaignCounts.set(key,current);
    }
+   verificationCounts.set(detail.verificationStatus,(verificationCounts.get(detail.verificationStatus) ?? 0)+1);
   }
   const suggestion=bucketObservation(bucketDetails);
   return {
@@ -408,6 +541,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
    landingPages:[...landingCounts.entries()].map(([path,count])=>({path,count})).sort((left,right)=>right.count-left.count || left.path.localeCompare(right.path)).slice(0,6),
    deviceBreakdown:[...deviceCounts.entries()].map(([label,count])=>({label,count,percentage:bucketDetails.length?count/bucketDetails.length:0})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label)),
    campaignBreakdown:[...campaignCounts.values()].sort((left,right)=>right.count-left.count || left.name.localeCompare(right.name)).slice(0,6),
+   verificationBreakdown:[...verificationCounts.entries()].map(([label,count])=>({label:label==="verified_activity"?"Verified activity":"Unverified activity",count})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label)),
    insight:suggestion.insight,
    observation:suggestion.observation,
   };
@@ -415,15 +549,19 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
  const activeDurations=visibleDetails.flatMap((detail)=>detail.sessionLengthMs == null ? [] : [detail.sessionLengthMs]);
  const firstInteractionTimes=visibleDetails.flatMap((detail)=>detail.timeToFirstInteractionMs == null ? [] : [detail.timeToFirstInteractionMs]);
  const landingPagePerformance=[...visibleDetails.reduce((map,detail)=>{
-  const current=map.get(detail.landingPage) ?? {path:detail.landingPage,sessions:0,engaged:0,quickExits:0,totalDurationMs:0,durationCount:0,ctaCount:0};
+  const current=map.get(detail.landingPage) ?? {path:detail.landingPage,sessions:0,verifiedSessions:0,engaged:0,quickExits:0,totalDurationMs:0,durationCount:0,ctaCount:0,trafficSources:new Map<string,number>(),campaigns:new Map<string,number>(),devices:new Map<string,number>()};
   current.sessions+=1;
+  if(detail.verificationStatus==="verified_activity")current.verifiedSessions+=1;
   if(detail.engagementClassification==="engaged")current.engaged+=1;
   if(detail.engagementClassification==="quick_exit")current.quickExits+=1;
   if(detail.sessionLengthMs != null){current.totalDurationMs+=detail.sessionLengthMs;current.durationCount+=1;}
   if(/booking_cta_click|phone_click|sms_click|email_click|button_click/i.test(detail.firstInteraction ?? ""))current.ctaCount+=1;
+  current.trafficSources.set(detail.attribution.providerLabel,(current.trafficSources.get(detail.attribution.providerLabel) ?? 0)+1);
+  if(detail.attribution.campaignName)current.campaigns.set(detail.attribution.campaignName,(current.campaigns.get(detail.attribution.campaignName) ?? 0)+1);
+  current.devices.set(detail.device,(current.devices.get(detail.device) ?? 0)+1);
   map.set(detail.landingPage,current);
   return map;
- },new Map<string,{path:string;sessions:number;engaged:number;quickExits:number;totalDurationMs:number;durationCount:number;ctaCount:number}>()).values()].map((row)=>({path:row.path,sessions:row.sessions,engaged:row.engaged,quickExits:row.quickExits,avgActiveTimeMs:row.durationCount?Math.round(row.totalDurationMs/row.durationCount):null,ctaInteractionRate:row.sessions?row.ctaCount/row.sessions:0})).sort((left,right)=>right.sessions-left.sessions || left.path.localeCompare(right.path)).slice(0,8);
+ },new Map<string,{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;totalDurationMs:number;durationCount:number;ctaCount:number;trafficSources:Map<string,number>;campaigns:Map<string,number>;devices:Map<string,number>}>()).values()].map((row)=>({path:row.path,sessions:row.sessions,verifiedSessions:row.verifiedSessions,engaged:row.engaged,quickExits:row.quickExits,avgActiveTimeMs:row.durationCount?Math.round(row.totalDurationMs/row.durationCount):null,ctaInteractionRate:row.sessions?row.ctaCount/row.sessions:0,trafficSources:[...row.trafficSources.entries()].map(([label,count])=>({label,count})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label)),campaigns:[...row.campaigns.entries()].map(([label,count])=>({label,count})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label)),devices:[...row.devices.entries()].map(([label,count])=>({label,count})).sort((left,right)=>right.count-left.count || left.label.localeCompare(right.label))})).sort((left,right)=>right.sessions-left.sessions || left.path.localeCompare(right.path)).slice(0,8);
  const quickExitSessions=visibleDetails.filter((detail)=>detail.engagementClassification==="quick_exit");
  const automatedSessions=details.filter((detail)=>detail.automatedClassification==="automated_likely");
  let primaryInsight:string|null=null;
@@ -461,6 +599,8 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   includeAutomated,
   totalSessions:sessions.length,
   visibleSessions:visibleDetails.length,
+  verifiedSessions:visibleDetails.filter((detail)=>detail.verificationStatus==="verified_activity").length,
+  unverifiedSessions:visibleDetails.filter((detail)=>detail.verificationStatus==="unverified_activity").length,
   engagedSessions:visibleDetails.filter((detail)=>detail.engagementClassification==="engaged").length,
   quickExits:quickExitSessions.length,
   likelyAutomatedSessions:automatedSessions.length,

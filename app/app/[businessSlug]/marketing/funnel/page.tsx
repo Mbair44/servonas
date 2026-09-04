@@ -22,7 +22,7 @@ import { resolveAiInsights, buildPreviousPeriodReport } from "@/lib/aiInsights";
 
 const money = (cents: number | null) => cents == null ? "Ad spend not connected" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const percent = (value: number | null) => value == null ? "—" : `${Math.round(value * 100)}%`;
-const ms = (value: number | null) => value == null ? "—" : value < 1000 ? `${Math.round(value)}ms` : `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
+const ms = (value: number | null, unavailableLabel = "Active time unavailable") => value == null ? unavailableLabel : value < 1000 ? `${Math.round(value)}ms` : `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sourceOptions = ["all", ...marketingSources] as const;
 type SourceFilter = typeof sourceOptions[number];
@@ -185,6 +185,11 @@ function buildRentalItemAnalytics(events: FunnelEventRow[], bookingItems: Bookin
 
 function sourceLabel(source: SourceFilter) {
   return source === "all" ? "All traffic" : labelForSource(source);
+}
+
+function breakdownSummary(items: Array<{ label: string; count: number }>, empty: string) {
+  if (!items.length) return empty;
+  return items.slice(0, 3).map((item) => `${item.label} - ${item.count}`).join(" • ");
 }
 
 export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; month?: string; date?: string; includeAutomated?: string }> }) {
@@ -405,7 +410,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page">
     <header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, when they need it, and which sources are producing bookings.</p><small>{business.name}</small></div></header>
-    <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link><Link href={`/app/${businessSlug}/marketing/meta-ads`}>Meta Ads</Link></nav>
+    <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link><Link href={`/app/${businessSlug}/marketing/meta-ads`}>Meta Ads</Link><Link href={`/app/${businessSlug}/marketing/seo`}>Local SEO</Link></nav>
     <section className="workspace-panel marketing-filter-panel">
       <form className="marketing-filter-bar" method="get">
         <label>From<input type="date" name="from" defaultValue={reportFromDate} /></label>
@@ -503,6 +508,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <div className="marketing-session-quality-header">
         <div className="marketing-session-quality-metrics">
           <article><span>Total sessions</span><strong>{sessionQuality.visibleSessions}</strong><small>{includeAutomated ? `${sessionQuality.totalSessions} including likely automated traffic` : "Likely automated traffic excluded from the metrics below"}</small></article>
+          <article><span>Verified activity</span><strong>{sessionQuality.verifiedSessions}</strong><small>{sessionQuality.unverifiedSessions} session{sessionQuality.unverifiedSessions === 1 ? "" : "s"} still lack client-side timing confirmation.</small></article>
           <article><span>Engaged sessions</span><strong>{sessionQuality.engagedSessions}</strong><small>Meaningful interaction, another page, or at least {Math.round(defaultSessionEngagementThresholdMs / 1000)} seconds of active time.</small></article>
           <article><span>Quick exits</span><strong>{sessionQuality.quickExits}</strong><small>Short likely-human visits with no meaningful interaction and no second page view.</small></article>
           <article><span>Likely automated sessions</span><strong>{sessionQuality.likelyAutomatedSessions}</strong><small>Classified from crawler, preview, and prefetch signals.</small></article>
@@ -538,13 +544,14 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
               <article><h3>Landing pages</h3><div className="marketing-conversion-list">{bucket.landingPages.length ? bucket.landingPages.map((entry) => <div key={entry.path}><dt>{entry.path}</dt><dd>{entry.count}</dd></div>) : <div><dt>No landing pages</dt><dd>Historical sessions are missing landing-page detail.</dd></div>}</div></article>
               <article><h3>Device mix</h3><div className="marketing-conversion-list">{bucket.deviceBreakdown.length ? bucket.deviceBreakdown.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.count} · {Math.round(entry.percentage * 100)}%</dd></div>) : <div><dt>Unknown</dt><dd>No device detail yet.</dd></div>}</div></article>
               <article><h3>Campaigns</h3><div className="marketing-conversion-list">{bucket.campaignBreakdown.length ? bucket.campaignBreakdown.map((entry) => <div key={`${entry.name}-${entry.campaignId ?? "none"}-${entry.source}`}><dt>{entry.name}</dt><dd>{entry.source}{entry.campaignId ? ` · ${entry.campaignId}` : ""} · {entry.count}</dd></div>) : <div><dt>No campaign detail</dt><dd>Campaign values appear when UTM or click-id data is available.</dd></div>}</div></article>
+              <article><h3>Verification</h3><div className="marketing-conversion-list">{bucket.verificationBreakdown.length ? bucket.verificationBreakdown.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.count}</dd></div>) : <div><dt>No timing detail</dt><dd>Servonas has not observed client-side timing data yet.</dd></div>}</div></article>
             </div>
             {bucket.insight ? <div className="marketing-session-bucket-note"><strong>{bucket.insight}</strong>{bucket.observation ? <p>{bucket.observation}</p> : null}</div> : null}
             <details className="marketing-session-table-wrap">
               <summary>View sessions</summary>
               <div className="marketing-session-table">
-                <div><b>Timestamp</b><b>Source</b><b>Campaign</b><b>Landing page</b><b>Device</b><b>Browser</b><b>Session length</b><b>Time to first interaction</b><b>First interaction</b><b>Pages viewed</b><b>Engagement</b><b>Automated</b></div>
-                {bucket.details.map((detail) => <div key={detail.id}><span>{detail.startedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short", timeZone: business.timezone }).format(new Date(detail.startedAt)) : "—"}</span><span>{detail.sourceLabel}</span><span>{detail.campaignName ?? detail.campaignId ?? "—"}</span><span>{detail.landingPage}</span><span>{detail.device}</span><span>{detail.browser}</span><span>{ms(detail.sessionLengthMs)}</span><span>{ms(detail.timeToFirstInteractionMs)}</span><span>{detail.firstInteractionLabel ?? detail.firstInteraction ?? "—"}</span><span>{detail.pagesViewed}</span><span>{detail.engagementClassification.replaceAll("_", " ")}</span><span>{detail.automatedClassification.replaceAll("_", " ")}</span></div>)}
+                <div><b>Timestamp</b><b>Source</b><b>Campaign</b><b>Landing page</b><b>Device</b><b>Browser</b><b>Active time</b><b>Time to first interaction</b><b>First interaction</b><b>Pages viewed</b><b>Engagement</b><b>Verification</b><b>Automated</b></div>
+                {bucket.details.map((detail) => <div key={detail.id}><span>{detail.startedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short", timeZone: business.timezone }).format(new Date(detail.startedAt)) : "—"}</span><span>{detail.attribution.platformLabel ? `${detail.attribution.providerLabel} • ${detail.attribution.platformLabel}` : detail.sourceLabel}</span><span>{detail.attribution.campaignName ?? detail.campaignName ?? detail.campaignId ?? "—"}</span><span>{detail.landingPage}</span><span>{detail.device}</span><span>{detail.browser}</span><span>{ms(detail.sessionLengthMs)}</span><span>{ms(detail.timeToFirstInteractionMs, "—")}</span><span>{detail.firstInteractionLabel ?? detail.firstInteraction ?? "—"}</span><span>{detail.pagesViewed}</span><span>{detail.engagementClassification.replaceAll("_", " ")}</span><span>{detail.verificationStatus === "verified_activity" ? "Verified activity" : "Unverified activity"}</span><span>{detail.automatedClassification.replaceAll("_", " ")}</span></div>)}
               </div>
             </details>
           </div>
@@ -552,7 +559,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       </div>
       <div className="marketing-session-landing-panel">
         <header><div><h3>Landing page performance</h3><p>See whether the homepage or a specific landing page is driving engagement, quick exits, and CTA clicks.</p></div></header>
-        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>Engaged</b><b>Quick exits</b><b>Avg active time</b><b>CTA interaction rate</b></div>{sessionQuality.landingPagePerformance.map((row) => <div key={row.path}><span>{row.path}</span><span>{row.sessions}</span><span>{row.engaged}</span><span>{row.quickExits}</span><span>{ms(row.avgActiveTimeMs)}</span><span>{Math.round(row.ctaInteractionRate * 100)}%</span></div>)}</div>
+        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>Engaged</b><b>Quick exits</b><b>Avg active time</b><b>CTA interaction rate</b></div>{sessionQuality.landingPagePerformance.map((row) => <details key={row.path} className="marketing-landing-row"><summary><span>{row.path}</span><span>{row.sessions}</span><span>{row.engaged}</span><span>{row.quickExits}</span><span>{ms(row.avgActiveTimeMs)}</span><span>{Math.round(row.ctaInteractionRate * 100)}%</span></summary><div className="marketing-landing-row-detail"><div className="marketing-conversion-list"><div><dt>Traffic source</dt><dd>{breakdownSummary(row.trafficSources, "No attribution yet")}</dd></div><div><dt>Campaign</dt><dd>{breakdownSummary(row.campaigns, "No campaign detail")}</dd></div><div><dt>Device</dt><dd>{breakdownSummary(row.devices, "No device detail")}</dd></div><div><dt>Verification</dt><dd>{row.verifiedSessions} verified · {row.sessions - row.verifiedSessions} unverified</dd></div></div></div></details>)}</div>
       </div>
     </section>
 

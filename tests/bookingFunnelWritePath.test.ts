@@ -46,6 +46,8 @@ test("booking tracker decorates both embedded and full booking URLs with the sto
  assert.match(tracker,/trackBookingFunnel\(businessSlug, "session_heartbeat"/);
  assert.match(tracker,/touchOnly: true, beacon: isFinal/);
  assert.match(tracker,/active_duration_increment_milliseconds: activeMilliseconds/);
+ assert.match(tracker,/const activeHeartbeatMs = 2_000/);
+ assert.match(tracker,/shouldCountPageAsActive = \(visibilityState: string, focused: boolean\) => visibilityState === "visible" \|\| focused/);
  assert.match(tracker,/window\.addEventListener\("pagehide", onPageHide\)/);
  assert.match(tracker,/document\.visibilityState === "hidden"\) flush\("visibility_hidden", true\)/);
 });
