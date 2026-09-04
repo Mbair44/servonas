@@ -22,7 +22,9 @@ export async function middleware(request:NextRequest){
   }
   const destination=request.nextUrl.clone();
   const bareShellHeaders=new Headers(request.headers);
-  if(shouldUseBarePublicShell(path))bareShellHeaders.set("x-servonas-public-shell","bare");
+  // Every custom-domain request is tenant-facing, including promotion paths
+  // such as /50-off, so it must never inherit the Servonas marketing shell.
+  bareShellHeaders.set("x-servonas-public-shell","bare");
   destination.pathname=
    path==="/mechanical-bull-rental"
     ?`/sites/domain/${encodeURIComponent(hostname)}/mechanical-bull-rental`
