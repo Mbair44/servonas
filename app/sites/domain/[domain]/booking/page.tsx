@@ -57,7 +57,7 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
      <PublicBookingForm action={submitPublicBooking.bind(null,bookingSlug)} services={services} schedule={schedule} collectAddress={Boolean(settings.collect_address)} intakeQuestions={settings.intake_questions??[]} businessName={businessName??"this business"} maximumDaysAhead={Number(settings.maximum_days_ahead??60)} googleMapsApiKey={googleMapsApiKey} publicSlug={bookingSlug} timezone={settings.timezone??"America/Phoenix"} embedded={embedded}/>
     )}
    </section>
-   <footer>{embedded?<>Powered by <b>Servonas</b></>:<>Powered by <b>Servonas</b> · <Link href={`/book/${bookingSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${bookingSlug}/terms`}>Text Messaging Terms</Link></>}</footer>
+   {!embedded&&<footer><Link href={`/book/${bookingSlug}/privacy`}>Privacy Policy</Link> · <Link href={`/book/${bookingSlug}/terms`}>Text Messaging Terms</Link></footer>}
   </main></>
  );
 }
