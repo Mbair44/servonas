@@ -6,7 +6,10 @@ import { attributionFromSearch, type AcquisitionEvent, type AttributionValues } 
 
 const storageKey = (industry: string) => `servonas.website-acquisition.${industry}`;
 const cookieKey = (industry: string) => `servonas_acquisition_${industry}`;
+const visitorStorageKey = "servonas.website-acquisition.visitor";
+const visitorCookieKey = "servonas_acquisition_visitor";
 const dedupeKey = (industry: string) => `servonas.website-acquisition-dedupe.${industry}`;
+const scrollDedupeKey = (industry: string) => `servonas.website-acquisition-scroll.${industry}`;
 const sessionTouchIntervalMs = 15 * 60 * 1000;
 const activeHeartbeatMs = 2_000;
 const scrollMilestones = [25, 50, 75, 90];
@@ -14,8 +17,11 @@ const eventTtlMs: Partial<Record<AcquisitionEvent, number>> = {
   marketing_landing_view: 60_000,
   page_viewed: 2_000,
   pricing_viewed: 15_000,
+  pricing_cta_clicked: 5_000,
+  plan_selected: 10_000,
   demo_clicked: 5_000,
   demo_started: 30_000,
+  demo_completed: 30_000,
   primary_cta_clicked: 5_000,
   secondary_cta_clicked: 5_000,
   signup_started: 15_000,
@@ -27,9 +33,11 @@ const eventTtlMs: Partial<Record<AcquisitionEvent, number>> = {
 
 type Stored = {
   sessionId: string;
+  visitorId: string;
   attribution: AttributionValues;
   landingUrl: string;
   referrer: string;
+  sessionStartedAt: number;
   lastSessionSyncAt?: number;
 };
 
@@ -44,21 +52,43 @@ const readCookie = (key: string) => document.cookie.split("; ").find((item) => i
 const writeCookie = (key: string, value: string) => { document.cookie = `${key}=${value}; Path=/; Max-Age=2592000; SameSite=Lax`; };
 const sanitizeLabel = (value: string | null | undefined, max = 120) => value?.replace(/\s+/g, " ").trim().slice(0, max) ?? "";
 const cleanPath = () => `${location.pathname}${location.search}`;
+const normalizedPath = (value: string) => {
+  try {
+    const parsed = new URL(value, location.origin);
+    const pathname = parsed.pathname || "/";
+    return pathname !== "/" && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  } catch {
+    const [pathname] = value.split(/[?#]/, 1);
+    const trimmed = pathname?.trim() || "/";
+    return trimmed !== "/" && trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
+  }
+};
+const readOrCreateVisitorId = () => {
+  const storedId = localStorage.getItem(visitorStorageKey);
+  if (storedId) return storedId;
+  const cookieVisitorId = readCookie(visitorCookieKey);
+  const visitorId = cookieVisitorId || crypto.randomUUID();
+  localStorage.setItem(visitorStorageKey, visitorId);
+  writeCookie(visitorCookieKey, visitorId);
+  return visitorId;
+};
 const state = (industry: string, initialSessionId?: string): Stored => {
   const raw = localStorage.getItem(storageKey(industry));
   if (raw) {
     try {
       const saved = JSON.parse(raw) as Stored;
-      if (saved.sessionId) return saved;
+      if (saved.sessionId) return { ...saved, visitorId: saved.visitorId || readOrCreateVisitorId() };
     } catch {}
   }
   const cookieSessionId = readCookie(cookieKey(industry));
   const sessionId = initialSessionId || cookieSessionId || crypto.randomUUID();
   const next = {
     sessionId,
+    visitorId: readOrCreateVisitorId(),
     attribution: attributionFromSearch(new URLSearchParams(location.search)),
     landingUrl: location.href,
     referrer: document.referrer,
+    sessionStartedAt: Date.now(),
     lastSessionSyncAt: 0,
   };
   localStorage.setItem(storageKey(industry), JSON.stringify(next));
@@ -98,8 +128,21 @@ const elementLabel = (element: Element | null) => {
       element.getAttribute("name"),
   );
 };
+const elementId = (element: Element | null) => {
+  if (!(element instanceof HTMLElement)) return "";
+  return sanitizeLabel(
+    element.getAttribute("data-acquisition-cta-id") ||
+      element.getAttribute("data-acquisition-location") ||
+      element.getAttribute("data-analytics-id") ||
+      element.id ||
+      element.getAttribute("name"),
+    80,
+  );
+};
 const eventForClickTarget = (target: Element | null): AcquisitionEvent | null => {
   if (!(target instanceof HTMLElement)) return null;
+  if (target.hasAttribute("data-acquisition-plan")) return "plan_selected";
+  if (target.hasAttribute("data-acquisition-pricing-cta")) return "pricing_cta_clicked";
   if (target.hasAttribute("data-acquisition-pricing")) return "pricing_viewed";
   if (target.hasAttribute("data-acquisition-demo")) return "demo_clicked";
   if (target.hasAttribute("data-acquisition-signup")) return "servonas_signup_started";
@@ -123,13 +166,14 @@ export function trackAcquisition(industry: string, event: AcquisitionEvent, meta
   if (touchSession) updateState(industry, { ...current, lastSessionSyncAt: now });
   const payload = {
     sessionId: current.sessionId,
+    visitorId: current.visitorId,
     industry,
     event,
     path: cleanPath(),
     landingUrl: current.landingUrl,
     referrer: current.referrer,
     attribution: current.attribution,
-    metadata,
+    metadata: { session_elapsed_ms: Math.max(0, Date.now() - current.sessionStartedAt), ...metadata },
     touchSession,
     touchOnly: Boolean(options.touchOnly),
   };
@@ -162,12 +206,11 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
     pageStartedAt.current = Date.now();
     if (!sent.current) {
       sent.current = true;
-      trackAcquisition(industry, event, metadata ?? {}, initialSessionId);
+      trackAcquisition(industry, event, { page_path: normalizedPath(location.pathname), page_title: document.title || null, ...(metadata ?? {}) }, initialSessionId);
     } else {
-      trackAcquisition(industry, "page_viewed", { navigation_type: "spa", path: location.pathname, route_key: routeKey }, initialSessionId);
+      trackAcquisition(industry, "page_viewed", { navigation_type: "spa", page_path: normalizedPath(location.pathname), page_title: document.title || null, route_key: routeKey }, initialSessionId);
     }
-    const path = location.pathname.toLowerCase();
-    if (path.startsWith("/demo")) trackAcquisition(industry, "demo_started", { demo_path: location.pathname }, initialSessionId);
+    if (normalizedPath(location.pathname) === "/pricing") trackAcquisition(industry, "pricing_viewed", { page_path: "/pricing", page_title: document.title || null, source: "route_load" }, initialSessionId);
   }, [event, industry, initialSessionId, metadata, routeKey]);
 
   useEffect(() => {
@@ -178,11 +221,17 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
       if (!acquisitionEvent) return;
       const href = target instanceof HTMLAnchorElement ? target.getAttribute("href") || "" : "";
       const label = elementLabel(target);
+      const destinationPath = href ? normalizedPath(href) : null;
+      const fallbackTargetId = target instanceof HTMLElement ? `${target.tagName.toLowerCase()}:${destinationPath ?? normalizedPath(location.pathname)}` : `interaction:${destinationPath ?? normalizedPath(location.pathname)}`;
       const metadata = {
-        label,
+        cta_id: elementId(target) || fallbackTargetId,
+        cta_label: label || null,
         href: sanitizeLabel(href, 240) || null,
-        path: location.pathname,
+        page_path: normalizedPath(location.pathname),
+        destination_path: destinationPath,
         interaction_location: target?.getAttribute("data-acquisition-location") || null,
+        page_title: document.title || null,
+        plan_name: target?.getAttribute("data-acquisition-plan") || null,
       };
       trackAcquisition(industry, acquisitionEvent, metadata, initialSessionId);
       if (acquisitionEvent === "website_builder_started") trackAcquisition(industry, "builder_started", metadata, initialSessionId);
@@ -192,8 +241,18 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
       const height = document.documentElement.scrollHeight - window.innerHeight;
       if (height <= 0) return;
       const percent = Math.min(100, Math.round((window.scrollY / height) * 100));
+      let seenMilestones: Record<string, boolean> = {};
+      try {
+        seenMilestones = JSON.parse(window.sessionStorage.getItem(scrollDedupeKey(industry)) || "{}") as Record<string, boolean>;
+      } catch {}
       for (const milestone of scrollMilestones) {
-        if (percent >= milestone) trackAcquisition(industry, "scroll_depth_reached", { milestone_percent: milestone, path: location.pathname }, initialSessionId);
+        const dedupeId = `${normalizedPath(location.pathname)}:${milestone}`;
+        if (percent < milestone || seenMilestones[dedupeId]) continue;
+        seenMilestones[dedupeId] = true;
+        try {
+          window.sessionStorage.setItem(scrollDedupeKey(industry), JSON.stringify(seenMilestones));
+        } catch {}
+        trackAcquisition(industry, "scroll_depth_reached", { depth_percent: milestone, page_path: normalizedPath(location.pathname), page_title: document.title || null }, initialSessionId);
       }
     };
     const observeSection = (id: string, eventName: AcquisitionEvent, extra: Record<string, unknown> = {}) => {
@@ -201,7 +260,7 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
       if (!node) return () => undefined;
       const observer = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.4)) {
-          trackAcquisition(industry, eventName, { section_id: id, path: location.pathname, ...extra }, initialSessionId);
+          trackAcquisition(industry, eventName, { section_id: id, page_path: normalizedPath(location.pathname), page_title: document.title || null, ...extra }, initialSessionId);
           observer.disconnect();
         }
       }, { threshold: [0.4] });
@@ -209,12 +268,10 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
       return () => observer.disconnect();
     };
     const stopPricingObserver = observeSection("pricing", "pricing_viewed");
-    const stopDemoObserver = observeSection("demo", "demo_started");
     document.addEventListener("click", onClick, true);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       stopPricingObserver();
-      stopDemoObserver();
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("scroll", onScroll);
     };
@@ -238,7 +295,7 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
         active_duration_increment_milliseconds: activeMilliseconds,
         timing_available: true,
         last_active_at: new Date(now).toISOString(),
-        page_path: location.pathname,
+        page_path: normalizedPath(location.pathname),
       }, initialSessionId, { touchOnly: true, beacon: isFinal });
     };
     const onVisibilityChange = () => { if (document.visibilityState === "hidden") flush("visibility_hidden", true); else begin(); };
@@ -269,7 +326,7 @@ export function AcquisitionBuilderLinkTracker({ industry }: { industry: string }
       const target = (event.target as Element | null)?.closest("a[data-acquisition-builder]");
       if (target) {
         const href = target.getAttribute("href") || "";
-        const metadata = { label: elementLabel(target), href: sanitizeLabel(href, 240) || null, path: location.pathname };
+        const metadata = { cta_id: elementId(target) || "builder_link", cta_label: elementLabel(target), href: sanitizeLabel(href, 240) || null, page_path: normalizedPath(location.pathname), destination_path: href ? normalizedPath(href) : null, page_title: document.title || null };
         trackAcquisition(industry, "website_builder_started", metadata);
         trackAcquisition(industry, "builder_started", metadata);
       }
@@ -286,7 +343,7 @@ export function AcquisitionSignupLinkTracker({ industry }: { industry: string })
       const target = (event.target as Element | null)?.closest("a[data-acquisition-signup]");
       if (target) {
         const href = target.getAttribute("href") || "";
-        const metadata = { label: elementLabel(target), href: sanitizeLabel(href, 240) || null, path: location.pathname };
+        const metadata = { cta_id: elementId(target) || "signup_link", cta_label: elementLabel(target), href: sanitizeLabel(href, 240) || null, page_path: normalizedPath(location.pathname), destination_path: href ? normalizedPath(href) : null, page_title: document.title || null };
         trackAcquisition(industry, "servonas_signup_started", metadata);
         trackAcquisition(industry, "signup_started", metadata);
       }
