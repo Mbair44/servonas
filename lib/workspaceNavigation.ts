@@ -35,6 +35,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
   {id:"marketing",label:"Marketing",icon:"chart",children:[
    {id:"funnel",label:"Funnel",href:`${base}/marketing/funnel`},
    {id:"discounts",label:"Discounts",href:`${base}/marketing/discounts`},
+   {id:"promotions",label:"Promotions",href:`${base}/marketing/promotions`},
    {id:"google-ads",label:"Google Ads",href:`${base}/marketing/google-ads`},
    {id:"meta-ads",label:"Meta Ads",href:`${base}/marketing/meta-ads`},
    {id:"seo",label:"Local SEO",href:`${base}/marketing/seo`},
