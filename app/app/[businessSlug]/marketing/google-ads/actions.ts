@@ -16,10 +16,12 @@ import {
  addGoogleAdsCampaignLocation,
  buildGoogleAdsCampaignHealth,
  checkGoogleAdsBusinessIssues,
+ createGoogleAdsAdGroup,
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignLocationTargeting,
  fetchGoogleAdsAdGroupBid,
+ fetchGoogleAdsCampaignAdGroupDetails,
  fetchGoogleAdsManualCpcAdGroups,
  fetchGoogleAdsCampaignHealthSnapshots,
  fetchGoogleAdsCampaignStatuses,
@@ -33,6 +35,7 @@ import {
  reviewGoogleAdsKeywordsWithAi,
  generateGoogleAdsDraft,
  googleAdsErrorMessage,
+ googleAdsRecommendedLandingPages,
  googleAdsPreferredLoginCustomerIds,
  loadTenantGoogleAdsAccess,
  removeGoogleAdsCampaignLocation,
@@ -111,6 +114,29 @@ const logGoogleAdsAction = (message: string, payload: Record<string, unknown>) =
 const logGoogleAdsActionError = (message: string, payload: Record<string, unknown>) => {
  console.error(message, payload);
 };
+const parseAds = (formData: FormData) => {
+ const headlines = limitedLines(formData, "headlines", 15);
+ const descriptions = limitedLines(formData, "descriptions", 4);
+ const secondaryHeadlines = limitedLines(formData, "secondaryHeadlines", 15);
+ const secondaryDescriptions = limitedLines(formData, "secondaryDescriptions", 4);
+ const destinationUrl = text(formData, "destinationUrl");
+ const secondaryDestinationUrl = text(formData, "secondaryDestinationUrl") || destinationUrl;
+ return [
+  { finalUrl: destinationUrl, headlines, descriptions },
+  ...(secondaryHeadlines.length || secondaryDescriptions.length ? [{ finalUrl: secondaryDestinationUrl, headlines: secondaryHeadlines, descriptions: secondaryDescriptions }] : []),
+ ];
+};
+const legacyAdGroupFromCampaign = (campaign: any) => ({
+ name: campaign.ad_group_name,
+ destinationUrl: campaign.destination_url,
+ keywords: Array.isArray(campaign.keywords) ? campaign.keywords.map(String) : [],
+ negativeKeywords: Array.isArray(campaign.negative_keywords) ? campaign.negative_keywords.map(String) : [],
+ ads: [{
+  finalUrl: campaign.destination_url,
+  headlines: Array.isArray(campaign.headlines) ? campaign.headlines.map(String) : [],
+  descriptions: Array.isArray(campaign.descriptions) ? campaign.descriptions.map(String) : [],
+ }],
+});
 
 async function syncPublishedGoogleAdsCampaignStatuses(input: {
  supabase: Awaited<ReturnType<typeof requireWorkspace>>["supabase"];
@@ -317,7 +343,7 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   manualCpcBidDollars: manualCpcBidMicros ? manualCpcBidMicros / 1_000_000 : null,
  });
  const micros = Math.max(1, Math.round(dailyBudgetDollars * 1_000_000));
- const { error } = await supabase.from("business_google_ads_campaigns").insert({
+ const { data: insertedCampaign, error } = await supabase.from("business_google_ads_campaigns").insert({
   business_id: business.id,
   service_id: service?.id ?? null,
   inventory_item_id: inventory?.id ?? null,
@@ -339,8 +365,23 @@ export async function createGoogleAdsDraftAction(slug: string, formData: FormDat
   descriptions: draft.descriptions,
   created_by: user.id,
   updated_by: user.id,
- });
+ }).select("id").single();
  if (error) redirect(path(slug, "error", "The Google Ads draft could not be saved. Apply the Google Ads migration first."));
+ await supabase.from("business_google_ads_ad_groups").insert({
+  business_id: business.id,
+  campaign_id: insertedCampaign.id,
+  service_id: service?.id ?? null,
+  inventory_item_id: inventory?.id ?? null,
+  google_ads_customer_id: connection.customerId,
+  ad_group_name: draft.adGroupName,
+  destination_url: draft.destinationUrl,
+  status: "draft",
+  keywords: draft.keywords,
+  negative_keywords: draft.negativeKeywords,
+  ads: [{ finalUrl: draft.destinationUrl, headlines: draft.headlines, descriptions: draft.descriptions }],
+  created_by: user.id,
+  updated_by: user.id,
+ });
  await recordGoogleAdsBetaEvent({
   businessId: business.id,
   actorUserId: user.id,
@@ -369,8 +410,9 @@ export async function updateGoogleAdsDraftAction(slug: string, campaignId: strin
  const { supabase, business, user } = await context(slug);
  const keywords = lines(formData, "keywords");
  const negatives = lines(formData, "negativeKeywords");
- const headlines = limitedLines(formData, "headlines", 15);
- const descriptions = limitedLines(formData, "descriptions", 4);
+ const ads = parseAds(formData);
+ const headlines = ads[0]?.headlines ?? [];
+ const descriptions = ads[0]?.descriptions ?? [];
  const budgetDollars = numberValue(formData, "dailyBudgetDollars");
  const biddingStrategy = text(formData, "biddingStrategy") === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS";
  const manualBidMicros = biddingStrategy === "MANUAL_CPC" ? (manualCpcMicros(formData, "manualCpcBidDollars") ?? 2_000_000) : null;
@@ -390,10 +432,112 @@ export async function updateGoogleAdsDraftAction(slug: string, campaignId: strin
   updated_at: new Date().toISOString(),
  }).eq("business_id", business.id).eq("id", campaignId);
  if (error) redirect(path(slug, "error", "The Google Ads draft could not be updated."));
+ const adGroupName = text(formData, "adGroupName");
+ const { data: existingDraftAdGroup } = await supabase.from("business_google_ads_ad_groups").select("id").eq("business_id", business.id).eq("campaign_id", campaignId).eq("ad_group_name", adGroupName).maybeSingle();
+ if (existingDraftAdGroup?.id) {
+  await supabase.from("business_google_ads_ad_groups").update({
+   destination_url: text(formData, "destinationUrl"),
+   keywords,
+   negative_keywords: negatives,
+   ads,
+   updated_by: user.id,
+   updated_at: new Date().toISOString(),
+  }).eq("business_id", business.id).eq("id", existingDraftAdGroup.id);
+ } else {
+  await supabase.from("business_google_ads_ad_groups").insert({
+   business_id: business.id,
+   campaign_id: campaignId,
+   google_ads_customer_id: null,
+   ad_group_name: adGroupName,
+   destination_url: text(formData, "destinationUrl"),
+   keywords,
+   negative_keywords: negatives,
+   ads,
+   created_by: user.id,
+   updated_by: user.id,
+  });
+ }
  await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_edited", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
  await writeGoogleAdsAuditLog({ businessId: business.id, campaignId, actorUserId: user.id, eventType: "google_ads_draft_updated" });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Google Ads draft updated."));
+}
+
+export async function createGoogleAdsAdGroupAction(slug: string, campaignId: string, formData: FormData) {
+ const { supabase, business, user } = await context(slug);
+ const [{ data: campaign }, { data: website }] = await Promise.all([
+  supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).eq("id", campaignId).maybeSingle(),
+  supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status").eq("business_id", business.id).maybeSingle(),
+ ]);
+ if (!campaign) redirect(path(slug, "error", "The campaign could not be found."));
+ const adGroupName = text(formData, "adGroupName");
+ const destinationUrl = text(formData, "destinationUrl");
+ const keywords = lines(formData, "keywords");
+ const negativeKeywords = lines(formData, "negativeKeywords");
+ const ads = parseAds(formData);
+ if (!adGroupName || !destinationUrl || !keywords.length) redirect(path(slug, "error", "Add an ad group name, destination URL, and at least one keyword."));
+ await supabase.from("business_google_ads_ad_groups").insert({
+  business_id: business.id,
+  campaign_id: campaignId,
+  google_ads_customer_id: campaign.google_ads_customer_id ?? null,
+  google_campaign_id: campaign.google_campaign_id ?? null,
+  ad_group_name: adGroupName,
+  destination_url: destinationUrl,
+  keywords,
+  negative_keywords: negativeKeywords,
+  ads,
+  status: campaign.google_campaign_id ? "published" : "draft",
+  created_by: user.id,
+  updated_by: user.id,
+ });
+ if (campaign.google_campaign_id && campaign.google_ads_customer_id) {
+  const connection = await loadTenantGoogleAdsAccess(business.id);
+  if (!connection?.accessToken) redirect(path(slug, "error", "Reconnect Google Ads before adding a live ad group."));
+  const access = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
+  const published = await createGoogleAdsAdGroup({
+   accessToken: connection.accessToken,
+   customerId: campaign.google_ads_customer_id,
+   loginCustomerIds: access.loginCustomerIds,
+   biddingStrategy: campaign.bidding_strategy === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS",
+   manualCpcBidMicros: Number(campaign.manual_cpc_bid_micros ?? 0) || null,
+   campaignId: campaign.google_campaign_id,
+   adGroup: { name: adGroupName, destinationUrl, keywords, negativeKeywords, ads },
+  });
+  const { data: inserted } = await supabase.from("business_google_ads_ad_groups").select("id").eq("business_id", business.id).eq("campaign_id", campaignId).eq("ad_group_name", adGroupName).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (inserted?.id && published.adGroupId) {
+   await supabase.from("business_google_ads_ad_groups").update({
+    google_ad_group_id: published.adGroupId,
+    status: "published",
+    updated_by: user.id,
+    updated_at: new Date().toISOString(),
+   }).eq("business_id", business.id).eq("id", inserted.id);
+  }
+ }
+ await writeGoogleAdsAuditLog({
+  businessId: business.id,
+  campaignId,
+  actorUserId: user.id,
+  eventType: "google_ads_ad_group_created",
+  metadata: {
+   adGroupName,
+   destinationUrl,
+   landingPageRecommendations: googleAdsRecommendedLandingPages({
+    website: website ? {
+     publicSlug: website.public_slug ?? null,
+     customDomain: website.custom_domain ?? null,
+     status: website.status ?? null,
+     domainStatus: website.domain_status ?? null,
+     heroHeading: null,
+     heroSubheading: null,
+     aboutText: null,
+    } : null,
+    businessSlug: business.slug,
+    businessName: business.name,
+   }),
+  },
+ });
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug, "success", "Ad group added."));
 }
 
 export async function publishGoogleAdsDraftAction(slug: string, campaignId: string) {
@@ -405,6 +549,7 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
  logGoogleAdsAction("Google Ads action stage", { stage: "load_campaign", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId });
  const { data: campaign } = await supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).eq("id", campaignId).maybeSingle();
  if (!campaign) redirect(path(slug, "error", "Google Ads draft not found."));
+ const { data: savedAdGroups } = await supabase.from("business_google_ads_ad_groups").select("*").eq("business_id", business.id).eq("campaign_id", campaignId).order("created_at");
  logGoogleAdsAction("Google Ads action stage complete", { stage: "load_campaign", provider: "supabase", businessId: business.id, businessSlug: business.slug, campaignId, googleAdsCustomerId: connection.customerId, draftStatus: campaign.status });
  try {
   await recordGoogleAdsBetaEvent({ businessId: business.id, actorUserId: user.id, campaignId, eventName: "google_ads_campaign_reviewed", metadata: { business_slug: business.slug, timestamp: new Date().toISOString() } });
@@ -426,15 +571,20 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    customerId: connection.customerId,
    loginCustomerIds: mutationAccess.loginCustomerIds,
    campaignName: campaign.campaign_name,
-   adGroupName: campaign.ad_group_name,
    dailyBudgetMicros: Number(campaign.daily_budget_micros),
    biddingStrategy: campaign.bidding_strategy === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS",
    manualCpcBidMicros: Number(campaign.manual_cpc_bid_micros ?? 0) || null,
-   destinationUrl: campaign.destination_url,
-   keywords: Array.isArray(campaign.keywords) ? campaign.keywords.map(String) : [],
-   negativeKeywords: Array.isArray(campaign.negative_keywords) ? campaign.negative_keywords.map(String) : [],
-   headlines: Array.isArray(campaign.headlines) ? campaign.headlines.map(String) : [],
-   descriptions: Array.isArray(campaign.descriptions) ? campaign.descriptions.map(String) : [],
+   adGroups: (savedAdGroups?.length ? savedAdGroups : [legacyAdGroupFromCampaign(campaign)]).map((adGroup: any) => ({
+    name: adGroup.ad_group_name ?? adGroup.name,
+    destinationUrl: adGroup.destination_url ?? adGroup.destinationUrl,
+    keywords: Array.isArray(adGroup.keywords) ? adGroup.keywords.map(String) : [],
+    negativeKeywords: Array.isArray(adGroup.negative_keywords ?? adGroup.negativeKeywords) ? (adGroup.negative_keywords ?? adGroup.negativeKeywords).map(String) : [],
+    ads: Array.isArray(adGroup.ads) ? adGroup.ads.map((ad: any) => ({
+     finalUrl: typeof ad?.finalUrl === "string" ? ad.finalUrl : (adGroup.destination_url ?? campaign.destination_url),
+     headlines: Array.isArray(ad?.headlines) ? ad.headlines.map(String) : [],
+     descriptions: Array.isArray(ad?.descriptions) ? ad.descriptions.map(String) : [],
+    })) : [],
+   })),
   });
   logGoogleAdsAction("Google Ads action stage complete", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleCampaignId: published.campaignId, adGroupId: published.adGroupId });
   const { error } = await supabase.from("business_google_ads_campaigns").update({
@@ -450,6 +600,18 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
    updated_at: new Date().toISOString(),
   }).eq("business_id", business.id).eq("id", campaignId);
  if (error) redirect(path(slug, "error", "The campaign was published to Google, but Servonas could not save the resulting IDs."));
+  for (const [index, adGroup] of (savedAdGroups?.length ? savedAdGroups : []).entries()) {
+   const publishedAdGroup = published.adGroups?.[index];
+   if (!publishedAdGroup?.id) continue;
+   await supabase.from("business_google_ads_ad_groups").update({
+    google_ads_customer_id: connection.customerId,
+    google_campaign_id: published.campaignId,
+    google_ad_group_id: publishedAdGroup.id,
+    status: "published",
+    updated_by: user.id,
+    updated_at: new Date().toISOString(),
+   }).eq("business_id", business.id).eq("id", adGroup.id);
+  }
   await syncPublishedGoogleAdsCampaignStatuses({
    supabase,
    accessToken: connection.accessToken,
