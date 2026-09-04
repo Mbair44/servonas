@@ -9,8 +9,10 @@ import {
  fetchGoogleAdsCampaignStatuses,
  fetchGoogleAdsCampaignMetrics,
  fetchGoogleAdsAdGroupTotals,
+ fetchGoogleAdsCampaignAdGroupDetails,
   fetchGoogleAdsSearchTerms,
   checkGoogleAdsBusinessIssues,
+  googleAdsRecommendedLandingPages,
   logGoogleAdsKeywordReviewStage,
   googleAdsReadyLabel,
   loadTenantGoogleAdsAccess,
@@ -25,6 +27,7 @@ import {
  applyGoogleAdsExactMatchRecommendationAction,
  createGoogleAdsDraftAction,
  checkGoogleAdsStatusAction,
+ createGoogleAdsAdGroupAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
@@ -426,7 +429,7 @@ export default async function GoogleAdsPage({
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
  await checkGoogleAdsBusinessIssues({ businessId: business.id, businessSlug, freshnessMinutes: 20 }).catch(() => null);
 
- const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
+ const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: adGroups }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_services_read", endpointPath: "services", requestType: "google_ads_page_services_read" }, supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name")),
   // Inventory enriches offer choices only; it is intentionally independent of Google Ads rendering.
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_inventory_read", endpointPath: "inventory_items", requestType: "google_ads_page_inventory_read" }, supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("created_at", { ascending: false }).order("name")),
@@ -434,6 +437,7 @@ export default async function GoogleAdsPage({
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_website_read", endpointPath: "business_website_settings", requestType: "google_ads_page_website_read" }, supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle()),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_connection_read", endpointPath: "business_google_ads_connections", requestType: "google_ads_connection_page_read" }, supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id,last_issue_check_at,last_issue_check_failed_at,last_issue_check_error").eq("business_id", business.id).maybeSingle()),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_campaigns_read", endpointPath: "business_google_ads_campaigns", requestType: "google_ads_page_campaigns_read" }, supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false })),
+  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_ad_groups_read", endpointPath: "business_google_ads_ad_groups", requestType: "google_ads_page_ad_groups_read" }, supabase.from("business_google_ads_ad_groups").select("*").eq("business_id", business.id).order("updated_at", { ascending: false })),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_audit_read", endpointPath: "business_google_ads_audit_log", requestType: "google_ads_page_audit_read" }, supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(100)),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_beta_events_read", endpointPath: "business_google_ads_beta_events", requestType: "google_ads_page_beta_events_read" }, supabase.from("business_google_ads_beta_events").select("event_name,metadata,occurred_at").eq("business_id", business.id).order("occurred_at", { ascending: false }).limit(40)),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_feedback_read", endpointPath: "business_google_ads_beta_feedback", requestType: "google_ads_page_feedback_read" }, supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5)),
@@ -463,8 +467,9 @@ export default async function GoogleAdsPage({
 let metricsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignMetrics>>[number]>();
 let campaignStatusesByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignStatuses>>[number]>();
 let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignLocationTargeting>>[number]>();
- let campaignHealthSnapshotsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignHealthSnapshots>>[number]>();
+let campaignHealthSnapshotsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignHealthSnapshots>>[number]>();
  let adGroupTotalsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsAdGroupTotals>>>();
+ let liveAdGroupDetailsByCampaignId = new Map<string, Awaited<ReturnType<typeof fetchGoogleAdsCampaignAdGroupDetails>>>();
  let topSearchTerms: Awaited<ReturnType<typeof fetchGoogleAdsSearchTerms>> = [];
  let locationsError: string | null = null;
  let healthError: string | null = null;
@@ -534,6 +539,23 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
      adGroupTotalsByCampaignId = new Map(publishedIds.map((id) => [id, adGroupTotals.filter((row) => row.campaignId === id)]));
     } catch {}
     try {
+     const liveCustomerId = connectionAccess?.customerId ?? null;
+     const liveAccessToken = connectionAccess?.accessToken ?? null;
+     const liveLoginCustomerId = connectionAccess?.loginCustomerId ?? null;
+     if (liveCustomerId && liveAccessToken) {
+      const liveGroups = await Promise.all(publishedIds.map(async (id) => [id, await fetchGoogleAdsCampaignAdGroupDetails({
+       accessToken: liveAccessToken,
+       customerId: liveCustomerId,
+       campaignId: id,
+       dateFrom: from,
+       dateTo: to,
+       loginCustomerId: liveLoginCustomerId,
+       businessId: business.id,
+      })] as const));
+      liveAdGroupDetailsByCampaignId = new Map(liveGroups);
+     }
+    } catch {}
+    try {
      topSearchTerms = await fetchGoogleAdsSearchTerms({
       accessToken: connectionAccess.accessToken,
       customerId: connectionAccess.customerId,
@@ -566,6 +588,12 @@ let campaignLocationsByCampaignId = new Map<string, Awaited<ReturnType<typeof fe
   source: "direct" as const,
  })));
  const campaignCards = buildCampaignViewModels(campaigns ?? [], metricsByCampaignId, campaignStatusesByCampaignId, campaignLocationsByCampaignId);
+ const adGroupsByCampaignId = new Map<string, any[]>();
+ for (const adGroup of adGroups ?? []) {
+  const current = adGroupsByCampaignId.get(String((adGroup as any).campaign_id)) ?? [];
+  current.push(adGroup);
+  adGroupsByCampaignId.set(String((adGroup as any).campaign_id), current);
+ }
  const keywordReviewsByCampaignId = new Map<string, { review: NonNullable<ReturnType<typeof keywordReview>>; createdAt: string; stale: boolean; appliedKeywordIds: Set<string> }>();
  const latestKeywordReviewStaleAtByCampaignId = new Map<string, string>();
  const appliedKeywordIdsByCampaignId = new Map<string, Set<string>>();
@@ -824,6 +852,33 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
       snapshot: campaign.google_campaign_id ? campaignHealthSnapshotsByCampaignId.get(String(campaign.google_campaign_id)) ?? null : null,
       servingRelevantChangeAt: servingRelevantChangeByCampaignId.get(campaign.id) ?? null,
      });
+     const savedAdGroups = adGroupsByCampaignId.get(String(campaign.id)) ?? [];
+     const legacyAdGroup = savedAdGroups.length ? [] : [{
+      id: `legacy-${campaign.id}`,
+      ad_group_name: campaign.ad_group_name,
+      destination_url: campaign.destination_url,
+      status: campaign.status,
+      keywords: campaign.keywords,
+      negative_keywords: campaign.negative_keywords,
+      ads: [{ finalUrl: campaign.destination_url, headlines: campaign.headlines, descriptions: campaign.descriptions }],
+     }];
+     const draftAdGroups = [...savedAdGroups, ...legacyAdGroup];
+     const liveAdGroups = campaign.google_campaign_id ? liveAdGroupDetailsByCampaignId.get(String(campaign.google_campaign_id)) ?? [] : [];
+     const landingRecommendations = googleAdsRecommendedLandingPages({
+      website: website ? {
+       publicSlug: website.public_slug ?? null,
+       customDomain: website.custom_domain ?? null,
+       status: website.status ?? null,
+       domainStatus: website.domain_status ?? null,
+       heroHeading: website.hero_heading ?? null,
+       heroSubheading: website.hero_subheading ?? null,
+       aboutText: website.about_text ?? null,
+      } : null,
+      businessSlug: business.slug,
+      businessName: business.name,
+      serviceName: typeof campaign.campaign_name === "string" ? campaign.campaign_name : null,
+     });
+     const selectableLandingRecommendations = landingRecommendations.filter((entry): entry is typeof entry & { url: string } => typeof entry.url === "string");
      const healthLabel = health.state === "healthy" ? "Healthy" : health.state === "monitoring" ? "Monitoring" : health.state === "critical_issue" ? "Critical issue" : "Needs attention";
      const savedKeywordReview = keywordReviewsByCampaignId.get(campaign.id) ?? null;
      const healthGroups = [
@@ -891,14 +946,85 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
         <p>{summary.performanceHint ?? "Track how many people are seeing, clicking, and converting from this campaign."}</p>
        </div>
       </div>
-      <dl className="google-ads-facts google-ads-performance-facts">
+     <dl className="google-ads-facts google-ads-performance-facts">
        <div><dt>Impressions <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Impressions help" data-tooltip="The number of times Google showed your ad in search results.">?</span></dt><dd>{metric?.impressions ?? "—"}</dd></div>
        <div><dt>Clicks <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Clicks help" data-tooltip="The number of times someone clicked your ad and visited your website or booking page.">?</span></dt><dd>{metric?.clicks ?? "—"}</dd></div>
        <div><dt>CTR <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Click-through rate help" data-tooltip="Click-through rate: the percentage of ad impressions that turned into clicks. Higher can mean the ad is relevant to the search.">?</span></dt><dd>{metric ? `${(metric.ctr * 100).toFixed(1)}%` : "—"}</dd></div>
        <div><dt>Avg CPC <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Average cost per click help" data-tooltip="Average cost per click: the typical amount charged when someone clicks your ad. It can be lower or higher than your maximum bid.">?</span></dt><dd>{metric ? microsToMoney(metric.averageCpcMicros) : "—"}</dd></div>
        <div><dt>Conversions <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Conversions help" data-tooltip="The number of tracked outcomes Google considers valuable, such as a lead, booking, or phone call.">?</span></dt><dd>{metric?.conversions ?? "—"}</dd></div>
-       <div><dt>CPL <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Cost per lead help" data-tooltip="Cost per lead: your ad spend divided by tracked conversions. It is unavailable until Google records a conversion.">?</span></dt><dd>{metric?.conversions ? microsToMoney(metric.costPerConversionMicros) : "—"}</dd></div>
-      </dl>
+      <div><dt>CPL <span className="google-ads-metric-help" tabIndex={0} role="img" aria-label="Cost per lead help" data-tooltip="Cost per lead: your ad spend divided by tracked conversions. It is unavailable until Google records a conversion.">?</span></dt><dd>{metric?.conversions ? microsToMoney(metric.costPerConversionMicros) : "—"}</dd></div>
+     </dl>
+     </section>
+     <section className="google-ads-ad-group-panel" aria-label="Ad groups">
+      <div className="google-ads-section-heading">
+       <div>
+        <h3>Ad groups</h3>
+        <p>Organize one campaign into multiple services, keyword sets, and landing pages.</p>
+       </div>
+      </div>
+      <div className="google-ads-ad-group-list">
+       {draftAdGroups.map((adGroup: any) => {
+        const matchedLive = liveAdGroups.find((entry) => entry.adGroupId === String(adGroup.google_ad_group_id ?? ""));
+        const adList = Array.isArray(adGroup.ads) ? adGroup.ads : [];
+        return <details key={adGroup.id} className="google-ads-ad-group-card">
+         <summary>
+          <span className="google-ads-ad-group-summary">
+           <strong>{adGroup.ad_group_name}</strong>
+           <small>{adGroup.destination_url}</small>
+          </span>
+          <span className="google-ads-ad-group-stats">{matchedLive ? `${matchedLive.impressions} impressions · ${matchedLive.clicks} clicks · ${matchedLive.conversions} conversions` : `${items(adGroup.keywords).length} keywords · ${adList.length || 1} ads`}</span>
+         </summary>
+         <div className="google-ads-ad-group-body">
+          <div className="google-ads-ad-group-columns">
+           <article>
+            <strong>Landing page</strong>
+            <a href={adGroup.destination_url} target="_blank" rel="noopener noreferrer">{adGroup.destination_url}</a>
+            <small>{landingRecommendations.some((entry) => entry.url === adGroup.destination_url && entry.kind === "dedicated_service_page") ? "Using a dedicated page." : "If a dedicated service page exists, use it here to keep search intent tight."}</small>
+           </article>
+           <article>
+            <strong>Keywords</strong>
+            <span>{items(adGroup.keywords).slice(0, 6).join(" · ") || "No draft keywords yet"}</span>
+            <small>{items(adGroup.negative_keywords).length} negative keywords</small>
+           </article>
+           <article>
+            <strong>Ads</strong>
+            <span>{adList.length || 1} responsive search ad{(adList.length || 1) === 1 ? "" : "s"}</span>
+            <small>{adList[0]?.headlines?.slice?.(0, 2)?.join(" · ") || "Primary ad copy saved in this ad group."}</small>
+           </article>
+          </div>
+          {matchedLive ? <div className="google-ads-ad-group-live">
+           <strong>Live Google Ads data</strong>
+           <div className="google-ads-ad-group-metrics">
+            <span>Status: {matchedLive.status ?? "Unknown"}</span>
+            <span>CTR: {(matchedLive.ctr * 100).toFixed(1)}%</span>
+            <span>Cost: {microsToMoney(matchedLive.costMicros)}</span>
+            <span>Ads: {matchedLive.ads.length}</span>
+           </div>
+           <div className="google-ads-ad-group-chips">
+            {matchedLive.keywords.slice(0, 8).map((keyword) => <span key={`${matchedLive.adGroupId}-${keyword.id}`}>{keyword.text} {keyword.matchType ? `· ${friendlyKeywordValue(keyword.matchType)}` : ""}</span>)}
+           </div>
+          </div> : null}
+         </div>
+        </details>;
+       })}
+      </div>
+      <details className="google-ads-ad-group-create">
+       <summary>Add ad group</summary>
+       <form className="google-ads-form" action={createGoogleAdsAdGroupAction.bind(null, businessSlug, campaign.id)}>
+        <label>Ad group name<input name="adGroupName" defaultValue={`${campaign.campaign_name} Service`} /></label>
+        <label>Destination URL<input name="destinationUrl" defaultValue={selectableLandingRecommendations.find((entry) => entry.recommended)?.url ?? campaign.destination_url} /></label>
+        <label className="wide">Recommended landing pages<select name="secondaryDestinationUrl" defaultValue={selectableLandingRecommendations[1]?.url ?? ""}>
+         {selectableLandingRecommendations.map((entry) => <option key={entry.url} value={entry.url}>{entry.label}{entry.recommended ? " (Recommended)" : ""}</option>)}
+        </select></label>
+        <label className="wide">Keywords<textarea name="keywords" rows={4} placeholder="christmas lights installation&#10;holiday light hanging" /></label>
+        <label className="wide">Negative keywords<textarea name="negativeKeywords" rows={3} placeholder="jobs&#10;diy&#10;wholesale" /></label>
+        <label className="wide">Primary ad headlines<textarea name="headlines" rows={4} placeholder="Christmas Light Installation&#10;Professional Holiday Lighting" /></label>
+        <label className="wide">Primary ad descriptions<textarea name="descriptions" rows={3} placeholder="Book professional installation with a local team." /></label>
+        <label className="wide">Optional second ad headlines<textarea name="secondaryHeadlines" rows={4} placeholder="Holiday Light Setup Near You" /></label>
+        <label className="wide">Optional second ad descriptions<textarea name="secondaryDescriptions" rows={3} placeholder="Dedicated page and tighter service-specific copy." /></label>
+        <div className="google-ads-form-actions"><button className="sv-button sv-secondary">Save ad group</button></div>
+       </form>
+      </details>
      </section>
      {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
       <div className="google-ads-section-heading"><div><h3>Servonas keyword review</h3><p>Servonas reviews a fresh Google Ads keyword snapshot only when you request it.</p></div><form className="google-ads-card-actions" action={reviewGoogleAdsKeywordsAction.bind(null, businessSlug, campaign.id)}><button className="button secondary" type="submit">Review keywords</button>{savedKeywordReview && <button className="button secondary" name="force" value="true" type="submit">Review again</button>}</form></div>

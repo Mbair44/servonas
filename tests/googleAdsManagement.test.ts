@@ -35,6 +35,15 @@ test("google ads beta migration creates beta analytics and feedback tables", asy
  assert.match(migration, /enable row level security/);
 });
 
+test("google ads ad group migration creates tenant-scoped ad group storage", async () => {
+ const migration = await read("../supabase/migrations/20260904000100_google_ads_ad_groups.sql");
+ assert.match(migration, /create table if not exists public\.business_google_ads_ad_groups/);
+ assert.match(migration, /campaign_id uuid not null references public\.business_google_ads_campaigns/);
+ assert.match(migration, /google_ad_group_id text/);
+ assert.match(migration, /ads jsonb not null default '\[\]'::jsonb/);
+ assert.match(migration, /enable row level security/);
+});
+
 test("google ads account hierarchy migration stores login customer and discovered advertiser details", async () => {
  const migration = await read("../supabase/migrations/20260828000200_google_ads_account_hierarchy.sql");
  assert.match(migration, /add column if not exists login_customer_id text/);
@@ -77,6 +86,9 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /customers:listAccessibleCustomers/);
  assert.match(file, /method: "GET"/);
  assert.match(file, /export async function publishGoogleAdsCampaign/);
+ assert.match(file, /export async function createGoogleAdsAdGroup/);
+ assert.match(file, /export async function fetchGoogleAdsCampaignAdGroupDetails/);
+ assert.match(file, /export function googleAdsRecommendedLandingPages/);
  assert.match(file, /googleAdsRequestWithLoginFallbacks/);
  assert.match(file, /loginCustomerIds: \[\.\.\.\(input\.loginCustomerIds \?\? \[\]\), null\]/);
  assert.match(file, /if \(!attempts\.includes\(null\)\) attempts\.push\(null\)/);
@@ -116,6 +128,8 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.match(file, /mergeGoogleAdsSelectableCustomers/);
  assert.match(file, /login_customer_id/);
  assert.match(file, /search_term_view\.search_term/);
+ assert.match(file, /const adGroups = \(input\.adGroups\?\.length \? input\.adGroups/);
+ assert.match(file, /adGroups: adGroupResources\.map/);
  assert.doesNotMatch(file, /CUSTOM_DATE_RANGE/);
  assert.match(file, /recordGoogleAdsBetaEvent/);
  assert.match(file, /submitGoogleAdsBetaFeedback/);
@@ -162,6 +176,21 @@ test("google ads service includes oauth, publish, metrics, and search-term helpe
  assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*refresh_token/);
  assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*authorization code/);
  assert.doesNotMatch(file, /console\.(info|warn|error)\([^\n]*id_token/);
+});
+
+test("google ads page and actions expose multi ad group management", async () => {
+ const [actions, page] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/actions.ts"),
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+ ]);
+ assert.match(actions, /export async function createGoogleAdsAdGroupAction/);
+ assert.match(actions, /from\("business_google_ads_ad_groups"\)/);
+ assert.match(actions, /eventType: "google_ads_ad_group_created"/);
+ assert.match(page, /fetchGoogleAdsCampaignAdGroupDetails/);
+ assert.match(page, /googleAdsRecommendedLandingPages/);
+ assert.match(page, /<h3>Ad groups<\/h3>/);
+ assert.match(page, /Add ad group/);
+ assert.match(page, /Organize one campaign into multiple services, keyword sets, and landing pages\./);
 });
 
 test("google ads callback authorizes the initiating servonas user and honors owner access", async () => {
@@ -841,7 +870,7 @@ test("search term workspace keeps Google facts separate from cached AI recommend
  assert.match(css, /@media\(max-width:640px\)\{\.google-ads-search-bulk>div\{display:grid\}/);
  assert.match(workspace, /role="dialog"/);
  assert.match(workspace, /Search terms are what customers typed, not the keywords you configured/);
- assert.doesNotMatch(workspace, /criterionId|resourceName|adGroupId/);
+ assert.doesNotMatch(workspace, /criterionId|resourceName/);
  assert.match(page, /adGroupTotals=\{adGroupTotalsByCampaignId\.get/);
 });
 
@@ -940,7 +969,7 @@ test("google ads atomic mutate assigns temp resource names before cross-resource
  const file = await read("../lib/googleAdsManagement.ts");
  assert.match(file, /const budgetTemp = `\$\{resourceName\("campaignBudgets", customerId\)\}\/-1`/);
  assert.match(file, /const campaignTemp = `\$\{resourceName\("campaigns", customerId\)\}\/-2`/);
- assert.match(file, /const adGroupTemp = `\$\{resourceName\("adGroups", customerId\)\}\/-3`/);
+ assert.match(file, /const adGroupTemp = `\$\{resourceName\("adGroups", customerId\)\}\/\$\{-3 - index\}`/);
  assert.match(file, /campaignBudgetOperation:\s*{\s*create:\s*{\s*resourceName: budgetTemp,/s);
  assert.match(file, /campaignOperation:\s*{\s*create:\s*{\s*resourceName: campaignTemp,[\s\S]*campaignBudget: budgetTemp,/s);
  assert.match(file, /adGroupOperation:\s*{\s*create:\s*{\s*resourceName: adGroupTemp,[\s\S]*campaign: campaignTemp,/s);

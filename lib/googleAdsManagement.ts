@@ -149,6 +149,20 @@ export type GoogleAdsDraft = {
  descriptions: string[];
  aiGenerated: boolean;
 };
+export type GoogleAdsManagedAd = {
+ headlines: string[];
+ descriptions: string[];
+ finalUrl: string;
+};
+export type GoogleAdsManagedAdGroup = {
+ id?: string | null;
+ name: string;
+ destinationUrl: string;
+ keywords: string[];
+ negativeKeywords: string[];
+ ads: GoogleAdsManagedAd[];
+ googleAdGroupId?: string | null;
+};
 export type GoogleAdsBiddingStrategy = "MAXIMIZE_CLICKS" | "MANUAL_CPC";
 export type GoogleAdsCampaignHealthIssueSeverity = "critical" | "warning" | "info" | "healthy";
 export type GoogleAdsCampaignHealthState = "healthy" | "monitoring" | "needs_attention" | "critical_issue";
@@ -278,6 +292,40 @@ export type GoogleAdsAdGroupTotal = {
  ctr: number;
  conversions: number;
  costMicros: number;
+};
+export type GoogleAdsCampaignAdGroupKeyword = {
+ id: string;
+ adGroupId: string;
+ text: string;
+ matchType: string | null;
+ status: string | null;
+ negative: boolean;
+ cpcBidMicros: number | null;
+ impressions: number;
+ clicks: number;
+ conversions: number;
+};
+export type GoogleAdsCampaignAdGroupAd = {
+ id: string;
+ adGroupId: string;
+ status: string | null;
+ finalUrls: string[];
+ headlines: string[];
+ descriptions: string[];
+};
+export type GoogleAdsCampaignAdGroupDetail = {
+ campaignId: string;
+ adGroupId: string;
+ adGroupName: string | null;
+ status: string | null;
+ cpcBidMicros: number;
+ impressions: number;
+ clicks: number;
+ ctr: number;
+ conversions: number;
+ costMicros: number;
+ keywords: GoogleAdsCampaignAdGroupKeyword[];
+ ads: GoogleAdsCampaignAdGroupAd[];
 };
 export type GoogleAdsSearchTermReviewSnapshot = {
  generatedAt: string;
@@ -1860,6 +1908,25 @@ function finalUrl(input: GoogleAdsDraftInput) {
  return `${appBaseUrl}/book/${input.businessName ? slugify(input.businessName) : "business"}`;
 }
 
+export function googleAdsRecommendedLandingPages(input: {
+ website: GoogleAdsDraftInput["website"];
+ businessSlug: string;
+ serviceName?: string | null;
+ inventoryItemName?: string | null;
+ businessName?: string | null;
+}) {
+ const customDomain = input.website?.customDomain && input.website?.domainStatus === "connected" ? `https://${input.website.customDomain}` : null;
+ const siteRoot = input.website?.publicSlug && input.website?.status === "published" ? `${appBaseUrl}/sites/${input.website.publicSlug}` : null;
+ const bookingRoot = `${appBaseUrl}/book/${input.businessSlug || slugify(input.businessName || "business")}`;
+ const pathSlug = slugify(input.serviceName || input.inventoryItemName || "");
+ const dedicatedServicePage = siteRoot && pathSlug ? `${siteRoot}/${pathSlug}` : null;
+ return [
+  { kind: "dedicated_service_page", label: input.serviceName || input.inventoryItemName ? `${input.serviceName || input.inventoryItemName} page` : "Dedicated service page", url: dedicatedServicePage, recommended: Boolean(dedicatedServicePage) },
+  { kind: "website_homepage", label: "Website homepage", url: customDomain || siteRoot, recommended: !dedicatedServicePage && Boolean(customDomain || siteRoot) },
+  { kind: "booking_page", label: "Booking page", url: bookingRoot, recommended: !dedicatedServicePage && !(customDomain || siteRoot) },
+ ].filter((entry) => entry.url);
+}
+
 function keywordBase(input: GoogleAdsDraftInput) {
  const core = input.service?.name || input.rentalItem?.name || input.industry?.replaceAll("_", " ") || "local service";
  const city = input.businessLocation.city;
@@ -2429,21 +2496,15 @@ function resourceName(resource: string, id: string) {
 function mutateOperationsForCampaign(input: {
  customerId: string;
  campaignName: string;
- adGroupName: string;
  dailyBudgetMicros: number;
  biddingStrategy: GoogleAdsBiddingStrategy;
  manualCpcBidMicros?: number | null;
- destinationUrl: string;
- keywords: string[];
- negativeKeywords: string[];
- headlines: string[];
- descriptions: string[];
+ adGroups: GoogleAdsManagedAdGroup[];
 }) {
  const customerId = stripCustomerId(input.customerId);
  const budgetTemp = `${resourceName("campaignBudgets", customerId)}/-1`;
  const campaignTemp = `${resourceName("campaigns", customerId)}/-2`;
- const adGroupTemp = `${resourceName("adGroups", customerId)}/-3`;
- return [
+ const operations: Record<string, unknown>[] = [
   {
    campaignBudgetOperation: {
     create: {
@@ -2473,21 +2534,22 @@ function mutateOperationsForCampaign(input: {
     },
    },
   },
-  {
+ ];
+ for (const [index, adGroup] of input.adGroups.entries()) {
+  const adGroupTemp = `${resourceName("adGroups", customerId)}/${-3 - index}`;
+  operations.push({
    adGroupOperation: {
     create: {
      resourceName: adGroupTemp,
-     name: input.adGroupName,
+     name: adGroup.name,
      campaign: campaignTemp,
      status: "ENABLED",
      type: "SEARCH_STANDARD",
-     ...(input.biddingStrategy === "MANUAL_CPC" && input.manualCpcBidMicros
-      ? { cpcBidMicros: String(input.manualCpcBidMicros) }
-      : {}),
+     ...(input.biddingStrategy === "MANUAL_CPC" && input.manualCpcBidMicros ? { cpcBidMicros: String(input.manualCpcBidMicros) } : {}),
     },
    },
-  },
-  ...normalizeGoogleAdsKeywords(input.keywords).map((keyword) => ({
+  });
+  operations.push(...normalizeGoogleAdsKeywords(adGroup.keywords).map((keyword) => ({
    adGroupCriterionOperation: {
     create: {
      adGroup: adGroupTemp,
@@ -2495,8 +2557,8 @@ function mutateOperationsForCampaign(input: {
      keyword: { text: keyword, matchType: "PHRASE" },
     },
    },
-  })),
-  ...normalizeGoogleAdsKeywords(input.negativeKeywords).map((keyword) => ({
+  })));
+  operations.push(...normalizeGoogleAdsKeywords(adGroup.negativeKeywords).map((keyword) => ({
    adGroupCriterionOperation: {
     create: {
      adGroup: adGroupTemp,
@@ -2504,23 +2566,25 @@ function mutateOperationsForCampaign(input: {
      keyword: { text: keyword, matchType: "PHRASE" },
     },
    },
-  })),
-  {
+  })));
+  const ads = adGroup.ads.length ? adGroup.ads : [{ headlines: [], descriptions: [], finalUrl: adGroup.destinationUrl }];
+  operations.push(...ads.map((ad) => ({
    adGroupAdOperation: {
     create: {
      adGroup: adGroupTemp,
      status: "ENABLED",
      ad: {
-      finalUrls: [input.destinationUrl],
+      finalUrls: [ad.finalUrl || adGroup.destinationUrl],
       responsiveSearchAd: {
-       headlines: input.headlines.map((text) => ({ text })),
-       descriptions: input.descriptions.map((text) => ({ text })),
-      },
+       headlines: ad.headlines.map((text) => ({ text })),
+       descriptions: ad.descriptions.map((text) => ({ text })),
       },
      },
     },
    },
- ];
+  })));
+ }
+ return operations;
 }
 
 export async function publishGoogleAdsCampaign(input: {
@@ -2528,20 +2592,42 @@ export async function publishGoogleAdsCampaign(input: {
  customerId: string;
  loginCustomerIds?: Array<string | null | undefined>;
  campaignName: string;
- adGroupName: string;
  dailyBudgetMicros: number;
  biddingStrategy: GoogleAdsBiddingStrategy;
  manualCpcBidMicros?: number | null;
- destinationUrl: string;
- keywords: string[];
- negativeKeywords: string[];
- headlines: string[];
- descriptions: string[];
+ adGroups?: GoogleAdsManagedAdGroup[];
+ adGroupName?: string;
+ destinationUrl?: string;
+ keywords?: string[];
+ negativeKeywords?: string[];
+ headlines?: string[];
+ descriptions?: string[];
 }) {
+ const adGroups = (input.adGroups?.length ? input.adGroups : [{
+  name: input.adGroupName || "Core Ad Group",
+  destinationUrl: input.destinationUrl || `${appBaseUrl}/`,
+  keywords: input.keywords ?? [],
+  negativeKeywords: input.negativeKeywords ?? [],
+  ads: [{
+   finalUrl: input.destinationUrl || `${appBaseUrl}/`,
+   headlines: limitGoogleAdsTextAssets(input.headlines ?? [], maxGoogleAdsHeadlines),
+   descriptions: limitGoogleAdsTextAssets(input.descriptions ?? [], maxGoogleAdsDescriptions),
+  }],
+ }]).map((adGroup) => ({
+  ...adGroup,
+  ads: (adGroup.ads ?? []).map((ad) => ({
+   ...ad,
+   headlines: limitGoogleAdsTextAssets(ad.headlines, maxGoogleAdsHeadlines),
+   descriptions: limitGoogleAdsTextAssets(ad.descriptions, maxGoogleAdsDescriptions),
+  })),
+ }));
  const mutateOperations = mutateOperationsForCampaign({
-  ...input,
-  headlines: limitGoogleAdsTextAssets(input.headlines, maxGoogleAdsHeadlines),
-  descriptions: limitGoogleAdsTextAssets(input.descriptions, maxGoogleAdsDescriptions),
+  customerId: input.customerId,
+  campaignName: input.campaignName,
+  dailyBudgetMicros: input.dailyBudgetMicros,
+  biddingStrategy: input.biddingStrategy,
+  manualCpcBidMicros: input.manualCpcBidMicros,
+  adGroups,
  });
  await googleAdsRequestWithLoginFallbacks("/customers/" + stripCustomerId(input.customerId) + "/googleAds:mutate", {
   accessToken: input.accessToken,
@@ -2571,13 +2657,98 @@ export async function publishGoogleAdsCampaign(input: {
  const responses = result.mutateOperationResponses ?? [];
  const campaignBudget = responses.find((row) => row.campaignBudgetResult?.resourceName)?.campaignBudgetResult?.resourceName ?? null;
  const campaign = responses.find((row) => row.campaignResult?.resourceName)?.campaignResult?.resourceName ?? null;
- const adGroup = responses.find((row) => row.adGroupResult?.resourceName)?.adGroupResult?.resourceName ?? null;
+ const adGroupResources = responses.filter((row) => row.adGroupResult?.resourceName).map((row) => row.adGroupResult.resourceName).filter((value: unknown): value is string => typeof value === "string");
  return {
   campaignBudgetResourceName: typeof campaignBudget === "string" ? campaignBudget : null,
   campaignResourceName: typeof campaign === "string" ? campaign : null,
   campaignId: typeof campaign === "string" ? campaign.split("/").pop() ?? null : null,
- adGroupId: typeof adGroup === "string" ? adGroup.split("/").pop() ?? null : null,
-};
+  adGroupId: adGroupResources[0] ? adGroupResources[0].split("/").pop() ?? null : null,
+  adGroups: adGroupResources.map((resourceName, index) => ({
+   id: resourceName.split("/").pop() ?? null,
+   resourceName,
+   name: adGroups[index]?.name ?? null,
+   destinationUrl: adGroups[index]?.destinationUrl ?? null,
+  })),
+ };
+}
+
+export async function createGoogleAdsAdGroup(input: {
+ accessToken: string;
+ customerId: string;
+ loginCustomerIds?: Array<string | null | undefined>;
+ campaignId: string;
+ biddingStrategy: GoogleAdsBiddingStrategy;
+ manualCpcBidMicros?: number | null;
+ adGroup: GoogleAdsManagedAdGroup;
+}) {
+ const customerId = stripCustomerId(input.customerId);
+ const campaignId = stripCustomerId(input.campaignId);
+ const adGroupTemp = `customers/${customerId}/adGroups/-1`;
+ const operations: Record<string, unknown>[] = [
+  {
+   adGroupOperation: {
+    create: {
+     resourceName: adGroupTemp,
+     name: input.adGroup.name,
+     campaign: `customers/${customerId}/campaigns/${campaignId}`,
+     status: "ENABLED",
+     type: "SEARCH_STANDARD",
+     ...(input.biddingStrategy === "MANUAL_CPC" && input.manualCpcBidMicros ? { cpcBidMicros: String(input.manualCpcBidMicros) } : {}),
+    },
+   },
+  },
+  ...normalizeGoogleAdsKeywords(input.adGroup.keywords).map((keyword) => ({
+   adGroupCriterionOperation: {
+    create: {
+     adGroup: adGroupTemp,
+     status: "ENABLED",
+     keyword: { text: keyword, matchType: "PHRASE" },
+    },
+   },
+  })),
+  ...normalizeGoogleAdsKeywords(input.adGroup.negativeKeywords).map((keyword) => ({
+   adGroupCriterionOperation: {
+    create: {
+     adGroup: adGroupTemp,
+     negative: true,
+     keyword: { text: keyword, matchType: "PHRASE" },
+    },
+   },
+  })),
+  ...(input.adGroup.ads.length ? input.adGroup.ads : [{ finalUrl: input.adGroup.destinationUrl, headlines: [], descriptions: [] }]).map((ad) => ({
+   adGroupAdOperation: {
+    create: {
+     adGroup: adGroupTemp,
+     status: "ENABLED",
+     ad: {
+      finalUrls: [ad.finalUrl || input.adGroup.destinationUrl],
+      responsiveSearchAd: {
+       headlines: limitGoogleAdsTextAssets(ad.headlines, maxGoogleAdsHeadlines).map((text) => ({ text })),
+       descriptions: limitGoogleAdsTextAssets(ad.descriptions, maxGoogleAdsDescriptions).map((text) => ({ text })),
+      },
+     },
+    },
+   },
+  })),
+ ];
+ await googleAdsRequestWithLoginFallbacks(`/customers/${customerId}/googleAds:mutate`, {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: { mutateOperations: operations, partialFailure: false, validateOnly: true },
+ });
+ const result = await googleAdsRequestWithLoginFallbacks<{ mutateOperationResponses?: any[] }>(`/customers/${customerId}/googleAds:mutate`, {
+  accessToken: input.accessToken,
+  targetCustomerId: input.customerId,
+  loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
+  body: { mutateOperations: operations, partialFailure: false, validateOnly: false },
+  suppressFailureDiagnostics: true,
+ });
+ const adGroupResourceName = result.mutateOperationResponses?.find((row) => row.adGroupResult?.resourceName)?.adGroupResult?.resourceName ?? null;
+ return {
+  adGroupId: typeof adGroupResourceName === "string" ? adGroupResourceName.split("/").pop() ?? null : null,
+  adGroupResourceName: typeof adGroupResourceName === "string" ? adGroupResourceName : null,
+ };
 }
 
 function stringSet(values: string[]) {
@@ -3721,6 +3892,77 @@ export async function fetchGoogleAdsAdGroupTotals(input: { accessToken: string; 
    costMicros: safeNumber(metrics?.costMicros),
   } satisfies GoogleAdsAdGroupTotal;
  }).filter((row) => row.campaignId && row.adGroupId);
+}
+
+export async function fetchGoogleAdsCampaignAdGroupDetails(input: { accessToken: string; customerId: string; campaignId: string; dateFrom: string; dateTo: string; loginCustomerId?: string | null; businessId?: string | null }) {
+ const campaignId = stripCustomerId(input.campaignId);
+ if (!campaignId) return [] as GoogleAdsCampaignAdGroupDetail[];
+ const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
+ const [adGroupRows, keywordRows, adRows] = await Promise.all([
+  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM ad_group WHERE campaign.id = ${campaignId} AND ${dateFilter}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_groups_query", requestType: "campaign_ad_groups", businessId: input.businessId ?? null }),
+  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.cpc_bid_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM keyword_view WHERE campaign.id = ${campaignId} AND ${dateFilter}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_group_keywords_query", requestType: "campaign_ad_group_keywords", businessId: input.businessId ?? null }),
+  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT ad_group.id, ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.ad.final_urls, ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions FROM ad_group_ad WHERE campaign.id = ${campaignId}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_group_ads_query", requestType: "campaign_ad_group_ads", businessId: input.businessId ?? null }),
+ ]);
+ const details = new Map<string, GoogleAdsCampaignAdGroupDetail>();
+ for (const row of adGroupRows) {
+  const adGroup = row.adGroup as Record<string, unknown> | undefined;
+  const metrics = row.metrics as Record<string, unknown> | undefined;
+  const adGroupId = stripCustomerId(String(adGroup?.id ?? ""));
+  if (!adGroupId) continue;
+  details.set(adGroupId, {
+   campaignId,
+   adGroupId,
+   adGroupName: typeof adGroup?.name === "string" ? adGroup.name : null,
+   status: typeof adGroup?.status === "string" ? adGroup.status : null,
+   cpcBidMicros: safeNumber(adGroup?.cpcBidMicros),
+   impressions: safeNumber(metrics?.impressions),
+   clicks: safeNumber(metrics?.clicks),
+   ctr: safeNumber(metrics?.ctr),
+   conversions: safeNumber(metrics?.conversions),
+   costMicros: safeNumber(metrics?.costMicros),
+   keywords: [],
+   ads: [],
+  });
+ }
+ for (const row of keywordRows) {
+  const adGroup = row.adGroup as Record<string, unknown> | undefined;
+  const criterion = row.adGroupCriterion as Record<string, unknown> | undefined;
+  const keyword = criterion?.keyword as Record<string, unknown> | undefined;
+  const metrics = row.metrics as Record<string, unknown> | undefined;
+  const adGroupId = stripCustomerId(String(adGroup?.id ?? ""));
+  const detail = details.get(adGroupId);
+  if (!detail) continue;
+  detail.keywords.push({
+   id: stripCustomerId(String(criterion?.criterionId ?? criterion?.criterion_id ?? "")),
+   adGroupId,
+   text: typeof keyword?.text === "string" ? keyword.text : "",
+   matchType: typeof keyword?.matchType === "string" ? keyword.matchType : null,
+   status: typeof criterion?.status === "string" ? criterion.status : null,
+   negative: Boolean(criterion?.negative),
+   cpcBidMicros: safeNumber(criterion?.cpcBidMicros),
+   impressions: safeNumber(metrics?.impressions),
+   clicks: safeNumber(metrics?.clicks),
+   conversions: safeNumber(metrics?.conversions),
+  });
+ }
+ for (const row of adRows) {
+  const adGroup = row.adGroup as Record<string, unknown> | undefined;
+  const adGroupAd = row.adGroupAd as Record<string, unknown> | undefined;
+  const ad = adGroupAd?.ad as Record<string, unknown> | undefined;
+  const responsive = ad?.responsiveSearchAd as Record<string, unknown> | undefined;
+  const adGroupId = stripCustomerId(String(adGroup?.id ?? ""));
+  const detail = details.get(adGroupId);
+  if (!detail) continue;
+  detail.ads.push({
+   id: stripCustomerId(String(ad?.id ?? "")),
+   adGroupId,
+   status: typeof adGroupAd?.status === "string" ? adGroupAd.status : null,
+   finalUrls: Array.isArray(ad?.finalUrls) ? ad.finalUrls.map(String) : Array.isArray(ad?.final_urls) ? (ad.final_urls as unknown[]).map(String) : [],
+   headlines: Array.isArray(responsive?.headlines) ? (responsive.headlines as Array<{ text?: unknown }>).map((entry) => typeof entry?.text === "string" ? entry.text : "").filter(Boolean) : [],
+   descriptions: Array.isArray(responsive?.descriptions) ? (responsive.descriptions as Array<{ text?: unknown }>).map((entry) => typeof entry?.text === "string" ? entry.text : "").filter(Boolean) : [],
+  });
+ }
+ return [...details.values()];
 }
 
 export async function fetchGoogleAdsAdGroupNegativeKeywords(input: { accessToken: string; customerId: string; campaignId: string; loginCustomerId?: string | null; businessId?: string | null }) {
