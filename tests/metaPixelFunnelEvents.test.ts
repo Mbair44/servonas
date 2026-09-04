@@ -64,3 +64,12 @@ test("mechanical bull landing uses the tenant pixel for item-detail view content
  assert.match(landing,/trackMetaStandardEvent\("ViewContent"/);
  assert.match(landing,/eventKey:`view-content:\$\{data\.bookingSlug\}:\$\{item\.id\}:mechanical-bull`/);
 });
+
+test("custom-domain booking and real checkout load only the resolved tenant pixel",async()=>{
+ const [booking,checkout]=await Promise.all([read("app/sites/domain/[domain]/booking/page.tsx"),read("app/sites/domain/[domain]/booking/checkout/page.tsx")]);
+ for(const route of [booking,checkout]){
+  assert.match(route,/import \{TenantMetaPixel\} from "@\/components\/TenantMetaPixel"/);
+  assert.match(route,/record\.site\.metaPixelId&&<TenantMetaPixel pixelId=\{record\.site\.metaPixelId\}\/>/);
+  assert.doesNotMatch(route,/2375527282981645/);
+ }
+});
