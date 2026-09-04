@@ -8,8 +8,9 @@ create table public.promotions (
  max_eligible_items_per_booking integer not null default 1 check(max_eligible_items_per_booking > 0),
  landing_page_enabled boolean not null default true, auto_apply boolean not null default true, stackable boolean not null default false,
  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
- unique(business_id, lower(slug)), check(slug ~ '^[a-z0-9-]{2,80}$')
+ check(slug ~ '^[a-z0-9-]{2,80}$')
 );
+create unique index promotions_business_slug_unique on public.promotions(business_id, lower(slug));
 create table public.promotion_categories (
  promotion_id uuid not null references public.promotions(id) on delete cascade, category_id uuid not null references public.rental_inventory_categories(id) on delete cascade,
  primary key(promotion_id,category_id)

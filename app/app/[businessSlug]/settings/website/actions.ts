@@ -598,15 +598,19 @@ export async function retryGoogleBusinessProfileDiscovery(slug:string){
  const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))redirect(target(slug,"error","Only owners and administrators can retry Google Business discovery."));
  try{
+  console.info("google_business_reconnect_started",{businessId:business.id,stage:"account_discovery_retry",attempt:null,lastAttemptAt:null,nextRetryAt:null,httpStatus:null,retryAfter:null,operationId:`gbr-retry-${business.id}`});
   const result=await retryGoogleBusinessLocationDiscovery({businessId:business.id,businessName:business.name,actorUserId:user.id,connectedBy:user.id,googleBusinessOperationId:`gbr-retry-${business.id}-${Date.now()}`});
   revalidatePath(`/app/${slug}/settings/website`);
-  if(result.ok)redirect(target(slug,"success",result.userMessage));
+  if(result.ok){console.info("google_business_reconnect_completed",{businessId:business.id,stage:"account_discovery_retry",attempt:null,lastAttemptAt:null,nextRetryAt:null,httpStatus:200,retryAfter:null,operationId:null});redirect(target(slug,"success",result.userMessage));}
   if(result.rateLimited){
    const when=result.retryAfter?` Retry after ${new Date(result.retryAfter).toLocaleString("en-US")}.`:"";
    redirect(target(slug,"success",`${result.userMessage}${when}`));
   }
-  redirect(target(slug,"success",result.userMessage));
+ redirect(target(slug,"success",result.userMessage));
  }catch(error){
+  // Next.js represents redirect() as a thrown control-flow error. Never turn it into UI text.
+  if(typeof (error as {digest?:unknown})?.digest==="string"&&(error as {digest:string}).digest.startsWith("NEXT_REDIRECT"))throw error;
+  console.error("google_business_reconnect_failed",{businessId:business.id,stage:"account_discovery_retry",attempt:null,lastAttemptAt:null,nextRetryAt:null,httpStatus:null,retryAfter:null,operationId:null,errorName:error instanceof Error?error.name:"unknown"});
   if(error instanceof GoogleBusinessPersistenceError)redirect(target(slug,"error",error.metadata.safeErrorMessage));
   redirect(target(slug,"error",error instanceof Error?error.message:"Google Business discovery could not be retried."));
  }
