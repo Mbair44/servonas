@@ -10,6 +10,7 @@ const dedupeKey = (slug: string) => `servonas.booking-funnel-dedupe.${slug}`;
 const debugKey = "servonas.booking-funnel-debug";
 const analyticsEnabled = publicBookingFunnelEnabled();
 const sessionTouchIntervalMs = 15 * 60 * 1000;
+const activeHeartbeatMs = 2_000;
 const eventTtlMs: Partial<Record<BookingFunnelEvent, number>> = { landing_page_view: 60_000, landing_view: 60_000, service_view: 60_000, inventory_item_view: 60_000, inventory_view: 60_000, inventory_item_clicked: 60_000, booking_cta_click: 15_000, availability_check_started: 15_000, availability_check: 15_000, check_availability_clicked: 15_000, event_date_selected: 5_000, event_date_changed: 5_000, date_selected: 5_000, rental_availability_checked: 5_000, rental_available: 5_000, rental_unavailable: 5_000, available_inventory_viewed: 5_000, booking_started: 15_000, customer_info_entered: 10_000, lead_submitted: 10_000, checkout_started: 15_000, reserve_clicked: 5_000, item_added_to_cart: 5_000, link_click: 5_000, button_click: 5_000, phone_click: 5_000, sms_click: 5_000, email_click: 5_000, form_start: 30_000, form_submit: 15_000, product_service_selection: 10_000 };
 const criticalEvents = new Set<BookingFunnelEvent>(["booking_started", "customer_info_entered", "checkout_started", "reserve_clicked", "item_added_to_cart", "lead_submitted", "payment_completed"]);
 type Stored = { sessionId: string; attribution: AttributionValues; landingUrl: string; referrer: string; lastSessionSyncAt?: number };
@@ -58,6 +59,7 @@ const pageTypeForPath = (pathname: string) => pathname === "/booking/checkout" |
 const isEmbeddedBooking = () => new URLSearchParams(location.search).get("embed") === "1";
 const payloadFor = (slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions, touchSession: boolean) => { const state = stored(slug); return { sessionId: state.sessionId, event, path: `${location.pathname}${location.search}`, pageType: pageTypeForPath(location.pathname), landingUrl: state.landingUrl, referrer: state.referrer, attribution: state.attribution, inventoryItemId: options.inventoryItemId, serviceId: options.serviceId, metadata: { ...deviceMetadata(), ...(options.metadata ?? {}) }, touchSession, touchOnly: Boolean(options.touchOnly) }; };
 const postWithBeacon = (slug: string, event: BookingFunnelEvent, payload: ReturnType<typeof payloadFor>) => { if (typeof navigator.sendBeacon !== "function") return false; try { const sent = navigator.sendBeacon(`/api/public-booking/${encodeURIComponent(slug)}/funnel`, new Blob([JSON.stringify(payload)], { type: "application/json" })); logDebug(slug, event, sent ? "beacon_sent" : "beacon_rejected", { eventType: payload.metadata.timing_event_type ?? event, flushReason: payload.metadata.timing_flush_reason ?? null, sendMethod: "beacon" }); return sent; } catch { return false; } };
+export const shouldCountPageAsActive = (visibilityState: string, focused: boolean) => visibilityState === "visible" || focused;
 
 export function bookingAttributionSession(slug: string) { return typeof window === "undefined" ? "" : stored(slug).sessionId; }
 export function bookingAttributionValues(slug: string): AttributionValues { return typeof window === "undefined" ? {} : { ...stored(slug).attribution }; }
@@ -149,10 +151,10 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId }: {
  }, [businessSlug, initialSessionId, routeKey, pathname, searchParams]);
  useEffect(() => {
   if (!analyticsEnabled || typeof window === "undefined") return;
-  let activeStartedAt: number | null = document.visibilityState === "visible" && document.hasFocus() ? Date.now() : null;
-  const begin = () => { if (document.visibilityState === "visible" && document.hasFocus() && activeStartedAt == null) activeStartedAt = Date.now(); };
+  let activeStartedAt: number | null = shouldCountPageAsActive(document.visibilityState, document.hasFocus()) ? Date.now() : null;
+  const begin = () => { if (shouldCountPageAsActive(document.visibilityState, document.hasFocus()) && activeStartedAt == null) activeStartedAt = Date.now(); };
   const flush = (reason: "heartbeat" | "visibility_hidden" | "blur" | "pagehide" | "cleanup" | "route_change", isFinal = false) => {
-   const now = Date.now(), activeMilliseconds = activeStartedAt == null ? 0 : Math.max(0, now - activeStartedAt); activeStartedAt = null;
+   const now = Date.now(), activeMilliseconds = activeStartedAt == null ? 0 : Math.max(0, now - activeStartedAt); activeStartedAt = shouldCountPageAsActive(document.visibilityState, document.hasFocus()) && !isFinal ? now : null;
    if (!activeMilliseconds && !isFinal) return;
    trackBookingFunnel(businessSlug, "session_heartbeat", { touchOnly: true, beacon: isFinal, metadata: { timing_event_type: isFinal ? "final_flush" : "heartbeat", timing_flush_reason: reason, timing_is_final: isFinal, active_duration_increment_milliseconds: activeMilliseconds, session_duration_increment_seconds: activeMilliseconds / 1000, engaged_duration_increment_seconds: activeMilliseconds / 1000, visibility_state: document.visibilityState } });
    logDebug(businessSlug, "session_heartbeat", "timing_flush", { sessionId: bookingAttributionSession(businessSlug), page: location.pathname, startedAt: activeStartedAt, lastActiveAt: now, activeMilliseconds, eventType: isFinal ? "final_flush" : "heartbeat", flushReason: reason, visibilityState: document.visibilityState, isFinal, sendMethod: isFinal ? "beacon" : "fetch" });
@@ -160,8 +162,8 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId }: {
   const onVisibilityChange = () => { if (document.visibilityState === "hidden") flush("visibility_hidden", true); else begin(); };
   const onPageHide = () => flush("pagehide", true);
   const onFocus = () => begin();
-  const onBlur = () => flush("blur");
-  const interval = window.setInterval(() => flush("heartbeat"), 20_000);
+  const onBlur = () => { if (document.visibilityState === "hidden") flush("blur"); };
+  const interval = window.setInterval(() => flush("heartbeat"), activeHeartbeatMs);
   document.addEventListener("visibilitychange", onVisibilityChange); window.addEventListener("pagehide", onPageHide); window.addEventListener("focus", onFocus); window.addEventListener("blur", onBlur);
   return () => { flush(routeKey ? "route_change" : "cleanup", true); window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibilityChange); window.removeEventListener("pagehide", onPageHide); window.removeEventListener("focus", onFocus); window.removeEventListener("blur", onBlur); };
  }, [businessSlug, routeKey]);

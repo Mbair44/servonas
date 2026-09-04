@@ -37,7 +37,7 @@ export default async function MetaAdsPage({
     <header className="marketing-analytics-header">
       <div><span className="sv-kicker">Marketing</span><h1>Meta Ads</h1><p>Connect each tenant’s own Meta ad account so Servonas can pull read-only spend and performance into attribution and ROAS.</p><small>{business.name}</small></div>
     </header>
-    <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`}>Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link><Link href={`/app/${businessSlug}/marketing/meta-ads`} aria-current="page">Meta Ads</Link></nav>
+    <nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`}>Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link><Link href={`/app/${businessSlug}/marketing/meta-ads`} aria-current="page">Meta Ads</Link><Link href={`/app/${businessSlug}/marketing/seo`}>Local SEO</Link></nav>
     {query.error && <div className="workspace-notice error">{query.error}</div>}
     {query.success && <div className="workspace-notice success">{query.success}</div>}
     {metaAdsReadyLabel() !== "ready" && <div className="workspace-notice error">Meta Ads is not fully configured. Add `META_APP_ID`, `META_APP_SECRET`, and `META_REDIRECT_URI` before connecting tenants.</div>}

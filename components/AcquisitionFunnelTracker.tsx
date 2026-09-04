@@ -8,6 +8,7 @@ const storageKey = (industry: string) => `servonas.website-acquisition.${industr
 const cookieKey = (industry: string) => `servonas_acquisition_${industry}`;
 const dedupeKey = (industry: string) => `servonas.website-acquisition-dedupe.${industry}`;
 const sessionTouchIntervalMs = 15 * 60 * 1000;
+const activeHeartbeatMs = 2_000;
 const scrollMilestones = [25, 50, 75, 90];
 const eventTtlMs: Partial<Record<AcquisitionEvent, number>> = {
   marketing_landing_view: 60_000,
@@ -107,6 +108,7 @@ const eventForClickTarget = (target: Element | null): AcquisitionEvent | null =>
   if (target.hasAttribute("data-acquisition-secondary-cta")) return "secondary_cta_clicked";
   return null;
 };
+export const shouldCountPageAsActive = (visibilityState: string, focused: boolean) => visibilityState === "visible" || focused;
 
 export function acquisitionSessionId(industry: string, initialSessionId?: string) {
   return typeof window === "undefined" ? "" : state(industry, initialSessionId).sessionId;
@@ -220,14 +222,14 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    let activeStartedAt: number | null = document.visibilityState === "visible" && document.hasFocus() ? Date.now() : null;
+    let activeStartedAt: number | null = shouldCountPageAsActive(document.visibilityState, document.hasFocus()) ? Date.now() : null;
     const begin = () => {
-      if (document.visibilityState === "visible" && document.hasFocus() && activeStartedAt == null) activeStartedAt = Date.now();
+      if (shouldCountPageAsActive(document.visibilityState, document.hasFocus()) && activeStartedAt == null) activeStartedAt = Date.now();
     };
     const flush = (reason: "heartbeat" | "visibility_hidden" | "blur" | "pagehide" | "cleanup" | "route_change", isFinal = false) => {
       const now = Date.now();
       const activeMilliseconds = activeStartedAt == null ? 0 : Math.max(0, now - activeStartedAt);
-      activeStartedAt = null;
+      activeStartedAt = shouldCountPageAsActive(document.visibilityState, document.hasFocus()) && !isFinal ? now : null;
       if (!activeMilliseconds && !isFinal) return;
       trackAcquisition(industry, "session_heartbeat", {
         timing_event_type: isFinal ? "final_flush" : "heartbeat",
@@ -242,8 +244,8 @@ export function AcquisitionFunnelTracker({ industry, event, metadata, initialSes
     const onVisibilityChange = () => { if (document.visibilityState === "hidden") flush("visibility_hidden", true); else begin(); };
     const onPageHide = () => flush("pagehide", true);
     const onFocus = () => begin();
-    const onBlur = () => flush("blur");
-    const interval = window.setInterval(() => flush("heartbeat"), 20_000);
+    const onBlur = () => { if (document.visibilityState === "hidden") flush("blur"); };
+    const interval = window.setInterval(() => flush("heartbeat"), activeHeartbeatMs);
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("focus", onFocus);
