@@ -4,7 +4,7 @@ import { isBlockedCustomDomainProbePath } from "@/lib/customDomainProbePaths";
 
 const publicMetadataPaths=new Set(["/favicon.ico","/apple-touch-icon.png","/icon.svg","/manifest.json","/manifest.webmanifest","/robots.txt","/sitemap.xml"]);
 const publicAssetExtension=/\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|png|svg|ttf|webmanifest|webp|woff2?)$/i;
-const shouldUseBarePublicShell=(path:string)=>path.startsWith("/book/")||path==="/booking"||path.startsWith("/booking/");
+const shouldUseBarePublicShell=(path:string)=>path.startsWith("/book/")||path==="/booking"||path.startsWith("/booking/")||path.startsWith("/sites/");
 
 export async function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
