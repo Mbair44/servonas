@@ -62,6 +62,7 @@ const metricsPath = (slug: string, from: string, to: string, message: string) =>
  `/app/${encodeURIComponent(slug)}/marketing/google-ads?${new URLSearchParams({ from, to, success: message }).toString()}`;
 
 const text = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
+const landingPageSlug = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70);
 const numberValue = (data: FormData, key: string) => {
  const numeric = Number(text(data, key));
  return Number.isFinite(numeric) ? numeric : 0;
@@ -580,6 +581,31 @@ export async function prepareGoogleAdsAdGroupAction(slug:string,campaignId:strin
  await writeGoogleAdsAuditLog({businessId:business.id,campaignId,actorUserId:user.id,eventType:"google_ads_ad_group_draft_prepared",metadata:{targetType:kind,targetId:id,destinationUrl,overlapCount,aiGenerated:draft.aiGenerated}});
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(`/app/${encodeURIComponent(slug)}/marketing/google-ads?adGroupDraft=${encodeURIComponent(saved.id)}&success=${encodeURIComponent(`Servonas prepared your ${serviceName} ad group. Nothing has been published yet.`)}`);
+}
+
+export async function createGoogleAdsCategoryLandingPageAction(slug:string,categoryId:string){
+ const {supabase,business}=await context(slug);
+ const [{data:category},{data:existing},{count:itemCount},{data:website}]=await Promise.all([
+  supabase.from("rental_inventory_categories").select("id,name").eq("business_id",business.id).eq("id",categoryId).maybeSingle(),
+  supabase.from("category_website_pages").select("id,status,slug").eq("business_id",business.id).eq("category_id",categoryId).maybeSingle(),
+  supabase.from("inventory_items").select("id",{count:"exact",head:true}).eq("business_id",business.id).eq("category_id",categoryId).eq("active",true),
+  supabase.from("business_website_settings").select("status").eq("business_id",business.id).maybeSingle(),
+ ]);
+ if(!category)redirect(path(slug,"error","That category could not be found."));
+ if(!itemCount)redirect(path(slug,"error","Add an active item to this category before creating its landing page."));
+ if(website?.status!=="published")redirect(path(slug,"error","Publish your business website before creating an ad landing page."));
+ const now=new Date().toISOString(),publishedValues={status:"published",published_at:now,updated_at:now};
+ if(existing){
+  const {error}=await supabase.from("category_website_pages").update(publishedValues).eq("business_id",business.id).eq("id",existing.id);
+  if(error)redirect(path(slug,"error","The category landing page could not be published."));
+ }else{
+  const {error}=await supabase.from("category_website_pages").insert({business_id:business.id,category_id:category.id,slug:landingPageSlug(category.name),title:category.name,intro:`Browse all ${category.name.toLowerCase()} available from ${business.name}, then check availability for your event date.`,seo_title:`${category.name} | ${business.name}`,meta_description:`Explore ${category.name.toLowerCase()} from ${business.name} and check availability online.`,...publishedValues});
+  if(error)redirect(path(slug,"error",error.code==="23505"?"A landing page already uses that URL.":"The category landing page could not be created."));
+ }
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ revalidatePath(`/sites/[siteSlug]/[promotionSlug]`,"page");
+ revalidatePath(`/sites/domain/[domain]/[promotionSlug]`,"page");
+ redirect(path(slug,"success",`${category.name} landing page created and published. You can now use it for a new ad group.`));
 }
 
 export async function publishGoogleAdsDraftAction(slug: string, campaignId: string) {
