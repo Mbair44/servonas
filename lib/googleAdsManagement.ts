@@ -1919,12 +1919,36 @@ export function googleAdsRecommendedLandingPages(input: {
  const siteRoot = input.website?.publicSlug && input.website?.status === "published" ? `${appBaseUrl}/sites/${input.website.publicSlug}` : null;
  const bookingRoot = `${appBaseUrl}/book/${input.businessSlug || slugify(input.businessName || "business")}`;
  const pathSlug = slugify(input.serviceName || input.inventoryItemName || "");
- const dedicatedServicePage = siteRoot && pathSlug ? `${siteRoot}/${pathSlug}` : null;
+ const publicRoot = customDomain || siteRoot;
+ const dedicatedServicePage = publicRoot && pathSlug ? `${publicRoot}/${pathSlug}` : null;
  return [
   { kind: "dedicated_service_page", label: input.serviceName || input.inventoryItemName ? `${input.serviceName || input.inventoryItemName} page` : "Dedicated service page", url: dedicatedServicePage, recommended: Boolean(dedicatedServicePage) },
   { kind: "website_homepage", label: "Website homepage", url: customDomain || siteRoot, recommended: !dedicatedServicePage && Boolean(customDomain || siteRoot) },
   { kind: "booking_page", label: "Booking page", url: bookingRoot, recommended: !dedicatedServicePage && !(customDomain || siteRoot) },
  ].filter((entry) => entry.url);
+}
+
+const googleAdsAssetLimits={headline:30,description:90};
+const adGroupStopWords=new Set(["christmas","holiday","plumbing","landscaping","hvac","electrician","pest","cleaning","pressure","washing"]);
+const normalizedAdTerms=(value:string)=>value.toLowerCase().replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean);
+const uniqueWithinLimit=(values:string[],limit:number)=>uniqueStrings(values.map(stableTitle).filter(value=>value.length>0&&value.length<=limit));
+export function validateGoogleAdsAdGroupSuggestions(input:{serviceName:string;industry:string|null;keywords:string[];negativeKeywords:string[];headlines:string[];descriptions:string[];serviceAreas:string[]}){
+ const serviceTerms=normalizedAdTerms(input.serviceName).filter(term=>term.length>2);
+ const allowedLocations=new Set(input.serviceAreas.flatMap(normalizedAdTerms));
+ const unsupported=(value:string)=>{
+  const terms=normalizedAdTerms(value);
+  const hasService=serviceTerms.some(term=>terms.includes(term));
+  const crossIndustry=terms.some(term=>adGroupStopWords.has(term)&&!serviceTerms.includes(term)&&term!==String(input.industry??"").toLowerCase());
+  const unsupportedLocation=terms.some(term=>/^[a-z]{4,}$/.test(term)&&["gilbert","mesa","phoenix","chandler","tempe","scottsdale"].includes(term)&&!allowedLocations.has(term));
+  return crossIndustry||unsupportedLocation||(!hasService&&terms.some(term=>adGroupStopWords.has(term)));
+ };
+ const claims=/(#1|best |lowest|guaranteed|same.?day|24.?7|free estimate|licensed|certified)/i;
+ return {
+  keywords:uniqueWithinLimit(input.keywords,80).filter(value=>!unsupported(value)),
+  negativeKeywords:uniqueWithinLimit(input.negativeKeywords,80).filter(value=>!serviceTerms.some(term=>normalizedAdTerms(value).includes(term))),
+  headlines:uniqueWithinLimit(input.headlines,googleAdsAssetLimits.headline).filter(value=>!unsupported(value)&&!claims.test(value)),
+  descriptions:uniqueWithinLimit(input.descriptions,googleAdsAssetLimits.description).filter(value=>!unsupported(value)&&!claims.test(value)),
+ };
 }
 
 function keywordBase(input: GoogleAdsDraftInput) {
@@ -2055,16 +2079,17 @@ export async function generateGoogleAdsDraft(input: GoogleAdsDraftInput): Promis
   `Choose a local business for ${serviceLabel.toLowerCase()} with transparent scheduling and a professional customer experience.`,
   `Google bills your connected account directly while Servonas keeps campaign setup simple.`,
  ].map((value) => value.slice(0, 90))).slice(0, 4);
+ const suggestions=validateGoogleAdsAdGroupSuggestions({serviceName:serviceLabel,industry:input.industry,keywords:aiDraft?.keywords.length?aiDraft.keywords:fallbackKeywords,negativeKeywords:aiDraft?.negativeKeywords.length?aiDraft.negativeKeywords:defaultNegativeKeywords,headlines:aiDraft?.headlines.length?aiDraft.headlines:headlines,descriptions:aiDraft?.descriptions.length?aiDraft.descriptions:descriptions,serviceAreas:geoValues});
  return {
   campaignName: aiDraft?.campaignName || `${businessName} ${serviceLabel}`.slice(0, 80),
   adGroupName: aiDraft?.adGroupName || `${serviceLabel} Core`.slice(0, 80),
   destinationUrl: finalUrl(input),
   geoTargetSummary,
   geoTargetConfig,
-  keywords: aiDraft?.keywords.length ? aiDraft.keywords : fallbackKeywords,
-  negativeKeywords: aiDraft?.negativeKeywords.length ? aiDraft.negativeKeywords : defaultNegativeKeywords,
-  headlines: aiDraft?.headlines.length ? aiDraft.headlines : headlines,
-  descriptions: aiDraft?.descriptions.length ? aiDraft.descriptions : descriptions,
+  keywords: suggestions.keywords.length ? suggestions.keywords : fallbackKeywords,
+  negativeKeywords: suggestions.negativeKeywords,
+  headlines: suggestions.headlines.length ? suggestions.headlines : headlines,
+  descriptions: suggestions.descriptions.length ? suggestions.descriptions : descriptions,
   aiGenerated: Boolean(aiDraft?.aiGenerated),
  };
 }
