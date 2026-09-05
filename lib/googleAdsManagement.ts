@@ -499,7 +499,7 @@ const configuredGoogleAdsLoginCustomerId = () => stripCustomerId(process.env.GOO
 const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 const stableTitle = (value: string) => value.trim().replace(/\s+/g, " ");
 const formatGoogleAdsCustomerLabel = (name: string | null, id: string) => `${name?.trim() || id} - ${id.slice(0, 3)}-${id.slice(3, 6)}-${id.slice(6)}`;
-const defaultNegativeKeywords = ["free", "cheap", "jobs", "salary", "training", "diy", "used", "wholesale"];
+const defaultNegativeKeywords = ["jobs", "career", "salary", "diy", "plans", "used", "for sale", "wholesale", "manufacturer", "parts"];
 const maxGoogleAdsHeadlines = 15;
 const maxGoogleAdsDescriptions = 4;
 const googleAdsRecommendedManualCpcMicros = 2_000_000;
@@ -1914,13 +1914,13 @@ export function googleAdsRecommendedLandingPages(input: {
  serviceName?: string | null;
  inventoryItemName?: string | null;
  businessName?: string | null;
+ dedicatedPage?:{slug:string;published:boolean}|null;
 }) {
  const customDomain = input.website?.customDomain && input.website?.domainStatus === "connected" ? `https://${input.website.customDomain}` : null;
  const siteRoot = input.website?.publicSlug && input.website?.status === "published" ? `${appBaseUrl}/sites/${input.website.publicSlug}` : null;
  const bookingRoot = `${appBaseUrl}/book/${input.businessSlug || slugify(input.businessName || "business")}`;
- const pathSlug = slugify(input.serviceName || input.inventoryItemName || "");
  const publicRoot = customDomain || siteRoot;
- const dedicatedServicePage = publicRoot && pathSlug ? `${publicRoot}/${pathSlug}` : null;
+ const dedicatedServicePage = publicRoot&&input.dedicatedPage?.published&&input.dedicatedPage.slug?`${publicRoot}/${slugify(input.dedicatedPage.slug)}`:null;
  return [
   { kind: "dedicated_service_page", label: input.serviceName || input.inventoryItemName ? `${input.serviceName || input.inventoryItemName} page` : "Dedicated service page", url: dedicatedServicePage, recommended: Boolean(dedicatedServicePage) },
   { kind: "website_homepage", label: "Website homepage", url: customDomain || siteRoot, recommended: !dedicatedServicePage && Boolean(customDomain || siteRoot) },
@@ -1939,7 +1939,9 @@ export function validateGoogleAdsAdGroupSuggestions(input:{serviceName:string;in
   const terms=normalizedAdTerms(value);
   const hasService=serviceTerms.some(term=>terms.includes(term));
   const crossIndustry=terms.some(term=>adGroupStopWords.has(term)&&!serviceTerms.includes(term)&&term!==String(input.industry??"").toLowerCase());
-  const unsupportedLocation=terms.some(term=>/^[a-z]{4,}$/.test(term)&&["gilbert","mesa","phoenix","chandler","tempe","scottsdale"].includes(term)&&!allowedLocations.has(term));
+  const locationClaim=value.match(/\b(?:in|near|serving)\s+([a-z][a-z .'-]{2,40})/i)?.[1]??"";
+  const claimedLocationTerms=normalizedAdTerms(locationClaim).filter(term=>!["me","you","your","area","nearby"].includes(term));
+  const unsupportedLocation=claimedLocationTerms.length>0&&!claimedLocationTerms.some(term=>allowedLocations.has(term));
   return crossIndustry||unsupportedLocation||(!hasService&&terms.some(term=>adGroupStopWords.has(term)));
  };
  const claims=/(#1|best |lowest|guaranteed|same.?day|24.?7|free estimate|licensed|certified)/i;
@@ -1997,9 +1999,9 @@ async function generateDraftWithAi(input: GoogleAdsDraftInput): Promise<GoogleAd
   body: JSON.stringify({
    model: process.env.OPENAI_ASSISTANT_MODEL?.trim() || "gpt-4.1-mini",
    temperature: 0.4,
-   response_format: { type: "json_object" },
+   response_format:{type:"json_schema",json_schema:{name:"servonas_google_ads_ad_group",strict:true,schema:{type:"object",additionalProperties:false,properties:{campaignName:{type:"string"},adGroupName:{type:"string"},keywords:{type:"array",items:{type:"string"}},negativeKeywords:{type:"array",items:{type:"string"}},headlines:{type:"array",items:{type:"string"}},descriptions:{type:"array",items:{type:"string"}}},required:["campaignName","adGroupName","keywords","negativeKeywords","headlines","descriptions"]}}},
    messages: [
-    { role: "system", content: "You create concise, policy-safe local service Google Ads drafts." },
+    { role: "system", content: "You create concise, policy-safe Google Ads assets for a local business. Use only the supplied business, selected offer, page copy, products, and locations. Every suggestion must describe the selected offer. Never introduce another industry, unsupported location, price, discount, ranking, guarantee, certification, availability claim, or internal marketing commentary. Write descriptions directly to prospective customers. Return only the requested JSON." },
     { role: "user", content: prompt },
    ],
   }),
@@ -2063,23 +2065,23 @@ export async function generateGoogleAdsDraft(input: GoogleAdsDraftInput): Promis
  const fallbackKeywords = keywordBase(input).slice(0, 10);
  const headlines = uniqueStrings([
   `${serviceLabel} Near You`,
-  `${businessName} ${input.service ? "Experts" : "Team"}`,
+  businessName,
   `${serviceLabel} in ${input.businessLocation.city ?? "Your Area"}`,
-  `Book ${serviceLabel} Today`,
-  `Trusted Local ${serviceLabel}`,
-  `Fast ${serviceLabel} Quotes`,
+  `Explore ${serviceLabel}`,
+  `${serviceLabel} Options`,
+  `Learn About ${serviceLabel}`,
   `${serviceLabel} From ${businessName}`,
-  `${serviceLabel} Appointments`,
+  `Choose ${businessName}`,
   `${input.businessLocation.city ?? "Local"} ${serviceLabel}`,
-  `Reliable ${serviceLabel} Help`,
+  `Get Started Online`,
  ].map((value) => value.slice(0, 30))).slice(0, 12);
  const descriptions = uniqueStrings([
-  `${businessName} helps customers in ${location} with dependable ${serviceLabel.toLowerCase()} and clear communication.`,
-  `Review your options, request service, and reach a local team without dealing with a complicated ad experience.`,
-  `Choose a local business for ${serviceLabel.toLowerCase()} with transparent scheduling and a professional customer experience.`,
-  `Google bills your connected account directly while Servonas keeps campaign setup simple.`,
+  `Explore ${serviceLabel.toLowerCase()} from ${businessName}. View details and take the next step online.`,
+  `Looking for ${serviceLabel.toLowerCase()} in ${location}? See your options and contact ${businessName}.`,
+  `Plan your next service with ${businessName}. Learn more about ${serviceLabel.toLowerCase()} today.`,
+  `Visit our ${serviceLabel.toLowerCase()} page for details, options, and an easy way to get started.`,
  ].map((value) => value.slice(0, 90))).slice(0, 4);
- const suggestions=validateGoogleAdsAdGroupSuggestions({serviceName:serviceLabel,industry:input.industry,keywords:aiDraft?.keywords.length?aiDraft.keywords:fallbackKeywords,negativeKeywords:aiDraft?.negativeKeywords.length?aiDraft.negativeKeywords:defaultNegativeKeywords,headlines:aiDraft?.headlines.length?aiDraft.headlines:headlines,descriptions:aiDraft?.descriptions.length?aiDraft.descriptions:descriptions,serviceAreas:geoValues});
+ const suggestions=validateGoogleAdsAdGroupSuggestions({serviceName:serviceLabel,industry:input.industry,keywords:aiDraft?.keywords.length?aiDraft.keywords:fallbackKeywords,negativeKeywords:aiDraft?.negativeKeywords.length?aiDraft.negativeKeywords:defaultNegativeKeywords,headlines:aiDraft?.headlines.length?aiDraft.headlines:headlines,descriptions:aiDraft?.descriptions.length?aiDraft.descriptions:descriptions,serviceAreas:uniqueStrings([...geoValues,input.businessLocation.city??"",input.businessLocation.state??""])});
  return {
   campaignName: aiDraft?.campaignName || `${businessName} ${serviceLabel}`.slice(0, 80),
   adGroupName: aiDraft?.adGroupName || `${serviceLabel} Core`.slice(0, 80),
@@ -2088,8 +2090,8 @@ export async function generateGoogleAdsDraft(input: GoogleAdsDraftInput): Promis
   geoTargetConfig,
   keywords: suggestions.keywords.length ? suggestions.keywords : fallbackKeywords,
   negativeKeywords: suggestions.negativeKeywords,
-  headlines: suggestions.headlines.length ? suggestions.headlines : headlines,
-  descriptions: suggestions.descriptions.length ? suggestions.descriptions : descriptions,
+  headlines: suggestions.headlines.length>=3 ? suggestions.headlines : headlines,
+  descriptions: suggestions.descriptions.length>=2 ? suggestions.descriptions : descriptions,
   aiGenerated: Boolean(aiDraft?.aiGenerated),
  };
 }
