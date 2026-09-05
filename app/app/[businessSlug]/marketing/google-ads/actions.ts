@@ -577,6 +577,10 @@ export async function updateGoogleAdsAdGroupAction(slug:string,campaignId:string
   supabase.from("business_google_ads_ad_groups").select("*").eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",adGroupId).maybeSingle(),
  ]);
  if(!campaign||!adGroup)redirect(path(slug,"error","The ad group could not be found."));
+ if(!adGroup.google_ad_group_id){
+  formData.set("draftAdGroupId",adGroupId);
+  return createGoogleAdsAdGroupAction(slug,campaignId,formData);
+ }
  const adGroupName=text(formData,"adGroupName"),destinationUrl=text(formData,"destinationUrl"),keywords=lines(formData,"keywords"),negativeKeywords=lines(formData,"negativeKeywords"),ads=parseAds(formData);
  if(!adGroupName||adGroupName.length>255||!/^https:\/\//i.test(destinationUrl)||!keywords.length)redirect(path(slug,"error","Add a valid ad group name, HTTPS landing page, and at least one keyword."));
  if(ads[0].headlines.length<3||ads[0].descriptions.length<2||ads[0].headlines.some(value=>value.length>30)||ads[0].descriptions.some(value=>value.length>90))redirect(path(slug,"error","Use at least 3 headlines up to 30 characters and 2 descriptions up to 90 characters."));
