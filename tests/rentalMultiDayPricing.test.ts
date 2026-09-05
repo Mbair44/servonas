@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {calculateRentalDays,calculateRentalUnitPrice,resolveRentalPricingRules,type RentalPricingRules} from "../lib/rentalPricing.ts";
+import {calculateRentalCalendarDays,calculateRentalDays,calculateRentalUnitPrice,resolveRentalPricingRules,type RentalPricingRules} from "../lib/rentalPricing.ts";
 
 const base:RentalPricingRules={standardRentalHours:24,allowMultiDay:true,additionalDayPricingType:"full_price",additionalDayDiscountPercent:0,additionalDayFlatRateCents:null,maxRentalDays:null};
 
@@ -9,6 +9,13 @@ test("up to 24 hours is one rental day and any excess starts day two",()=>{
  const start=new Date("2026-08-10T15:00:00Z");
  assert.equal(calculateRentalDays(start,new Date("2026-08-11T15:00:00Z"),24),1);
  assert.equal(calculateRentalDays(start,new Date("2026-08-11T15:00:01Z"),24),2);
+});
+
+test("calendar-day rentals default to one day regardless of delivery time",()=>{
+ assert.equal(calculateRentalCalendarDays("2026-09-05","2026-09-05"),1);
+ assert.equal(calculateRentalCalendarDays("2026-09-05","2026-09-06"),2);
+ assert.equal(calculateRentalCalendarDays("2026-09-05","2026-09-09"),5);
+ assert.throws(()=>calculateRentalCalendarDays("2026-09-06","2026-09-05"),/invalid/);
 });
 
 test("full, discounted, and flat additional-day prices use integer cents",()=>{
@@ -46,11 +53,22 @@ test("migration snapshots prices and checks full timestamp intervals",async()=>{
  assert.match(sql,/rental_starts_at timestamptz/);assert.match(sql,/rental_days integer/);assert.match(sql,/additional_day_unit_price_cents/);assert.match(sql,/v_end\+make_interval/);assert.match(sql,/v_start/);
 });
 
+test("latest booking RPC prices inclusive calendar days instead of elapsed delivery hours",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20260905000200_calendar_day_rental_periods.sql",import.meta.url),"utf8");
+ assert.match(sql,/v_days:=\(p_rental_end_date-p_rental_date\)\+1/);
+ assert.match(sql,/p_rental_end_date<p_rental_date/);
+ assert.match(sql,/p_rental_date::text\|\|' 00:00:00'/);
+ assert.match(sql,/p_rental_end_date::text\|\|' 23:59:00'/);
+ assert.match(sql,/'pending_payment',v_days,i\.daily_price_cents/);
+ assert.doesNotMatch(sql,/ceil\(extract\(epoch/);
+});
+
 test("checkout prices before promotions and deposits",async()=>{
  const source=await readFile(new URL("../app/api/checkout/route.ts",import.meta.url),"utf8");
  assert.ok(source.indexOf("calculateRentalUnitPrice(item.daily_price_cents")<source.indexOf("await validateRentalPromo"));
  assert.ok(source.indexOf("discountCents=promo")<source.indexOf("depositCents = Math.round"));
  assert.match(source,/p_rental_end_date/);
+ assert.match(source,/calculateRentalCalendarDays\(body\.rentalDate!,body\.rentalEndDate!\)/);
 });
 
 test("reservation summary itemizes the first period and every additional day",async()=>{
