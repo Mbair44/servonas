@@ -972,10 +972,11 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
        {draftAdGroups.map((adGroup: any) => {
         const matchedLive = liveAdGroups.find((entry) => entry.adGroupId === String(adGroup.google_ad_group_id ?? ""));
         const adList = Array.isArray(adGroup.ads) ? adGroup.ads : [];
+        const publishedInGoogle=Boolean(adGroup.google_ad_group_id&&adGroup.status==="published");
         return <details key={adGroup.id} className="google-ads-ad-group-card">
          <summary>
           <span className="google-ads-ad-group-summary">
-           <strong>{adGroup.ad_group_name}</strong>
+           <strong>{adGroup.ad_group_name}</strong><span className={`google-ads-ad-group-state ${publishedInGoogle?"published":"draft"}`}>{publishedInGoogle?"Verified in Google Ads":"Saved in Servonas only"}</span>
            <small>{adGroup.destination_url}</small>
           </span>
           <span className="google-ads-ad-group-stats">{matchedLive ? `${matchedLive.impressions} impressions · ${matchedLive.clicks} clicks · ${matchedLive.conversions} conversions` : `${items(adGroup.keywords).length} keywords · ${adList.length || 1} ads`}</span>
@@ -1012,7 +1013,8 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
           </div> : null}
           <details className="google-ads-ad-group-editor">
            <summary>Edit ad group</summary>
-           <form action={updateGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id,adGroup.id)}>
+           <form action={publishedInGoogle?updateGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id,adGroup.id):createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+            {!publishedInGoogle&&<input type="hidden" name="draftAdGroupId" value={adGroup.id}/>}
             <div className="google-ads-form">
              <label>Ad group name<input name="adGroupName" required maxLength={255} defaultValue={adGroup.ad_group_name}/></label>
              <label>Landing page<input name="destinationUrl" required type="url" pattern="https://.*" defaultValue={adGroup.destination_url}/></label>
@@ -1021,8 +1023,8 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
              <label className="wide">Headlines <small>At least 3, up to 30 characters each</small><textarea name="headlines" required rows={7} defaultValue={items(adList[0]?.headlines).join("\n")}/></label>
              <label className="wide">Descriptions <small>At least 2, up to 90 characters each</small><textarea name="descriptions" required rows={5} defaultValue={items(adList[0]?.descriptions).join("\n")}/></label>
             </div>
-            <p>{adGroup.google_ad_group_id?"Saving updates this live Google Ads ad group after Google validates the changes.":"This is still a draft, so saving only updates the draft."}</p>
-            <button className="sv-button" data-loading-label="Saving ad group…">Save ad group changes</button>
+            <p>{publishedInGoogle?"Saving updates this live Google Ads ad group after Google validates the changes.":"This ad group exists only in Servonas. Creating it will send it to Google Ads and verify it before Servonas marks it published."}</p>
+            <button className="sv-button" data-loading-label={publishedInGoogle?"Saving ad group…":"Creating in Google Ads…"}>{publishedInGoogle?"Save ad group changes":"Create in Google Ads"}</button>
            </form>
           </details>
          </div>

@@ -66,6 +66,16 @@ test("existing ad groups can be edited locally or in Google after validation",as
  assert.match(service,/adGroupAdOperation:\{remove/);
 });
 
+test("saving a Servonas-only ad group publishes it instead of silently updating a local draft",async()=>{
+ const [page,actions]=await Promise.all([read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("app/app/[businessSlug]/marketing/google-ads/actions.ts")]);
+ assert.match(page,/publishedInGoogle\?updateGoogleAdsAdGroupAction\.bind\(null,businessSlug,campaign\.id,adGroup\.id\):createGoogleAdsAdGroupAction\.bind\(null,businessSlug,campaign\.id\)/);
+ assert.match(page,/!publishedInGoogle&&<input type="hidden" name="draftAdGroupId" value=\{adGroup\.id\}/);
+ assert.match(page,/publishedInGoogle\?"Save ad group changes":"Create in Google Ads"/);
+ assert.match(page,/Saved in Servonas only/);
+ assert.match(page,/Verified in Google Ads/);
+ assert.match(actions,/if\(!adGroup\.google_ad_group_id\)\{\s*formData\.set\("draftAdGroupId",adGroupId\);\s*return createGoogleAdsAdGroupAction\(slug,campaignId,formData\);\s*\}/);
+});
+
 test("creation reports success only after Google mutation read-back verification",async()=>{
  const [page,actions,service,confirmation]=await Promise.all([read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("app/app/[businessSlug]/marketing/google-ads/actions.ts"),read("lib/googleAdsManagement.ts"),read("lib/googleAdsAdGroupCreation.ts")]);
  assert.match(page,/data-loading-label="Creating ad group…"/);
