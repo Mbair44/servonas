@@ -28,6 +28,7 @@ import {
  createGoogleAdsDraftAction,
  checkGoogleAdsStatusAction,
  createGoogleAdsAdGroupAction,
+ createGoogleAdsCategoryLandingPageAction,
  prepareGoogleAdsAdGroupAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
@@ -1014,7 +1015,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
       </div>
       <details className="google-ads-ad-group-create google-ads-guided-builder" open={Boolean(preparedAdGroup)}>
        <summary>{preparedAdGroup?"Review your new ad":"Advertise another service"}</summary>
-       {!preparedAdGroup?<form className="google-ads-offer-picker" action={prepareGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+       {!preparedAdGroup?<><div className="google-ads-category-page-tools">{(categories??[]).filter((category:any)=>!(categoryPages??[]).some((entry:any)=>entry.category_id===category.id&&entry.status==="published")).map((category:any)=><form action={createGoogleAdsCategoryLandingPageAction.bind(null,businessSlug,category.id)} key={category.id}><span><strong>{category.name}</strong><small>Create a branded page showing every active item in this category.</small></span><button className="text-button">Create landing page</button></form>)}</div><form className="google-ads-offer-picker" action={prepareGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
         <div className="google-ads-builder-intro"><span>Servonas guided setup</span><h3>What do you want to advertise?</h3><p>Choose one service. Servonas will read its page, find high-intent searches, filter irrelevant traffic, and write the ad for you.</p></div>
         <div className="google-ads-offer-options">
          {(categories??[]).map((category:any)=>{const page=(categoryPages??[]).find((entry:any)=>entry.category_id===category.id&&entry.status==="published");return <label key={`category:${category.id}`}><input required type="radio" name="advertisingTarget" value={`category:${category.id}`}/><span><strong>{page?.title||category.name}</strong><small>{page?`/${page.slug}`:"Servonas will use the best available page"}</small>{page&&<b>Recommended</b>}</span></label>;})}
@@ -1022,7 +1023,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
          {!(categories??[]).length&&(inventory??[]).map((item:any)=><label key={`inventory:${item.id}`}><input required type="radio" name="advertisingTarget" value={`inventory:${item.id}`}/><span><strong>{item.name}</strong><small>Rental item</small></span></label>)}
         </div>
         <button className="sv-button" data-loading-label="Servonas is building your ad…">Build my ad</button>
-       </form>:(()=>{const keywords=items(preparedAdGroup.keywords),negatives=items(preparedAdGroup.negative_keywords),ad=Array.isArray(preparedAdGroup.ads)?preparedAdGroup.ads[0]??{}:{},headlines=items(ad.headlines),descriptions=items(ad.descriptions),destination=String(preparedAdGroup.destination_url||"");return <form className="google-ads-guided-review" action={createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+       </form></>:(()=>{const keywords=items(preparedAdGroup.keywords),negatives=items(preparedAdGroup.negative_keywords),ad=Array.isArray(preparedAdGroup.ads)?preparedAdGroup.ads[0]??{}:{},headlines=items(ad.headlines),descriptions=items(ad.descriptions),destination=String(preparedAdGroup.destination_url||"");return <form className="google-ads-guided-review" action={createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
         <input type="hidden" name="draftAdGroupId" value={preparedAdGroup.id}/>
         <div className="google-ads-builder-intro"><span>Ready for your review</span><h3>{preparedAdGroup.ad_group_name}</h3><p>Servonas prepared this from the selected service and landing page. Nothing has been published yet.</p></div>
         <section className="google-ads-destination-card"><span>Sending customers to</span><strong>{destination.replace(/^https?:\/\//,"")}</strong><small>{destination.startsWith("https://")?"Published HTTPS landing page":"Review this destination before creating the ad group"}</small></section>
