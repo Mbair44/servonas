@@ -7,7 +7,7 @@ import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
-import {calculateRentalDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
+import {calculateRentalCalendarDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
 import {operatorCharge} from "@/lib/rentalOperators";
 import {recordBookingFunnelEvent,snapshotBookingAttribution,validSessionId} from "@/lib/bookingFunnel";
 
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
     const startInstant=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,publicBooking?.timezone??"America/Phoenix"),endInstant=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,publicBooking?.timezone??"America/Phoenix");
     const businessRules={standardRentalHours:Number(publicBooking?.standard_rental_hours??24),allowMultiDay:Boolean(publicBooking?.allow_multi_day_rentals),additionalDayPricingType:(publicBooking?.additional_day_pricing_type??"full_price") as "full_price"|"percentage_discount"|"flat_rate",additionalDayDiscountPercent:Number(publicBooking?.additional_day_discount_percent??0),additionalDayFlatRateCents:publicBooking?.additional_day_flat_rate_cents==null?null:Number(publicBooking.additional_day_flat_rate_cents),maxRentalDays:publicBooking?.max_rental_days==null?null:Number(publicBooking.max_rental_days)};
     const requestedOperators=new Map((Array.isArray(body.operators)?body.operators:[]).filter(row=>hasText(row.inventoryItemId)).map(row=>[row.inventoryItemId!.trim(),row.selected===true]));
-    let pricedItems;try{pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),days=calculateRentalDays(startInstant,endInstant,rules.standardRentalHours),price=calculateRentalUnitPrice(item.daily_price_cents,days,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));return {...item,...price,operator};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
+    let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),price=calculateRentalUnitPrice(item.daily_price_cents,rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));return {...item,...price,operator};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
     const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,unitPriceCents:item.totalUnitPriceCents+(item.operator.chargeCents/item.quantity)}));
     const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});

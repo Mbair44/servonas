@@ -43,6 +43,14 @@ export function calculateRentalDays(start:Date,end:Date,standardRentalHours=24){
  return Math.max(1,Math.ceil(durationMs/(Math.max(1,standardRentalHours)*60*60*1000)));
 }
 
+export function calculateRentalCalendarDays(startDate:string,endDate:string){
+ const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+ if(!datePattern.test(startDate)||!datePattern.test(endDate))throw new Error("The calculated rental period is invalid.");
+ const start=Date.parse(`${startDate}T12:00:00Z`),end=Date.parse(`${endDate}T12:00:00Z`);
+ if(!Number.isFinite(start)||!Number.isFinite(end)||end<start)throw new Error("The calculated rental period is invalid.");
+ return Math.floor((end-start)/(24*60*60*1000))+1;
+}
+
 export function calculateRentalUnitPrice(basePriceCents:number,days:number,rules:RentalPricingRules){
  if(!Number.isInteger(basePriceCents)||basePriceCents<0||!Number.isInteger(days)||days<1)throw new Error("Rental pricing is invalid.");
  if(days>1&&!rules.allowMultiDay)throw new Error("This rental is limited to one standard rental period.");
