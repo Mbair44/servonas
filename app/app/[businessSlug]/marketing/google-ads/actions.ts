@@ -47,6 +47,7 @@ import {
  updateGoogleAdsCampaignBudget,
  updateGoogleAdsCampaignStatus,
  updateGoogleAdsAdGroupBid,
+ updateGoogleAdsManagedAdGroup,
  updateGoogleAdsKeywordBid,
  updateTenantGoogleAdsSelection,
  disconnectTenantGoogleAds,
@@ -545,6 +546,33 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
  });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(path(slug, "success", "Ad group added."));
+}
+
+export async function updateGoogleAdsAdGroupAction(slug:string,campaignId:string,adGroupId:string,formData:FormData){
+ const {supabase,business,user}=await context(slug);
+ const [{data:campaign},{data:adGroup}]=await Promise.all([
+  supabase.from("business_google_ads_campaigns").select("id,google_ads_customer_id,google_campaign_id").eq("business_id",business.id).eq("id",campaignId).maybeSingle(),
+  supabase.from("business_google_ads_ad_groups").select("*").eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",adGroupId).maybeSingle(),
+ ]);
+ if(!campaign||!adGroup)redirect(path(slug,"error","The ad group could not be found."));
+ const adGroupName=text(formData,"adGroupName"),destinationUrl=text(formData,"destinationUrl"),keywords=lines(formData,"keywords"),negativeKeywords=lines(formData,"negativeKeywords"),ads=parseAds(formData);
+ if(!adGroupName||adGroupName.length>255||!/^https:\/\//i.test(destinationUrl)||!keywords.length)redirect(path(slug,"error","Add a valid ad group name, HTTPS landing page, and at least one keyword."));
+ if(ads[0].headlines.length<3||ads[0].descriptions.length<2||ads[0].headlines.some(value=>value.length>30)||ads[0].descriptions.some(value=>value.length>90))redirect(path(slug,"error","Use at least 3 headlines up to 30 characters and 2 descriptions up to 90 characters."));
+ if(adGroup.google_ad_group_id&&campaign.google_ads_customer_id&&campaign.google_campaign_id){
+  const connection=await loadTenantGoogleAdsAccess(business.id);
+  if(!connection?.accessToken)redirect(path(slug,"error","Reconnect Google Ads before editing this live ad group."));
+  const access=resolvedMutationAccess(connection.status,connection.customerChoices,campaign.google_ads_customer_id);
+  const end=new Date(),start=new Date(end);start.setUTCDate(start.getUTCDate()-90);
+  const liveGroups=await fetchGoogleAdsCampaignAdGroupDetails({accessToken:connection.accessToken,customerId:campaign.google_ads_customer_id,campaignId:campaign.google_campaign_id,dateFrom:start.toISOString().slice(0,10),dateTo:end.toISOString().slice(0,10),loginCustomerId:access.resolvedLoginCustomerId,businessId:business.id});
+  const live=liveGroups.find(group=>group.adGroupId===String(adGroup.google_ad_group_id));
+  if(!live)redirect(path(slug,"error","Google could not verify this live ad group. Refresh campaign data and try again."));
+  await updateGoogleAdsManagedAdGroup({accessToken:connection.accessToken,customerId:campaign.google_ads_customer_id,loginCustomerIds:access.loginCustomerIds,adGroupId:live.adGroupId,currentKeywordCriterionIds:live.keywords.map(keyword=>keyword.id).filter(Boolean),currentAdIds:live.ads.map(ad=>ad.id).filter(Boolean),adGroup:{name:adGroupName,destinationUrl,keywords,negativeKeywords,ads}});
+ }
+ const {error}=await supabase.from("business_google_ads_ad_groups").update({ad_group_name:adGroupName,destination_url:destinationUrl,keywords,negative_keywords:negativeKeywords,ads,updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",adGroupId);
+ if(error)redirect(path(slug,"error","The ad group changed in Google, but its Servonas record could not be updated."));
+ await writeGoogleAdsAuditLog({businessId:business.id,campaignId,actorUserId:user.id,eventType:"google_ads_ad_group_updated",metadata:{adGroupId,googleAdGroupId:adGroup.google_ad_group_id??null,destinationUrl,keywordCount:keywords.length,negativeKeywordCount:negativeKeywords.length}});
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug,"success",`${adGroupName} updated.`));
 }
 
 export async function prepareGoogleAdsAdGroupAction(slug:string,campaignId:string,formData:FormData){

@@ -2778,6 +2778,31 @@ export async function createGoogleAdsAdGroup(input: {
  };
 }
 
+export async function updateGoogleAdsManagedAdGroup(input: {
+ accessToken:string;
+ customerId:string;
+ loginCustomerIds?:Array<string|null|undefined>;
+ adGroupId:string;
+ currentKeywordCriterionIds:string[];
+ currentAdIds:string[];
+ adGroup:GoogleAdsManagedAdGroup;
+}){
+ const customerId=stripCustomerId(input.customerId),adGroupId=stripCustomerId(input.adGroupId);
+ if(!customerId||!adGroupId)throw new Error("A Google Ads customer and ad group are required.");
+ const adGroupResource=`customers/${customerId}/adGroups/${adGroupId}`;
+ const operations:Record<string,unknown>[]=[
+  {adGroupOperation:{update:{resourceName:adGroupResource,name:input.adGroup.name},updateMask:"name"}},
+  ...input.currentKeywordCriterionIds.map(id=>({adGroupCriterionOperation:{remove:`customers/${customerId}/adGroupCriteria/${adGroupId}~${stripCustomerId(id)}`}})),
+  ...normalizeGoogleAdsKeywords(input.adGroup.keywords).map(keyword=>({adGroupCriterionOperation:{create:{adGroup:adGroupResource,status:"ENABLED",keyword:{text:keyword,matchType:"PHRASE"}}}})),
+  ...normalizeGoogleAdsKeywords(input.adGroup.negativeKeywords).map(keyword=>({adGroupCriterionOperation:{create:{adGroup:adGroupResource,negative:true,keyword:{text:keyword,matchType:"PHRASE"}}}})),
+  ...input.currentAdIds.map(id=>({adGroupAdOperation:{remove:`customers/${customerId}/adGroupAds/${adGroupId}~${stripCustomerId(id)}`}})),
+  ...input.adGroup.ads.map(ad=>({adGroupAdOperation:{create:{adGroup:adGroupResource,status:"ENABLED",ad:{finalUrls:[ad.finalUrl||input.adGroup.destinationUrl],responsiveSearchAd:{headlines:limitGoogleAdsTextAssets(ad.headlines,maxGoogleAdsHeadlines).map(text=>({text})),descriptions:limitGoogleAdsTextAssets(ad.descriptions,maxGoogleAdsDescriptions).map(text=>({text}))}}}}})),
+ ];
+ const request={accessToken:input.accessToken,targetCustomerId:input.customerId,loginCustomerIds:[...(input.loginCustomerIds??[]),null],body:{mutateOperations:operations,partialFailure:false,validateOnly:true}};
+ await googleAdsRequestWithLoginFallbacks(`/customers/${customerId}/googleAds:mutate`,request);
+ await googleAdsRequestWithLoginFallbacks(`/customers/${customerId}/googleAds:mutate`,{...request,body:{...request.body,validateOnly:false},suppressFailureDiagnostics:true});
+}
+
 function stringSet(values: string[]) {
  return new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean));
 }
