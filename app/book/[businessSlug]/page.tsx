@@ -8,6 +8,7 @@ import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {loadPublicBookingData} from "./loadPublicBookingData";
+import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,10 @@ export default async function PublicBookingPage({
   const googleMapsApiKey=publicGoogleMapsApiKey();
   const data=await loadPublicBookingData(businessSlug);
   if (!data) notFound();
-  const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
+  const {settings,services,schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
 
   return (
-    <>{embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} initialSessionId={query.sv_at}/><main
+    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} initialSessionId={query.sv_at}/><main
       className={`public-booking${embedded ? " embedded-booking" : ""}`}
       style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
     >
