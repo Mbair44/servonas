@@ -12,13 +12,13 @@ test("party rental booking moves focus to the upsell primary action",async()=>{
  assert.match(code,/window\.setTimeout\(\(\)=>primaryAction\.focus\(\{preventScroll:true\}\),120\)/);
  assert.match(code,/ref=\{upsellPrimaryActionRef\}/);
  assert.match(code,/className="rental-upsell-dialog rental-upsell-inline"/);
- assert.match(code,/Would you like to add these to your party\?/);
+ assert.match(code,/Would you like to add these to your booking\?/);
 });
 
 test("party rental booking marks all customer-required fields clearly",async()=>{
  const code=await read("components/PartyRentalBookingClient.tsx");
- assert.match(code,/Choose your party date/);
- assert.match(code,/Party date: \{eventDateLabel\}/);
+ assert.match(code,/Choose your event date/);
+ assert.match(code,/Your event date/);
  assert.match(code,/First name <span className="booking-required"/);
  assert.match(code,/Last name <span className="booking-required"/);
  assert.match(code,/Email <span className="booking-required"/);

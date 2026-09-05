@@ -4,5 +4,5 @@ import {readFile} from "node:fs/promises";
 
 test("cart navigation requires a date and focuses the existing calendar",async()=>{
  const source=await readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8");
- assert.match(source,/if\(!date\)\{setBookingError\("Choose your party date before viewing your cart\."\);setShowCheckout\(false\);focusDatePicker\("date_first"\);return;\}/);
+ assert.match(source,/if\(!date\)\{setBookingError\("Choose your event date before viewing your booking\."\);setShowCheckout\(false\);focusDatePicker\("date_first"\);return;\}/);
 });
