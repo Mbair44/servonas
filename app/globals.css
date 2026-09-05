@@ -414,18 +414,23 @@ code { background: #f1eff9; padding: 2px 6px; border-radius: 6px; }
 .inventory-card-body { display: flex; flex: 1; flex-direction: column; }
 .inventory-card-head { align-items: flex-start; }
 .inventory-dimensions{display:inline-flex;align-items:center;align-self:flex-start;gap:8px;margin:10px 0 12px;padding:9px 12px;border:1px solid color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 16%,#dbe4ef);border-radius:12px;background:linear-gradient(135deg,color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 8%,#fff) 0%,#f8fbff 100%);color:#42506a;font-size:.77rem;font-weight:800;line-height:1.35;box-shadow:inset 0 1px 0 rgba(255,255,255,.65)}
-.inventory-description { min-height: 76px; margin-bottom: 10px; }
+.inventory-description { min-height: 50px; margin-bottom: 7px; }
 .inventory-description p { display: -webkit-box; overflow: hidden; margin: 0; -webkit-box-orient: vertical; -webkit-line-clamp: var(--inventory-description-lines, 3); }
 .inventory-description p.expanded { display: block; overflow: visible; -webkit-line-clamp: unset; }
-.inventory-description-toggle { margin-top: 6px; padding: 0; border: 0; background: transparent; color: var(--booking-brand,var(--site-primary,var(--purple))); font: inherit; font-size: .78rem; font-weight: 900; cursor: pointer; }
+.inventory-description-toggle { width:max-content;max-width:100%;margin:0 0 13px;padding:0;border:0;background:transparent;color:var(--booking-brand,var(--site-primary,var(--purple)));font:inherit;font-size:.78rem;font-weight:900;cursor:pointer;text-decoration:underline;text-underline-offset:3px; }
 .inventory-card.description-expanded .inventory-description { min-height: 0; }
+.inventory-detail-note{margin:-3px 0 13px;padding:10px 12px;border-radius:10px;background:#f8fafc;color:#667085;font-size:.76rem;line-height:1.45}
 .catalog-price { white-space: nowrap; color: var(--purple); font-size: 1.05rem; }
 .catalog-description { margin: 2px 0 18px; }
 .catalog-add-button { width: 100%; margin-top: auto; padding: 12px 14px; border: 1px solid var(--purple); border-radius: 12px; background: white; color: var(--purple); font: inherit; font-weight: 900; cursor: pointer; }
 .catalog-add-button:hover { background: #f5f2ff; }
 .catalog-add-button.selected { background: var(--purple); color: white; }
 .catalog-add-button:disabled { border-color: var(--border); background: #f4f4f6; color: #777; cursor: not-allowed; }
+.catalog-add-button.predate{background:color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 9%,#fff);color:var(--booking-brand,var(--site-primary,var(--purple)));border:1px solid color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 32%,#d8e0ea)}
+.catalog-add-button.predate:hover{background:color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 14%,#fff)}
 .rental-pricing-footer{display:grid;gap:10px;margin-top:auto;padding-top:18px;background:#fff}.rental-pricing-price{display:flex;align-items:flex-end;justify-content:flex-start;gap:12px;flex-wrap:wrap}.rental-pricing-price strong{color:#172033;font-size:clamp(1.75rem,2.9vw,2.15rem);line-height:1.05;letter-spacing:-.035em}.rental-pricing-price small{color:#667085;font-size:.76rem;line-height:1.4}.rental-pricing-multiday{display:flex;align-items:flex-start;gap:8px;color:#305f2a}.rental-pricing-multiday span{display:grid;place-items:center;flex:0 0 18px;width:18px;height:18px;margin-top:1px;border-radius:50%;background:#ecfdf3;color:#15803d;font-size:.62rem;font-weight:900}.rental-pricing-multiday small{color:#54715b;font-size:.76rem;line-height:1.4}.rental-pricing-divider{height:1px;background:#edf0f4}.rental-pricing-footer>a,.rental-pricing-footer .catalog-add-button{display:flex;width:100%;min-height:50px;align-items:center;justify-content:center;margin:0;padding:12px 14px;border:0;border-radius:10px;background:var(--booking-brand,var(--site-primary,var(--purple)));color:#fff;font-size:.82rem;font-weight:900;text-decoration:none;transition:filter .18s ease,transform .18s ease}.rental-pricing-footer>a:hover,.rental-pricing-footer .catalog-add-button:hover{filter:brightness(.94);background:var(--booking-brand,var(--site-primary,var(--purple)))}.rental-pricing-footer .catalog-add-button.selected{background:var(--booking-brand,var(--site-primary,var(--purple)));color:#fff}.rental-pricing-footer>a:focus-visible,.rental-pricing-footer .catalog-add-button:focus-visible{outline:3px solid color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 28%,#fff);outline-offset:3px}@media(max-width:720px){.rental-pricing-footer{gap:12px}.rental-pricing-price{flex-direction:column;align-items:flex-start;gap:4px}.rental-pricing-price strong{font-size:clamp(1.7rem,8vw,2.2rem)}}
+.rental-pricing-footer .catalog-add-button.predate{border:1px solid color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 32%,#d8e0ea);background:color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 9%,#fff);color:var(--booking-brand,var(--site-primary,var(--purple)))}
+.rental-pricing-footer .catalog-add-button.predate:hover{background:color-mix(in srgb,var(--booking-brand,var(--site-primary,var(--purple))) 14%,#fff)}
 .empty-catalog { margin-top: 24px; padding: 48px 24px; text-align: center; border: 1px dashed var(--border); border-radius: 20px; background: white; }
 .empty-catalog button { margin: 8px 0 0; }
 .selection-bar { position: sticky; z-index: 20; bottom: 14px; display: none; align-items: center; justify-content: space-between; gap: 20px; max-width: 780px; margin: 28px auto 40px; padding: 15px 18px; border-radius: 18px; background: #211c3b; color: white; box-shadow: 0 16px 40px rgba(25,20,54,.3); }
@@ -1419,8 +1424,10 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 .party-rental-booking .day.in-range{background:#eef4ff;color:#1d4ed8;border-color:#bfdbfe}
 @media(max-width:560px){.party-rental-booking .calendar{width:100%;padding:10px}.party-rental-booking .calendar-head{grid-template-columns:32px minmax(0,1fr) 32px;gap:4px;align-items:start}.party-rental-booking .calendar-head h3{display:grid;gap:6px;font-size:1rem;line-height:1.2;text-align:center}.party-rental-booking .calendar-head h3 small{display:block;margin-top:0;font-size:.72rem;line-height:1.2}.party-rental-booking .calendar-head button{width:32px;height:32px;font-size:1rem}.party-rental-booking .weekdays,.party-rental-booking .days{gap:3px}.party-rental-booking .weekdays{margin:13px 0 5px;font-size:.58rem}.party-rental-booking .day{min-height:40px;padding:3px 0;border-radius:7px;font-size:.72rem}.party-rental-booking .day small{display:none}.party-rental-booking .rental-calendar-item{margin:12px 0 -4px;font-size:.74rem}.party-rental-booking .rental-calendar-notice{margin-top:11px;padding:10px 11px;font-size:.78rem}}
 .rental-category-filter{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.rental-category-filter button{padding:9px 13px;border:1px solid #d7dfeb;border-radius:999px;background:#fff;color:#45536b;font:inherit;font-size:.76rem;font-weight:800;cursor:pointer}.rental-category-filter button.active{border-color:var(--booking-brand);background:var(--booking-brand);color:#fff}.rental-card-category{display:block;margin-bottom:7px;color:var(--booking-brand);font-size:.68rem;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.inventory-gallery>.empty-catalog{grid-column:1/-1}
-.rental-date-pill{position:sticky;top:18px;z-index:12;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;border:1px solid color-mix(in srgb,var(--booking-brand,#155eef) 18%,#d7e3f4);border-radius:16px;background:#fff;box-shadow:0 12px 30px rgba(16,24,40,.08)}.rental-date-pill strong{font-size:.96rem}.rental-date-pill span{color:#667085;font-size:.82rem}.rental-date-pill .text-button{margin-left:auto}
-.rental-storefront-header{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:24px;align-items:end}.rental-storefront-header h1{margin:6px 0 8px;font-size:clamp(2.2rem,5vw,3.8rem);line-height:.98;letter-spacing:-.04em;overflow-wrap:anywhere}.rental-storefront-header p{max-width:44rem;color:#667085}.rental-storefront-date{display:grid;width:100%;gap:10px;padding:18px;border:1px solid #dbe3ef;border-radius:18px;background:#f8fafc;overflow:hidden}.rental-storefront-date small{color:#667085}
+.rental-date-pill{position:sticky;top:18px;z-index:12;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 12px;padding:14px 18px;border:1px solid color-mix(in srgb,var(--booking-brand,#155eef) 18%,#d7e3f4);border-radius:16px;background:#fff;box-shadow:0 12px 30px rgba(16,24,40,.08)}.rental-date-pill strong{font-size:1rem;line-height:1.35}.rental-date-pill span{grid-column:1;color:#667085;font-size:.7rem;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.rental-date-pill .text-button{grid-column:2;grid-row:1/3}.rental-date-prompt{display:grid;gap:4px;padding:4px 6px 8px}.rental-date-prompt strong{color:#172033;font-size:1rem}.rental-date-prompt small{color:#667085}
+.rental-storefront-header{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.95fr);gap:28px;align-items:start}.rental-storefront-header h1{margin:8px 0 10px;font-size:clamp(2.2rem,5vw,3.8rem);line-height:.98;letter-spacing:-.04em;overflow-wrap:anywhere}.rental-storefront-header p{max-width:40rem;color:#667085;line-height:1.6}.rental-storefront-date{display:grid;width:100%;gap:10px;padding:18px;border:1px solid #dbe3ef;border-radius:18px;background:#f8fafc;overflow:hidden}.rental-storefront-date small{color:#667085}
+.rental-booking-journey{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:24px 0 0;padding:0;list-style:none}.rental-booking-journey li{display:flex;align-items:center;gap:6px;min-width:0;padding:9px 10px;border:1px solid #e2e8f0;border-radius:11px;background:#fff;color:#98a2b3;font-size:.72rem;font-weight:900}.rental-booking-journey li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rental-booking-journey li.current{border-color:color-mix(in srgb,var(--booking-brand,#155eef) 35%,#dbe3ef);background:color-mix(in srgb,var(--booking-brand,#155eef) 8%,#fff);color:var(--booking-brand,#155eef)}.rental-booking-journey li.complete{border-color:#bbdfc7;background:#f1fbf4;color:#16733b}
+.catalog-heading h2{margin:7px 0 0;font-size:clamp(1.7rem,3.4vw,2.45rem);letter-spacing:-.035em}.catalog-heading p{margin:7px 0 0;color:#667085;line-height:1.5}
 .rental-date-entry{display:grid;gap:14px}.rental-date-entry-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.rental-date-entry-actions small{color:#667085}
 .inventory-card.focused{border-color:color-mix(in srgb,var(--booking-brand,#155eef) 40%,#d7e3f4);box-shadow:0 14px 34px rgba(21,94,239,.14)}
 .inventory-availability-status{margin:0 0 16px;font-size:.82rem;font-weight:800;line-height:1.4}.inventory-availability-status.available{color:#067647}.inventory-availability-status.unavailable{color:#b42318}.inventory-availability-status.pending{color:#667085}
@@ -1440,7 +1447,7 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 @media(max-width:560px){
   .rental-checkout-screen-header{padding:18px 16px;border-radius:16px}
   .rental-checkout-screen-header h1{font-size:clamp(1.8rem,10vw,2.45rem)}
-  .rental-date-pill{align-items:flex-start;padding:12px 14px}
+  .rental-date-pill{align-items:start;padding:12px 14px}
   .rental-date-pill strong{font-size:.88rem;line-height:1.35}
   .rental-date-pill .text-button{margin-left:0}
   .rental-item-detail-panel{padding:16px}
@@ -1448,6 +1455,9 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
   .rental-storefront-header{gap:16px;align-items:start}
   .rental-storefront-header h1{font-size:clamp(1.9rem,11vw,2.8rem);line-height:1.02}
   .rental-storefront-header p{font-size:.95rem;line-height:1.55}
+  .rental-booking-journey{gap:5px;margin-top:18px}
+  .rental-booking-journey li{justify-content:center;padding:8px 5px;font-size:.66rem}
+  .rental-booking-journey li span{display:none}
   .rental-storefront-date{padding:10px;border-radius:16px}
   .rental-category-filter{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;margin:14px 0}
   .rental-category-filter button{flex:0 0 auto;padding:9px 12px;font-size:.74rem;white-space:nowrap}
@@ -1456,6 +1466,7 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
   .inventory-dimensions{margin:8px 0 10px;padding:8px 10px;font-size:.74rem}
   .inventory-description{min-height:0}
   .inventory-description p{font-size:.9rem;line-height:1.5}
+  .inventory-card img,.inventory-image-placeholder{height:200px}
   .quantity-picker{grid-template-columns:40px 1fr 40px;gap:.5rem}
   .quantity-picker button{font-size:1.3rem}
   .quantity-picker>div{min-height:44px}
