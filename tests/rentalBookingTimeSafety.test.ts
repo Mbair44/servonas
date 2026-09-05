@@ -16,5 +16,7 @@ test("party-rental time selection normalizes an invalid configured duration and 
  assert.match(source,/catch\{return \{\.\.\.fallback,error:"Choose a valid arrival time\."\};\}/);
  assert.match(source,/const pricingError=bookingItems\.map\(priced\)\.map\(price=>"error" in price\?price\.error:null\)/);
  assert.match(source,/if\(!date\|\|!startTime\)\{setBookingError\("Choose your party date and arrival time first\."\)/);
+ assert.match(source,/onInput=\{event=>\{const value=event\.currentTarget\.value;if\(value!==startTime\)chooseStart\(value,date\);\}\}/);
+ assert.match(source,/onChange=\{event=>\{const value=event\.currentTarget\.value;if\(value!==startTime\)chooseStart\(value,date\);\}\}/);
  assert.doesNotMatch(source,/disabled=\{submitting\|\|!date\|\|!startTime\|\|!endTime/);
 });
