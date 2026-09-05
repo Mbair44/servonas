@@ -39,7 +39,7 @@ export function resolveRentalPricingRules(business:RentalPricingRules,item:Renta
 
 export function calculateRentalDays(start:Date,end:Date,standardRentalHours=24){
  const durationMs=end.getTime()-start.getTime();
- if(!Number.isFinite(durationMs)||durationMs<=0)throw new Error("Choose a valid rental start and end time.");
+ if(!Number.isFinite(durationMs)||durationMs<=0)throw new Error("The calculated rental period is invalid.");
  return Math.max(1,Math.ceil(durationMs/(Math.max(1,standardRentalHours)*60*60*1000)));
 }
 

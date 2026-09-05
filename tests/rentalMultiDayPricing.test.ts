@@ -62,9 +62,12 @@ test("reservation summary itemizes the first period and every additional day",as
 });
 
 test("booking catalog follows managed rental category order then item name",async()=>{
- const source=await readFile(new URL("../app/book/[businessSlug]/page.tsx",import.meta.url),"utf8");
- assert.match(source,/rental_inventory_categories/);
- assert.match(source,/categoryOrder/);
- assert.match(source,/a\.rank-b\.rank/);
- assert.match(source,/left\.name\.localeCompare\(right\.name\)/);
+ const [loader,client]=await Promise.all([
+  readFile(new URL("../app/book/[businessSlug]/loadPublicBookingData.ts",import.meta.url),"utf8"),
+  readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8"),
+ ]);
+ assert.match(loader,/rental_inventory_categories/);
+ assert.match(loader,/categoryOrder/);
+ assert.match(loader,/a\.rank-b\.rank/);
+ assert.match(client,/left\.name\.localeCompare\(right\.name\)/);
 });
