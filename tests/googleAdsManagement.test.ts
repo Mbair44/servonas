@@ -189,7 +189,7 @@ test("google ads page and actions expose multi ad group management", async () =>
  assert.match(page, /fetchGoogleAdsCampaignAdGroupDetails/);
  assert.match(page, /googleAdsRecommendedLandingPages/);
  assert.match(page, /<h3>Ad groups<\/h3>/);
- assert.match(page, /Add ad group/);
+ assert.match(page, /Advertise another service/);
  assert.match(page, /Organize one campaign into multiple services, keyword sets, and landing pages\./);
 });
 
@@ -722,8 +722,8 @@ test("forced keyword reviews log a complete safe snapshot and inventory enrichme
  assert.match(actions, /const cachedReview = forceReview \? null/);
  assert.match(page, /google_ads_page_inventory_read/);
  assert.match(page, /from\("inventory_items"\).*order\("created_at", \{ ascending: false \}\)\.order\("name"\)/);
- assert.doesNotMatch(page, /from\("inventory_items"\)[\s\S]{0,250}order\("sort_order"\)/);
- assert.match(page, /const \[\{ data: services \}, \{ data: inventory \}/);
+ assert.doesNotMatch(page, /from\("inventory_items"\)\.select\("id,name,description"\)[^\n]*order\("sort_order"\)/);
+ assert.match(page, /const \[\{ data: services \}, \{ data: inventory \}, \{ data: categories \}, \{ data: categoryPages \}/);
 });
 
 test("manual CPC recommendations remain actionable without a Google bid estimate", async () => {

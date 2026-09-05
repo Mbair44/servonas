@@ -28,6 +28,7 @@ import {
  createGoogleAdsDraftAction,
  checkGoogleAdsStatusAction,
  createGoogleAdsAdGroupAction,
+ prepareGoogleAdsAdGroupAction,
  disconnectGoogleAds,
  markGoogleAdsBillingReadyAction,
  publishGoogleAdsDraftAction,
@@ -417,7 +418,7 @@ export default async function GoogleAdsPage({
  searchParams,
 }: {
  params: Promise<{ businessSlug: string }>;
- searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string }>;
+ searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string; adGroupDraft?:string }>;
 }) {
  const { businessSlug } = await params;
  const query = await searchParams;
@@ -429,10 +430,12 @@ export default async function GoogleAdsPage({
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
  await checkGoogleAdsBusinessIssues({ businessId: business.id, businessSlug, freshnessMinutes: 20 }).catch(() => null);
 
- const [{ data: services }, { data: inventory }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: adGroups }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
+ const [{ data: services }, { data: inventory }, { data: categories }, { data: categoryPages }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: adGroups }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_services_read", endpointPath: "services", requestType: "google_ads_page_services_read" }, supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name")),
   // Inventory enriches offer choices only; it is intentionally independent of Google Ads rendering.
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_inventory_read", endpointPath: "inventory_items", requestType: "google_ads_page_inventory_read" }, supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("created_at", { ascending: false }).order("name")),
+  supabase.from("rental_inventory_categories").select("id,name").eq("business_id",business.id).order("sort_order").order("name"),
+  supabase.from("category_website_pages").select("id,category_id,slug,status,title").eq("business_id",business.id),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_territories_read", endpointPath: "workforce_territories", requestType: "google_ads_page_territories_read" }, supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name")),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_website_read", endpointPath: "business_website_settings", requestType: "google_ads_page_website_read" }, supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle()),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_connection_read", endpointPath: "business_google_ads_connections", requestType: "google_ads_connection_page_read" }, supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id,last_issue_check_at,last_issue_check_failed_at,last_issue_check_error").eq("business_id", business.id).maybeSingle()),
@@ -853,6 +856,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
       servingRelevantChangeAt: servingRelevantChangeByCampaignId.get(campaign.id) ?? null,
      });
      const savedAdGroups = adGroupsByCampaignId.get(String(campaign.id)) ?? [];
+     const preparedAdGroup=query.adGroupDraft?savedAdGroups.find((group:any)=>group.id===query.adGroupDraft&&group.status==="draft")??null:null;
      const legacyAdGroup = savedAdGroups.length ? [] : [{
       id: `legacy-${campaign.id}`,
       ad_group_name: campaign.ad_group_name,
@@ -1008,22 +1012,26 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
         </details>;
        })}
       </div>
-      <details className="google-ads-ad-group-create">
-       <summary>Add ad group</summary>
-       <form className="google-ads-form" action={createGoogleAdsAdGroupAction.bind(null, businessSlug, campaign.id)}>
-        <label>Ad group name<input name="adGroupName" defaultValue={`${campaign.campaign_name} Service`} /></label>
-        <label>Destination URL<input name="destinationUrl" defaultValue={selectableLandingRecommendations.find((entry) => entry.recommended)?.url ?? campaign.destination_url} /></label>
-        <label className="wide">Recommended landing pages<select name="secondaryDestinationUrl" defaultValue={selectableLandingRecommendations[1]?.url ?? ""}>
-         {selectableLandingRecommendations.map((entry) => <option key={entry.url} value={entry.url}>{entry.label}{entry.recommended ? " (Recommended)" : ""}</option>)}
-        </select></label>
-        <label className="wide">Keywords<textarea name="keywords" rows={4} placeholder="christmas lights installation&#10;holiday light hanging" /></label>
-        <label className="wide">Negative keywords<textarea name="negativeKeywords" rows={3} placeholder="jobs&#10;diy&#10;wholesale" /></label>
-        <label className="wide">Primary ad headlines<textarea name="headlines" rows={4} placeholder="Christmas Light Installation&#10;Professional Holiday Lighting" /></label>
-        <label className="wide">Primary ad descriptions<textarea name="descriptions" rows={3} placeholder="Book professional installation with a local team." /></label>
-        <label className="wide">Optional second ad headlines<textarea name="secondaryHeadlines" rows={4} placeholder="Holiday Light Setup Near You" /></label>
-        <label className="wide">Optional second ad descriptions<textarea name="secondaryDescriptions" rows={3} placeholder="Dedicated page and tighter service-specific copy." /></label>
-        <div className="google-ads-form-actions"><button className="sv-button sv-secondary">Save ad group</button></div>
-       </form>
+      <details className="google-ads-ad-group-create google-ads-guided-builder" open={Boolean(preparedAdGroup)}>
+       <summary>{preparedAdGroup?"Review your new ad":"Advertise another service"}</summary>
+       {!preparedAdGroup?<form className="google-ads-offer-picker" action={prepareGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+        <div className="google-ads-builder-intro"><span>Servonas guided setup</span><h3>What do you want to advertise?</h3><p>Choose one service. Servonas will read its page, find high-intent searches, filter irrelevant traffic, and write the ad for you.</p></div>
+        <div className="google-ads-offer-options">
+         {(categories??[]).map((category:any)=>{const page=(categoryPages??[]).find((entry:any)=>entry.category_id===category.id&&entry.status==="published");return <label key={`category:${category.id}`}><input required type="radio" name="advertisingTarget" value={`category:${category.id}`}/><span><strong>{page?.title||category.name}</strong><small>{page?`/${page.slug}`:"Servonas will use the best available page"}</small>{page&&<b>Recommended</b>}</span></label>;})}
+         {(services??[]).map((service:any)=><label key={`service:${service.id}`}><input required type="radio" name="advertisingTarget" value={`service:${service.id}`}/><span><strong>{service.name}</strong><small>Service</small></span></label>)}
+         {!(categories??[]).length&&(inventory??[]).map((item:any)=><label key={`inventory:${item.id}`}><input required type="radio" name="advertisingTarget" value={`inventory:${item.id}`}/><span><strong>{item.name}</strong><small>Rental item</small></span></label>)}
+        </div>
+        <button className="sv-button" data-loading-label="Servonas is building your ad…">Build my ad</button>
+       </form>:(()=>{const keywords=items(preparedAdGroup.keywords),negatives=items(preparedAdGroup.negative_keywords),ad=Array.isArray(preparedAdGroup.ads)?preparedAdGroup.ads[0]??{}:{},headlines=items(ad.headlines),descriptions=items(ad.descriptions),destination=String(preparedAdGroup.destination_url||"");return <form className="google-ads-guided-review" action={createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+        <input type="hidden" name="draftAdGroupId" value={preparedAdGroup.id}/>
+        <div className="google-ads-builder-intro"><span>Ready for your review</span><h3>{preparedAdGroup.ad_group_name}</h3><p>Servonas prepared this from the selected service and landing page. Nothing has been published yet.</p></div>
+        <section className="google-ads-destination-card"><span>Sending customers to</span><strong>{destination.replace(/^https?:\/\//,"")}</strong><small>{destination.startsWith("https://")?"Published HTTPS landing page":"Review this destination before creating the ad group"}</small></section>
+        <div className="google-ads-recommendation-grid"><section><span>Searches to target</span><strong>{keywords.length} recommended searches</strong><div className="google-ads-ad-group-chips">{keywords.map(value=><i key={value}>✓ {value}</i>)}</div><small>Based on the selected service and page.</small></section><section><span>Searches Servonas will avoid</span><strong>{negatives.length} irrelevant searches blocked</strong><div className="google-ads-ad-group-chips">{negatives.map(value=><i key={value}>✓ {value}</i>)}</div><small>These help protect your budget from people unlikely to book.</small></section></div>
+        <section className="google-ads-preview"><span>Ad preview</span><article><small>Sponsored</small><strong>{headlines.slice(0,3).join(" | ")}</strong><em>{destination.replace(/^https?:\/\//,"")}</em><p>{descriptions.slice(0,2).join(" ")}</p></article><small>Google may mix and match your headlines and descriptions to find combinations that perform well.</small></section>
+        <section className="google-ads-campaign-inheritance"><strong>This ad uses your existing campaign settings</strong><span>Locations: {campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id??""))?.targetedLocations??[])}</span><span>Daily budget: {dailyBudgetLabel(campaign.daily_budget_micros)} shared with this campaign</span></section>
+        <details className="google-ads-advanced"><summary>Advanced options</summary><div className="google-ads-form"><label>Ad group name<input name="adGroupName" defaultValue={preparedAdGroup.ad_group_name}/></label><label>Destination URL<input name="destinationUrl" type="url" defaultValue={destination}/></label><label className="wide">Searches to target<textarea name="keywords" rows={6} defaultValue={keywords.join("\n")}/></label><label className="wide">Searches to avoid <small>Negative keywords</small><textarea name="negativeKeywords" rows={5} defaultValue={negatives.join("\n")}/></label><label className="wide">Headlines<textarea name="headlines" rows={8} defaultValue={headlines.join("\n")}/></label><label className="wide">Descriptions<textarea name="descriptions" rows={5} defaultValue={descriptions.join("\n")}/></label></div></details>
+        <p className="google-ads-approval-note">Everything look good? Servonas will create this ad group only after you approve below.</p><button className="sv-button">Create Ad Group</button>
+       </form>;})()}
       </details>
      </section>
      {campaign.google_campaign_id && <section className="google-ads-recommendations google-ads-keyword-review" aria-label="AI keyword review">
