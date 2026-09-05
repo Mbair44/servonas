@@ -41,6 +41,7 @@ import {
  setGoogleAdsCampaignStatusAction,
  submitGoogleAdsBetaFeedbackAction,
  updateGoogleAdsBudgetAction,
+ updateGoogleAdsAdGroupAction,
  updateGoogleAdsDraftAction,
 } from "./actions";
 import { GoogleAdsDraftSubmit } from "@/components/GoogleAdsDraftSubmit";
@@ -1009,6 +1010,21 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
             {matchedLive.keywords.slice(0, 8).map((keyword) => <span key={`${matchedLive.adGroupId}-${keyword.id}`}>{keyword.text} {keyword.matchType ? `· ${friendlyKeywordValue(keyword.matchType)}` : ""}</span>)}
            </div>
           </div> : null}
+          <details className="google-ads-ad-group-editor">
+           <summary>Edit ad group</summary>
+           <form action={updateGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id,adGroup.id)}>
+            <div className="google-ads-form">
+             <label>Ad group name<input name="adGroupName" required maxLength={255} defaultValue={adGroup.ad_group_name}/></label>
+             <label>Landing page<input name="destinationUrl" required type="url" pattern="https://.*" defaultValue={adGroup.destination_url}/></label>
+             <label className="wide">Keywords <small>One per line</small><textarea name="keywords" required rows={7} defaultValue={items(adGroup.keywords).join("\n")}/></label>
+             <label className="wide">Negative keywords <small>One per line</small><textarea name="negativeKeywords" rows={6} defaultValue={items(adGroup.negative_keywords).join("\n")}/></label>
+             <label className="wide">Headlines <small>At least 3, up to 30 characters each</small><textarea name="headlines" required rows={7} defaultValue={items(adList[0]?.headlines).join("\n")}/></label>
+             <label className="wide">Descriptions <small>At least 2, up to 90 characters each</small><textarea name="descriptions" required rows={5} defaultValue={items(adList[0]?.descriptions).join("\n")}/></label>
+            </div>
+            <p>{adGroup.google_ad_group_id?"Saving updates this live Google Ads ad group after Google validates the changes.":"This is still a draft, so saving only updates the draft."}</p>
+            <button className="sv-button" data-loading-label="Saving ad group…">Save ad group changes</button>
+           </form>
+          </details>
          </div>
         </details>;
        })}

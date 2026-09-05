@@ -50,3 +50,18 @@ test("Google creation validates RSA assets and requires explicit review submissi
  assert.match(actions,/headlines\.length<3\|\|ads\[0\]\.descriptions\.length<2/);
  assert.match(actions,/eq\("id",draftAdGroupId\).*eq\("business_id",business\.id\).*eq\("campaign_id",campaignId\).*eq\("status","draft"\)/);
 });
+
+test("existing ad groups can be edited locally or in Google after validation",async()=>{
+ const [page,actions,service]=await Promise.all([read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("app/app/[businessSlug]/marketing/google-ads/actions.ts"),read("lib/googleAdsManagement.ts")]);
+ assert.match(page,/>Edit ad group</);
+ assert.match(page,/Save ad group changes/);
+ assert.match(page,/updateGoogleAdsAdGroupAction\.bind\(null,businessSlug,campaign\.id,adGroup\.id\)/);
+ assert.match(actions,/export async function updateGoogleAdsAdGroupAction/);
+ assert.match(actions,/eq\("business_id",business\.id\)\.eq\("campaign_id",campaignId\)\.eq\("id",adGroupId\)/);
+ assert.match(actions,/fetchGoogleAdsCampaignAdGroupDetails/);
+ assert.match(actions,/updateGoogleAdsManagedAdGroup/);
+ assert.match(service,/export async function updateGoogleAdsManagedAdGroup/);
+ assert.match(service,/validateOnly:true/);
+ assert.match(service,/adGroupCriterionOperation:\{remove/);
+ assert.match(service,/adGroupAdOperation:\{remove/);
+});
