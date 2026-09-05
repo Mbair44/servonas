@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 import { recordAssistantProviderUsage } from "./assistant/usage";
 import { syncBusinessMarketingIssues, type MarketingIssueInput } from "./marketingIssues";
+export {confirmGoogleAdsAdGroupCreation,createGoogleAdsAdGroupsIndividually,GoogleAdsAdGroupCreationError} from "./googleAdsAdGroupCreation";
 
 type TokenResponse = { access_token?: string; refresh_token?: string; id_token?: string; error?: string; error_description?: string };
 type GoogleAdsListResponse = { resourceNames?: string[] };
@@ -2769,13 +2770,25 @@ export async function createGoogleAdsAdGroup(input: {
   targetCustomerId: input.customerId,
   loginCustomerIds: [...(input.loginCustomerIds ?? []), null],
   body: { mutateOperations: operations, partialFailure: false, validateOnly: false },
-  suppressFailureDiagnostics: true,
+ suppressFailureDiagnostics: true,
  });
  const adGroupResourceName = result.mutateOperationResponses?.find((row) => row.adGroupResult?.resourceName)?.adGroupResult?.resourceName ?? null;
+ const requestMetadata=(result as typeof result&{__servonasGoogleAdsRequest?:{requestId:string|null;httpStatus:number}}).__servonasGoogleAdsRequest;
  return {
   adGroupId: typeof adGroupResourceName === "string" ? adGroupResourceName.split("/").pop() ?? null : null,
   adGroupResourceName: typeof adGroupResourceName === "string" ? adGroupResourceName : null,
+  googleRequestId:requestMetadata?.requestId??null,
+  httpStatus:requestMetadata?.httpStatus??null,
  };
+}
+
+export async function verifyGoogleAdsAdGroup(input:{accessToken:string;customerId:string;campaignId:string;adGroupId:string;loginCustomerId?:string|null;businessId?:string|null}){
+ const campaignId=stripCustomerId(input.campaignId),adGroupId=stripCustomerId(input.adGroupId);
+ if(!campaignId||!adGroupId)return null;
+ const rows=await googleAdsSearchStream(input.customerId,input.accessToken,`SELECT campaign.id, ad_group.id, ad_group.resource_name, ad_group.name, ad_group.status FROM ad_group WHERE campaign.id = ${campaignId} AND ad_group.id = ${adGroupId} LIMIT 1`,input.loginCustomerId,{stage:"google_ads_ad_group_creation_verification",requestType:"focused_ad_group_creation_verification",businessId:input.businessId??null});
+ const row=rows[0],campaign=row?.campaign as Record<string,unknown>|undefined,adGroup=row?.adGroup as Record<string,unknown>|undefined;
+ if(stripCustomerId(String(campaign?.id??""))!==campaignId||stripCustomerId(String(adGroup?.id??""))!==adGroupId)return null;
+ return {campaignId,adGroupId,resourceName:typeof adGroup?.resourceName==="string"?adGroup.resourceName:`customers/${stripCustomerId(input.customerId)}/adGroups/${adGroupId}`,name:typeof adGroup?.name==="string"?adGroup.name:null,status:typeof adGroup?.status==="string"?adGroup.status:null};
 }
 
 export async function updateGoogleAdsManagedAdGroup(input: {

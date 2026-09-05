@@ -16,7 +16,9 @@ import {
  addGoogleAdsCampaignLocation,
  buildGoogleAdsCampaignHealth,
  checkGoogleAdsBusinessIssues,
+ confirmGoogleAdsAdGroupCreation,
  createGoogleAdsAdGroup,
+ createGoogleAdsAdGroupsIndividually,
  discoverGoogleAdsAccounts,
  estimateMonthlyBudgetCents,
  fetchGoogleAdsCampaignLocationTargeting,
@@ -50,6 +52,7 @@ import {
  updateGoogleAdsManagedAdGroup,
  updateGoogleAdsKeywordBid,
  updateTenantGoogleAdsSelection,
+ verifyGoogleAdsAdGroup,
  disconnectTenantGoogleAds,
  writeGoogleAdsAuditLog,
 } from "@/lib/googleAdsManagement";
@@ -480,11 +483,20 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
  const draftAdGroupId = text(formData,"draftAdGroupId");
  if (!adGroupName || !destinationUrl || !keywords.length) redirect(path(slug, "error", "Add an ad group name, destination URL, and at least one keyword."));
  if(ads[0].headlines.length<3||ads[0].descriptions.length<2||ads[0].headlines.some(value=>value.length>30)||ads[0].descriptions.some(value=>value.length>90))redirect(path(slug,"error","Servonas needs at least 3 valid headlines and 2 valid descriptions before creating this ad group."));
+ const operationId=randomUUID();
+ const connection=await loadTenantGoogleAdsAccess(business.id).catch(error=>{
+  logGoogleAdsActionError("google_ads_ad_group_creation_failed",{stage:"connection_load",operationId,businessId:business.id,businessSlug:business.slug,servonasCampaignId:campaignId,proposedAdGroupName:adGroupName,errorName:error instanceof Error?error.name:"Error",errorMessage:error instanceof Error?error.message:"Google Ads connection could not be loaded"});
+  redirect(path(slug,"error",`Creation failed: ${error instanceof Error?error.message:"Google Ads connection could not be loaded."}`));
+ });
+ const googleCampaignId=String(campaign.google_campaign_id??""),googleAdsCustomerId=String(campaign.google_ads_customer_id??connection?.customerId??"");
+ const cpcBidMicros=campaign.bidding_strategy==="MANUAL_CPC"?(Number(campaign.manual_cpc_bid_micros??0)||null):null;
+ if(!connection?.accessToken||!googleAdsCustomerId)redirect(path(slug,"error","Creation failed: reconnect Google Ads and select an advertiser account before creating this ad group."));
+ if(!googleCampaignId)redirect(path(slug,"error","Creation failed: publish this campaign to Google Ads before adding a live ad group."));
  const record={
   business_id: business.id,
   campaign_id: campaignId,
-  google_ads_customer_id: campaign.google_ads_customer_id ?? null,
-  google_campaign_id: campaign.google_campaign_id ?? null,
+  google_ads_customer_id: googleAdsCustomerId,
+  google_campaign_id: googleCampaignId,
   ad_group_name: adGroupName,
   destination_url: destinationUrl,
   keywords,
@@ -497,29 +509,38 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
  };
  const {data:savedAdGroup,error:saveError}=draftAdGroupId
   ?await supabase.from("business_google_ads_ad_groups").update(record).eq("id",draftAdGroupId).eq("business_id",business.id).eq("campaign_id",campaignId).eq("status","draft").select("id").maybeSingle()
-  :await supabase.from("business_google_ads_ad_groups").insert(record).select("id").single();
+ :await supabase.from("business_google_ads_ad_groups").insert(record).select("id").single();
  if(saveError||!savedAdGroup)redirect(path(slug,"error","The reviewed ad group could not be saved."));
- if (campaign.google_campaign_id && campaign.google_ads_customer_id) {
-  const connection = await loadTenantGoogleAdsAccess(business.id);
-  if (!connection?.accessToken) redirect(path(slug, "error", "Reconnect Google Ads before adding a live ad group."));
-  const access = resolvedMutationAccess(connection.status, connection.customerChoices, campaign.google_ads_customer_id);
-  const published = await createGoogleAdsAdGroup({
-   accessToken: connection.accessToken,
-   customerId: campaign.google_ads_customer_id,
-   loginCustomerIds: access.loginCustomerIds,
-   biddingStrategy: campaign.bidding_strategy === "MANUAL_CPC" ? "MANUAL_CPC" : "MAXIMIZE_CLICKS",
-   manualCpcBidMicros: Number(campaign.manual_cpc_bid_micros ?? 0) || null,
-   campaignId: campaign.google_campaign_id,
-   adGroup: { name: adGroupName, destinationUrl, keywords, negativeKeywords, ads },
-  });
-  if (published.adGroupId) {
-   await supabase.from("business_google_ads_ad_groups").update({
-    google_ad_group_id: published.adGroupId,
-    status: "published",
-    updated_by: user.id,
-    updated_at: new Date().toISOString(),
-   }).eq("business_id", business.id).eq("id", savedAdGroup.id);
-  }
+ const access=resolvedMutationAccess(connection.status,connection.customerChoices,googleAdsCustomerId);
+ logGoogleAdsAction("google_ads_ad_group_creation_started",{stage:"mutate_start",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,servonasCampaignId:campaignId,proposedAdGroupName:adGroupName,cpcBidMicros,localDraftId:savedAdGroup.id});
+ const outcomes=await createGoogleAdsAdGroupsIndividually([{adGroupName,destinationUrl,keywords,negativeKeywords,ads}],async candidate=>confirmGoogleAdsAdGroupCreation({
+  mutate:async()=>{
+   const result=await createGoogleAdsAdGroup({accessToken:connection.accessToken,customerId:googleAdsCustomerId,loginCustomerIds:access.loginCustomerIds,biddingStrategy:campaign.bidding_strategy==="MANUAL_CPC"?"MANUAL_CPC":"MAXIMIZE_CLICKS",manualCpcBidMicros:cpcBidMicros,campaignId:googleCampaignId,adGroup:{name:candidate.adGroupName,destinationUrl:candidate.destinationUrl,keywords:candidate.keywords,negativeKeywords:candidate.negativeKeywords,ads:candidate.ads}});
+   logGoogleAdsAction("google_ads_ad_group_mutate_response",{stage:"mutate_response",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,proposedAdGroupName:candidate.adGroupName,cpcBidMicros,httpStatus:result.httpStatus,googleRequestId:result.googleRequestId,returnedResourceName:result.adGroupResourceName,returnedAdGroupId:result.adGroupId});
+   return result;
+  },
+  verify:async mutation=>{
+   logGoogleAdsAction("google_ads_ad_group_verification_started",{stage:"verification_start",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,proposedAdGroupName:candidate.adGroupName,returnedResourceName:mutation.adGroupResourceName,returnedAdGroupId:mutation.adGroupId,googleRequestId:mutation.googleRequestId});
+   const verified=await verifyGoogleAdsAdGroup({accessToken:connection.accessToken,customerId:googleAdsCustomerId,campaignId:googleCampaignId,adGroupId:mutation.adGroupId!,loginCustomerId:access.resolvedLoginCustomerId,businessId:business.id});
+   const valid=verified?.name===candidate.adGroupName?verified:null;
+   logGoogleAdsAction(valid?"google_ads_ad_group_verification_completed":"google_ads_ad_group_verification_failed",{stage:"verification_complete",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,proposedAdGroupName:candidate.adGroupName,returnedResourceName:mutation.adGroupResourceName,returnedAdGroupId:mutation.adGroupId,googleRequestId:mutation.googleRequestId,verified:Boolean(valid),verifiedName:verified?.name??null,verifiedStatus:verified?.status??null});
+   return valid;
+  },
+ }));
+ const outcome=outcomes[0];
+ if(!outcome?.ok){
+  const failure=outcome?.error,details=failure as {name?:string;message?:string;status?:number;googleStatus?:string;requestId?:string;googleRequestId?:string;stage?:string};
+  const userMessage=googleAdsErrorMessage(failure instanceof Error?failure:new Error("Google Ads did not create the ad group."));
+  logGoogleAdsActionError("google_ads_ad_group_creation_failed",{stage:details.stage??"mutation",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,servonasCampaignId:campaignId,proposedAdGroupName:adGroupName,cpcBidMicros,httpStatus:details.status??null,googleStatus:details.googleStatus??null,googleRequestId:details.googleRequestId??details.requestId??null,errorName:details.name??"Error",errorMessage:details.message??"Google Ads ad-group creation failed",localDraftId:savedAdGroup.id,localDraftPreserved:true});
+  await writeGoogleAdsAuditLog({businessId:business.id,campaignId,actorUserId:user.id,eventType:"google_ads_ad_group_creation_failed",metadata:{operationId,adGroupName,googleRequestId:details.googleRequestId??details.requestId??null,stage:details.stage??"mutation",localDraftId:savedAdGroup.id}});
+  revalidatePath(`/app/${slug}/marketing/google-ads`);
+  redirect(path(slug,"error",`Creation failed: ${userMessage}`));
+ }
+ const confirmed=outcome.result as Awaited<ReturnType<typeof confirmGoogleAdsAdGroupCreation>>;
+ const {error:publishSaveError}=await supabase.from("business_google_ads_ad_groups").update({google_ads_customer_id:googleAdsCustomerId,google_campaign_id:googleCampaignId,google_ad_group_id:confirmed.mutation.adGroupId,status:"published",updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",savedAdGroup.id);
+ if(publishSaveError){
+  logGoogleAdsActionError("google_ads_ad_group_local_confirmation_save_failed",{stage:"local_confirmation_save",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,proposedAdGroupName:adGroupName,returnedResourceName:confirmed.mutation.adGroupResourceName,returnedAdGroupId:confirmed.mutation.adGroupId,googleRequestId:confirmed.mutation.googleRequestId,errorCode:publishSaveError.code,errorMessage:publishSaveError.message});
+  redirect(path(slug,"error",`Created in Google Ads, but Servonas could not save the confirmation. Google ad group ID: ${confirmed.mutation.adGroupId}.`));
  }
  await writeGoogleAdsAuditLog({
   businessId: business.id,
@@ -527,7 +548,7 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
   actorUserId: user.id,
   eventType: "google_ads_ad_group_created",
   metadata: {
-   adGroupName,
+   adGroupName,operationId,googleRequestId:confirmed.mutation.googleRequestId,googleAdGroupId:confirmed.mutation.adGroupId,verified:true,
    destinationUrl,
    landingPageRecommendations: googleAdsRecommendedLandingPages({
     website: website ? {
@@ -545,7 +566,8 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
   },
  });
  revalidatePath(`/app/${slug}/marketing/google-ads`);
- redirect(path(slug, "success", "Ad group added."));
+ logGoogleAdsAction("google_ads_ad_group_creation_completed",{stage:"complete",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,servonasCampaignId:campaignId,proposedAdGroupName:adGroupName,cpcBidMicros,returnedResourceName:confirmed.mutation.adGroupResourceName,returnedAdGroupId:confirmed.mutation.adGroupId,googleRequestId:confirmed.mutation.googleRequestId,verified:true});
+ redirect(path(slug, "success", "Created in Google Ads."));
 }
 
 export async function updateGoogleAdsAdGroupAction(slug:string,campaignId:string,adGroupId:string,formData:FormData){
