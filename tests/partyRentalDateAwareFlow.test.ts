@@ -46,10 +46,12 @@ test("party rental booking uses explicit reserve actions instead of auto-adding 
 
 test("party rental booking supports a date range, item-aware calendar, and checkout arrival time selection",async()=>{
  const source=await read("components/PartyRentalBookingClient.tsx");
- assert.match(source,/const chooseStart=useCallback\(\(value:string,baseDate=date,rangeEndOverride=endDate,preserveRangeEnd=false\)=>/);
- assert.match(source,/if\(baseDate&&rangeEndOverride&&preserveRangeEnd&&rangeEndOverride>=baseDate\)\{setBookingError\(""\);setEndDate\(rangeEndOverride\);setEndTime\(value\);return;\}/);
+ assert.match(source,/const chooseStart=useCallback\(\(value:string,baseDate=date,rangeEndOverride=endDate\)=>/);
+ assert.match(source,/if\(baseDate&&rangeEndOverride&&rangeEndOverride>baseDate\)\{setBookingError\(""\);setEndDate\(rangeEndOverride\);setEndTime\(value\);return;\}/);
  assert.match(source,/function chooseEndDate\(value:string\)/);
- assert.match(source,/if\(startTime\)chooseStart\(startTime,date,next,true\);/);
+ assert.match(source,/if\(startTime\)chooseStart\(startTime,date,next\);/);
+ assert.match(source,/function requestRentalPeriod\(\).*rentalPeriodFromStart\(date,startTime,selectedRentalDurationMinutes\)/);
+ assert.match(source,/rentalEndDate:period\.endDate,startTime,endTime:period\.endTime/);
  assert.match(source,/function chooseCalendarDay\(value:string\)/);
   assert.match(source,/if\(date&&endDate>date&&\(value===date\|\|value===endDate\|\|\(value>date&&value<endDate\)\)\)\{applyDate\(value,source,true\);return;\}/);
  assert.match(source,/if\(hours\)chooseStart\(hours\.start,value,value\)/);
