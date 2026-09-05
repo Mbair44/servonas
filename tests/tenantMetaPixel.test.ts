@@ -66,6 +66,22 @@ test("custom-domain public route resolves into the shared business website shell
  assert.match(site,/TenantMetaPixel/);
 });
 
+test("promotion and standalone booking routes mount only the resolved tenant pixel",async()=>{
+ const [domainPromotion,hostedPromotion,booking,checkout,loader]=await Promise.all([
+  read("app/sites/domain/[domain]/[promotionSlug]/page.tsx"),
+  read("app/sites/[siteSlug]/[promotionSlug]/page.tsx"),
+  read("app/book/[businessSlug]/page.tsx"),
+  read("app/book/[businessSlug]/booking/page.tsx"),
+  read("app/book/[businessSlug]/loadPublicBookingData.ts"),
+ ]);
+ assert.match(domainPromotion,/site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
+ assert.match(hostedPromotion,/select\("business_id,meta_pixel_id"\)/);
+ assert.match(hostedPromotion,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
+ assert.match(loader,/from\("business_website_settings"\)\.select\("meta_pixel_id"\)/);
+ for(const route of [booking,checkout])assert.match(route,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
+ for(const route of [domainPromotion,hostedPromotion,booking,checkout])assert.doesNotMatch(route,/2375527282981645/);
+});
+
 test("tenant meta pixel can initialize immediately after consent without a hard refresh",async()=>{
  const [component,analytics,googleTag,helper]=await Promise.all([
   read("components/TenantMetaPixel.tsx"),

@@ -28,7 +28,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
   const businessRecord=Array.isArray(businessRelation)?businessRelation[0]:businessRelation;
   const businessName = businessRecord?.name;
   const isPartyRental = businessRecord?.industry_profile === "party_rental";
-  const [{ data: hours }, { data: services }] = await Promise.all([
+  const [{ data: hours }, { data: services }, {data:websiteSettings}] = await Promise.all([
     supabase
       .from("booking_availability")
       .select("weekday,start_time,end_time")
@@ -44,6 +44,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
           .eq("is_deleted", false)
           .order("sort_order")
           .order("name"),
+    supabase.from("business_website_settings").select("meta_pixel_id").eq("business_id",settings.business_id).maybeSingle(),
   ]);
   const schedule = Object.fromEntries(
     (hours ?? []).map((hour: any) => [
@@ -92,5 +93,6 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
       if(coveredByBusiness)rentalBlockedDates.push(value);
     }
   }
-  return {settings,services:services??[],schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
+  const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
+  return {settings,services:services??[],schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
 },["public-booking-page"],{revalidate:300});
