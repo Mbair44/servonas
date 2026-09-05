@@ -90,7 +90,7 @@ export async function POST(request: Request) {
       if(!(availableHours??[]).some(row=>body.startTime!>=String(row.start_time).slice(0,5)&&body.startTime!<=String(row.end_time).slice(0,5)))return NextResponse.json({error:"Choose a rental start time within the business’s available hours."},{status:409});
       const timezone=publicBooking.timezone??"America/Phoenix";
       const requestedStartsAt=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,timezone),requestedEndsAt=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,timezone);
-      if(requestedEndsAt<=requestedStartsAt)return NextResponse.json({error:"Choose a valid event start and end time."},{status:400});
+      if(requestedEndsAt<=requestedStartsAt)return NextResponse.json({error:"We couldn't calculate the rental period from that arrival time. Choose the arrival time again."},{status:400});
       const {data:blackout,error:blackoutError}=await supabase.from("booking_blackouts").select("id").eq("business_id",business.id)
         .lt("starts_at",requestedEndsAt.toISOString()).gt("ends_at",requestedStartsAt.toISOString()).limit(1);
       if(blackoutError)return NextResponse.json({error:"The selected time could not be verified. Please try again."},{status:500});

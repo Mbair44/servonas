@@ -9,10 +9,12 @@ test("party-rental time selection normalizes an invalid configured duration and 
  assert.match(source,/const durationForItem=/);
  assert.match(source,/const durationItems=selected\.length\?selected:availabilityItem\?\[availabilityItem\]:\[\]/);
  assert.match(source,/const selectedRentalDurationMinutes=durationItems\.length\?Math\.max\(\.\.\.durationItems\.map\(durationForItem\)\):rentalDurationMinutes/);
- assert.match(source,/hour\*60\+minute\+selectedRentalDurationMinutes/);
- assert.match(source,/The rental duration needs attention/);
+ assert.match(source,/const rentalPeriodFromStart=/);
+ assert.match(source,/rentalPeriodFromStart\(baseDate,value,selectedRentalDurationMinutes\)/);
  assert.match(source,/!Number\.isNaN\(prettyDate\.getTime\(\)\)/);
  assert.match(source,/try\{const days=calculateRentalDays/);
- assert.match(source,/error:error instanceof Error\?error\.message:"Choose a valid rental start and end time\."/);
+ assert.match(source,/catch\{return \{\.\.\.fallback,error:"Choose a valid arrival time\."\};\}/);
  assert.match(source,/const pricingError=bookingItems\.map\(priced\)\.map\(price=>"error" in price\?price\.error:null\)/);
+ assert.match(source,/if\(!date\|\|!startTime\)\{setBookingError\("Choose your party date and arrival time first\."\)/);
+ assert.doesNotMatch(source,/disabled=\{submitting\|\|!date\|\|!startTime\|\|!endTime/);
 });
