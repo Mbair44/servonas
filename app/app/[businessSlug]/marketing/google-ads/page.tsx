@@ -659,9 +659,9 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
  const accountHealthLabel = criticalIssueCount ? "Needs immediate attention" : warningIssueCount ? "Needs attention" : connection?.status === "reauthorization_required" ? "Reconnect required" : setupConnected ? "Connected" : "Not connected";
  const issueCheckTime = formatTimestamp(connection?.last_issue_check_at ?? connection?.last_issue_check_failed_at ?? null, business.timezone);
  const latestAction = query.error
-  ? { tone: "error", title: "Latest action needs attention", message: query.error }
+  ? { tone: "error", title: query.error.startsWith("Creation failed:")?"Creation failed":"Latest action needs attention", message: query.error }
   : query.success
-   ? { tone: "success", title: "Latest action completed", message: query.success }
+   ? { tone: "success", title: query.success==="Created in Google Ads."?"Created in Google Ads":"Latest action completed", message: query.success }
    : connectionError
     ? { tone: "error", title: "Google Ads refresh needs attention", message: connectionError }
     : discoveryRateLimited
@@ -1047,7 +1047,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
         <section className="google-ads-preview"><span>Ad preview</span><article><small>Sponsored</small><strong>{headlines.slice(0,3).join(" | ")}</strong><em>{destination.replace(/^https?:\/\//,"")}</em><p>{descriptions.slice(0,2).join(" ")}</p></article><small>Google may mix and match your headlines and descriptions to find combinations that perform well.</small></section>
         <section className="google-ads-campaign-inheritance"><strong>This ad uses your existing campaign settings</strong><span>Locations: {campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id??""))?.targetedLocations??[])}</span><span>Daily budget: {dailyBudgetLabel(campaign.daily_budget_micros)} shared with this campaign</span></section>
         <details className="google-ads-advanced"><summary>Advanced options</summary><div className="google-ads-form"><label>Ad group name<input name="adGroupName" defaultValue={preparedAdGroup.ad_group_name}/></label><label>Destination URL<input name="destinationUrl" type="url" defaultValue={destination}/></label><label className="wide">Searches to target<textarea name="keywords" rows={6} defaultValue={keywords.join("\n")}/></label><label className="wide">Searches to avoid <small>Negative keywords</small><textarea name="negativeKeywords" rows={5} defaultValue={negatives.join("\n")}/></label><label className="wide">Headlines<textarea name="headlines" rows={8} defaultValue={headlines.join("\n")}/></label><label className="wide">Descriptions<textarea name="descriptions" rows={5} defaultValue={descriptions.join("\n")}/></label></div></details>
-        <p className="google-ads-approval-note">Everything look good? Servonas will create this ad group only after you approve below.</p><button className="sv-button">Create Ad Group</button>
+        <p className="google-ads-approval-note">Everything look good? Servonas will create this ad group only after you approve below.</p><button className="sv-button" data-loading-label="Creating ad group…">Create Ad Group</button>
        </form>;})()}
       </details>
      </section>

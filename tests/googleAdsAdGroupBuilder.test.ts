@@ -65,3 +65,18 @@ test("existing ad groups can be edited locally or in Google after validation",as
  assert.match(service,/adGroupCriterionOperation:\{remove/);
  assert.match(service,/adGroupAdOperation:\{remove/);
 });
+
+test("creation reports success only after Google mutation read-back verification",async()=>{
+ const [page,actions,service,confirmation]=await Promise.all([read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("app/app/[businessSlug]/marketing/google-ads/actions.ts"),read("lib/googleAdsManagement.ts"),read("lib/googleAdsAdGroupCreation.ts")]);
+ assert.match(page,/data-loading-label="Creating ad group…"/);
+ assert.match(page,/title: query\.success==="Created in Google Ads\."\?"Created in Google Ads"/);
+ assert.match(actions,/confirmGoogleAdsAdGroupCreation/);
+ assert.match(actions,/verifyGoogleAdsAdGroup/);
+ assert.match(actions,/google_ads_ad_group_mutate_response/);
+ assert.match(actions,/google_ads_ad_group_verification_completed/);
+ assert.match(actions,/google_ads_ad_group_creation_failed/);
+ assert.match(actions,/redirect\(path\(slug, "success", "Created in Google Ads\."\)\)/);
+ assert.doesNotMatch(actions,/redirect\(path\(slug, "success", "Ad group added\."\)\)/);
+ assert.match(service,/export \{confirmGoogleAdsAdGroupCreation/);
+ assert.match(confirmation,/Google Ads returned no created ad-group resource/);
+});
