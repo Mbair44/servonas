@@ -17,6 +17,15 @@ test("booking funnel route persists service_id and structured diagnostics",async
  assert.match(route,/\.eq\("status","published"\)/);
 });
 
+test("database event constraint includes every event accepted by the application",async()=>{
+ const [eventsSource,migration]=await Promise.all([read("lib/bookingFunnel.ts"),read("supabase/migrations/20260905000100_sync_booking_funnel_event_constraint.sql")]);
+ const declaration=eventsSource.match(/bookingFunnelEvents=\[(.*?)\] as const/s)?.[1]??"";
+ const events=[...declaration.matchAll(/"([a-z_]+)"/g)].map(match=>match[1]);
+ assert.ok(events.includes("button_click"));
+ for(const event of events)assert.match(migration,new RegExp(`'${event}'`),`${event} is missing from the database constraint`);
+ assert.match(migration,/drop constraint if exists booking_funnel_events_event_name_check/);
+});
+
 test("booking tracker payload can carry service identifiers for service funnels",async()=>{
  const tracker=await read("components/TenantBookingFunnelTracker.tsx");
  const bookingForm=await read("components/PublicBookingForm.tsx");

@@ -100,23 +100,24 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(funnel,/const bots=\/bot\|crawler\|spider/);
  assert.match(funnel,/const eventKeyFor=/);
  assert.match(funnel,/case "booking_started":/);
- assert.match(funnel,/if\(body\.touchSession\)/);
- assert.match(funnel,/upsert\(sessionRow,\{onConflict:"business_id,id"\}\)/);
+ assert.match(funnel,/if\(body\.touchSession\|\|body\.touchOnly\)/);
+ assert.match(funnel,/existing\?db\.from\("booking_attribution_sessions"\)\.update\(sessionRow\)/);
+ assert.match(funnel,/:db\.from\("booking_attribution_sessions"\)\.insert\(sessionRow\)/);
  assert.match(marketingComponent,/publicOptionalAnalyticsEnabled/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
  assert.match(marketing,/if\(!optionalAnalyticsEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);
  assert.match(marketing,/purpose=request\.headers\.get\("purpose"\)/);
  assert.match(marketing,/new NextResponse\(null,\{status:204\}\)/);
- assert.match(tracker,/sessionTouchIntervalMs=15\*60\*1000/);
+ assert.match(tracker,/sessionTouchIntervalMs\s*=\s*15\s*\*\s*60\s*\*\s*1000/);
  assert.match(tracker,/publicBookingFunnelEnabled/);
  assert.match(tracker,/shouldSkipEvent/);
- assert.match(tracker,/const criticalEvents=new Set<BookingFunnelEvent>/);
+ assert.match(tracker,/const criticalEvents\s*=\s*new Set<BookingFunnelEvent>/);
  assert.match(tracker,/navigator\.sendBeacon/);
  assert.match(tracker,/sv_debug_funnel/);
  assert.match(tracker,/console\.info\("\[Servonas booking funnel\]"/);
- assert.match(tracker,/booking_started:15_000/);
-  assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,"rental_availability_checked"/);
-  assert.match(bookingClient,/if\(source==="adjust"\)return;/);
+ assert.match(tracker,/booking_started:\s*15_000/);
+ assert.doesNotMatch(bookingClient,/trackBookingFunnel\(businessSlug,\s*"rental_availability_checked"/);
+ assert.match(bookingClient,/if\s*\(source\s*===\s*"adjust"\)\s*return;/);
 });
 
 test("public shell skips auth refresh when there is no Supabase session cookie",async()=>{
