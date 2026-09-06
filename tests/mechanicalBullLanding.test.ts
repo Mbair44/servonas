@@ -22,3 +22,11 @@ test("mechanical-bull landing uses live inventory, existing booking, and date av
  assert.match(booking,/initialItemId/);
  assert.match(middleware,/path==="\/mechanical-bull-rental"/);
 });
+
+test("mechanical-bull landing links prominently back to the tenant website",async()=>{
+ const [component,loader,domainRoute]=await Promise.all([read("components/MechanicalBullLanding.tsx"),read("lib/mechanicalBullLanding.ts"),read("app/sites/domain/[domain]/mechanical-bull-rental/page.tsx")]);
+ assert.match(component,/href=\{websiteUrl\}/);
+ assert.match(component,/<TenantMainWebsiteLink/);
+ assert.match(loader,/websiteUrl=website\?\.domain_status==="connected"/);
+ assert.match(domainRoute,/websiteUrl="\/"/);
+});

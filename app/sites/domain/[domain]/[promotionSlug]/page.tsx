@@ -20,8 +20,8 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
  if(promotion){
   const {data:categories}=await db.from("promotion_categories").select("category_id").eq("promotion_id",promotion.id);
   const categoryIds=new Set((categories??[]).map(row=>row.category_id));
-  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<PromotionLanding promotion={promotion} business={site} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl="/booking"/></>;
+  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<PromotionLanding promotion={promotion} business={site} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl="/booking" websiteUrl="/"/></>;
  }
  if(!categoryPage)notFound();
- return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking"/></>;
+ return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking" websiteUrl="/"/></>;
 }

@@ -19,9 +19,12 @@ test("category landing pages reuse promotion styling and tenant branding only",a
  assert.match(landing,/promotion-landing category-landing/);
  assert.match(landing,/business\.logoUrl/);
  assert.match(landing,/business\.phone/);
+ assert.match(landing,/href=\{websiteUrl\}/);
+ assert.match(landing,/<TenantMainWebsiteLink/);
  assert.match(landing,/item\.description/);
  assert.doesNotMatch(landing,/Servonas/);
  assert.match(hosted,/booking_settings/);
+ assert.match(hosted,/websiteUrl=\{websiteUrl\}/);
  assert.match(hosted,/logo_url,brand_color/);
  assert.match(layout,/!barePublicShell&&<footer/);
 });

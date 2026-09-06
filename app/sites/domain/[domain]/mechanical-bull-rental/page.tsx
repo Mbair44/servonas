@@ -17,5 +17,5 @@ export default async function CustomDomainMechanicalBullPage({params,searchParam
  if(record.kind==="unavailable")return <TemporarySiteUnavailable domain={domain} title="This website is temporarily unavailable." message="Please try again in a few minutes."/>;
  const data=await loadMechanicalBullLandingData(db,record.settings.business_id);if(!data)notFound();
  const paramsForBooking=new URLSearchParams({embed:"1",item:data.item.id});for(const [key,value] of Object.entries(await searchParams))if(["utm_source","utm_medium","utm_campaign","utm_term","utm_content","gclid"].includes(key)&&typeof value==="string")paramsForBooking.set(key,value);
- return <>{record.site.metaPixelId&&<TenantMetaPixel pixelId={record.site.metaPixelId}/>}<MechanicalBullLanding data={data} bookingUrl={`/book/${encodeURIComponent(data.bookingSlug)}?${paramsForBooking}`}/></>;
+ return <>{record.site.metaPixelId&&<TenantMetaPixel pixelId={record.site.metaPixelId}/>}<MechanicalBullLanding data={data} bookingUrl={`/book/${encodeURIComponent(data.bookingSlug)}?${paramsForBooking}`} websiteUrl="/"/></>;
 }
