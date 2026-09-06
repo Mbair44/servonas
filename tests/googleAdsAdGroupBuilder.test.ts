@@ -66,6 +66,21 @@ test("existing ad groups can be edited locally or in Google after validation",as
  assert.match(service,/adGroupAdOperation:\{remove/);
 });
 
+test("each Manual CPC ad group exposes a recommended bid and verifies updates in Google",async()=>{
+ const [page,actions,service,migration]=await Promise.all([read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("app/app/[businessSlug]/marketing/google-ads/actions.ts"),read("lib/googleAdsManagement.ts"),read("supabase/migrations/20260906000100_google_ads_ad_group_cpc.sql")]);
+ assert.match(page,/Servonas suggestion:/);
+ assert.match(page,/Update Max CPC/);
+ assert.match(page,/updateGoogleAdsAdGroupCpcAction\.bind\(null,businessSlug,campaign\.id,adGroup\.id\)/);
+ assert.match(page,/Managed automatically by Google/);
+ assert.match(actions,/export async function updateGoogleAdsAdGroupCpcAction/);
+ assert.match(actions,/googleAdsBidDollarsToMicros\(text\(formData,"maxCpcDollars"\)\)/);
+ assert.match(actions,/updateGoogleAdsAdGroupBid/);
+ assert.match(actions,/verified\.cpcBidMicros!==requestedCpcMicros/);
+ assert.match(actions,/google_ads_ad_group_cpc_update_completed/);
+ assert.match(service,/adGroup\.cpcBidMicros\|\|input\.manualCpcBidMicros/);
+ assert.match(migration,/add column if not exists cpc_bid_micros bigint/);
+});
+
 test("saving a Servonas-only ad group publishes it instead of silently updating a local draft",async()=>{
  const [page,actions]=await Promise.all([read("app/app/[businessSlug]/marketing/google-ads/page.tsx"),read("app/app/[businessSlug]/marketing/google-ads/actions.ts")]);
  assert.match(page,/publishedInGoogle\?updateGoogleAdsAdGroupAction\.bind\(null,businessSlug,campaign\.id,adGroup\.id\):createGoogleAdsAdGroupAction\.bind\(null,businessSlug,campaign\.id\)/);

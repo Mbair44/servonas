@@ -42,8 +42,10 @@ import {
  submitGoogleAdsBetaFeedbackAction,
  updateGoogleAdsBudgetAction,
  updateGoogleAdsAdGroupAction,
+ updateGoogleAdsAdGroupCpcAction,
  updateGoogleAdsDraftAction,
 } from "./actions";
+import {googleAdsRecommendedAdGroupMaxCpcMicros} from "@/lib/googleAdsBid";
 import { GoogleAdsDraftSubmit } from "@/components/GoogleAdsDraftSubmit";
 import { GoogleAdsManageCampaignControls } from "@/components/GoogleAdsManageCampaignControls";
 import { GoogleAdsLocationManager } from "@/components/GoogleAdsLocationManager";
@@ -973,6 +975,10 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
         const matchedLive = liveAdGroups.find((entry) => entry.adGroupId === String(adGroup.google_ad_group_id ?? ""));
         const adList = Array.isArray(adGroup.ads) ? adGroup.ads : [];
         const publishedInGoogle=Boolean(adGroup.google_ad_group_id&&adGroup.status==="published");
+        const currentCpcMicros=Number(matchedLive?.cpcBidMicros??adGroup.cpc_bid_micros??campaign.manual_cpc_bid_micros??0);
+        const recommendedCpcMicros=googleAdsRecommendedAdGroupMaxCpcMicros({currentBidMicros:currentCpcMicros,campaignBidMicros:Number(campaign.manual_cpc_bid_micros??0),costMicros:matchedLive?.costMicros??0,clicks:matchedLive?.clicks??0,dailyBudgetMicros:Number(campaign.daily_budget_micros??0)});
+        const recommendedCpcDollars=(recommendedCpcMicros/1_000_000).toFixed(2);
+        const cpcRecommendationReason=matchedLive&&matchedLive.clicks>=3?"Based on this ad group’s recent average click cost, with room to compete without letting one click consume too much of the daily budget.":"A balanced starting point based on the campaign bid and daily budget. Review it after this ad group has enough clicks.";
         return <details key={adGroup.id} className="google-ads-ad-group-card">
          <summary>
           <span className="google-ads-ad-group-summary">
@@ -1011,6 +1017,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
             {matchedLive.keywords.slice(0, 8).map((keyword) => <span key={`${matchedLive.adGroupId}-${keyword.id}`}>{keyword.text} {keyword.matchType ? `· ${friendlyKeywordValue(keyword.matchType)}` : ""}</span>)}
            </div>
           </div> : null}
+          {campaign.bidding_strategy==="MANUAL_CPC"?<section className="google-ads-ad-group-cpc"><div><span>Max CPC</span><strong>{currentCpcMicros>0?microsToMoney(currentCpcMicros):"Not set"}</strong><small>Servonas suggestion: <b>{microsToMoney(recommendedCpcMicros)}</b>. {cpcRecommendationReason}</small></div>{publishedInGoogle?<form action={updateGoogleAdsAdGroupCpcAction.bind(null,businessSlug,campaign.id,adGroup.id)}><label><span className="sr-only">Maximum CPC in dollars</span><span className="google-ads-input-with-unit"><span>$</span><input name="maxCpcDollars" type="number" min="0.01" max="25" step="0.01" required defaultValue={currentCpcMicros>0?(currentCpcMicros/1_000_000).toFixed(2):recommendedCpcDollars}/></span></label><button className="sv-button" data-loading-label="Updating Google Ads…">Update Max CPC</button></form>:<small>The recommended amount will be used when this ad group is created unless you change it below.</small>}</section>:<section className="google-ads-ad-group-cpc automated"><div><span>CPC bidding</span><strong>Managed automatically by Google</strong><small>This campaign uses Maximize Clicks, so an individual Max CPC is not available.</small></div></section>}
           <details className="google-ads-ad-group-editor">
            <summary>Edit ad group</summary>
            <form action={publishedInGoogle?updateGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id,adGroup.id):createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
@@ -1018,6 +1025,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
             <div className="google-ads-form">
              <label>Ad group name<input name="adGroupName" required maxLength={255} defaultValue={adGroup.ad_group_name}/></label>
              <label>Landing page<input name="destinationUrl" required type="url" pattern="https://.*" defaultValue={adGroup.destination_url}/></label>
+             {campaign.bidding_strategy==="MANUAL_CPC"&&!publishedInGoogle&&<label>Maximum CPC <span className="google-ads-input-with-unit"><span>$</span><input name="maxCpcDollars" type="number" min="0.01" max="25" step="0.01" required defaultValue={currentCpcMicros>0?(currentCpcMicros/1_000_000).toFixed(2):recommendedCpcDollars}/></span><small>Servonas suggests {microsToMoney(recommendedCpcMicros)} to start.</small></label>}
              <label className="wide">Keywords <small>One per line</small><textarea name="keywords" required rows={7} defaultValue={items(adGroup.keywords).join("\n")}/></label>
              <label className="wide">Negative keywords <small>One per line</small><textarea name="negativeKeywords" rows={6} defaultValue={items(adGroup.negative_keywords).join("\n")}/></label>
              <label className="wide">Headlines <small>At least 3, up to 30 characters each</small><textarea name="headlines" required rows={7} defaultValue={items(adList[0]?.headlines).join("\n")}/></label>
@@ -1041,13 +1049,14 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
          {!(categories??[]).length&&(inventory??[]).map((item:any)=><label key={`inventory:${item.id}`}><input required type="radio" name="advertisingTarget" value={`inventory:${item.id}`}/><span><strong>{item.name}</strong><small>Rental item</small></span></label>)}
         </div>
         <button className="sv-button" data-loading-label="Servonas is building your ad…">Build my ad</button>
-       </form></>:(()=>{const keywords=items(preparedAdGroup.keywords),negatives=items(preparedAdGroup.negative_keywords),ad=Array.isArray(preparedAdGroup.ads)?preparedAdGroup.ads[0]??{}:{},headlines=items(ad.headlines),descriptions=items(ad.descriptions),destination=String(preparedAdGroup.destination_url||"");return <form className="google-ads-guided-review" action={createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+       </form></>:(()=>{const keywords=items(preparedAdGroup.keywords),negatives=items(preparedAdGroup.negative_keywords),ad=Array.isArray(preparedAdGroup.ads)?preparedAdGroup.ads[0]??{}:{},headlines=items(ad.headlines),descriptions=items(ad.descriptions),destination=String(preparedAdGroup.destination_url||""),recommendedCpcMicros=googleAdsRecommendedAdGroupMaxCpcMicros({currentBidMicros:Number(preparedAdGroup.cpc_bid_micros??0),campaignBidMicros:Number(campaign.manual_cpc_bid_micros??0),dailyBudgetMicros:Number(campaign.daily_budget_micros??0)});return <form className="google-ads-guided-review" action={createGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
         <input type="hidden" name="draftAdGroupId" value={preparedAdGroup.id}/>
         <div className="google-ads-builder-intro"><span>Ready for your review</span><h3>{preparedAdGroup.ad_group_name}</h3><p>Servonas prepared this from the selected service and landing page. Nothing has been published yet.</p></div>
         <section className="google-ads-destination-card"><span>Sending customers to</span><strong>{destination.replace(/^https?:\/\//,"")}</strong><small>{destination.startsWith("https://")?"Published HTTPS landing page":"Review this destination before creating the ad group"}</small></section>
         <div className="google-ads-recommendation-grid"><section><span>Searches to target</span><strong>{keywords.length} recommended searches</strong><div className="google-ads-ad-group-chips">{keywords.map(value=><i key={value}>✓ {value}</i>)}</div><small>Based on the selected service and page.</small></section><section><span>Searches Servonas will avoid</span><strong>{negatives.length} irrelevant searches blocked</strong><div className="google-ads-ad-group-chips">{negatives.map(value=><i key={value}>✓ {value}</i>)}</div><small>These help protect your budget from people unlikely to book.</small></section></div>
         <section className="google-ads-preview"><span>Ad preview</span><article><small>Sponsored</small><strong>{headlines.slice(0,3).join(" | ")}</strong><em>{destination.replace(/^https?:\/\//,"")}</em><p>{descriptions.slice(0,2).join(" ")}</p></article><small>Google may mix and match your headlines and descriptions to find combinations that perform well.</small></section>
         <section className="google-ads-campaign-inheritance"><strong>This ad uses your existing campaign settings</strong><span>Locations: {campaignLocationSummary(campaignLocationsByCampaignId.get(String(campaign.google_campaign_id??""))?.targetedLocations??[])}</span><span>Daily budget: {dailyBudgetLabel(campaign.daily_budget_micros)} shared with this campaign</span></section>
+        {campaign.bidding_strategy==="MANUAL_CPC"&&<section className="google-ads-guided-cpc"><div><span>Suggested Max CPC</span><strong>{microsToMoney(recommendedCpcMicros)}</strong><small>A balanced starting point based on this campaign’s bid and daily budget.</small></div><label>Maximum CPC <span className="google-ads-input-with-unit"><span>$</span><input name="maxCpcDollars" type="number" min="0.01" max="25" step="0.01" required defaultValue={(recommendedCpcMicros/1_000_000).toFixed(2)}/></span></label></section>}
         <details className="google-ads-advanced"><summary>Advanced options</summary><div className="google-ads-form"><label>Ad group name<input name="adGroupName" defaultValue={preparedAdGroup.ad_group_name}/></label><label>Destination URL<input name="destinationUrl" type="url" defaultValue={destination}/></label><label className="wide">Searches to target<textarea name="keywords" rows={6} defaultValue={keywords.join("\n")}/></label><label className="wide">Searches to avoid <small>Negative keywords</small><textarea name="negativeKeywords" rows={5} defaultValue={negatives.join("\n")}/></label><label className="wide">Headlines<textarea name="headlines" rows={8} defaultValue={headlines.join("\n")}/></label><label className="wide">Descriptions<textarea name="descriptions" rows={5} defaultValue={descriptions.join("\n")}/></label></div></details>
         <p className="google-ads-approval-note">Everything look good? Servonas will create this ad group only after you approve below.</p><button className="sv-button" data-loading-label="Creating ad group…">Create Ad Group</button>
        </form>;})()}
