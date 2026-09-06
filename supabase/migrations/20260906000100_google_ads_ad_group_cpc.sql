@@ -1,3 +1,9 @@
+alter table public.business_google_ads_campaigns
+ add column if not exists bidding_strategy text not null default 'MAXIMIZE_CLICKS'
+  check(bidding_strategy in('MAXIMIZE_CLICKS','MANUAL_CPC')),
+ add column if not exists manual_cpc_bid_micros bigint
+  check(manual_cpc_bid_micros is null or manual_cpc_bid_micros>=10000);
+
 alter table public.business_google_ads_ad_groups
  add column if not exists cpc_bid_micros bigint
  check(cpc_bid_micros is null or cpc_bid_micros>=10000);
