@@ -163,6 +163,7 @@ export type GoogleAdsManagedAdGroup = {
  negativeKeywords: string[];
  ads: GoogleAdsManagedAd[];
  googleAdGroupId?: string | null;
+ cpcBidMicros?: number | null;
 };
 export type GoogleAdsBiddingStrategy = "MAXIMIZE_CLICKS" | "MANUAL_CPC";
 export type GoogleAdsCampaignHealthIssueSeverity = "critical" | "warning" | "info" | "healthy";
@@ -2573,7 +2574,7 @@ function mutateOperationsForCampaign(input: {
      campaign: campaignTemp,
      status: "ENABLED",
      type: "SEARCH_STANDARD",
-     ...(input.biddingStrategy === "MANUAL_CPC" && input.manualCpcBidMicros ? { cpcBidMicros: String(input.manualCpcBidMicros) } : {}),
+     ...(input.biddingStrategy === "MANUAL_CPC" && (adGroup.cpcBidMicros||input.manualCpcBidMicros) ? { cpcBidMicros: String(adGroup.cpcBidMicros||input.manualCpcBidMicros) } : {}),
     },
    },
   });

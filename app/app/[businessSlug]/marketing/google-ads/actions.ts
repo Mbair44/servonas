@@ -481,7 +481,9 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
  const negativeKeywords = lines(formData, "negativeKeywords");
  const ads = parseAds(formData);
  const draftAdGroupId = text(formData,"draftAdGroupId");
+ const requestedCpcText=text(formData,"maxCpcDollars"),requestedCpcMicros=requestedCpcText?googleAdsBidDollarsToMicros(requestedCpcText):null;
  if (!adGroupName || !destinationUrl || !keywords.length) redirect(path(slug, "error", "Add an ad group name, destination URL, and at least one keyword."));
+ if(campaign.bidding_strategy==="MANUAL_CPC"&&requestedCpcText&&!requestedCpcMicros)redirect(path(slug,"error","Enter a valid maximum CPC with no more than two decimal places."));
  if(ads[0].headlines.length<3||ads[0].descriptions.length<2||ads[0].headlines.some(value=>value.length>30)||ads[0].descriptions.some(value=>value.length>90))redirect(path(slug,"error","Servonas needs at least 3 valid headlines and 2 valid descriptions before creating this ad group."));
  const operationId=randomUUID();
  const connection=await loadTenantGoogleAdsAccess(business.id).catch(error=>{
@@ -489,7 +491,7 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
   redirect(path(slug,"error",`Creation failed: ${error instanceof Error?error.message:"Google Ads connection could not be loaded."}`));
  });
  const googleCampaignId=String(campaign.google_campaign_id??""),googleAdsCustomerId=String(campaign.google_ads_customer_id??connection?.customerId??"");
- const cpcBidMicros=campaign.bidding_strategy==="MANUAL_CPC"?(Number(campaign.manual_cpc_bid_micros??0)||null):null;
+ const cpcBidMicros=campaign.bidding_strategy==="MANUAL_CPC"?(requestedCpcMicros??(Number(campaign.manual_cpc_bid_micros??0)||2_000_000)):null;
  if(!connection?.accessToken||!googleAdsCustomerId)redirect(path(slug,"error","Creation failed: reconnect Google Ads and select an advertiser account before creating this ad group."));
  if(!googleCampaignId)redirect(path(slug,"error","Creation failed: publish this campaign to Google Ads before adding a live ad group."));
  const record={
@@ -502,6 +504,7 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
   keywords,
   negative_keywords: negativeKeywords,
   ads,
+  cpc_bid_micros:cpcBidMicros,
   status: "draft",
   created_by: user.id,
   updated_by: user.id,
@@ -537,7 +540,7 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
   redirect(path(slug,"error",`Creation failed: ${userMessage}`));
  }
  const confirmed=outcome.result as Awaited<ReturnType<typeof confirmGoogleAdsAdGroupCreation>>;
- const {error:publishSaveError}=await supabase.from("business_google_ads_ad_groups").update({google_ads_customer_id:googleAdsCustomerId,google_campaign_id:googleCampaignId,google_ad_group_id:confirmed.mutation.adGroupId,status:"published",updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",savedAdGroup.id);
+ const {error:publishSaveError}=await supabase.from("business_google_ads_ad_groups").update({google_ads_customer_id:googleAdsCustomerId,google_campaign_id:googleCampaignId,google_ad_group_id:confirmed.mutation.adGroupId,cpc_bid_micros:cpcBidMicros,status:"published",updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",savedAdGroup.id);
  if(publishSaveError){
   logGoogleAdsActionError("google_ads_ad_group_local_confirmation_save_failed",{stage:"local_confirmation_save",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,proposedAdGroupName:adGroupName,returnedResourceName:confirmed.mutation.adGroupResourceName,returnedAdGroupId:confirmed.mutation.adGroupId,googleRequestId:confirmed.mutation.googleRequestId,errorCode:publishSaveError.code,errorMessage:publishSaveError.message});
   redirect(path(slug,"error",`Created in Google Ads, but Servonas could not save the confirmation. Google ad group ID: ${confirmed.mutation.adGroupId}.`));
@@ -568,6 +571,41 @@ export async function createGoogleAdsAdGroupAction(slug: string, campaignId: str
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  logGoogleAdsAction("google_ads_ad_group_creation_completed",{stage:"complete",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId,campaignId:googleCampaignId,servonasCampaignId:campaignId,proposedAdGroupName:adGroupName,cpcBidMicros,returnedResourceName:confirmed.mutation.adGroupResourceName,returnedAdGroupId:confirmed.mutation.adGroupId,googleRequestId:confirmed.mutation.googleRequestId,verified:true});
  redirect(path(slug, "success", "Created in Google Ads."));
+}
+
+export async function updateGoogleAdsAdGroupCpcAction(slug:string,campaignId:string,adGroupId:string,formData:FormData){
+ const {supabase,business,user}=await context(slug),operationId=randomUUID();
+ const [{data:campaign},{data:adGroup}]=await Promise.all([
+  supabase.from("business_google_ads_campaigns").select("id,bidding_strategy,google_ads_customer_id,google_campaign_id").eq("business_id",business.id).eq("id",campaignId).maybeSingle(),
+  supabase.from("business_google_ads_ad_groups").select("id,ad_group_name,google_ad_group_id,cpc_bid_micros,status").eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",adGroupId).maybeSingle(),
+ ]);
+ if(!campaign||!adGroup?.google_ad_group_id)redirect(path(slug,"error","The live ad group could not be found."));
+ if(campaign.bidding_strategy!=="MANUAL_CPC")redirect(path(slug,"error","This campaign uses automated bidding, so Google controls its CPC bids."));
+ const requestedCpcMicros=googleAdsBidDollarsToMicros(text(formData,"maxCpcDollars"));
+ if(!requestedCpcMicros)redirect(path(slug,"error","Enter a valid maximum CPC with no more than two decimal places."));
+ const connection=await loadTenantGoogleAdsAccess(business.id);
+ const customerId=String(campaign.google_ads_customer_id??connection?.customerId??"");
+ if(!connection?.accessToken||!customerId)redirect(path(slug,"error","Reconnect Google Ads before changing this bid."));
+ const access=resolvedMutationAccess(connection.status,connection.customerChoices,customerId);
+ logGoogleAdsAction("google_ads_ad_group_cpc_update_started",{stage:"read_current_bid",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId:customerId,campaignId:campaign.google_campaign_id,adGroupId:adGroup.google_ad_group_id,adGroupName:adGroup.ad_group_name,requestedCpcMicros});
+ try{
+  const current=await fetchGoogleAdsAdGroupBid({accessToken:connection.accessToken,customerId,adGroupId:adGroup.google_ad_group_id,loginCustomerId:access.resolvedLoginCustomerId,businessId:business.id});
+  if(!current)throw new Error("Google Ads could not verify the current ad group bid.");
+  const mutation=await updateGoogleAdsAdGroupBid({accessToken:connection.accessToken,customerId,loginCustomerIds:access.loginCustomerIds,adGroupId:adGroup.google_ad_group_id,cpcBidMicros:requestedCpcMicros});
+  logGoogleAdsAction("google_ads_ad_group_cpc_mutation_completed",{stage:"mutate_response",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId:customerId,campaignId:campaign.google_campaign_id,adGroupId:adGroup.google_ad_group_id,previousCpcMicros:current.cpcBidMicros,requestedCpcMicros,returnedResourceName:mutation.resourceName,googleRequestId:mutation.googleRequestId,httpStatus:mutation.httpStatus});
+  const verified=await fetchGoogleAdsAdGroupBid({accessToken:connection.accessToken,customerId,adGroupId:adGroup.google_ad_group_id,loginCustomerId:access.resolvedLoginCustomerId,businessId:business.id});
+  if(!verified||verified.cpcBidMicros!==requestedCpcMicros)throw new Error("Google Ads did not confirm the requested maximum CPC.");
+  const {error}=await supabase.from("business_google_ads_ad_groups").update({cpc_bid_micros:requestedCpcMicros,updated_by:user.id,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",adGroupId);
+  if(error)throw new Error("Google confirmed the bid, but Servonas could not save the verified amount.");
+  await writeGoogleAdsAuditLog({businessId:business.id,campaignId,actorUserId:user.id,eventType:"google_ads_ad_group_cpc_updated",metadata:{operationId,googleAdGroupId:adGroup.google_ad_group_id,previousCpcMicros:current.cpcBidMicros,cpcBidMicros:requestedCpcMicros,googleRequestId:mutation.googleRequestId,verified:true}});
+  logGoogleAdsAction("google_ads_ad_group_cpc_update_completed",{stage:"verified",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId:customerId,campaignId:campaign.google_campaign_id,adGroupId:adGroup.google_ad_group_id,requestedCpcMicros,verifiedCpcMicros:verified.cpcBidMicros,googleRequestId:mutation.googleRequestId});
+ }catch(error){
+  const details=error as {status?:number;googleStatus?:string;requestId?:string;googleRequestId?:string};
+  logGoogleAdsActionError("google_ads_ad_group_cpc_update_failed",{stage:"update_or_verify",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId:customerId,campaignId:campaign.google_campaign_id,adGroupId:adGroup.google_ad_group_id,requestedCpcMicros,httpStatus:details.status??null,googleStatus:details.googleStatus??null,googleRequestId:details.googleRequestId??details.requestId??null,errorName:error instanceof Error?error.name:"Error",errorMessage:error instanceof Error?error.message:"Google Ads CPC update failed"});
+  redirect(path(slug,"error",googleAdsErrorMessage(error instanceof Error?error:new Error("Google Ads could not update the maximum CPC."))));
+ }
+ revalidatePath(`/app/${slug}/marketing/google-ads`);
+ redirect(path(slug,"success",`${adGroup.ad_group_name} max CPC updated and verified in Google Ads.`));
 }
 
 export async function updateGoogleAdsAdGroupAction(slug:string,campaignId:string,adGroupId:string,formData:FormData){
@@ -628,7 +666,7 @@ export async function prepareGoogleAdsAdGroupAction(slug:string,campaignId:strin
  const keywords=draft.keywords.filter(value=>!existingKeywords.has(value.toLowerCase()));
  const overlapCount=draft.keywords.length-keywords.length;
  const negatives=[...new Set([...(Array.isArray(campaign.negative_keywords)?campaign.negative_keywords.map(String):[]),...draft.negativeKeywords])];
- const draftRecord={business_id:business.id,campaign_id:campaignId,service_id:service?.id??null,inventory_item_id:inventory?.id??null,google_ads_customer_id:campaign.google_ads_customer_id??null,google_campaign_id:campaign.google_campaign_id??null,ad_group_name:draft.adGroupName,destination_url:destinationUrl,keywords:keywords.length?keywords:draft.keywords,negative_keywords:negatives,ads:[{finalUrl:destinationUrl,headlines:draft.headlines,descriptions:draft.descriptions}],status:"draft",updated_by:user.id,updated_at:new Date().toISOString()};
+ const draftRecord={business_id:business.id,campaign_id:campaignId,service_id:service?.id??null,inventory_item_id:inventory?.id??null,google_ads_customer_id:campaign.google_ads_customer_id??null,google_campaign_id:campaign.google_campaign_id??null,ad_group_name:draft.adGroupName,destination_url:destinationUrl,keywords:keywords.length?keywords:draft.keywords,negative_keywords:negatives,ads:[{finalUrl:destinationUrl,headlines:draft.headlines,descriptions:draft.descriptions}],cpc_bid_micros:campaign.bidding_strategy==="MANUAL_CPC"?(Number(campaign.manual_cpc_bid_micros??0)||2_000_000):null,status:"draft",updated_by:user.id,updated_at:new Date().toISOString()};
  const priorDraft=(existingGroups??[]).find((group:any)=>group.status==="draft"&&String(group.ad_group_name).toLowerCase()===draft.adGroupName.toLowerCase());
  const {data:saved,error}=priorDraft?await supabase.from("business_google_ads_ad_groups").update(draftRecord).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",priorDraft.id).select("id").single():await supabase.from("business_google_ads_ad_groups").insert({...draftRecord,created_by:user.id}).select("id").single();
  if(error||!saved)redirect(path(slug,"error","Servonas could not prepare this ad group."));
@@ -701,11 +739,12 @@ export async function publishGoogleAdsDraftAction(slug: string, campaignId: stri
     destinationUrl: adGroup.destination_url ?? adGroup.destinationUrl,
     keywords: Array.isArray(adGroup.keywords) ? adGroup.keywords.map(String) : [],
     negativeKeywords: Array.isArray(adGroup.negative_keywords ?? adGroup.negativeKeywords) ? (adGroup.negative_keywords ?? adGroup.negativeKeywords).map(String) : [],
-    ads: Array.isArray(adGroup.ads) ? adGroup.ads.map((ad: any) => ({
+   ads: Array.isArray(adGroup.ads) ? adGroup.ads.map((ad: any) => ({
      finalUrl: typeof ad?.finalUrl === "string" ? ad.finalUrl : (adGroup.destination_url ?? campaign.destination_url),
      headlines: Array.isArray(ad?.headlines) ? ad.headlines.map(String) : [],
      descriptions: Array.isArray(ad?.descriptions) ? ad.descriptions.map(String) : [],
     })) : [],
+    cpcBidMicros:Number(adGroup.cpc_bid_micros??0)||null,
    })),
   });
   logGoogleAdsAction("Google Ads action stage complete", { stage: "google_ads_campaign_publish", provider: "google_ads_api", businessId: business.id, businessSlug: business.slug, campaignId, googleCampaignId: published.campaignId, adGroupId: published.adGroupId });
