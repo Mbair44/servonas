@@ -580,7 +580,6 @@ export async function updateGoogleAdsAdGroupCpcAction(slug:string,campaignId:str
   supabase.from("business_google_ads_ad_groups").select("id,ad_group_name,google_ad_group_id,cpc_bid_micros,status").eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",adGroupId).maybeSingle(),
  ]);
  if(!campaign||!adGroup?.google_ad_group_id)redirect(path(slug,"error","The live ad group could not be found."));
- if(campaign.bidding_strategy!=="MANUAL_CPC")redirect(path(slug,"error","This campaign uses automated bidding, so Google controls its CPC bids."));
  const requestedCpcMicros=googleAdsBidDollarsToMicros(text(formData,"maxCpcDollars"));
  if(!requestedCpcMicros)redirect(path(slug,"error","Enter a valid maximum CPC with no more than two decimal places."));
  const connection=await loadTenantGoogleAdsAccess(business.id);
@@ -591,6 +590,8 @@ export async function updateGoogleAdsAdGroupCpcAction(slug:string,campaignId:str
  try{
   const current=await fetchGoogleAdsAdGroupBid({accessToken:connection.accessToken,customerId,adGroupId:adGroup.google_ad_group_id,loginCustomerId:access.resolvedLoginCustomerId,businessId:business.id});
   if(!current)throw new Error("Google Ads could not verify the current ad group bid.");
+  const effectiveBiddingStrategy=current.biddingStrategyType??campaign.bidding_strategy;
+  if(effectiveBiddingStrategy!=="MANUAL_CPC")throw new Error(`Google Ads reports that this campaign uses ${effectiveBiddingStrategy==="MAXIMIZE_CLICKS"?"Maximize Clicks":"automated bidding"}. Its stored default CPC is not active until the campaign uses Manual CPC.`);
   const mutation=await updateGoogleAdsAdGroupBid({accessToken:connection.accessToken,customerId,loginCustomerIds:access.loginCustomerIds,adGroupId:adGroup.google_ad_group_id,cpcBidMicros:requestedCpcMicros});
   logGoogleAdsAction("google_ads_ad_group_cpc_mutation_completed",{stage:"mutate_response",operationId,businessId:business.id,businessSlug:business.slug,googleAdsCustomerId:customerId,campaignId:campaign.google_campaign_id,adGroupId:adGroup.google_ad_group_id,previousCpcMicros:current.cpcBidMicros,requestedCpcMicros,returnedResourceName:mutation.resourceName,googleRequestId:mutation.googleRequestId,httpStatus:mutation.httpStatus});
   const verified=await fetchGoogleAdsAdGroupBid({accessToken:connection.accessToken,customerId,adGroupId:adGroup.google_ad_group_id,loginCustomerId:access.resolvedLoginCustomerId,businessId:business.id});

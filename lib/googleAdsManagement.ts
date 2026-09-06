@@ -317,6 +317,7 @@ export type GoogleAdsCampaignAdGroupAd = {
 };
 export type GoogleAdsCampaignAdGroupDetail = {
  campaignId: string;
+ biddingStrategyType: string | null;
  adGroupId: string;
  adGroupName: string | null;
  status: string | null;
@@ -2889,11 +2890,12 @@ export async function fetchGoogleAdsAdGroupBid(input: {
 }) {
  const adGroupId = stripCustomerId(input.adGroupId);
  if (!adGroupId) return null;
- const rows = await googleAdsSearchStream(input.customerId, input.accessToken, `SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros FROM ad_group WHERE ad_group.id = ${adGroupId}`, input.loginCustomerId, { stage: "google_ads_fix_cpc_refetch", requestType: "google_ads_fix_cpc_refetch", businessId: input.businessId ?? null });
+ const rows = await googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.bidding_strategy_type, ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros FROM ad_group WHERE ad_group.id = ${adGroupId}`, input.loginCustomerId, { stage: "google_ads_fix_cpc_refetch", requestType: "google_ads_fix_cpc_refetch", businessId: input.businessId ?? null });
  const row = rows.find((item) => stripCustomerId(String(readGoogleAdsField(item, "adGroup.id", "ad_group.id") ?? "")) === adGroupId);
  if (!row) return null;
  return {
   id: adGroupId,
+  biddingStrategyType: typeof readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type") === "string" ? String(readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type")) : null,
   name: typeof readGoogleAdsField(row, "adGroup.name", "ad_group.name") === "string" ? String(readGoogleAdsField(row, "adGroup.name", "ad_group.name")) : null,
   status: typeof readGoogleAdsField(row, "adGroup.status", "ad_group.status") === "string" ? String(readGoogleAdsField(row, "adGroup.status", "ad_group.status")) : null,
   cpcBidMicros: safeNumber(readGoogleAdsField(row, "adGroup.cpcBidMicros", "ad_group.cpc_bid_micros")),
@@ -3965,7 +3967,7 @@ export async function fetchGoogleAdsCampaignAdGroupDetails(input: { accessToken:
  if (!campaignId) return [] as GoogleAdsCampaignAdGroupDetail[];
  const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
  const [adGroupRows, keywordRows, adRows] = await Promise.all([
-  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM ad_group WHERE campaign.id = ${campaignId} AND ${dateFilter}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_groups_query", requestType: "campaign_ad_groups", businessId: input.businessId ?? null }),
+  googleAdsSearchStream(input.customerId, input.accessToken, `SELECT campaign.id, campaign.bidding_strategy_type, ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions, metrics.cost_micros FROM ad_group WHERE campaign.id = ${campaignId} AND ${dateFilter}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_groups_query", requestType: "campaign_ad_groups", businessId: input.businessId ?? null }),
   googleAdsSearchStream(input.customerId, input.accessToken, `SELECT ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.status, ad_group_criterion.negative, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.cpc_bid_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM keyword_view WHERE campaign.id = ${campaignId} AND ${dateFilter}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_group_keywords_query", requestType: "campaign_ad_group_keywords", businessId: input.businessId ?? null }),
   googleAdsSearchStream(input.customerId, input.accessToken, `SELECT ad_group.id, ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.ad.final_urls, ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions FROM ad_group_ad WHERE campaign.id = ${campaignId}`, input.loginCustomerId, { stage: "google_ads_campaign_ad_group_ads_query", requestType: "campaign_ad_group_ads", businessId: input.businessId ?? null }),
  ]);
@@ -3977,6 +3979,7 @@ export async function fetchGoogleAdsCampaignAdGroupDetails(input: { accessToken:
   if (!adGroupId) continue;
   details.set(adGroupId, {
    campaignId,
+   biddingStrategyType: typeof readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type") === "string" ? String(readGoogleAdsField(row, "campaign.biddingStrategyType", "campaign.bidding_strategy_type")) : null,
    adGroupId,
    adGroupName: typeof adGroup?.name === "string" ? adGroup.name : null,
    status: typeof adGroup?.status === "string" ? adGroup.status : null,

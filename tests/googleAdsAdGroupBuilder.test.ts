@@ -71,13 +71,17 @@ test("each Manual CPC ad group exposes a recommended bid and verifies updates in
  assert.match(page,/Servonas suggestion:/);
  assert.match(page,/Update Max CPC/);
  assert.match(page,/updateGoogleAdsAdGroupCpcAction\.bind\(null,businessSlug,campaign\.id,adGroup\.id\)/);
- assert.match(page,/Managed automatically by Google/);
+ assert.match(page,/matchedLive\?\.biddingStrategyType\?\?effectiveCampaignBiddingStrategy/);
+ assert.match(page,/Stored default CPC/);
+ assert.match(page,/this stored amount is currently ignored/);
  assert.match(actions,/export async function updateGoogleAdsAdGroupCpcAction/);
  assert.match(actions,/googleAdsBidDollarsToMicros\(text\(formData,"maxCpcDollars"\)\)/);
  assert.match(actions,/updateGoogleAdsAdGroupBid/);
+ assert.match(actions,/current\.biddingStrategyType\?\?campaign\.bidding_strategy/);
  assert.match(actions,/verified\.cpcBidMicros!==requestedCpcMicros/);
  assert.match(actions,/google_ads_ad_group_cpc_update_completed/);
  assert.match(service,/adGroup\.cpcBidMicros\|\|input\.manualCpcBidMicros/);
+ assert.match(service,/campaign\.bidding_strategy_type, ad_group\.id, ad_group\.name, ad_group\.status, ad_group\.cpc_bid_micros/);
  assert.match(migration,/add column if not exists cpc_bid_micros bigint/);
 });
 
