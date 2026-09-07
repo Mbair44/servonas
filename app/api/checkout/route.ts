@@ -72,6 +72,7 @@ export async function POST(request: Request) {
       body.city=verified.city;
       body.zipCode=verified.postalCode;
     }
+    body.city=body.city!.trim().replace(/\s+/g," ").slice(0,120);
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const supabase = getSupabaseAdmin();
@@ -147,7 +148,9 @@ export async function POST(request: Request) {
     if (bookingError) {
       const message = bookingError.message || "Could not create the reservation.";
       const conflict=bookingError.code==="23505"||/one_active_(?:reservation|booking)_per_item_date/i.test(message);
-      return NextResponse.json({ error: conflict?"That rental is already reserved for the selected date or time. Refresh availability and choose another option.":message }, { status: conflict||/available|reserved|blocked|inventory/i.test(message) ? 409 : 400 });
+      const deliveryCityConstraint=/bookings_delivery_city_check|delivery is currently available only/i.test(message);
+      const customerMessage=conflict?"That rental is already reserved for the selected date or time. Refresh availability and choose another option.":deliveryCityConstraint?"We couldn't save that delivery city. Select the address from Google’s suggestions and try again.":message;
+      return NextResponse.json({ error: customerMessage }, { status: conflict||/available|reserved|blocked|inventory/i.test(message) ? 409 : 400 });
     }
 
     const booking = Array.isArray(data) ? data[0] : data;
