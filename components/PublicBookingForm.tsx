@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { parseGoogleAddressComponents, type GoogleAddressComponent } from "@/lib/googleAddressComponents";
-import {trackMetaStandardEvent} from "./TenantMetaPixel";
+import {trackMetaBrowserAndServerEvent} from "./TenantMetaPixel";
 import {bookingAttributionSession,trackBookingFunnel} from "./TenantBookingFunnelTracker";
 
 interface Service {
@@ -178,7 +178,7 @@ export default function PublicBookingForm(props: Props) {
   const refreshRequiredFields = () => setRequiredFieldsComplete(formRef.current?.checkValidity() ?? false);
 
   return (
-    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => {const service=selectedService(props.services,serviceId);track("booking_submitted");trackBookingFunnel(props.publicSlug,"booking_cta_click",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"checkout_started",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"lead_submitted",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackMetaStandardEvent("InitiateCheckout",{content_name:service?.name,content_ids:serviceId?[serviceId]:[],content_type:"product",num_items:1,value:service?.price_amount&&Number(service.price_amount)>0?Number(service.price_amount):undefined,currency:service?.price_amount&&Number(service.price_amount)>0?"USD":undefined},{eventKey:`initiate-checkout:${props.publicSlug}:${serviceId}:${date}:${time}`,storage:"session"});}}>
+    <form ref={formRef} action={formAction} className="public-booking-form" onInput={refreshRequiredFields} onChange={refreshRequiredFields} onSubmit={() => {const service=selectedService(props.services,serviceId);track("booking_submitted");trackBookingFunnel(props.publicSlug,"booking_cta_click",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"checkout_started",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackBookingFunnel(props.publicSlug,"lead_submitted",{serviceId,metadata:{service_id:serviceId,date,time,surface:"public_booking_form"}});trackMetaBrowserAndServerEvent(props.publicSlug,"InitiateCheckout",{content_name:service?.name,content_ids:serviceId?[serviceId]:[],content_type:"product",num_items:1,value:service?.price_amount&&Number(service.price_amount)>0?Number(service.price_amount):undefined,currency:service?.price_amount&&Number(service.price_amount)>0?"USD":undefined});}}>
       <input className="honeypot" name="companyWebsite" tabIndex={-1} autoComplete="off" />
       <input type="hidden" name="requestKey" value={requestKey.current} />
       <input type="hidden" name="startsAt" value={date && time ? `${date}T${time}` : ""} />

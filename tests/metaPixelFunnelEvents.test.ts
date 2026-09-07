@@ -11,7 +11,8 @@ test("meta pixel helper keeps funnel events consent-aware and deduped",async()=>
  assert.match(component,/activeMetaPixelId=\(\)=>typeof window==="undefined"\?null:validPixelId\(window\.__servonasMetaPixelId\?\?"\"\)/);
  assert.match(component,/pathBlocked=\(pathname:string\)=>pathname\.startsWith\("\/app"\)\|\|pathname\.startsWith\("\/tech"\)\|\|pathname\.startsWith\("\/sites\/preview"\)/);
  assert.match(component,/rememberMetaEvent/);
- assert.match(component,/window\.fbq\("track",event,sanitizeMetaParams\(params\)\)/);
+ assert.match(component,/window\.fbq\("track",event,sanitizeMetaParams\(params\),\{eventID:eventId\}\)/);
+ assert.match(component,/export function trackMetaBrowserAndServerEvent/);
 });
 
 test("rental booking flow maps view content initiate checkout and purchase to canonical public interactions",async()=>{
@@ -26,12 +27,13 @@ test("rental booking flow maps view content initiate checkout and purchase to ca
  assert.match(rental,/if\(source==="browse"\)/);
  assert.match(rental,/onClick=\{\(\)=>noteInventoryInteraction\(item,"browse"\)\}/);
  assert.doesNotMatch(rental,/useEffect\([^)]*trackMetaStandardEvent\("ViewContent"/s);
- assert.match(rental,/trackMetaStandardEvent\("InitiateCheckout"/);
- assert.match(rental,/eventKey:`initiate-checkout:\$\{businessSlug\}:/);
+ assert.match(rental,/trackMetaBrowserAndServerEvent\(businessSlug,"InitiateCheckout"/);
+ assert.match(rental,/checkoutTransitionRef\.current/);
+ assert.match(rental,/meta_event_id/);
  assert.match(rental,/function showReservationPage/);
  assert.match(rental,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(rental,/trackMetaStandardEvent\("Purchase"/);
- assert.match(rental,/eventKey:`purchase:\$\{invoiceLaterConfirmation\.bookingId\}`/);
+ assert.match(rental,/eventId:`purchase-\$\{invoiceLaterConfirmation\.bookingId\}`/);
  assert.match(rental,/storage:"local"/);
 });
 
@@ -42,8 +44,7 @@ test("public booking forms and success pages track meta purchases only on author
   read("app/success/page.tsx"),
   read("components/TenantMetaPixelPurchaseTracker.tsx"),
  ]);
- assert.match(form,/trackMetaStandardEvent\("InitiateCheckout"/);
- assert.match(form,/eventKey:`initiate-checkout:\$\{props\.publicSlug\}:\$\{serviceId\}:\$\{date\}:\$\{time\}`/);
+ assert.match(form,/trackMetaBrowserAndServerEvent\(props\.publicSlug,"InitiateCheckout"/);
  assert.doesNotMatch(form,/useEffect\([^)]*trackMetaStandardEvent\("InitiateCheckout"/s);
  assert.match(bookingSuccess,/meta_pixel_id/);
  assert.match(bookingSuccess,/TenantMetaPixel pixelId=\{metaPixelId\}/);
@@ -52,6 +53,7 @@ test("public booking forms and success pages track meta purchases only on author
  assert.match(stripeSuccess,/TenantMetaPixel pixelId=\{metaPixelId\}/);
  assert.match(stripeSuccess,/TenantMetaPixelPurchaseTracker bookingId=\{bookingId\}/);
  assert.match(purchaseTracker,/trackMetaStandardEvent\("Purchase"/);
+ assert.match(purchaseTracker,/eventId:`purchase-\$\{bookingId\}`/);
  assert.match(purchaseTracker,/storage:"local"/);
 });
 

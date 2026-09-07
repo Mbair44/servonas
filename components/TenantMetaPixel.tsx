@@ -3,6 +3,9 @@
 import {useEffect,useState} from "react";
 import {usePathname,useSearchParams} from "next/navigation";
 import {ANALYTICS_CONSENT_KEY} from "@/lib/publicAnalytics";
+import {createMetaEventId,type MetaStandardEvent} from "@/lib/metaEventId";
+
+export {createMetaEventId} from "@/lib/metaEventId";
 
 const CONSENT_KEY=ANALYTICS_CONSENT_KEY;
 const PIXEL_ID_PATTERN=/^[0-9]{8,24}$/;
@@ -15,6 +18,7 @@ declare global{
   __servonasMetaPixelId?:string;
   __servonasMetaPixelPageViews?:string[];
   __servonasMetaPixelEventKeys?:string[];
+  __servonasMetaServerEventKeys?:string[];
  }
 }
 
@@ -24,6 +28,8 @@ const pathBlocked=(pathname:string)=>pathname.startsWith("/app")||pathname.start
 const sanitizeMetaParams=(value:Record<string,unknown>)=>Object.fromEntries(Object.entries(value).filter(([,entry])=>entry!=null&&(!Array.isArray(entry)||entry.length>0)));
 const consentGranted=()=>typeof window!=="undefined"&&window.localStorage.getItem(CONSENT_KEY)==="granted";
 const activeMetaPixelId=()=>typeof window==="undefined"?null:validPixelId(window.__servonasMetaPixelId??"");
+const metaDebugEnabled=()=>process.env.NODE_ENV!=="production"||typeof window!=="undefined"&&new URLSearchParams(window.location.search).get("sv_debug_meta")==="1";
+const logMetaDebug=(event:string,eventId:string,source:"browser"|"server",suppressed:boolean,details:Record<string,unknown>={})=>{if(metaDebugEnabled())console.info("[Servonas Meta event]",{event,event_id:eventId,source,suppressed,...details});};
 const rememberMetaEvent=(eventKey:string,storage:"memory"|"session"|"local"="memory")=>{
  if(typeof window==="undefined"||!eventKey)return false;
  const tracked=window.__servonasMetaPixelEventKeys??[];
@@ -39,10 +45,34 @@ const rememberMetaEvent=(eventKey:string,storage:"memory"|"session"|"local"="mem
  }catch{}
  return false;
 };
-export function trackMetaStandardEvent(event:"ViewContent"|"InitiateCheckout"|"Purchase",params:Record<string,unknown>,options:{eventKey?:string;storage?:"memory"|"session"|"local"}={}){
- if(typeof window==="undefined"||typeof window.fbq!=="function"||!consentGranted()||!activeMetaPixelId()||pathBlocked(window.location.pathname))return;
- if(options.eventKey&&rememberMetaEvent(options.eventKey,options.storage))return;
- window.fbq("track",event,sanitizeMetaParams(params));
+export function trackMetaStandardEvent(event:MetaStandardEvent,params:Record<string,unknown>,options:{eventId?:string;eventKey?:string;storage?:"memory"|"session"|"local"}={}){
+ const eventId=options.eventId;
+ if(typeof window==="undefined"||typeof window.fbq!=="function"||!consentGranted()||!activeMetaPixelId()||pathBlocked(window.location.pathname))return false;
+ const dedupeValue=eventId??options.eventKey;
+ if(dedupeValue&&rememberMetaEvent(dedupeValue,options.storage)){if(eventId)logMetaDebug(event,eventId,"browser",true);return false;}
+ if(eventId)window.fbq("track",event,sanitizeMetaParams(params),{eventID:eventId});
+ else window.fbq("track",event,sanitizeMetaParams(params));
+ if(eventId)logMetaDebug(event,eventId,"browser",false);
+ return true;
+}
+const metaCookie=(name:string)=>{if(typeof document==="undefined")return null;const prefix=`${name}=`;const entry=document.cookie.split(";").map(value=>value.trim()).find(value=>value.startsWith(prefix));return entry?decodeURIComponent(entry.slice(prefix.length)):null;};
+export function trackMetaServerEvent(businessSlug:string,event:"InitiateCheckout",params:Record<string,unknown>,eventId:string,eventSourceUrl?:string){
+ if(typeof window==="undefined"||!consentGranted()||!activeMetaPixelId()||pathBlocked(window.location.pathname))return eventId;
+ const serverKeys=window.__servonasMetaServerEventKeys??[];
+ if(serverKeys.includes(eventId)){logMetaDebug(event,eventId,"server",true,{reason:"client_delivery_suppressed"});return eventId;}
+ window.__servonasMetaServerEventKeys=[...serverKeys,eventId].slice(-metaEventLimit);
+ const payload=JSON.stringify({event,eventId,eventSourceUrl:eventSourceUrl??window.location.href,customData:sanitizeMetaParams(params),fbp:metaCookie("_fbp"),fbc:metaCookie("_fbc")});
+ const endpoint=`/api/public-booking/${encodeURIComponent(businessSlug)}/meta-event`;
+ let beaconSent=false;
+ try{if(typeof navigator.sendBeacon==="function")beaconSent=navigator.sendBeacon(endpoint,new Blob([payload],{type:"application/json"}));}catch{}
+ if(beaconSent){logMetaDebug(event,eventId,"server",false,{delivery:"beacon"});return eventId;}
+ void fetch(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:payload,keepalive:true,credentials:"same-origin"}).then(response=>logMetaDebug(event,eventId,"server",false,{delivery:"fetch",status:response.status})).catch(error=>logMetaDebug(event,eventId,"server",false,{delivery:"fetch",error:error instanceof Error?error.message:"request_failed"}));
+ return eventId;
+}
+export function trackMetaBrowserAndServerEvent(businessSlug:string,event:"InitiateCheckout",params:Record<string,unknown>,eventId=createMetaEventId(event)){
+ const browserSent=trackMetaStandardEvent(event,params,{eventId,storage:"session"});
+ if(browserSent)trackMetaServerEvent(businessSlug,event,params,eventId);
+ return eventId;
 }
 const ensureMetaPixelStub=()=>{
  if(typeof window==="undefined")return null;
@@ -95,6 +125,7 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
    window.__servonasMetaPixelId=normalizedPixelId;
    window.__servonasMetaPixelPageViews=[];
    window.__servonasMetaPixelEventKeys=[];
+   window.__servonasMetaServerEventKeys=[];
   }
   if(tracked.includes(pageKey))return;
   fbq("track","PageView");
