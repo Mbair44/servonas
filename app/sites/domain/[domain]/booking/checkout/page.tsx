@@ -5,6 +5,7 @@ import PartyRentalBookingClient from "@/components/PartyRentalBookingClient";
 import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
+import {TenantMetaInitiateCheckoutTracker} from "@/components/TenantMetaInitiateCheckoutTracker";
 import {TemporarySiteUnavailable} from "@/components/TemporarySiteUnavailable";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
 import {normalizeWebsiteDomain} from "@/lib/website";
@@ -38,7 +39,7 @@ export async function generateMetadata({params}:{params:Promise<{domain:string}>
  return {title:`Complete Reservation | ${record.site.name}`,description:record.site.heroSubheading,icons:record.site.logoUrl?{icon:[{url:record.site.logoUrl}],shortcut:record.site.logoUrl,apple:record.site.logoUrl}:undefined};
 }
 
-export default async function CustomDomainBookingCheckoutPage({params,searchParams}:{params:Promise<{domain:string}>;searchParams:Promise<{embed?:string;promotion?:string;sv_at?:string;cartState?:string;dateState?:string}>}){
+export default async function CustomDomainBookingCheckoutPage({params,searchParams}:{params:Promise<{domain:string}>;searchParams:Promise<{embed?:string;promotion?:string;sv_at?:string;cartState?:string;dateState?:string;meta_event_id?:string}>}){
  const raw=decodeURIComponent((await params).domain),domain=normalizeWebsiteDomain(raw);
  if(!domain)notFound();
  const record=await loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]/booking");
@@ -55,8 +56,12 @@ export default async function CustomDomainBookingCheckoutPage({params,searchPara
  const {settings,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,schedule}=data;
  if(!isPartyRental)notFound();
 
+ const metaEventId=/^initiatecheckout-[a-z0-9-]{20,100}$/i.test(query.meta_event_id??"")?query.meta_event_id:null;
+ const metaItems=Object.entries(initialCartState??{}).map(([itemId,quantity])=>({item:rentalInventory.find(item=>item.id===itemId),quantity})).filter((entry):entry is {item:(typeof rentalInventory)[number];quantity:number}=>Boolean(entry.item));
+ const metaItemCount=metaItems.reduce((sum,entry)=>sum+entry.quantity,0),metaValue=metaItems.reduce((sum,entry)=>sum+Number(entry.item.daily_price_cents??0)*entry.quantity,0)/100;
+
  return (
-  <>{record.kind==="ok"&&record.site.metaPixelId&&<TenantMetaPixel pixelId={record.site.metaPixelId}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={bookingSlug} initialSessionId={query.sv_at}/><main className={`public-booking public-booking-checkout${embedded?" embedded-booking":""}`} style={{"--booking-brand":settings.brand_color} as React.CSSProperties}>
+  <>{record.kind==="ok"&&record.site.metaPixelId&&<TenantMetaPixel pixelId={record.site.metaPixelId}/>} {metaEventId&&<TenantMetaInitiateCheckoutTracker eventId={metaEventId} contentIds={metaItems.map(entry=>entry.item.id)} numItems={metaItemCount} value={metaValue}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={bookingSlug} initialSessionId={query.sv_at}/><main className={`public-booking public-booking-checkout${embedded?" embedded-booking":""}`} style={{"--booking-brand":settings.brand_color} as React.CSSProperties}>
    <section className="public-booking-card">
     {!embedded&&<header>
      {bookingLogo?<img src={bookingLogo} alt={`${businessName??"Business"} logo`}/>:<div className="booking-mark">{businessName?.slice(0,1)}</div>}
