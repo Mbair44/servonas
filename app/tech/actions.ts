@@ -69,7 +69,11 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
   }
   if(status==="completed"){
     const billing=await processCompletedJobBilling(jobId);
-    if(!billing.ok)console.error("Technician completed-job billing orchestration failed",{jobId,reason:billing.error});
+    if(!billing.ok||billing.action==="payment_failed"){
+      console.error("Technician completed-job billing orchestration failed",{jobId,reason:billing.error});
+      revalidatePath("/tech");revalidatePath("/tech/route");revalidatePath(`/tech/jobs/${jobId}`);
+      redirect(redirectWith("error","The job is complete, but the remaining-balance invoice needs office attention."));
+    }
   }
   revalidatePath("/tech"); revalidatePath("/tech/route"); revalidatePath(`/tech/jobs/${jobId}`);
   redirect(redirectWith("success", "Job status updated."));

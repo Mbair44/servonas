@@ -250,11 +250,12 @@ export async function POST(request: Request) {
     const bookingId = eventSession.metadata?.booking_id;
     if (bookingId && eventSession.payment_status === "paid") {
       const session = await stripe.checkout.sessions.retrieve(eventSession.id, {
-        expand: ["discounts.promotion_code", "discounts.coupon"],
+        expand: ["discounts.promotion_code", "discounts.coupon", "payment_intent.payment_method"],
       },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
       const finalTotalCents = Number(session.metadata?.total_cents || 0);
       const amountPaidCents = Number(session.amount_total || 0);
       const discountCents = Number(session.metadata?.discount_cents || 0);
+      const businessId=session.metadata?.business_id;
       const discount = session.discounts?.[0];
       const promotionCode = discount && typeof discount !== "string" && discount.promotion_code;
       const coupon = discount && typeof discount !== "string" && discount.coupon;
@@ -275,7 +276,7 @@ const couponId =
       await supabase.from("bookings").update({
         status: "confirmed",
         stripe_checkout_session_id: session.id,
-        stripe_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null,
+        stripe_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id??null,
         deposit_cents: amountPaidCents,
         amount_paid_cents: amountPaidCents,
         discount_cents: discountCents,
@@ -288,8 +289,24 @@ const couponId =
         paid_at: new Date().toISOString(),
       }).eq("id", bookingId);
 
+      if(session.metadata?.final_payment_authorized==="true"){
+        const intent=typeof session.payment_intent==="object"?session.payment_intent:null;
+        const paymentMethod=intent&&typeof intent.payment_method==="object"?intent.payment_method as Stripe.PaymentMethod:null;
+        const providerCustomerId=typeof session.customer==="string"?session.customer:session.customer?.id??null;
+        if(providerCustomerId&&paymentMethod?.id){
+          const {error:authorizationError}=await supabase.from("bookings").update({
+            final_payment_authorized_at:new Date(event.created*1000).toISOString(),
+            stripe_customer_id:providerCustomerId,
+            stripe_payment_method_id:paymentMethod.id,
+          }).eq("id",bookingId);
+          if(authorizationError)throw new Error(`Rental final-payment authorization could not be saved (${authorizationError.code}).`);
+        }else{
+          console.error("Rental final-payment method was not returned by Stripe",{bookingId,businessId,checkoutSessionId:session.id,hasCustomer:Boolean(providerCustomerId),hasPaymentMethod:Boolean(paymentMethod?.id)});
+        }
+      }
+
       await supabase.from("booking_items").update({ status: "confirmed" }).eq("booking_id", bookingId);
-      const businessId=session.metadata?.business_id;if(businessId)await supabase.rpc("finalize_discount_redemption",{p_business_id:businessId,p_booking_id:bookingId});
+      if(businessId)await supabase.rpc("finalize_discount_redemption",{p_business_id:businessId,p_booking_id:bookingId});
       if(businessId)await Promise.allSettled([
         recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"booking_completed",eventKey:`${bookingId}:booking_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
         recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"payment_completed",eventKey:`${bookingId}:payment_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
@@ -299,7 +316,7 @@ const couponId =
       try {
         const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
         if (paymentIntentId) {
-          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] });
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
           const charge = typeof paymentIntent.latest_charge === "object" ? paymentIntent.latest_charge as Stripe.Charge : null;
           if (charge?.receipt_url) await supabase.from("bookings").update({ stripe_receipt_url: charge.receipt_url }).eq("id", bookingId);
         }
