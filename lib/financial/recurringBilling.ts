@@ -2,6 +2,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {generatePublicDocumentToken,publicDocumentTokenHash} from "@/lib/publicDocumentToken";
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
 import {stripeClient,stripeProviderError} from "@/lib/stripeConnect";
+import {rentalCompletionBalance} from "@/lib/financial/rentalCompletionBalance";
 
 type CompletionResult={
   ok:boolean;
@@ -41,23 +42,23 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
  let autoSend=useBusinessDefaults
   ?!Boolean(businessBilling?.review_before_processing)
   :customerBilling.auto_send_invoice??!Boolean(businessBilling?.review_before_processing);
- const {data:rentalBooking}=await db.from("bookings").select("id,total_cents,discount_cents,amount_paid_cents,balance_due_cents").eq("business_id",invoice.business_id).eq("job_id",jobId).maybeSingle();
+ const {data:rentalBooking}=await db.from("bookings").select("id,subtotal_cents,total_cents,discount_cents,amount_paid_cents,balance_due_cents,final_payment_authorized_at,stripe_customer_id,stripe_payment_method_id").eq("business_id",invoice.business_id).eq("job_id",jobId).maybeSingle();
  if(rentalBooking){
-  const paid=Math.max(0,Number(rentalBooking.amount_paid_cents||0)),discount=Math.max(0,Number(rentalBooking.discount_cents||0));
-  const total=Math.max(0,Number(rentalBooking.total_cents||0)-discount),balance=Math.max(0,Math.min(total,Number(rentalBooking.balance_due_cents??total-paid)));
+  const rentalBalance=rentalCompletionBalance({subtotalCents:rentalBooking.subtotal_cents,totalCents:rentalBooking.total_cents,discountCents:rentalBooking.discount_cents,amountPaidCents:rentalBooking.amount_paid_cents,balanceDueCents:rentalBooking.balance_due_cents});
   const {error:rentalInvoiceError}=await db.from("invoices").update({
-   billing_method_snapshot:"invoice_after_completion",subtotal_cents:Number(rentalBooking.total_cents||0),discount_total_cents:discount,
-   grand_total_cents:total,deposit_type:paid>0?"fixed":"none",deposit_value:paid,deposit_required_cents:paid,
-   amount_paid_cents:paid,balance_due_cents:balance,
+   billing_method_snapshot:rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id?"auto_charge_after_completion":"invoice_after_completion",subtotal_cents:rentalBalance.subtotalCents,discount_total_cents:rentalBalance.discountCents,
+   grand_total_cents:rentalBalance.totalCents,deposit_type:rentalBalance.amountPaidCents>0?"fixed":"none",deposit_value:rentalBalance.amountPaidCents,deposit_required_cents:rentalBalance.amountPaidCents,
+   amount_paid_cents:rentalBalance.amountPaidCents,balance_due_cents:rentalBalance.balanceDueCents,
   }).eq("id",invoiceId).eq("status","draft");
   if(rentalInvoiceError){
    console.error("Rental balance invoice preparation failed",{jobId,invoiceId,bookingId:rentalBooking.id,code:rentalInvoiceError.code});
    return{ok:false,invoiceId,error:rentalInvoiceError.code};
   }
-  invoice.balance_due_cents=balance;
-  billingMethod="invoice_after_completion";
-  autoSend=true;
-  await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"updated",metadata:{automatic:true,source:"rental_job_completion",booking_id:rentalBooking.id,deposit_applied_cents:paid,remaining_balance_cents:balance}});
+  invoice.balance_due_cents=rentalBalance.balanceDueCents;
+  const rentalAutopayAuthorized=Boolean(rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id);
+  billingMethod=rentalAutopayAuthorized?"auto_charge_after_completion":"invoice_after_completion";
+  autoSend=!rentalAutopayAuthorized;
+  await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"updated",metadata:{automatic:true,source:"rental_job_completion",booking_id:rentalBooking.id,deposit_applied_cents:rentalBalance.amountPaidCents,remaining_balance_cents:rentalBalance.balanceDueCents}});
  }
  if(invoice.billing_method_snapshot!==billingMethod){
   await db.from("invoices").update({billing_method_snapshot:billingMethod}).eq("id",invoiceId);
@@ -122,6 +123,9 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
  const {data:method}=profile?.default_payment_method_id?await db.from("customer_payment_methods")
   .select("id,provider_payment_method_id").eq("business_id",invoice.business_id)
   .eq("id",profile.default_payment_method_id).eq("status","active").maybeSingle():{data:null};
+ const autopayEnabled=rentalBooking?Boolean(rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id):Boolean(profile?.autopay_enabled);
+ const providerCustomerId=rentalBooking?.stripe_customer_id??profile?.provider_customer_id??null;
+ const providerPaymentMethodId=rentalBooking?.stripe_payment_method_id??method?.provider_payment_method_id??null;
  const attemptKey=`completed-job:${jobId}:autopay:1`;
  const {data:existingAttempt}=await db.from("payment_attempts").select("id,status,payment_id")
   .eq("business_id",invoice.business_id).eq("idempotency_key",attemptKey).maybeSingle();
@@ -136,8 +140,8 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
   console.error("Automatic recurring payment attempt creation failed",{jobId,invoiceId,code:attemptError?.code});
   return{ok:false,invoiceId,error:attemptError?.code??"payment_attempt_failed"};
  }
- if(!profile?.autopay_enabled||!profile.provider_customer_id||!method||!account?.provider_account_id||!account.charges_enabled){
-  const reason=!profile?.autopay_enabled?"autopay_not_enabled":!method?"payment_method_missing":"stripe_account_unavailable";
+ if(!autopayEnabled||!providerCustomerId||!providerPaymentMethodId||!account?.provider_account_id||!account.charges_enabled){
+  const reason=!autopayEnabled?"autopay_not_enabled":!providerPaymentMethodId?"payment_method_missing":"stripe_account_unavailable";
   if(attempt?.id)await db.from("payment_attempts").update({status:"failed",failure_code:reason,failure_reason:"Automatic payment could not start because billing setup is incomplete.",completed_at:new Date().toISOString()}).eq("id",attempt.id);
   await db.from("billing_audit_events").insert({business_id:invoice.business_id,customer_id:invoice.customer_id,job_id:invoice.job_id,invoice_id:invoiceId,event_type:"automatic_payment_failed",metadata:{reason,office_attention_required:true}});
   await sendInvoiceFinancialEmail(invoiceId,"payment_failed");
@@ -148,7 +152,7 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
  const paymentKey=crypto.randomUUID();
  const {data:payment,error:paymentError}=await db.from("payments").insert({
   business_id:invoice.business_id,customer_id:invoice.customer_id,invoice_id:invoiceId,job_id:invoice.job_id,
-  provider:"stripe",provider_account_id:account.provider_account_id,provider_customer_id:profile.provider_customer_id,
+  provider:"stripe",provider_account_id:account.provider_account_id,provider_customer_id:providerCustomerId,
   amount_cents:invoice.balance_due_cents,status:"pending",idempotency_key:paymentKey,payment_method_type:"card",
   currency:invoice.currency,net_amount_cents:0,
  }).select("id").single();
@@ -159,9 +163,9 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
  try{
   const intent=await stripeClient().paymentIntents.create({
    amount:Number(invoice.balance_due_cents),currency:invoice.currency.toLowerCase(),
-   customer:profile.provider_customer_id,payment_method:method.provider_payment_method_id,
+   customer:providerCustomerId,payment_method:providerPaymentMethodId,
    confirm:true,off_session:true,
-   metadata:{servonas_kind:"recurring_visit_autopay",business_id:invoice.business_id,invoice_id:invoiceId,payment_id:payment.id,job_id:jobId},
+   metadata:{servonas_kind:rentalBooking?"rental_completion_autopay":"recurring_visit_autopay",business_id:invoice.business_id,invoice_id:invoiceId,payment_id:payment.id,job_id:jobId},
   },{stripeAccount:account.provider_account_id,idempotencyKey:attemptKey});
   const status=intent.status==="succeeded"?"succeeded":intent.status==="canceled"?"canceled":intent.status==="processing"?"processing":"requires_action";
   await db.rpc("reconcile_invoice_online_payment",{

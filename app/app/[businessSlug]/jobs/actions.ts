@@ -273,6 +273,7 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
     redirect(`/app/${slug}/jobs/${jobId}?error=That+status+transition+is+not+allowed`);
   }
   const timestamps: Record<string, string> = {};
+  let completionMessage="Status updated";
   const now = new Date().toISOString();
   if (status === "arrived") timestamps.actual_arrival_at = now;
   if (status === "in_progress") timestamps.work_started_at = now;
@@ -282,13 +283,16 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
   if (status === "confirmed") await JobNotificationService.jobConfirmed(jobId);
   if (status === "en_route") await JobNotificationService.technicianEnRoute(jobId);
   if (status === "completed") {
-    await Promise.allSettled([
-      JobNotificationService.jobCompleted(jobId),
-      JobNotificationService.reviewRequest(jobId),
-      processCompletedJobBilling(jobId),
-    ]);
+    await Promise.allSettled([JobNotificationService.jobCompleted(jobId),JobNotificationService.reviewRequest(jobId)]);
+    const billing=await processCompletedJobBilling(jobId);
+    if(!billing.ok||billing.action==="payment_failed"){
+      console.error("Completed job requires billing attention",{businessId:business.id,jobId,reason:billing.error});
+      revalidatePath(`/app/${slug}/jobs/${jobId}`);
+      redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The job is complete, but the remaining-balance invoice could not be finalized. Please contact support before closing this order.")}`);
+    }
+    completionMessage=billing.action==="paid"?"Job completed and the remaining balance was paid.":"Job completed and the remaining-balance invoice was sent.";
   }
-  revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=Status+updated`);
+  revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(completionMessage)}`);
 }
 
 export async function cancelJob(slug: string, jobId: string, formData: FormData) {

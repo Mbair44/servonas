@@ -30,6 +30,7 @@ type CheckoutBody = {
   notes?: string;
   agreementAccepted?: string | boolean;
   depositAccepted?: string | boolean;
+  finalPaymentAccepted?: string | boolean;
   googlePlaceId?: string;
   promoCode?: string;
   operators?: RequestedOperator[];
@@ -161,6 +162,7 @@ export async function POST(request: Request) {
     const discountCents=promo?.ok?promo.discountCents:0,totalCents=Math.max(0,subtotalCents-discountCents);
     const depositCents = Math.round(totalCents * depositPercent / 100);
     if(onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
+    if(onlinePaymentsReady&&depositCents>0&&depositCents<totalCents&&body.finalPaymentAccepted!=="true"&&body.finalPaymentAccepted!==true)return NextResponse.json({error:"Please authorize the remaining balance to be charged after the job is completed."},{status:400});
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
     await supabase.from("bookings").update({subtotal_cents:subtotalCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null}).eq("id",booking.booking_id);
@@ -198,6 +200,7 @@ export async function POST(request: Request) {
       session = await stripe.checkout.sessions.create({
         mode: "payment",
         customer_email: body.email!.trim(),
+        customer_creation:"always",
         payment_method_types: ["card"],
         line_items: [{
           quantity: 1,
@@ -222,8 +225,10 @@ export async function POST(request: Request) {
           item_count: String(orderedItems.reduce((sum, item) => sum + item.quantity, 0)),
           subtotal_cents:String(subtotalCents),total_cents:String(totalCents),discount_cents:String(discountCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name}:{}),
           deposit_cents: String(depositCents),
+          final_payment_authorized:String(depositCents<totalCents),
           ...(validSessionId(body.attributionSessionId)?{attribution_session_id:body.attributionSessionId}:{}),
         },
+        payment_intent_data:{setup_future_usage:"off_session"},
       },business?{stripeAccount:paymentAccount!.provider_account_id!}:undefined);
     } catch (stripeError) {
       await supabase.from("bookings").update({ status: "expired" }).eq("id", booking.booking_id);
