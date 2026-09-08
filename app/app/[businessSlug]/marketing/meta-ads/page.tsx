@@ -5,6 +5,7 @@ import { canManageBusiness } from "@/lib/access";
 import { adPlatformStateCopy, loadAdPlatformStatuses } from "@/lib/adPlatform";
 import { getAccessibleMetaAdAccounts, metaAdsReadyLabel, type MetaAdsAccount } from "@/lib/metaAdsManagement";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { MetaAdsSyncButton } from "./MetaAdsSyncButton";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
@@ -59,7 +60,7 @@ export default async function MetaAdsPage({
       </div>
       <div className="google-ads-connection-actions">
         <a className="sv-button" href={`/api/meta-ads/connect/${businessSlug}`}>{status.state === "not_connected" ? "Connect Meta Ads" : "Reconnect Meta Ads"}</a>
-        <form action={`/api/meta-ads/sync/${businessSlug}`} method="post"><button className="sv-button sv-secondary" disabled={!status.accountId}>Sync now</button></form>
+        <MetaAdsSyncButton businessSlug={businessSlug} disabled={!status.accountId} />
         <form action={`/api/meta-ads/disconnect/${businessSlug}`} method="post"><button className="sv-button sv-secondary">Disconnect</button></form>
       </div>
     </section>

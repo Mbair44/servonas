@@ -90,8 +90,19 @@ export async function GET(request:Request){
   log("google_business_credentials_persist_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,credentialRowId:saved.businessId,hasRefreshToken:true,connectionStatus:"oauth_connected"});
   stage="account_discovery";log("google_business_account_discovery_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId});
   const db=getSupabaseAdmin();if(!db)throw new Error("Google connection storage is unavailable.");
-  const {data:business}=await db.from("businesses").select("name").eq("id",saved.businessId).maybeSingle();
-  const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??""});
+  const [{data:business},{data:existingConnection}]=await Promise.all([
+   db.from("businesses").select("name").eq("id",saved.businessId).maybeSingle(),
+   db.from("business_google_profile_connections").select("google_account_id,google_location_id,location_title").eq("business_id",saved.businessId).maybeSingle(),
+  ]);
+  if(existingConnection?.google_account_id&&existingConnection.google_location_id){
+   const now=new Date().toISOString(),locationTitle=existingConnection.location_title||business?.name||"Google Business Profile";
+   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"connected",googleAccountId:existingConnection.google_account_id,googleLocationId:existingConnection.google_location_id,locationTitle,lastDiscoverySuccessAt:now,retryAfterAt:null,lastDiscoveryErrorCode:null,lastDiscoveryErrorMessage:null,discoveryRetryAttemptCount:0,discoveryOperationId:callbackId});
+   log("google_business_account_discovery_skipped_known_location",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId,accountId:existingConnection.google_account_id,locationId:existingConnection.google_location_id});
+   const redirectDestination=destination(saved.businessSlug,"success",`Google Business Profile connected: ${locationTitle}`);
+   log("google_business_callback_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug,tokenExchangeCompleted:true,credentialsPersisted:true,accountDiscoveryCompleted:true,accountDiscoverySkipped:true,redirectDestination:redirectDestination.pathname});
+   return redirect({stage:"success",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
+  }
+  const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??"",knownAccountId:existingConnection?.google_account_id});
   if(discovery.rateLimited){
    const retry=nextGoogleBusinessDiscoveryRetry(1,discovery.retryAfter,discovery.retryInfoSeconds);
    await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",lastDiscoveryAttemptAt:new Date().toISOString(),retryAfterAt:retry.at,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage,discoveryRetryAttemptCount:1,discoveryOperationId:callbackId,discoveryRetrySource:retry.source,discoveryDiagnostics:discovery.diagnostics});
