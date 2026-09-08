@@ -57,6 +57,10 @@ test("meta ads oauth routes validate state and preserve tenant context", async (
   assert.match(connectRoute, /createMetaAdsOauthState\(businessSlug, business\.id, user\.id\)/);
   assert.match(callbackRoute, /state !== saved\.state/);
   assert.match(callbackRoute, /saved\.actorUserId && saved\.actorUserId !== user\.id/);
+  assert.match(callbackRoute, /isServonasPlatformAdmin\(user\)/);
+  assert.match(callbackRoute, /platformAdminAccess \? getSupabaseAdmin\(\) : supabase/);
+  assert.match(callbackRoute, /platformAdminAccess\s*\? platformAdminRole/);
+  assert.match(callbackRoute, /\.eq\("slug", saved\.businessSlug\)\.eq\("is_deleted", false\)/);
   assert.match(callbackRoute, /getAccessibleMetaAdAccounts/);
   assert.match(callbackRoute, /persistMetaAdsConnection/);
   assert.match(callbackRoute, /Meta Ads authorization could not be verified\./);
