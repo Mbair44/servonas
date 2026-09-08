@@ -44,6 +44,10 @@ test("meta ads service includes oauth, account discovery, token vault storage, a
   assert.match(file, /"connected_synced_no_data"/);
   assert.match(file, /"connected_with_data"/);
   assert.match(file, /"authorization_expired"/);
+  assert.match(file, /Please select a Meta ad account before syncing\./);
+  assert.match(file, /Meta authorization expired\. Reconnect Meta Ads and try again\./);
+  assert.match(file, /metaErrorSubcode/);
+  assert.match(file, /graphHttpStatus/);
   assert.match(file, /provider: "meta"/);
   assert.doesNotMatch(file, /console\.(log|info|error)\([^)]*access_token/i);
 });
@@ -79,6 +83,8 @@ test("meta ads routes enforce tenant-scoped workspace access for accounts select
   }
   assert.match(selectRoute, /That Meta ad account is not available for this tenant\./);
   assert.match(syncRoute, /syncMetaAdsPerformance\(\{ businessId: business\.id, businessSlug: business\.slug, actorUserId: user\.id \}\)/);
+  assert.match(syncRoute, /describeMetaAdsSyncFailure\(error\)/);
+  assert.match(syncRoute, /failure\.status/);
 });
 
 test("marketing spend and funnel reporting aggregate Google plus Meta and remove the old not-connected zero-spend conflation", async () => {

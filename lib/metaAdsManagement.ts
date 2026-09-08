@@ -20,6 +20,50 @@ export type MetaAdsAccount = {
   status: string | null;
 };
 
+export type MetaAdsSyncFailureCode =
+  | "not_connected"
+  | "account_not_selected"
+  | "authorization_expired"
+  | "permission_missing"
+  | "meta_temporarily_unavailable"
+  | "meta_api_error"
+  | "database_error";
+
+export class MetaAdsSyncError extends Error {
+  constructor(
+    public readonly failureCode: MetaAdsSyncFailureCode,
+    message: string,
+    public readonly httpStatus: number,
+    public readonly operation: string,
+    public readonly details: { databaseCode?: string | null; metaErrorCode?: number | null; metaErrorSubcode?: number | null; graphHttpStatus?: number | null } = {},
+  ) {
+    super(message);
+    this.name = "MetaAdsSyncError";
+  }
+}
+
+export function describeMetaAdsSyncFailure(error: unknown) {
+  if (error instanceof MetaAdsSyncError) {
+    return { code: error.failureCode, message: error.message, status: error.httpStatus, operation: error.operation, ...error.details };
+  }
+  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const metaErrorCode = typeof value.metaErrorCode === "number" ? value.metaErrorCode : typeof value.code === "number" ? value.code : null;
+  const metaErrorSubcode = typeof value.metaErrorSubcode === "number" ? value.metaErrorSubcode : null;
+  const graphHttpStatus = typeof value.graphHttpStatus === "number" ? value.graphHttpStatus : typeof value.status === "number" ? value.status : null;
+  const operation = typeof value.operation === "string" ? value.operation : "unknown";
+  const rawMessage = error instanceof Error ? error.message : "";
+  if (metaErrorCode === 190 || value.category === "OAuthException") {
+    return { code: "authorization_expired" as const, message: "Meta authorization expired. Reconnect Meta Ads and try again.", status: 401, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
+  if (metaErrorCode === 200 || /permission|access.*denied/i.test(rawMessage)) {
+    return { code: "permission_missing" as const, message: "The connected Meta account is missing permission to read ad insights. Reconnect Meta Ads with the required permissions.", status: 403, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
+  if (graphHttpStatus === 429 || (graphHttpStatus != null && graphHttpStatus >= 500)) {
+    return { code: "meta_temporarily_unavailable" as const, message: "Meta's reporting API is temporarily unavailable. Please try syncing again shortly.", status: 503, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
+  return { code: "meta_api_error" as const, message: "Meta could not complete the insights sync. Check the selected ad account and try again.", status: 502, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+}
+
 export type MetaOauthState = {
   state: string;
   businessSlug: string;
@@ -65,7 +109,7 @@ export function metaAdsOauthUrl(state: string) {
   return url.toString();
 }
 
-async function metaFetch<T>(path: string, options: { accessToken?: string | null; method?: string; body?: URLSearchParams; stage: string; businessId?: string; businessSlug?: string; } ): Promise<T> {
+async function metaFetch<T>(path: string, options: { accessToken?: string | null; method?: string; body?: URLSearchParams; stage: string; businessId?: string; businessSlug?: string; adAccountId?: string | null; } ): Promise<T> {
   const url = path.startsWith("http") ? path : `${graphBase}${path}`;
   const method = options.method ?? "GET";
   const headers: Record<string, string> = {};
@@ -77,7 +121,7 @@ async function metaFetch<T>(path: string, options: { accessToken?: string | null
   }
   if (options.body) headers["Content-Type"] = "application/x-www-form-urlencoded";
   const response = await fetch(target, { method, headers, body: options.body?.toString() });
-  const json = await response.json() as T & { error?: { message?: string; type?: string; code?: number; error_subcode?: number } };
+  const json = await response.json().catch(() => ({})) as T & { error?: { message?: string; type?: string; code?: number; error_subcode?: number } };
   if (!response.ok || (json as any).error) {
     const error = (json as any).error;
     console.error("Meta Ads request failed", {
@@ -85,14 +129,21 @@ async function metaFetch<T>(path: string, options: { accessToken?: string | null
       stage: options.stage,
       businessId: options.businessId ?? null,
       businessSlug: options.businessSlug ?? null,
-      errorCode: error?.code ?? response.status,
+      adAccountId: options.adAccountId ?? null,
+      graphHttpStatus: response.status,
+      metaErrorCode: error?.code ?? null,
+      metaErrorSubcode: error?.error_subcode ?? null,
       errorCategory: error?.type ?? "http_error",
       message: error?.message ?? `HTTP ${response.status}`,
     });
     throw Object.assign(new Error(error?.message || `Meta request failed with HTTP ${response.status}`), {
       code: error?.code ?? response.status,
+      metaErrorCode: error?.code ?? null,
+      metaErrorSubcode: error?.error_subcode ?? null,
       category: error?.type ?? "http_error",
       status: response.status,
+      graphHttpStatus: response.status,
+      operation: options.stage,
     });
   }
   return json as T;
@@ -167,16 +218,35 @@ function metricValue(actions: unknown, actionType: string) {
 
 export async function syncMetaAdsPerformance(input: { businessId: string; businessSlug: string; actorUserId?: string | null; forceFull?: boolean; }) {
   const admin = getSupabaseAdmin();
-  if (!admin) throw new Error("Supabase admin access is unavailable.");
-  const { data: connection } = await admin
+  if (!admin) throw new MetaAdsSyncError("database_error", "Meta Ads sync is temporarily unavailable.", 500, "supabase_admin_initialization");
+  const connectionResult = await admin
     .from("business_ad_platform_connections")
-    .select("id,external_account_id,external_account_name,token_expires_at,last_successful_sync_at,status")
+    .select("id,external_account_id,external_account_name,token_expires_at,scopes_granted,last_successful_sync_at,status")
     .eq("business_id", input.businessId)
     .eq("provider", "meta")
     .maybeSingle();
-  if (!connection?.external_account_id) throw new Error("Select a Meta ad account before syncing.");
-  const accessToken = await readMetaAccessToken(input.businessId);
-  if (!accessToken) throw new Error("Reconnect Meta Ads before syncing.");
+  if (connectionResult.error) {
+    console.error("Meta Ads database operation failed", { provider: "meta", stage: "connection_lookup", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: connectionResult.error.code, message: connectionResult.error.message });
+    throw new MetaAdsSyncError("database_error", "Meta Ads connection information could not be loaded.", 500, "connection_lookup", { databaseCode: connectionResult.error.code });
+  }
+  const connection = connectionResult.data;
+  if (!connection) throw new MetaAdsSyncError("not_connected", "Connect Meta Ads before syncing.", 409, "connection_lookup");
+  if (!connection.external_account_id) throw new MetaAdsSyncError("account_not_selected", "Please select a Meta ad account before syncing.", 409, "account_selection");
+  if (connection.token_expires_at && Date.parse(connection.token_expires_at) <= Date.now()) {
+    await admin.from("business_ad_platform_connections").update({ status: "authorization_expired", last_sync_error: "Meta authorization expired.", updated_at: new Date().toISOString() }).eq("id", connection.id);
+    throw new MetaAdsSyncError("authorization_expired", "Meta authorization expired. Reconnect Meta Ads and try again.", 401, "token_expiration_check");
+  }
+  if (Array.isArray(connection.scopes_granted) && !connection.scopes_granted.includes("ads_read")) {
+    throw new MetaAdsSyncError("permission_missing", "The connected Meta account is missing permission to read ad insights. Reconnect Meta Ads with the required permissions.", 403, "scope_check");
+  }
+  let accessToken: string | null;
+  try {
+    accessToken = await readMetaAccessToken(input.businessId);
+  } catch (error) {
+    console.error("Meta Ads database operation failed", { provider: "meta", stage: "credential_lookup", businessId: input.businessId, businessSlug: input.businessSlug, message: error instanceof Error ? error.message : "unknown" });
+    throw new MetaAdsSyncError("database_error", "The saved Meta credential could not be read.", 500, "credential_lookup");
+  }
+  if (!accessToken) throw new MetaAdsSyncError("authorization_expired", "Meta authorization is missing. Reconnect Meta Ads and try again.", 401, "credential_lookup");
 
   const accountId = String(connection.external_account_id).startsWith("act_")
     ? String(connection.external_account_id)
@@ -185,12 +255,16 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
   const defaultWindowDays = connection.last_successful_sync_at && !input.forceFull ? 7 : 30;
   const since = new Date(today.getTime() - defaultWindowDays * 86400000).toISOString().slice(0, 10);
   const until = today.toISOString().slice(0, 10);
-  await admin.from("business_ad_platform_connections").update({
+  const startUpdate = await admin.from("business_ad_platform_connections").update({
     status: "syncing",
     last_sync_attempt_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }).eq("id", connection.id);
-  await admin.from("business_ad_platform_sync_events").insert({
+  if (startUpdate.error) {
+    console.error("Meta Ads database operation failed", { provider: "meta", stage: "sync_start_update", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: startUpdate.error.code, message: startUpdate.error.message });
+    throw new MetaAdsSyncError("database_error", "Meta Ads sync could not be started.", 500, "sync_start_update", { databaseCode: startUpdate.error.code });
+  }
+  const startEvent = await admin.from("business_ad_platform_sync_events").insert({
     business_id: input.businessId,
     provider: "meta",
     ad_platform_connection_id: connection.id,
@@ -199,6 +273,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
     outcome: "started",
     metadata: { business_slug: input.businessSlug, date_from: since, date_to: until },
   });
+  if (startEvent.error) console.error("Meta Ads database operation failed", { provider: "meta", stage: "sync_start_event", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: startEvent.error.code, message: startEvent.error.message });
 
   try {
     let rowsSynced = 0;
@@ -209,6 +284,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
         stage: "meta_ads_sync_insights",
         businessId: input.businessId,
         businessSlug: input.businessSlug,
+        adAccountId: connection.external_account_id,
       });
       const upserts = (response.data ?? []).map((row) => ({
         business_id: input.businessId,
@@ -246,22 +322,29 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
         const { error } = await admin.from("business_ad_platform_daily_performance").upsert(upserts, {
           onConflict: "business_id,provider,external_account_id,report_date,campaign_id,adset_id,ad_id",
         });
-        if (error) throw new Error(`Meta daily performance upsert failed: ${error.message}`);
+        if (error) {
+          console.error("Meta Ads database operation failed", { provider: "meta", stage: "performance_upsert", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: error.code, message: error.message });
+          throw new MetaAdsSyncError("database_error", "Meta insights were received but could not be saved.", 500, "performance_upsert", { databaseCode: error.code });
+        }
       }
       rowsSynced += upserts.length;
       next = response.paging?.next ?? null;
     }
 
-    const { count } = await admin
+    const { count, error: countError } = await admin
       .from("business_ad_platform_daily_performance")
       .select("*", { count: "exact", head: true })
       .eq("business_id", input.businessId)
       .eq("provider", "meta")
       .eq("external_account_id", String(connection.external_account_id));
+    if (countError) {
+      console.error("Meta Ads database operation failed", { provider: "meta", stage: "performance_count", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: countError.code, message: countError.message });
+      throw new MetaAdsSyncError("database_error", "Meta performance totals could not be verified.", 500, "performance_count", { databaseCode: countError.code });
+    }
     const nextStatus: AdPlatformConnectionState = rowsSynced > 0 || (count ?? 0) > 0
       ? "connected_with_data"
       : "connected_synced_no_data";
-    await admin.from("business_ad_platform_connections").update({
+    const completionUpdate = await admin.from("business_ad_platform_connections").update({
       status: nextStatus,
       last_successful_sync_at: new Date().toISOString(),
       last_sync_attempt_at: new Date().toISOString(),
@@ -269,6 +352,10 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
       last_sync_rows: rowsSynced,
       updated_at: new Date().toISOString(),
     }).eq("id", connection.id);
+    if (completionUpdate.error) {
+      console.error("Meta Ads database operation failed", { provider: "meta", stage: "sync_complete_update", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: completionUpdate.error.code, message: completionUpdate.error.message });
+      throw new MetaAdsSyncError("database_error", "Meta insights were saved but the sync status could not be finalized.", 500, "sync_complete_update", { databaseCode: completionUpdate.error.code });
+    }
     await admin.from("business_ad_platform_sync_events").insert({
       business_id: input.businessId,
       provider: "meta",
@@ -289,7 +376,8 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
     });
     return { rowsSynced, status: nextStatus };
   } catch (error: any) {
-    const category = error?.category === "OAuthException" || error?.code === 190 ? "authorization_expired" : "sync_error";
+    const failure = describeMetaAdsSyncFailure(error);
+    const category = failure.code === "authorization_expired" ? "authorization_expired" : "sync_error";
     await admin.from("business_ad_platform_connections").update({
       status: category,
       last_sync_attempt_at: new Date().toISOString(),
@@ -314,7 +402,10 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
       businessSlug: input.businessSlug,
       adAccountId: connection.external_account_id,
       errorCategory: category,
-      errorCode: error?.code ?? null,
+      errorCode: failure.metaErrorCode ?? error?.code ?? null,
+      errorSubcode: failure.metaErrorSubcode ?? null,
+      graphHttpStatus: failure.graphHttpStatus ?? null,
+      operation: failure.operation,
       message: error instanceof Error ? error.message : "unknown",
     });
     throw error;
