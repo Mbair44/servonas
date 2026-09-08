@@ -24,6 +24,8 @@ export type MetaAdsSyncFailureCode =
   | "not_connected"
   | "account_not_selected"
   | "authorization_expired"
+  | "authorization_invalid"
+  | "authorization_missing"
   | "permission_missing"
   | "meta_temporarily_unavailable"
   | "meta_api_error"
@@ -52,8 +54,11 @@ export function describeMetaAdsSyncFailure(error: unknown) {
   const graphHttpStatus = typeof value.graphHttpStatus === "number" ? value.graphHttpStatus : typeof value.status === "number" ? value.status : null;
   const operation = typeof value.operation === "string" ? value.operation : "unknown";
   const rawMessage = error instanceof Error ? error.message : "";
-  if (metaErrorCode === 190 || value.category === "OAuthException") {
+  if (metaErrorCode === 190 && metaErrorSubcode === 463) {
     return { code: "authorization_expired" as const, message: "Meta authorization expired. Reconnect Meta Ads and try again.", status: 401, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
+  if (metaErrorCode === 190 || value.category === "OAuthException") {
+    return { code: "authorization_invalid" as const, message: "Meta authorization is no longer valid. Reconnect Meta Ads and try again.", status: 401, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
   }
   if (metaErrorCode === 200 || /permission|access.*denied/i.test(rawMessage)) {
     return { code: "permission_missing" as const, message: "The connected Meta account is missing permission to read ad insights. Reconnect Meta Ads with the required permissions.", status: 403, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
@@ -133,6 +138,7 @@ async function metaFetch<T>(path: string, options: { accessToken?: string | null
       graphHttpStatus: response.status,
       metaErrorCode: error?.code ?? null,
       metaErrorSubcode: error?.error_subcode ?? null,
+      metaErrorType: error?.type ?? null,
       errorCategory: error?.type ?? "http_error",
       message: error?.message ?? `HTTP ${response.status}`,
     });
@@ -158,23 +164,49 @@ export async function completeMetaAdsOauth(code: string, context: { businessId: 
     client_secret: appSecret,
     code,
   });
-  const token = await metaFetch<MetaTokenResponse>("/oauth/access_token", {
+  const shortLivedToken = await metaFetch<MetaTokenResponse>("/oauth/access_token", {
     method: "POST",
     body: params,
     stage: "meta_ads_authorization_code_exchange",
     businessId: context.businessId,
     businessSlug: context.businessSlug,
   });
-  if (!token.access_token) throw new Error("Meta did not return an access token.");
+  if (!shortLivedToken.access_token) throw new Error("Meta did not return an access token.");
+  const longLivedToken = await metaFetch<MetaTokenResponse>("/oauth/access_token", {
+    method: "POST",
+    body: new URLSearchParams({
+      grant_type: "fb_exchange_token",
+      client_id: appId,
+      client_secret: appSecret,
+      fb_exchange_token: shortLivedToken.access_token,
+    }),
+    stage: "meta_ads_long_lived_token_exchange",
+    businessId: context.businessId,
+    businessSlug: context.businessSlug,
+  });
+  if (!longLivedToken.access_token) throw new Error("Meta did not return a long-lived access token.");
+  const expiresInSeconds = Number(longLivedToken.expires_in);
+  const expiresAt = Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
+    ? new Date(Date.now() + expiresInSeconds * 1000).toISOString()
+    : null;
+  console.info("Meta Ads long-lived token exchange completed", {
+    provider: "meta",
+    stage: "meta_ads_long_lived_token_exchange",
+    businessId: context.businessId,
+    businessSlug: context.businessSlug,
+    tokenType: longLivedToken.token_type ?? null,
+    expiresInSeconds: Number.isFinite(expiresInSeconds) ? expiresInSeconds : null,
+    expiresAt,
+  });
   const me = await metaFetch<MetaMeResponse>("/me?fields=id,name", {
-    accessToken: token.access_token,
+    accessToken: longLivedToken.access_token,
     stage: "meta_ads_identity_lookup",
     businessId: context.businessId,
     businessSlug: context.businessSlug,
   });
   return {
-    accessToken: token.access_token,
-    expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : null,
+    accessToken: longLivedToken.access_token,
+    expiresAt,
     metaUserId: me.id ?? null,
     metaUserName: me.name ?? null,
     scopesGranted: oauthScopes,
@@ -246,7 +278,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
     console.error("Meta Ads database operation failed", { provider: "meta", stage: "credential_lookup", businessId: input.businessId, businessSlug: input.businessSlug, message: error instanceof Error ? error.message : "unknown" });
     throw new MetaAdsSyncError("database_error", "The saved Meta credential could not be read.", 500, "credential_lookup");
   }
-  if (!accessToken) throw new MetaAdsSyncError("authorization_expired", "Meta authorization is missing. Reconnect Meta Ads and try again.", 401, "credential_lookup");
+  if (!accessToken) throw new MetaAdsSyncError("authorization_missing", "Meta authorization is missing. Reconnect Meta Ads and try again.", 401, "credential_lookup");
 
   const accountId = String(connection.external_account_id).startsWith("act_")
     ? String(connection.external_account_id)
