@@ -11,6 +11,19 @@ type MetaTokenResponse = {
 
 type MetaMeResponse = { id?: string; name?: string };
 type MetaAccountResponse = { data?: Array<Record<string, unknown>>; paging?: { next?: string } };
+type MetaTokenDebugResponse = {
+  data?: {
+    app_id?: string;
+    application?: string;
+    data_access_expires_at?: number;
+    expires_at?: number;
+    is_valid?: boolean;
+    scopes?: string[];
+    type?: string;
+    user_id?: string;
+  };
+};
+type MetaSelectedAccountResponse = { id?: string; account_id?: string; name?: string; account_status?: number | string };
 
 export type MetaAdsAccount = {
   id: string;
@@ -26,6 +39,9 @@ export type MetaAdsSyncFailureCode =
   | "authorization_expired"
   | "authorization_invalid"
   | "authorization_missing"
+  | "app_mismatch"
+  | "inaccessible_account"
+  | "token_decryption_failed"
   | "permission_missing"
   | "meta_temporarily_unavailable"
   | "meta_api_error"
@@ -54,14 +70,23 @@ export function describeMetaAdsSyncFailure(error: unknown) {
   const graphHttpStatus = typeof value.graphHttpStatus === "number" ? value.graphHttpStatus : typeof value.status === "number" ? value.status : null;
   const operation = typeof value.operation === "string" ? value.operation : "unknown";
   const rawMessage = error instanceof Error ? error.message : "";
+  if (operation === "meta_ads_token_debug" && metaErrorCode === 190) {
+    return { code: "app_mismatch" as const, message: "Meta could not validate authorization with the configured app credentials. Verify META_APP_ID and META_APP_SECRET, then reconnect.", status: 500, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
   if (metaErrorCode === 190 && metaErrorSubcode === 463) {
     return { code: "authorization_expired" as const, message: "Meta authorization expired. Reconnect Meta Ads and try again.", status: 401, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
   }
-  if (metaErrorCode === 190 || value.category === "OAuthException") {
+  if (metaErrorCode === 190) {
     return { code: "authorization_invalid" as const, message: "Meta authorization is no longer valid. Reconnect Meta Ads and try again.", status: 401, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
   }
-  if (metaErrorCode === 200 || /permission|access.*denied/i.test(rawMessage)) {
+  if (operation === "meta_ads_selected_account_access_check") {
+    return { code: "inaccessible_account" as const, message: "The selected Meta ad account is not accessible with this authorization. Select an accessible account or reconnect Meta Ads.", status: 403, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
+  if (metaErrorCode === 10 || metaErrorCode === 200 || /permission|access.*denied/i.test(rawMessage)) {
     return { code: "permission_missing" as const, message: "The connected Meta account is missing permission to read ad insights. Reconnect Meta Ads with the required permissions.", status: 403, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
+  }
+  if (value.category === "OAuthException") {
+    return { code: "meta_api_error" as const, message: "Meta rejected the reporting request. Check the server log's Meta error code and operation for the exact cause.", status: 502, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
   }
   if (graphHttpStatus === 429 || (graphHttpStatus != null && graphHttpStatus >= 500)) {
     return { code: "meta_temporarily_unavailable" as const, message: "Meta's reporting API is temporarily unavailable. Please try syncing again shortly.", status: 503, operation, metaErrorCode, metaErrorSubcode, graphHttpStatus };
@@ -129,9 +154,21 @@ async function metaFetch<T>(path: string, options: { accessToken?: string | null
   const json = await response.json().catch(() => ({})) as T & { error?: { message?: string; type?: string; code?: number; error_subcode?: number } };
   if (!response.ok || (json as any).error) {
     const error = (json as any).error;
+    const secretValues = [
+      options.accessToken,
+      new URL(target).searchParams.get("input_token"),
+      options.body?.get("client_secret"),
+      options.body?.get("code"),
+      options.body?.get("fb_exchange_token"),
+    ].filter((value): value is string => Boolean(value));
+    const sanitizedMessage = secretValues.reduce(
+      (message, secret) => message.replaceAll(secret, "[redacted]"),
+      String(error?.message ?? `HTTP ${response.status}`),
+    ).replace(/[A-Za-z0-9_-]{80,}/g, "[redacted]");
     console.error("Meta Ads request failed", {
       provider: "meta",
       stage: options.stage,
+      graphEndpoint: new URL(target).origin + new URL(target).pathname,
       businessId: options.businessId ?? null,
       businessSlug: options.businessSlug ?? null,
       adAccountId: options.adAccountId ?? null,
@@ -140,9 +177,9 @@ async function metaFetch<T>(path: string, options: { accessToken?: string | null
       metaErrorSubcode: error?.error_subcode ?? null,
       metaErrorType: error?.type ?? null,
       errorCategory: error?.type ?? "http_error",
-      message: error?.message ?? `HTTP ${response.status}`,
+      message: sanitizedMessage,
     });
-    throw Object.assign(new Error(error?.message || `Meta request failed with HTTP ${response.status}`), {
+    throw Object.assign(new Error(sanitizedMessage), {
       code: error?.code ?? response.status,
       metaErrorCode: error?.code ?? null,
       metaErrorSubcode: error?.error_subcode ?? null,
@@ -153,6 +190,51 @@ async function metaFetch<T>(path: string, options: { accessToken?: string | null
     });
   }
   return json as T;
+}
+
+async function debugMetaAccessToken(accessToken: string, context: { businessId: string; businessSlug: string; adAccountId?: string | null }) {
+  const { appId, appSecret } = credentials();
+  if (!appId || !appSecret) throw new MetaAdsSyncError("app_mismatch", "Meta Ads app credentials are not configured correctly.", 500, "meta_ads_token_debug");
+  const response = await metaFetch<MetaTokenDebugResponse>(`/debug_token?input_token=${encodeURIComponent(accessToken)}`, {
+    accessToken: `${appId}|${appSecret}`,
+    stage: "meta_ads_token_debug",
+    businessId: context.businessId,
+    businessSlug: context.businessSlug,
+    adAccountId: context.adAccountId ?? null,
+  });
+  const data = response.data ?? {};
+  const scopes = Array.isArray(data.scopes) ? data.scopes.filter((scope): scope is string => typeof scope === "string") : [];
+  console.info("Meta Ads token debug completed", {
+    provider: "meta",
+    stage: "meta_ads_token_debug",
+    businessId: context.businessId,
+    businessSlug: context.businessSlug,
+    adAccountId: context.adAccountId ?? null,
+    isValid: data.is_valid === true,
+    tokenAppId: data.app_id ?? null,
+    configuredAppId: appId,
+    metaUserId: data.user_id ?? null,
+    tokenType: data.type ?? null,
+    expiresAt: data.expires_at ?? null,
+    dataAccessExpiresAt: data.data_access_expires_at ?? null,
+    scopes,
+  });
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const tokenExpired = Number(data.expires_at) > 0 && Number(data.expires_at) <= nowSeconds;
+  const dataAccessExpired = Number(data.data_access_expires_at) > 0 && Number(data.data_access_expires_at) <= nowSeconds;
+  if (data.is_valid !== true) {
+    if (tokenExpired || dataAccessExpired) {
+      throw new MetaAdsSyncError("authorization_expired", "Meta authorization expired. Reconnect Meta Ads and try again.", 401, "meta_ads_token_debug");
+    }
+    throw new MetaAdsSyncError("authorization_invalid", "Meta authorization is invalid or has been revoked. Reconnect Meta Ads and try again.", 401, "meta_ads_token_debug");
+  }
+  if (!data.app_id || String(data.app_id) !== appId) {
+    throw new MetaAdsSyncError("app_mismatch", "The saved Meta authorization belongs to a different Meta app. Reconnect using the currently configured Meta app.", 409, "meta_ads_token_debug");
+  }
+  if (!scopes.includes("ads_read")) {
+    throw new MetaAdsSyncError("permission_missing", "The connected Meta account did not grant ads_read. Reconnect Meta Ads and approve the requested permissions.", 403, "meta_ads_token_debug");
+  }
+  return { ...data, scopes };
 }
 
 export async function completeMetaAdsOauth(code: string, context: { businessId: string; businessSlug: string }) {
@@ -198,6 +280,7 @@ export async function completeMetaAdsOauth(code: string, context: { businessId: 
     expiresInSeconds: Number.isFinite(expiresInSeconds) ? expiresInSeconds : null,
     expiresAt,
   });
+  const tokenDebug = await debugMetaAccessToken(longLivedToken.access_token, context);
   const me = await metaFetch<MetaMeResponse>("/me?fields=id,name", {
     accessToken: longLivedToken.access_token,
     stage: "meta_ads_identity_lookup",
@@ -209,7 +292,7 @@ export async function completeMetaAdsOauth(code: string, context: { businessId: 
     expiresAt,
     metaUserId: me.id ?? null,
     metaUserName: me.name ?? null,
-    scopesGranted: oauthScopes,
+    scopesGranted: tokenDebug.scopes,
   };
 }
 
@@ -276,7 +359,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
     accessToken = await readMetaAccessToken(input.businessId);
   } catch (error) {
     console.error("Meta Ads database operation failed", { provider: "meta", stage: "credential_lookup", businessId: input.businessId, businessSlug: input.businessSlug, message: error instanceof Error ? error.message : "unknown" });
-    throw new MetaAdsSyncError("database_error", "The saved Meta credential could not be read.", 500, "credential_lookup");
+    throw new MetaAdsSyncError("token_decryption_failed", "The saved Meta authorization could not be decrypted. Reconnect Meta Ads to replace it.", 500, "credential_lookup");
   }
   if (!accessToken) throw new MetaAdsSyncError("authorization_missing", "Meta authorization is missing. Reconnect Meta Ads and try again.", 401, "credential_lookup");
 
@@ -308,6 +391,31 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
   if (startEvent.error) console.error("Meta Ads database operation failed", { provider: "meta", stage: "sync_start_event", businessId: input.businessId, businessSlug: input.businessSlug, databaseCode: startEvent.error.code, message: startEvent.error.message });
 
   try {
+    await debugMetaAccessToken(accessToken, {
+      businessId: input.businessId,
+      businessSlug: input.businessSlug,
+      adAccountId: connection.external_account_id,
+    });
+    const selectedAccount = await metaFetch<MetaSelectedAccountResponse>(`/${accountId}?fields=id,account_id,name,account_status`, {
+      accessToken,
+      stage: "meta_ads_selected_account_access_check",
+      businessId: input.businessId,
+      businessSlug: input.businessSlug,
+      adAccountId: connection.external_account_id,
+    });
+    if (!selectedAccount.id) {
+      throw new MetaAdsSyncError("inaccessible_account", "The selected Meta ad account is not accessible with this authorization. Select an accessible account or reconnect Meta Ads.", 403, "meta_ads_selected_account_access_check");
+    }
+    console.info("Meta Ads selected account access verified", {
+      provider: "meta",
+      stage: "meta_ads_selected_account_access_check",
+      graphEndpoint: `${graphBase}/${accountId}`,
+      businessId: input.businessId,
+      businessSlug: input.businessSlug,
+      adAccountId: connection.external_account_id,
+      normalizedAdAccountId: accountId,
+      accountStatus: selectedAccount.account_status ?? null,
+    });
     let rowsSynced = 0;
     let next: string | null = `/${accountId}/insights?fields=campaign_id,campaign_name,campaign_status,adset_id,adset_name,adset_status,ad_id,ad_name,ad_status,date_start,spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values&level=ad&time_increment=1&limit=100&time_range[since]=${since}&time_range[until]=${until}`;
     while (next) {
