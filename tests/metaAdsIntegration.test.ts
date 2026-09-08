@@ -50,15 +50,26 @@ test("meta ads service includes oauth, account discovery, token vault storage, a
   assert.match(file, /"connected_with_data"/);
   assert.match(file, /"authorization_expired"/);
   assert.match(file, /metaErrorCode === 190 && metaErrorSubcode === 463/);
+  assert.match(file, /operation === "meta_ads_token_debug" && metaErrorCode === 190/);
   assert.match(file, /"authorization_invalid"/);
   assert.match(file, /"authorization_missing"/);
   assert.match(file, /Please select a Meta ad account before syncing\./);
   assert.match(file, /Meta authorization expired\. Reconnect Meta Ads and try again\./);
   assert.match(file, /metaErrorSubcode/);
   assert.match(file, /metaErrorType/);
+  assert.match(file, /graphEndpoint/);
   assert.match(file, /graphHttpStatus/);
   assert.match(file, /provider: "meta"/);
   assert.doesNotMatch(file, /console\.(log|info|error)\([^)]*access_token/i);
+  assert.match(file, /\/debug_token\?input_token=/);
+  assert.match(file, /tokenAppId: data\.app_id/);
+  assert.match(file, /configuredAppId: appId/);
+  assert.match(file, /scopes\.includes\("ads_read"\)/);
+  assert.match(file, /meta_ads_selected_account_access_check/);
+  assert.match(file, /normalizedAdAccountId: accountId/);
+  assert.match(file, /"app_mismatch"/);
+  assert.match(file, /"inaccessible_account"/);
+  assert.match(file, /"token_decryption_failed"/);
 });
 
 test("meta ads oauth routes validate state and preserve tenant context", async () => {
