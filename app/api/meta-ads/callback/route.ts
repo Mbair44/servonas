@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { canManageBusiness } from "@/lib/access";
 import { completeMetaAdsOauth, getAccessibleMetaAdAccounts, persistMetaAdsConnection } from "@/lib/metaAdsManagement";
+import { isServonasPlatformAdmin, platformAdminRole } from "@/lib/platformAccess";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 const destination = (slug: string, kind: "success" | "error", message: string) =>
@@ -25,12 +27,54 @@ export async function GET(request: Request) {
   if (saved.actorUserId && saved.actorUserId !== user.id) {
     return NextResponse.redirect(destination(saved.businessSlug, "error", "Meta Ads reconnect must be completed by the Servonas user who started it. Please reconnect again."));
   }
-  const { data: business } = await supabase.from("businesses").select("owner_user_id").eq("id", saved.businessId).maybeSingle();
-  const { data: membership } = await supabase.from("business_members").select("role").eq("business_id", saved.businessId).eq("user_id", user.id).maybeSingle();
-  const resolvedRole = business?.owner_user_id === user.id ? "owner" : typeof membership?.role === "string" ? membership.role : null;
-  if (!canManageBusiness(resolvedRole)) {
+  const platformAdminAccess = isServonasPlatformAdmin(user);
+  const workspaceDb = platformAdminAccess ? getSupabaseAdmin() : supabase;
+  const { data: business, error: businessError } = workspaceDb
+    ? await workspaceDb.from("businesses").select("owner_user_id").eq("id", saved.businessId).eq("slug", saved.businessSlug).eq("is_deleted", false).maybeSingle()
+    : { data: null, error: new Error("Supabase admin access is unavailable.") };
+  if (businessError || !business) {
+    console.warn("Meta Ads callback workspace authorization rejected", {
+      provider: "meta",
+      stage: "workspace_authorization",
+      businessId: saved.businessId,
+      businessSlug: saved.businessSlug,
+      reason: businessError ? "workspace_lookup_failed" : "workspace_business_mismatch",
+      isPlatformAdmin: platformAdminAccess,
+    });
     return NextResponse.redirect(destination(saved.businessSlug, "error", "Meta Ads authorization is not permitted for this workspace."));
   }
+  const { data: membership, error: membershipError } = platformAdminAccess
+    ? { data: null, error: null }
+    : await supabase.from("business_members").select("role").eq("business_id", saved.businessId).eq("user_id", user.id).maybeSingle();
+  const resolvedRole = platformAdminAccess
+    ? platformAdminRole
+    : business.owner_user_id === user.id
+      ? "owner"
+      : typeof membership?.role === "string"
+        ? membership.role
+        : null;
+  if (membershipError || !canManageBusiness(resolvedRole)) {
+    console.warn("Meta Ads callback workspace authorization rejected", {
+      provider: "meta",
+      stage: "workspace_authorization",
+      businessId: saved.businessId,
+      businessSlug: saved.businessSlug,
+      reason: membershipError ? "membership_lookup_failed" : "insufficient_workspace_role",
+      resolvedRole,
+      isPlatformAdmin: platformAdminAccess,
+      isOwner: business.owner_user_id === user.id,
+    });
+    return NextResponse.redirect(destination(saved.businessSlug, "error", "Meta Ads authorization is not permitted for this workspace."));
+  }
+  console.info("Meta Ads callback workspace authorization completed", {
+    provider: "meta",
+    stage: "workspace_authorization",
+    businessId: saved.businessId,
+    businessSlug: saved.businessSlug,
+    resolvedRole,
+    isPlatformAdmin: platformAdminAccess,
+    isOwner: business.owner_user_id === user.id,
+  });
   try {
     const result = await completeMetaAdsOauth(code, { businessId: saved.businessId, businessSlug: saved.businessSlug });
     const accounts = await getAccessibleMetaAdAccounts({ accessToken: result.accessToken, businessId: saved.businessId, businessSlug: saved.businessSlug });
