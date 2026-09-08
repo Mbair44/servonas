@@ -116,6 +116,23 @@ test("meta ads routes enforce tenant-scoped workspace access for accounts select
   assert.match(syncRoute, /failure\.status/);
 });
 
+test("meta ads sync stays on the page and refreshes data after a background mutation", async () => {
+  const [page, control] = await Promise.all([
+    read("../app/app/[businessSlug]/marketing/meta-ads/page.tsx"),
+    read("../app/app/[businessSlug]/marketing/meta-ads/MetaAdsSyncButton.tsx"),
+  ]);
+  assert.match(page, /<MetaAdsSyncButton businessSlug=\{businessSlug\} disabled=\{!status\.accountId\} \/>/);
+  assert.doesNotMatch(page, /<form action=\{`\/api\/meta-ads\/sync/);
+  assert.match(control, /^"use client";/);
+  assert.match(control, /fetch\(`\/api\/meta-ads\/sync\/\$\{encodeURIComponent\(businessSlug\)\}`/);
+  assert.match(control, /method: "POST"/);
+  assert.match(control, /disabled=\{disabled \|\| syncing\}/);
+  assert.match(control, /syncing \? "Syncing\.\.\." : "Sync now"/);
+  assert.match(control, /Sync complete - \$\{rowsSynced\} row/);
+  assert.match(control, /router\.refresh\(\)/);
+  assert.match(control, /result\.error \|\| "Meta Ads could not be synced/);
+});
+
 test("marketing spend and funnel reporting aggregate Google plus Meta and remove the old not-connected zero-spend conflation", async () => {
   const [spend, funnel, platform] = await Promise.all([
     read("../lib/marketingSpend.ts"),
@@ -141,12 +158,13 @@ test("marketing spend and funnel reporting aggregate Google plus Meta and remove
 });
 
 test("meta ads workspace and admin pages expose diagnostics without exposing tokens", async () => {
-  const [page, admin] = await Promise.all([
+  const [page, control, admin] = await Promise.all([
     read("../app/app/[businessSlug]/marketing/meta-ads/page.tsx"),
+    read("../app/app/[businessSlug]/marketing/meta-ads/MetaAdsSyncButton.tsx"),
     read("../app/app/admin/marketing/meta-ads/page.tsx"),
   ]);
   assert.match(page, /Meta Ads/);
-  assert.match(page, /Sync now/);
+  assert.match(control, /Sync now/);
   assert.match(page, /Pilot diagnostics/);
   assert.match(page, /stored_in_vault/);
   assert.match(page, /getAccessibleMetaAdAccounts\(\{ businessId: business\.id, businessSlug: business\.slug \}\)/);

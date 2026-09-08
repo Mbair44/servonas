@@ -63,12 +63,15 @@ test("Google Business profile client logs request-level diagnostics and uses dis
  assert.match(file, /google_business_api_request_started/);
  assert.match(file, /google_business_api_request_completed/);
  assert.match(file, /google_business_api_rate_limited/);
+ assert.match(file, /google_business_api_request_failed/);
  assert.match(file, /google_business_discovery_deferred/);
  assert.match(file, /google_business_retry_scheduled/);
  assert.match(file, /mybusinessaccountmanagement\.googleapis\.com/);
  assert.match(file, /mybusinessbusinessinformation\.googleapis\.com/);
  assert.match(file, /discoveryCacheTtlMs=5\*60_000/);
  assert.match(file, /discoveryInflight/);
+ assert.match(file, /google_business_account_discovery_skipped_known_location/);
+ assert.match(file, /google_business_account_discovery_skipped_known_account/);
  assert.match(file, /account_discovery_pending/);
  assert.match(file, /account_discovery_rate_limited/);
  assert.match(migration, /'oauth_connected'/);
@@ -84,7 +87,7 @@ test("website settings expose retrying Google Business discovery from the saved 
   readFile(new URL("../app/app/[businessSlug]/settings/website/actions.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/googleBusinessProfile.ts", import.meta.url), "utf8"),
  ]);
- assert.match(page,/Retry Google lookup/);
+ assert.match(page,/Try Again/);
  assert.match(page,/Uses the saved Google Business connection\. No reconnect required\./);
  assert.match(actions,/retryGoogleBusinessProfileDiscovery/);
  assert.match(actions,/retryGoogleBusinessLocationDiscovery/);
