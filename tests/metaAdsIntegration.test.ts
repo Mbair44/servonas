@@ -30,6 +30,7 @@ test("meta ads migration creates tenant-scoped connection, performance, sync tab
 
 test("meta ads service includes oauth, account discovery, token vault storage, action normalization, and sync states", async () => {
   const file = await read("../lib/metaAdsManagement.ts");
+  const insightsFields = file.match(/const metaInsightsFields = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.match(file, /const oauthScopes = \["ads_read", "business_management"\]/);
   assert.match(file, /export function metaAdsRedirectUri/);
   assert.match(file, /export function createMetaAdsOauthState/);
@@ -41,6 +42,13 @@ test("meta ads service includes oauth, account discovery, token vault storage, a
   assert.match(file, /export async function getAccessibleMetaAdAccounts/);
   assert.match(file, /\/me\/adaccounts\?fields=id,account_id,name,account_status,business\{id\}/);
   assert.match(file, /export async function syncMetaAdsPerformance/);
+  assert.match(insightsFields, /"spend"/);
+  assert.match(insightsFields, /"impressions"/);
+  assert.match(insightsFields, /"clicks"/);
+  assert.match(insightsFields, /"actions"/);
+  assert.doesNotMatch(insightsFields, /campaign_status|adset_status|ad_status/);
+  assert.match(file, /time_range: JSON\.stringify\(\{ since, until \}\)/);
+  assert.doesNotMatch(file, /time_range\[since\]|time_range\[until\]/);
   assert.match(file, /metricValue\(row\.actions, "landing_page_view"\)/);
   assert.match(file, /metricValue\(row\.actions, "link_click"\)/);
   assert.match(file, /metricValue\(row\.actions, "lead"\)/);
