@@ -4,7 +4,8 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { getGoogleBusinessProfileReviews } from "@/lib/googleBusinessProfile";
 import { buildLocalSeoReport, type LocalSeoLocationInput } from "@/lib/localSeo";
-import { saveLocalSeoDraft, updateLocalSeoRecommendationState } from "./actions";
+import { buildLocationPage, saveLocalSeoDraft, updateLocalSeoRecommendationState } from "./actions";
+import {LocationPageSubmit} from "@/components/LocationPageSubmit";
 
 function baseUrl(publicSlug: string | null, customDomain: string | null) {
   if (customDomain) return `https://${customDomain.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
@@ -42,6 +43,7 @@ export default async function LocalSeoPage({
     { data: seoStates },
     { data: seoMappings },
     { data: googleConnection },
+    { data: locationPages },
   ] = await Promise.all([
     supabase.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,hero_heading,hero_subheading,about_text,photo_urls").eq("business_id", business.id).maybeSingle(),
     supabase.from("services").select("id,name,description,price_amount,price_label,active").eq("business_id", business.id).eq("is_deleted", false).order("name"),
@@ -52,6 +54,7 @@ export default async function LocalSeoPage({
     supabase.from("business_local_seo_recommendation_states").select("dedupe_key,status,dismissed_at,completed_at,metadata").eq("business_id", business.id),
     supabase.from("business_seo_entity_mappings").select("source_entity_type,source_entity_id,target_type,status,metadata").eq("business_id", business.id),
     supabase.from("business_google_profile_connections").select("status,location_title,google_account_id,google_location_id").eq("business_id", business.id).maybeSingle(),
+    supabase.from("business_location_pages").select("id,source_location_key,city,state,slug,status,published_at,updated_at").eq("business_id",business.id).neq("status","archived"),
   ]);
 
   const profileReviews = await getGoogleBusinessProfileReviews(business.id);
@@ -121,6 +124,11 @@ export default async function LocalSeoPage({
 
   const previewKey = query.preview ?? "";
   const previewRecommendation = report.recommendations.find((item) => item.dedupeKey === previewKey && item.draft);
+  const visibleHigh=report.highPriority.filter(item=>item.type!=="missing_location_page"),visibleMedium=report.mediumPriority.filter(item=>item.type!=="missing_location_page");
+  const locationRecommendationByKey=new Map(report.recommendations.filter(item=>item.type==="missing_location_page").map(item=>[item.entityId,item]));
+  const locationPageByKey=new Map((locationPages??[]).map(page=>[String(page.source_location_key).toLowerCase(),page]));
+  const locationCards=[...locations.map(location=>({location,page:locationPageByKey.get(location.id.toLowerCase())??null,recommendation:locationRecommendationByKey.get(location.id)??null})),...(locationPages??[]).filter(page=>!locations.some(location=>location.id.toLowerCase()===String(page.source_location_key).toLowerCase())).map(page=>({location:{id:page.source_location_key,name:[page.city,page.state].filter(Boolean).join(", "),jobCount90d:0,customerCount:0,reviewCount:0},page,recommendation:null}))];
+  report.highPriority=visibleHigh;report.mediumPriority=visibleMedium;
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page local-seo-page">
     <header className="marketing-analytics-header">
@@ -144,6 +152,8 @@ export default async function LocalSeoPage({
         <article><strong>{serviceAreas.length}</strong><span>Configured service areas</span></article>
       </div>
     </section>
+
+    <section className="workspace-panel local-seo-location-opportunities"><header><div><h2>Location page opportunities</h2><p>Servonas can turn the places you already serve into useful pages for nearby customers.</p></div></header><div className="local-seo-card-list">{locationCards.length?locationCards.map(({location,page,recommendation})=>{const city=location.name.split(",")[0]!,pageUrl=page?`${websiteBase}/${page.slug}`:null;return <article className={`local-seo-card location-opportunity-card ${page?.status==="published"?"priority-healthy":recommendation?.priority==="high"?"priority-high":"priority-medium"}`} key={location.id}><span className="local-seo-badge">{page?.status==="published"?"Complete":page?.status==="draft"?"Draft ready":"Ready to build"}</span><h3>{page?.status==="published"?`${city} location page published`:page?.status==="draft"?`Finish your ${city} page`:`${location.name} is a strong location-page opportunity`}</h3><p>{page?.status==="published"?"Customers and search engines can now find this dedicated local page.":page?.status==="draft"?"Servonas created the page from your business information. Review it, then publish when ready.":`People nearby search for services in ${city}. A dedicated ${city} page can help Google understand that you serve this area.`}</p><div className="location-opportunity-status"><span>{page?`${page.status==="published"?"Published":"Draft"} page found`:`No ${city} page found`}</span><span>{serviceAreas.some(area=>area.toLowerCase().includes(city.toLowerCase()))?`${city} is already in your service area`:location.jobCount90d||location.customerCount?"Existing customer activity confirms this area":"Review service coverage before publishing"}</span><span>{allServices.length?`${allServices.length} business services/products available`:"Add services or products before building"}</span><span>{page?.status==="published"?`Published ${compactDate(page.published_at)??"recently"}`:"Ready to build"}</span></div><div className="local-seo-actions">{!page&&recommendation?<form action={buildLocationPage.bind(null,businessSlug,location.id,recommendation.dedupeKey)}><LocationPageSubmit label={`Build ${city} Page`} pendingLabel={`Building ${city} page…`}/></form>:page?.status==="draft"?<Link className="sv-button" href={`/app/${businessSlug}/marketing/seo/locations/${page.id}`}>Finish {city} Page</Link>:page?.status==="published"?<><a className="sv-button" href={pageUrl!} target="_blank" rel="noreferrer">View {city} Page</a><Link className="sv-button sv-secondary" href={`/app/${businessSlug}/marketing/seo/locations/${page.id}`}>Edit page</Link></>:null}<details className="location-opportunity-why"><summary>Why this helps</summary><p>A useful city page gives customers one place to see what you offer in their area and gives Google clearer information about where your business works.</p></details></div></article>}):<div className="dashboard-empty"><strong>No location-page opportunities yet.</strong><p>Servonas will surface cities after it finds configured service areas or real customer activity.</p></div>}</div></section>
 
     <section className="local-seo-columns">
       <section className="workspace-panel">

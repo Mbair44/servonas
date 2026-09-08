@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 import { buildLocalSeoReport } from "../lib/localSeo.ts";
+import {locationPageSimilarity,locationPageSlug} from "../lib/locationPages.ts";
 
 const read = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -34,7 +35,7 @@ test("builds high-priority service and location recommendations from real busine
   assert.ok(report.recommendations.some((item) => item.type === "missing_google_service"));
 });
 
-test("existing mappings suppress duplicate service and location page recommendations", () => {
+test("existing published mappings suppress duplicate service and location page recommendations", () => {
   const report = buildLocalSeoReport({
     businessName: "Copper State Bounce",
     phone: null,
@@ -49,13 +50,27 @@ test("existing mappings suppress duplicate service and location page recommendat
     unansweredReviews: [],
     mappings: [
       { source_entity_type: "service", source_entity_id: "svc-1", target_type: "website_service_page", status: "draft" },
-      { source_entity_type: "location", source_entity_id: "gilbert-az", target_type: "website_location_page", status: "draft" },
+      { source_entity_type: "location", source_entity_id: "gilbert-az", target_type: "website_location_page", status: "published" },
     ],
     states: [],
     reviewSnippets: [],
   });
   assert.equal(report.recommendations.some((item) => item.type === "missing_service_page" && item.entityId === "svc-1"), false);
   assert.equal(report.recommendations.some((item) => item.type === "missing_location_page" && item.entityId === "gilbert-az"), false);
+});
+
+test("a location draft remains actionable until it is published",()=>{
+ const base={businessName:"Example Co",phone:null,websiteBasePath:"https://example.com",serviceAreas:["Gilbert, AZ"],websiteStatus:"published" as const,googleBusinessConnected:true,googleBusinessLocationTitle:"Example Co",googleBusinessSupportsServices:false,services:[],locations:[{id:"Gilbert, AZ",name:"Gilbert, AZ",jobCount90d:8,customerCount:4,reviewCount:0}],unansweredReviews:[],states:[],reviewSnippets:[]};
+ const draft=buildLocalSeoReport({...base,mappings:[{source_entity_type:"location",source_entity_id:"Gilbert, AZ",target_type:"website_location_page",status:"draft"}]});
+ const published=buildLocalSeoReport({...base,mappings:[{source_entity_type:"location",source_entity_id:"Gilbert, AZ",target_type:"website_location_page",status:"published"}]});
+ assert.ok(draft.recommendations.some(item=>item.type==="missing_location_page"));
+ assert.equal(published.recommendations.some(item=>item.type==="missing_location_page"),false);
+});
+
+test("location page helpers create stable slugs and detect thin duplicate copy",()=>{
+ assert.equal(locationPageSlug("Gilbert","AZ","Bounce House Rentals"),"gilbert-az-bounce-house-rentals");
+ assert.ok(locationPageSimilarity("Bounce house rentals for Gilbert families and school events","Bounce house rentals for Gilbert families and church events")>.5);
+ assert.ok(locationPageSimilarity("Water slides for summer parties","Drain cleaning and water heater repair")<.2);
 });
 
 test("local seo page and navigation expose the new action center", async () => {
@@ -67,8 +82,17 @@ test("local seo page and navigation expose the new action center", async () => {
   assert.match(page, /<h1>Local SEO<\/h1>/);
   assert.match(page, /Servonas SEO Score/);
   assert.match(page, /Create page draft/);
+  assert.match(page, /Build \$\{city\} Page/);
   assert.match(page, /notification center/);
   assert.match(nav, /label:"Local SEO",href:`\$\{base\}\/marketing\/seo`/);
   assert.match(migration, /create table if not exists public\.business_local_seo_recommendation_states/);
   assert.match(migration, /create table if not exists public\.business_seo_entity_mappings/);
+});
+
+test("location pages have a reusable lifecycle, editor, public rendering, and sitemap",async()=>{
+ const [migration,actions,editor,submit,landing,domainRoute,slugRoute,sitemap]=await Promise.all([read("supabase/migrations/20260908000200_business_location_pages.sql"),read("app/app/[businessSlug]/marketing/seo/actions.ts"),read("components/LocationPageEditor.tsx"),read("components/LocationPageSubmit.tsx"),read("components/LocationLanding.tsx"),read("app/sites/domain/[domain]/[promotionSlug]/page.tsx"),read("app/sites/[siteSlug]/[promotionSlug]/page.tsx"),read("app/sitemap.xml/route.ts")]);
+ assert.match(migration,/business_location_pages/);assert.match(migration,/draft','published','archived/);
+ assert.match(actions,/generateLocationPage/);assert.match(actions,/publishLocationPage/);assert.match(actions,/status:"published"/);
+ assert.match(editor,/SEO details/);assert.match(editor,/Saving…/);assert.match(submit,/useFormStatus/);assert.match(landing,/application\/ld\+json/);assert.match(landing,/Nearby areas we serve/);
+ assert.match(domainRoute,/LocationLanding/);assert.match(slugRoute,/LocationLanding/);assert.match(sitemap,/business_location_pages/);
 });

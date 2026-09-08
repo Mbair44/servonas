@@ -118,7 +118,7 @@ export function buildLocalSeoReport(input:{
  const publishedWebsite=input.websiteStatus==="published";
  const recommendations:LocalSeoRecommendation[]=[];
  const servicePageMappings=new Set(input.mappings.filter((row)=>row.target_type==="website_service_page" && ["draft","planned","published"].includes(row.status)).map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
- const locationPageMappings=new Set(input.mappings.filter((row)=>row.target_type==="website_location_page" && ["draft","planned","published"].includes(row.status)).map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
+ const locationPageMappings=new Set(input.mappings.filter((row)=>row.target_type==="website_location_page" && row.status==="published").map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
  const googleServiceMappings=new Set(input.mappings.filter((row)=>row.target_type==="google_business_service" && ["draft","planned","published","synced"].includes(row.status)).map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
 
  for(const service of input.services.filter((item)=>item.active!==false)){
@@ -176,8 +176,8 @@ export function buildLocalSeoReport(input:{
    priority:location.jobCount90d >= 10 || location.reviewCount >= 3 ? "high" : "medium",
    status:"open",
    title:`${location.name} is a strong location-page opportunity`,
-   explanation:`Servonas found real customer activity in ${location.name}, but there is no saved location-page draft for this area yet.`,
-   suggestedAction:"Preview and create a location-page draft",
+   explanation:`People nearby search for services in ${location.name.split(",")[0]}. A dedicated ${location.name.split(",")[0]} page can help Google understand that you serve this area.`,
+   suggestedAction:`Build ${location.name.split(",")[0]} Page`,
    evidence:[
     `${location.jobCount90d} completed jobs in the last 90 days`,
     `${location.customerCount} customer location${location.customerCount===1?"":"s"}`,
