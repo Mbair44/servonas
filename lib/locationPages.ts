@@ -18,13 +18,13 @@ function normalizeGenerated(value:unknown,source:LocationPageSource):GeneratedLo
  const faqs=Array.isArray(row.faqs)?row.faqs.map(item=>{const part=item&&typeof item==="object"?item as Record<string,unknown>:{};return{question:clean(part.question,160),answer:clean(part.answer,700)};}).filter(item=>item.question&&item.answer).slice(0,6):[];
  if(sections.length<4||faqs.length<4)throw new Error("Servonas could not generate a complete location page. Please try again.");
  const primaryService=source.services[0]?.name||source.inventory[0]?.category||source.inventory[0]?.name||source.business.industry?.replaceAll("_"," ")||"Local Services";
+ const pageTitle=clean(row.pageTitle,65)||`${primaryService} in ${source.location.name} | ${source.business.name}`,metaDescription=clean(row.metaDescription,160)||`${source.business.name} serves ${source.location.name} with ${primaryService.toLowerCase()}. View available services and get started.`;
  return{
   slug:locationPageSlug(source.location.city,source.location.state,primaryService),
-  pageTitle:clean(row.pageTitle,65)||`${primaryService} in ${source.location.name} | ${source.business.name}`,
-  metaDescription:clean(row.metaDescription,160),
-  ogTitle:clean(row.ogTitle,80)||clean(row.pageTitle,65),
-  ogDescription:clean(row.ogDescription,200)||clean(row.metaDescription,160),
-  h1:clean(row.h1,120),heroCopy:clean(row.heroCopy,500),ctaLabel:clean(row.ctaLabel,40)||(source.website.bookingEnabled?"Check Availability":"Contact Us"),sections,faqs,
+  pageTitle,metaDescription,
+  ogTitle:clean(row.ogTitle,80)||pageTitle,
+  ogDescription:clean(row.ogDescription,200)||metaDescription,
+  h1:clean(row.h1,120)||`${primaryService} in ${source.location.name}`,heroCopy:clean(row.heroCopy,500)||`${source.business.name} serves customers in ${source.location.name}. Explore the services currently available and choose the next step that works for you.`,ctaLabel:clean(row.ctaLabel,40)||(source.website.bookingEnabled?"Check Availability":"Contact Us"),sections,faqs,
  };
 }
 
@@ -36,10 +36,11 @@ export async function generateLocationPage(input:{source:LocationPageSource;exis
  for(let attempt=1;attempt<=2;attempt++){
   const response=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:process.env.OPENAI_ASSISTANT_MODEL?.trim()||"gpt-4.1-mini",temperature:.55,response_format:{type:"json_schema",json_schema:{name:"servonas_location_page",strict:true,schema:{type:"object",additionalProperties:false,properties:{pageTitle:{type:"string"},metaDescription:{type:"string"},ogTitle:{type:"string"},ogDescription:{type:"string"},h1:{type:"string"},heroCopy:{type:"string"},ctaLabel:{type:"string"},sections:{type:"array",minItems:4,maxItems:6,items:{type:"object",additionalProperties:false,properties:{heading:{type:"string"},body:{type:"string"}},required:["heading","body"]}},faqs:{type:"array",minItems:4,maxItems:6,items:{type:"object",additionalProperties:false,properties:{question:{type:"string"},answer:{type:"string"}},required:["question","answer"]}}},required:["pageTitle","metaDescription","ogTitle","ogDescription","h1","heroCopy","ctaLabel","sections","faqs"]}}},messages:[{role:"system",content:"Create a useful customer-first city service page from verified tenant facts only. Never invent prices, guarantees, rankings, addresses, permits, licensing, insurance, certifications, years in business, availability, or local landmarks. Do not claim best, #1, or most trusted. Write naturally, not as a doorway page. Include meaningful city-specific service emphasis and use cases based only on the supplied activity and service-area evidence. Return only the requested JSON."},{role:"user",content:JSON.stringify({verifiedTenantData:input.source,existingLocationPages:existing,revisionInstruction:attempt===2?"The first draft was too similar to another city page. Rewrite the introduction, emphasis, section organization, use cases, and FAQs while staying within verified facts.":null})}]})});
   const body=await response.json().catch(()=>null) as any;
-  if(!response.ok)throw new Error(body?.error?.message||"AI location-page generation failed.");
+  if(!response.ok){console.error("Location page AI request failed",{provider:"openai",httpStatus:response.status,errorType:body?.error?.type??null,errorCode:body?.error?.code??null});throw new Error("Servonas could not generate the location page right now. Please try again.");}
   const content=body?.choices?.[0]?.message?.content;
   if(typeof content!=="string")throw new Error("AI location-page generation returned no content.");
-  const generated=normalizeGenerated(JSON.parse(content),input.source),text=locationPageText(generated);
+  let parsed:unknown;try{parsed=JSON.parse(content);}catch{throw new Error("Servonas received an incomplete page draft. Please try again.");}
+  const generated=normalizeGenerated(parsed,input.source),text=locationPageText(generated);
   highestSimilarity=input.existingPages.reduce((max,page)=>Math.max(max,locationPageSimilarity(text,locationPageText({h1:page.h1,heroCopy:page.hero_copy,sections:page.sections??[],faqs:page.faqs??[]}))),0);
   if(highestSimilarity<.72)return{page:generated,similarityScore:highestSimilarity};
  }

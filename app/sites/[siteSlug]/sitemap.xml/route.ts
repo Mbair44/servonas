@@ -1,0 +1,4 @@
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {locationSitemapXml,sitemapResponse} from "@/lib/locationSitemap";
+
+export async function GET(_:Request,{params}:{params:Promise<{siteSlug:string}>}){const {siteSlug}=await params,db=getSupabaseAdmin();if(!db)return new Response("Not found",{status:404});const {data:website}=await db.from("business_website_settings").select("business_id").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();if(!website)return new Response("Not found",{status:404});const {data:pages}=await db.from("business_location_pages").select("slug,updated_at").eq("business_id",website.business_id).eq("status","published").order("slug"),base=`${(process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com").replace(/\/$/,"")}/sites/${encodeURIComponent(siteSlug)}`;return sitemapResponse(locationSitemapXml(base,pages??[]));}
