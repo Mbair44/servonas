@@ -457,16 +457,30 @@ export async function selectMetaAdsAccount(input: {
   adAccountName: string;
   businessManagerId?: string | null;
 }) {
-  await persistMetaAdsConnection({
-    businessId: input.businessId,
-    businessSlug: input.businessSlug,
-    actorUserId: input.actorUserId,
-    metaUserId: null,
-    adAccountId: input.adAccountId,
-    adAccountName: input.adAccountName,
-    businessManagerId: input.businessManagerId ?? null,
+  const admin = getSupabaseAdmin();
+  if (!admin) throw new Error("Supabase admin access is unavailable.");
+  const { data, error } = await admin.from("business_ad_platform_connections").update({
+    connected_by: input.actorUserId,
+    external_account_id: input.adAccountId,
+    external_account_name: input.adAccountName,
+    external_business_manager_id: input.businessManagerId ?? null,
     status: "connected_never_synced",
-  });
+    last_sync_error: null,
+    updated_at: new Date().toISOString(),
+  }).eq("business_id", input.businessId).eq("provider", "meta").select("id").maybeSingle();
+  if (error) {
+    console.error("Meta Ads account selection save failed", {
+      provider: "meta",
+      stage: "account_selection_save",
+      businessId: input.businessId,
+      businessSlug: input.businessSlug,
+      adAccountId: input.adAccountId,
+      databaseCode: error.code,
+      message: error.message,
+    });
+    throw new Error("The selected Meta ad account could not be saved.");
+  }
+  if (!data) throw new Error("Reconnect Meta Ads before selecting an ad account.");
 }
 
 export async function disconnectMetaAds(businessId: string) {
