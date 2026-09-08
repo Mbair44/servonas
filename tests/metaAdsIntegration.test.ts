@@ -35,6 +35,7 @@ test("meta ads service includes oauth, account discovery, token vault storage, a
   assert.match(file, /export function createMetaAdsOauthState/);
   assert.match(file, /export async function completeMetaAdsOauth/);
   assert.match(file, /export async function getAccessibleMetaAdAccounts/);
+  assert.match(file, /\/me\/adaccounts\?fields=id,account_id,name,account_status,business\{id\}/);
   assert.match(file, /export async function syncMetaAdsPerformance/);
   assert.match(file, /metricValue\(row\.actions, "landing_page_view"\)/);
   assert.match(file, /metricValue\(row\.actions, "link_click"\)/);
@@ -82,6 +83,7 @@ test("meta ads routes enforce tenant-scoped workspace access for accounts select
     assert.match(file, /canManageBusiness\(role\)/);
   }
   assert.match(selectRoute, /That Meta ad account is not available for this tenant\./);
+  assert.match(selectRoute, /NextResponse\.redirect\(destination\(businessSlug, kind, message\), 303\)/);
   assert.match(syncRoute, /syncMetaAdsPerformance\(\{ businessId: business\.id, businessSlug: business\.slug, actorUserId: user\.id \}\)/);
   assert.match(syncRoute, /describeMetaAdsSyncFailure\(error\)/);
   assert.match(syncRoute, /failure\.status/);
@@ -120,7 +122,11 @@ test("meta ads workspace and admin pages expose diagnostics without exposing tok
   assert.match(page, /Sync now/);
   assert.match(page, /Pilot diagnostics/);
   assert.match(page, /stored_in_vault/);
-  assert.match(page, /GET \/api\/meta-ads\/accounts/);
+  assert.match(page, /getAccessibleMetaAdAccounts\(\{ businessId: business\.id, businessSlug: business\.slug \}\)/);
+  assert.match(page, /<select name="adAccountId" required/);
+  assert.match(page, /\{account\.name\} - \{account\.accountId\}/);
+  assert.match(page, /disabled=\{!status\.accountId\}/);
+  assert.match(await read("../lib/metaAdsManagement.ts"), /\.update\(\{[\s\S]*external_account_id: input\.adAccountId[\s\S]*\.eq\("business_id", input\.businessId\)\.eq\("provider", "meta"\)/);
   assert.match(admin, /Meta Ads pilot/);
   assert.match(admin, /Business rollout view/);
   assert.match(admin, /Recent sync events/);

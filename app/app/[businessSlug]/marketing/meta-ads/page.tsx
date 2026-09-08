@@ -3,7 +3,8 @@ import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { adPlatformStateCopy, loadAdPlatformStatuses } from "@/lib/adPlatform";
-import { metaAdsReadyLabel } from "@/lib/metaAdsManagement";
+import { getAccessibleMetaAdAccounts, metaAdsReadyLabel, type MetaAdsAccount } from "@/lib/metaAdsManagement";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
@@ -21,9 +22,10 @@ export default async function MetaAdsPage({
   const today = new Date().toISOString().slice(0, 10);
   const from = query.from && /^\d{4}-\d{2}-\d{2}$/.test(query.from) ? query.from : `${today.slice(0, 8)}01`;
   const to = query.to && /^\d{4}-\d{2}-\d{2}$/.test(query.to) ? query.to : today;
+  const reportingDb = getSupabaseAdmin() ?? supabase;
   const [statuses, connectionResult, rowsResult, syncEventsResult] = await Promise.all([
-    loadAdPlatformStatuses(supabase, business.id, `${from}T00:00:00.000Z`, `${to}T23:59:59.999Z`),
-    supabase.from("business_ad_platform_connections").select("*").eq("business_id", business.id).eq("provider", "meta").maybeSingle(),
+    loadAdPlatformStatuses(reportingDb, business.id, `${from}T00:00:00.000Z`, `${to}T23:59:59.999Z`),
+    reportingDb.from("business_ad_platform_connections").select("*").eq("business_id", business.id).eq("provider", "meta").maybeSingle(),
     supabase.from("business_ad_platform_daily_performance").select("report_date,spend_amount,impressions,reach,clicks,landing_page_views,ctr,cpc_amount,cpm_amount").eq("business_id", business.id).eq("provider", "meta").gte("report_date", from).lte("report_date", to).order("report_date", { ascending: false }),
     supabase.from("business_ad_platform_sync_events").select("stage,outcome,rows_synced,error_category,error_code,created_at").eq("business_id", business.id).eq("provider", "meta").order("created_at", { ascending: false }).limit(10),
   ]);
@@ -32,6 +34,15 @@ export default async function MetaAdsPage({
   const connection = connectionResult.data;
   const rows = rowsResult.data ?? [];
   const syncEvents = syncEventsResult.data ?? [];
+  let accessibleAccounts: MetaAdsAccount[] = [];
+  let accountLoadError: string | null = null;
+  if (connection?.credential_secret_id) {
+    try {
+      accessibleAccounts = await getAccessibleMetaAdAccounts({ businessId: business.id, businessSlug: business.slug });
+    } catch (error) {
+      accountLoadError = error instanceof Error ? error.message : "Meta ad accounts could not be loaded.";
+    }
+  }
 
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page google-ads-page">
     <header className="marketing-analytics-header">
@@ -48,7 +59,7 @@ export default async function MetaAdsPage({
       </div>
       <div className="google-ads-connection-actions">
         <a className="sv-button" href={`/api/meta-ads/connect/${businessSlug}`}>{status.state === "not_connected" ? "Connect Meta Ads" : "Reconnect Meta Ads"}</a>
-        <form action={`/api/meta-ads/sync/${businessSlug}`} method="post"><button className="sv-button sv-secondary">Sync now</button></form>
+        <form action={`/api/meta-ads/sync/${businessSlug}`} method="post"><button className="sv-button sv-secondary" disabled={!status.accountId}>Sync now</button></form>
         <form action={`/api/meta-ads/disconnect/${businessSlug}`} method="post"><button className="sv-button sv-secondary">Disconnect</button></form>
       </div>
     </section>
@@ -65,13 +76,17 @@ export default async function MetaAdsPage({
     </section>
     <section className="workspace-panel">
       <header><div><h2>Account selection</h2><p>If Meta returns several ad accounts, select the tenant-owned account Servonas should use.</p></div></header>
+      {accountLoadError && <div className="workspace-notice error">{accountLoadError}</div>}
       <form className="google-ads-inline-form" action={`/api/meta-ads/select-account/${businessSlug}`} method="post">
         <label>Meta ad account
-          <input name="adAccountId" placeholder="Enter Meta ad account id, for example 1234567890" defaultValue={status.accountId || ""} />
+          <select name="adAccountId" required defaultValue={status.accountId || ""}>
+            <option value="" disabled>{accessibleAccounts.length ? "Choose an ad account" : "No accessible ad accounts found"}</option>
+            {accessibleAccounts.map(account => <option key={account.id} value={account.accountId}>{account.name} - {account.accountId}</option>)}
+          </select>
         </label>
-        <button className="sv-button sv-secondary">Save account</button>
+        <button className="sv-button sv-secondary" disabled={!accessibleAccounts.length}>Save account</button>
       </form>
-      <small>Available account discovery is exposed by `GET /api/meta-ads/accounts/{businessSlug}` for admin diagnostics and picker clients.</small>
+      <small>{accessibleAccounts.length ? `${accessibleAccounts.length} Meta ad account${accessibleAccounts.length === 1 ? "" : "s"} available to this connection.` : "Reconnect Meta Ads if the expected account is not listed."}</small>
     </section>
     <section className="workspace-panel">
       <header><div><h2>Pilot diagnostics</h2><p>Tenant-scoped diagnostics for verifying pilot rollout without exposing credentials.</p></div></header>
