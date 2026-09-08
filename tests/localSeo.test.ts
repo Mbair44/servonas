@@ -96,3 +96,35 @@ test("location pages have a reusable lifecycle, editor, public rendering, and si
  assert.match(editor,/SEO details/);assert.match(editor,/Saving…/);assert.match(submit,/useFormStatus/);assert.match(landing,/application\/ld\+json/);assert.match(landing,/Nearby areas we serve/);
  assert.match(domainRoute,/LocationLanding/);assert.match(slugRoute,/LocationLanding/);assert.match(sitemap,/business_location_pages/);
 });
+
+test("location page build preflights required storage before calling AI and reports persistence failures",async()=>{
+ const actions=await read("app/app/[businessSlug]/marketing/seo/actions.ts");
+ const preflight=actions.indexOf('"preflight_location_page_storage"'),generation=actions.indexOf("generateLocationPage({source"),persistence=actions.indexOf('operationName:"persist_location_page_draft"');
+ assert.ok(preflight>=0&&generation>preflight&&persistence>generation);
+ assert.match(actions,/We couldn't build this page yet\. Please try again\./);
+ assert.match(actions,/location_page_persistence_failed/);
+ assert.match(actions,/isNextRedirect\(error\)\)throw error/);
+});
+
+test("location page build logs optional lookup failures without retrying or aborting generation",async()=>{
+ const actions=await read("app/app/[businessSlug]/marketing/seo/actions.ts");
+ assert.match(actions,/load_website_snapshot","business_website_settings",false/);
+ assert.match(actions,/load_inventory","inventory_items",false/);
+ assert.match(actions,/load_recent_location_bookings","bookings",false/);
+ assert.match(actions,/local_seo_downstream_failed/);
+ assert.doesNotMatch(actions,/retryLocation|retry.*databaseOperation/);
+});
+
+test("local SEO renders from persisted review data instead of calling Google on page load",async()=>{
+ const page=await read("app/app/[businessSlug]/marketing/seo/page.tsx");
+ assert.match(page,/website\?\.google_reviews/);
+ assert.doesNotMatch(page,/getGoogleBusinessProfileReviews/);
+});
+
+test("failed OpenAI location generation is sanitized and does not return content",async()=>{
+ const previousKey=process.env.OPENAI_API_KEY,originalFetch=globalThis.fetch;
+ process.env.OPENAI_API_KEY="test-key";
+ globalThis.fetch=async()=>new Response(JSON.stringify({error:{type:"invalid_request_error",code:"bad_request",message:"Malformed request"}}),{status:400,headers:{"content-type":"application/json"}});
+ const source={business:{name:"Example Co",industry:"party_rental",description:null,phone:null,email:null,city:"Mesa",state:"AZ"},location:{name:"Gilbert, AZ",city:"Gilbert",state:"AZ",jobCount90d:1,customerCount:1,reviewCount:0},website:{baseUrl:"https://example.com",heroHeading:null,heroSubheading:null,aboutText:null,bookingEnabled:true,requestEnabled:true},serviceAreas:["Gilbert, AZ"],services:[{name:"Bounce House Rentals",description:null}],inventory:[],hours:[],reviews:[],policies:[]};
+ try{await assert.rejects(()=>import("../lib/locationPages.ts").then(({generateLocationPage})=>generateLocationPage({source,existingPages:[]})),/could not generate the location page right now/);}finally{globalThis.fetch=originalFetch;if(previousKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=previousKey;}
+});
