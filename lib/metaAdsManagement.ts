@@ -106,6 +106,25 @@ const graphVersion = process.env.META_GRAPH_API_VERSION?.trim() || "v22.0";
 const graphBase = `https://graph.facebook.com/${graphVersion}`;
 const oauthBase = `https://www.facebook.com/${graphVersion}/dialog/oauth`;
 const oauthScopes = ["ads_read", "business_management"];
+const metaInsightsFields = [
+  "campaign_id",
+  "campaign_name",
+  "adset_id",
+  "adset_name",
+  "ad_id",
+  "ad_name",
+  "date_start",
+  "spend",
+  "impressions",
+  "reach",
+  "clicks",
+  "ctr",
+  "cpc",
+  "cpm",
+  "frequency",
+  "actions",
+  "action_values",
+];
 
 function credentials() {
   return {
@@ -416,8 +435,32 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
       normalizedAdAccountId: accountId,
       accountStatus: selectedAccount.account_status ?? null,
     });
+    const insightsQuery = new URLSearchParams({
+      fields: metaInsightsFields.join(","),
+      level: "ad",
+      time_increment: "1",
+      limit: "100",
+      time_range: JSON.stringify({ since, until }),
+    });
+    console.info("Meta Ads insights request started", {
+      provider: "meta",
+      stage: "meta_ads_sync_insights",
+      graphEndpoint: `${graphBase}/${accountId}/insights`,
+      graphApiVersion: graphVersion,
+      businessId: input.businessId,
+      businessSlug: input.businessSlug,
+      adAccountId: connection.external_account_id,
+      fields: metaInsightsFields,
+      breakdowns: [],
+      level: "ad",
+      timeRange: { since, until },
+      filtering: [],
+      limit: 100,
+      timeIncrement: 1,
+      attributionParameters: null,
+    });
     let rowsSynced = 0;
-    let next: string | null = `/${accountId}/insights?fields=campaign_id,campaign_name,campaign_status,adset_id,adset_name,adset_status,ad_id,ad_name,ad_status,date_start,spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values&level=ad&time_increment=1&limit=100&time_range[since]=${since}&time_range[until]=${until}`;
+    let next: string | null = `/${accountId}/insights?${insightsQuery.toString()}`;
     while (next) {
       const response: MetaAccountResponse = await metaFetch<MetaAccountResponse>(next, {
         accessToken,
@@ -433,13 +476,13 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
         report_date: String(row.date_start ?? until),
         campaign_id: row.campaign_id == null ? null : String(row.campaign_id),
         campaign_name: row.campaign_name == null ? null : String(row.campaign_name),
-        campaign_status: row.campaign_status == null ? null : String(row.campaign_status),
+        campaign_status: null,
         adset_id: row.adset_id == null ? null : String(row.adset_id),
         adset_name: row.adset_name == null ? null : String(row.adset_name),
-        adset_status: row.adset_status == null ? null : String(row.adset_status),
+        adset_status: null,
         ad_id: row.ad_id == null ? null : String(row.ad_id),
         ad_name: row.ad_name == null ? null : String(row.ad_name),
-        ad_status: row.ad_status == null ? null : String(row.ad_status),
+        ad_status: null,
         spend_amount: Number(row.spend ?? 0),
         currency: "USD",
         impressions: Number(row.impressions ?? 0),
