@@ -102,7 +102,7 @@ export async function GET(request:Request){
    log("google_business_callback_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,businessSlug:saved.businessSlug,tokenExchangeCompleted:true,credentialsPersisted:true,accountDiscoveryCompleted:true,accountDiscoverySkipped:true,redirectDestination:redirectDestination.pathname});
    return redirect({stage:"success",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
   }
-  const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??"",knownAccountId:existingConnection?.google_account_id});
+  const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,businessSlug:saved.businessSlug,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??"",knownAccountId:existingConnection?.google_account_id});
   if(discovery.rateLimited){
    const retry=nextGoogleBusinessDiscoveryRetry(1,discovery.retryAfter,discovery.retryInfoSeconds);
    await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",lastDiscoveryAttemptAt:new Date().toISOString(),retryAfterAt:retry.at,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage,discoveryRetryAttemptCount:1,discoveryOperationId:callbackId,discoveryRetrySource:retry.source,discoveryDiagnostics:discovery.diagnostics});

@@ -17,5 +17,5 @@ export function formatGoogleBusinessRetryAt(value:string|null|undefined,timeZone
 export function googleBusinessRetryMessage(source:GoogleBusinessRetrySource){
  return source==="retry_after_header"||source==="google_retry_info"
   ?"Google asked us to wait until the time shown below."
-  :"Servonas is waiting briefly before the next account check to avoid making the limit worse.";
+  :"Servonas is waiting before the next account check to avoid making the limit worse.";
 }
