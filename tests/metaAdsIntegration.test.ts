@@ -34,6 +34,10 @@ test("meta ads service includes oauth, account discovery, token vault storage, a
   assert.match(file, /export function metaAdsRedirectUri/);
   assert.match(file, /export function createMetaAdsOauthState/);
   assert.match(file, /export async function completeMetaAdsOauth/);
+  assert.match(file, /grant_type: "fb_exchange_token"/);
+  assert.match(file, /fb_exchange_token: shortLivedToken\.access_token/);
+  assert.match(file, /accessToken: longLivedToken\.access_token/);
+  assert.match(file, /expiresInSeconds \* 1000/);
   assert.match(file, /export async function getAccessibleMetaAdAccounts/);
   assert.match(file, /\/me\/adaccounts\?fields=id,account_id,name,account_status,business\{id\}/);
   assert.match(file, /export async function syncMetaAdsPerformance/);
@@ -45,9 +49,13 @@ test("meta ads service includes oauth, account discovery, token vault storage, a
   assert.match(file, /"connected_synced_no_data"/);
   assert.match(file, /"connected_with_data"/);
   assert.match(file, /"authorization_expired"/);
+  assert.match(file, /metaErrorCode === 190 && metaErrorSubcode === 463/);
+  assert.match(file, /"authorization_invalid"/);
+  assert.match(file, /"authorization_missing"/);
   assert.match(file, /Please select a Meta ad account before syncing\./);
   assert.match(file, /Meta authorization expired\. Reconnect Meta Ads and try again\./);
   assert.match(file, /metaErrorSubcode/);
+  assert.match(file, /metaErrorType/);
   assert.match(file, /graphHttpStatus/);
   assert.match(file, /provider: "meta"/);
   assert.doesNotMatch(file, /console\.(log|info|error)\([^)]*access_token/i);
