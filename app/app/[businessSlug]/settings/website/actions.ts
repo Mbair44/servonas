@@ -13,6 +13,7 @@ import {resolveGoogleAddress} from "@/lib/googleAddress";
 import {sendDomainPurchaseNotification} from "@/lib/communications/domainPurchaseEmailService";
 import {linkAcquisitionSession} from "@/lib/acquisitionFunnel";
 import {GoogleBusinessPersistenceError,retryGoogleBusinessLocationDiscovery} from "@/lib/googleBusinessProfile";
+import {formatGoogleBusinessRetryAt} from "@/lib/googleBusinessRetry";
 import {buildWebsiteAiImagePrompt,estimateWebsiteAiImageCost,normalizeWebsiteAiImageQuality,normalizeWebsiteAiImageSize,websiteAiImageFeature,websiteAiImageLimit,type WebsiteAiImageGenerationKind,type WebsiteAiImageType} from "@/lib/websiteAiImages";
 import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
 
@@ -605,7 +606,8 @@ export async function retryGoogleBusinessProfileDiscovery(slug:string){
   if(result.ok){console.info("google_business_reconnect_completed",{businessId:business.id,businessSlug:slug,stage:"account_discovery_retry",attempt:null,lastAttemptAt:null,nextRetryAt:null,httpStatus:200,retryAfter:null,operationId});redirect(target(slug,"success",result.userMessage,"features"));}
   if(result.rateLimited){
    console.info("google_business_reconnect_rate_limited",{businessId:business.id,businessSlug:slug,stage:"account_discovery_retry",httpStatus:429,nextRetryAt:result.retryAfter,operationId});
-   redirect(target(slug,"success","Google is temporarily limiting Business Profile requests. Your connection is still intact. Try again after the time shown below.","features"));
+   const retryTime=formatGoogleBusinessRetryAt(result.retryAfter,business.timezone);
+   redirect(target(slug,"success",`Google is temporarily limiting Business Profile requests. Your connection is still intact.${retryTime?` ${retryTime}.`:" Try again in a few minutes."}`,"features"));
   }
  redirect(target(slug,"success",result.userMessage,"features"));
  }catch(error){

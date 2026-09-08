@@ -2,7 +2,6 @@ import Link from "next/link";
 import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
-import { getGoogleBusinessProfileReviews } from "@/lib/googleBusinessProfile";
 import { buildLocalSeoReport, type LocalSeoLocationInput } from "@/lib/localSeo";
 import { buildLocationPage, saveLocalSeoDraft, updateLocalSeoRecommendationState } from "./actions";
 import {LocationPageSubmit} from "@/components/LocationPageSubmit";
@@ -45,7 +44,7 @@ export default async function LocalSeoPage({
     { data: googleConnection },
     { data: locationPages },
   ] = await Promise.all([
-    supabase.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,hero_heading,hero_subheading,about_text,photo_urls").eq("business_id", business.id).maybeSingle(),
+    supabase.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,hero_heading,hero_subheading,about_text,photo_urls,google_reviews").eq("business_id", business.id).maybeSingle(),
     supabase.from("services").select("id,name,description,price_amount,price_label,active").eq("business_id", business.id).eq("is_deleted", false).order("name"),
     supabase.from("inventory_items").select("id,name,description,daily_price_cents,image_url,active").eq("business_id", business.id).eq("active", true).order("name"),
     supabase.from("workforce_territories").select("id,name").eq("business_id", business.id).eq("is_active", true).order("name"),
@@ -57,7 +56,7 @@ export default async function LocalSeoPage({
     supabase.from("business_location_pages").select("id,source_location_key,city,state,slug,status,published_at,updated_at").eq("business_id",business.id).neq("status","archived"),
   ]);
 
-  const profileReviews = await getGoogleBusinessProfileReviews(business.id);
+  const profileReviews={reviews:(Array.isArray(website?.google_reviews)?website.google_reviews:[]).filter((review:any)=>review&&typeof review.text==="string").map((review:any,index:number)=>({reviewId:String(review.reviewId??`saved-review-${index}`),author:String(review.author??"Google user"),rating:Number(review.rating??0),text:String(review.text),publishedAt:typeof review.publishedAt==="string"?review.publishedAt:null,reply:typeof review.reply==="string"?review.reply:null})),reviewCount:Array.isArray(website?.google_reviews)?website.google_reviews.length:0};
   const websiteBase = baseUrl(website?.public_slug ?? business.slug, website?.domain_status === "connected" ? website?.custom_domain ?? null : null);
   const bookingCountsByService = new Map<string, number>();
   for (const row of bookings ?? []) {
