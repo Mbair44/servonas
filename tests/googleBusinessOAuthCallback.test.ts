@@ -68,7 +68,7 @@ test("Google Business profile client logs request-level diagnostics and uses dis
  assert.match(file, /google_business_retry_scheduled/);
  assert.match(file, /mybusinessaccountmanagement\.googleapis\.com/);
  assert.match(file, /mybusinessbusinessinformation\.googleapis\.com/);
- assert.match(file, /discoveryCacheTtlMs=5\*60_000/);
+ assert.match(file, /discoveryCacheTtlMs=30\*60_000/);
  assert.match(file, /discoveryInflight/);
  assert.match(file, /google_business_account_discovery_skipped_known_location/);
  assert.match(file, /google_business_account_discovery_skipped_known_account/);
