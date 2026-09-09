@@ -422,7 +422,7 @@ export default async function GoogleAdsPage({
  searchParams,
 }: {
  params: Promise<{ businessSlug: string }>;
- searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string; adGroupDraft?:string }>;
+ searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string; adGroupDraft?:string; promoteCity?:string; landingPage?:string }>;
 }) {
  const { businessSlug } = await params;
  const query = await searchParams;
@@ -847,7 +847,8 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
    </article>)}
   </section> : null}
 
-  {hasCampaigns && <section className="google-ads-primary-stack">
+  {query.promoteCity&&query.landingPage?<section className="workspace-notice info google-ads-location-handoff" id="google-ads-campaigns"><strong>Promote {query.promoteCity}</strong><span>Servonas will use the matching location page for local searches instead of sending those visitors to your general homepage.</span><a href={query.landingPage} target="_blank" rel="noopener noreferrer">{query.landingPage}</a><small>Choose the service you want to advertise below. Servonas will prepare the searches and ad copy for your review before anything is published.</small></section>:null}
+  {hasCampaigns && <section className="google-ads-primary-stack" id={query.promoteCity?undefined:"google-ads-campaigns"}>
    <section className="google-ads-campaign-grid">
     {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, issuesAvailable, effectiveCardStatus, statusLabel, summary }) => {
      const syncedAt = formatTimestamp(campaign.last_sync_at, business.timezone);
@@ -1046,6 +1047,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
       <details className="google-ads-ad-group-create google-ads-guided-builder" open={Boolean(preparedAdGroup)}>
        <summary>{preparedAdGroup?"Review your new ad":"Advertise another service"}</summary>
        {!preparedAdGroup?<><div className="google-ads-category-page-tools">{(categories??[]).filter((category:any)=>!(categoryPages??[]).some((entry:any)=>entry.category_id===category.id&&entry.status==="published")).map((category:any)=><form action={createGoogleAdsCategoryLandingPageAction.bind(null,businessSlug,category.id)} key={category.id}><span><strong>{category.name}</strong><small>Create a branded page showing every active item in this category.</small></span><button className="text-button">Create landing page</button></form>)}</div><form className="google-ads-offer-picker" action={prepareGoogleAdsAdGroupAction.bind(null,businessSlug,campaign.id)}>
+        {query.promoteCity&&query.landingPage?<><input type="hidden" name="promotionCity" value={query.promoteCity}/><input type="hidden" name="promotionLandingPage" value={query.landingPage}/></>:null}
         <div className="google-ads-builder-intro"><span>Servonas guided setup</span><h3>What do you want to advertise?</h3><p>Choose one service. Servonas will read its page, find high-intent searches, filter irrelevant traffic, and write the ad for you.</p></div>
         <div className="google-ads-offer-options">
          {(categories??[]).map((category:any)=>{const page=(categoryPages??[]).find((entry:any)=>entry.category_id===category.id&&entry.status==="published");return <label key={`category:${category.id}`}><input required type="radio" name="advertisingTarget" value={`category:${category.id}`}/><span><strong>{page?.title||category.name}</strong><small>{page?`/${page.slug}`:"Servonas will use the best available page"}</small>{page&&<b>Recommended</b>}</span></label>;})}
