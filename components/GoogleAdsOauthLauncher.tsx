@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type GoogleAdsOauthLauncherProps = {
  businessSlug: string;
+ returnTo?:string;
 };
 
 const popupMessageType = "servonas:google-ads-oauth-complete";
@@ -22,13 +23,13 @@ function popupFeatures() {
  return `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=yes`;
 }
 
-export function GoogleAdsOauthLauncher({ businessSlug }: GoogleAdsOauthLauncherProps) {
+export function GoogleAdsOauthLauncher({ businessSlug,returnTo }: GoogleAdsOauthLauncherProps) {
  const [status, setStatus] = useState<"idle" | "opening" | "waiting">("idle");
  const [message, setMessage] = useState<string | null>(null);
  const popupRef = useRef<Window | null>(null);
  const pollRef = useRef<number | null>(null);
- const connectHref = useMemo(() => `/api/google-ads/connect/${businessSlug}`, [businessSlug]);
- const popupHref = useMemo(() => `${connectHref}?popup=1`, [connectHref]);
+ const connectHref = useMemo(() => `/api/google-ads/connect/${businessSlug}${returnTo?`?returnTo=${encodeURIComponent(returnTo)}`:""}`, [businessSlug,returnTo]);
+ const popupHref = useMemo(() => `${connectHref}${connectHref.includes("?")?"&":"?"}popup=1`, [connectHref]);
 
  useEffect(() => {
   const onMessage = (event: MessageEvent) => {

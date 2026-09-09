@@ -94,6 +94,52 @@ export async function buildLocationPage(slug:string,sourceLocationKey:string,ded
  redirect(editorPath(slug,createdId!));
 }
 
+async function resolveManualLocation(supabase:any,businessId:string,value:string){
+ const input=value.trim().replace(/\s+/g," ");
+ if(/^\d{5}$/.test(input)){
+  const [{data:business},{data:location}]=await Promise.all([
+   supabase.from("businesses").select("city,state,postal_code").eq("id",businessId).maybeSingle(),
+   supabase.from("service_locations").select("city,state,postal_code").eq("business_id",businessId).eq("is_deleted",false).eq("postal_code",input).limit(1).maybeSingle(),
+  ]);
+  const match=location??(business?.postal_code===input?business:null);
+  if(!match?.city||!match?.state)return null;
+  return{key:`${String(match.city).trim()}, ${String(match.state).trim().toUpperCase()}`,city:String(match.city).trim(),state:String(match.state).trim().toUpperCase(),postalCode:input};
+ }
+ const match=input.match(/^([a-z][a-z .'-]{1,79})(?:,?\s+([a-z]{2}))?$/i);
+ if(!match)return null;
+ let state=match[2]?.toUpperCase()??"";
+ if(!state){const {data:business}=await supabase.from("businesses").select("state").eq("id",businessId).maybeSingle();state=String(business?.state??"").trim().toUpperCase();}
+ if(!/^[A-Z]{2}$/.test(state))return null;
+ const city=match[1]!.trim().replace(/\b\w/g,letter=>letter.toUpperCase());
+ return{key:`${city}, ${state}`,city,state,postalCode:null};
+}
+
+export async function addLocalSeoLocation(slug:string,formData:FormData){
+ const {supabase,business,user,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))redirect(destination(slug,"error","Only owners and administrators can add service-area locations."));
+ const resolved=await resolveManualLocation(supabase,business.id,text(formData.get("location"),100));
+ if(!resolved)redirect(destination(slug,"error","Enter a valid city and state, or a ZIP already associated with this business."));
+ const [{data:existingByKey},{data:existingByCity},{data:territories}]=await Promise.all([
+  supabase.from("business_location_pages").select("id").eq("business_id",business.id).ilike("source_location_key",resolved.key).neq("status","archived").limit(1).maybeSingle(),
+  supabase.from("business_location_pages").select("id").eq("business_id",business.id).ilike("city",resolved.city).neq("status","archived").limit(1).maybeSingle(),
+  supabase.from("workforce_territories").select("name,postal_codes,strategy_config").eq("business_id",business.id).eq("is_active",true),
+ ]);
+ const existingPage=existingByKey??existingByCity;
+ if(existingPage?.id)redirect(editorPath(slug,existingPage.id));
+ const inServiceArea=(territories??[]).some((area:any)=>String(area.name??"").toLowerCase().includes(resolved.city.toLowerCase())||(Array.isArray(area.strategy_config?.cities)&&area.strategy_config.cities.some((city:unknown)=>String(city).toLowerCase()===resolved.city.toLowerCase()))||(resolved.postalCode&&Array.isArray(area.postal_codes)&&area.postal_codes.includes(resolved.postalCode)));
+ const addToServiceArea=formData.get("addToServiceArea")==="yes";
+ if(!inServiceArea&&!addToServiceArea){
+  const params=new URLSearchParams({pendingLocation:resolved.key});
+  if(resolved.postalCode)params.set("pendingZip",resolved.postalCode);
+  redirect(`${pagePath(slug)}?${params.toString()}#add-location`);
+ }
+ if(!inServiceArea){
+  const {error}=await supabase.from("workforce_territories").insert({business_id:business.id,name:resolved.key,territory_type:"service_area",postal_codes:resolved.postalCode?[resolved.postalCode]:[],neighborhoods:[],strategy_config:{cities:[resolved.city]},is_active:true,created_by:user.id,updated_by:user.id});
+  if(error)redirect(destination(slug,"error",error.code==="23505"?"That service area already exists.":"Servonas could not add this service area."));
+ }
+ await buildLocationPage(slug,resolved.key,`local-seo:location-page:${resolved.key}`);
+}
+
 export async function saveLocationPage(slug:string,pageId:string,formData:FormData){
  const {supabase,business,user,role}=await requireWorkspace(slug);if(!canManageBusiness(role))redirect(destination(slug,"error","Only owners and administrators can edit location pages."));
  const sections=JSON.parse(text(formData.get("sections"),20000)||"[]"),faqs=JSON.parse(text(formData.get("faqs"),20000)||"[]");
