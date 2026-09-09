@@ -94,7 +94,9 @@ test("location pages have a reusable lifecycle, editor, public rendering, and si
  assert.match(migration,/business_location_pages/);assert.match(migration,/draft','published','archived/);
  assert.match(actions,/generateLocationPage/);assert.match(actions,/publishLocationPage/);assert.match(actions,/status:"published"/);
  assert.match(editor,/SEO details/);assert.match(editor,/Saving…/);assert.match(submit,/useFormStatus/);assert.match(landing,/application\/ld\+json/);assert.match(landing,/Nearby areas we serve/);
- assert.match(domainRoute,/LocationLanding/);assert.match(slugRoute,/LocationLanding/);assert.match(sitemap,/business_location_pages/);
+ assert.match(landing,/Bounce House & Party Rentals/);assert.match(landing,/Check Availability/);assert.match(landing,/Get a Quote/);assert.match(landing,/aria-label="Breadcrumb"/);
+ assert.match(landing,/Customer reviews/);assert.match(landing,/How it works/);assert.match(landing,/Quick action/);assert.doesNotMatch(landing,/TenantMainWebsiteLink/);
+ assert.match(domainRoute,/LocationLanding/);assert.match(slugRoute,/LocationLanding/);assert.match(domainRoute,/landingType="location"/);assert.match(slugRoute,/landingType="location"/);assert.match(sitemap,/business_location_pages/);
 });
 
 test("location page build preflights required storage before calling AI and reports persistence failures",async()=>{

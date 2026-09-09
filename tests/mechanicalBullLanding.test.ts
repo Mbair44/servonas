@@ -19,6 +19,9 @@ test("mechanical-bull landing uses live inventory, existing booking, and date av
  assert.match(loader,/operator_mode/);
  assert.match(page,/embed:"1",item:itemId/);
  assert.match(component,/mechanical_bull_check_availability/);
+ assert.match(component,/TenantBookingFunnelTracker businessSlug=\{data\.bookingSlug\}/);
+ assert.match(component,/landingType="inventory_item"/);
+ assert.match(component,/inventoryItemId=\{item\.id\}/);
  assert.match(booking,/initialItemId/);
  assert.match(middleware,/path==="\/mechanical-bull-rental"/);
 });

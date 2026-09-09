@@ -16,7 +16,7 @@ test("custom domains resolve published category pages instead of returning an ea
 });
 
 test("category landing pages reuse promotion styling and tenant branding only",async()=>{
- const [landing,hosted,layout]=await Promise.all([read("components/CategoryLanding.tsx"),read("app/sites/[siteSlug]/[promotionSlug]/page.tsx"),read("app/layout.tsx")]);
+ const [landing,hosted,domain,layout]=await Promise.all([read("components/CategoryLanding.tsx"),read("app/sites/[siteSlug]/[promotionSlug]/page.tsx"),read("app/sites/domain/[domain]/[promotionSlug]/page.tsx"),read("app/layout.tsx")]);
  assert.match(landing,/promotion-landing category-landing/);
  assert.match(landing,/business\.logoUrl/);
  assert.match(landing,/business\.phone/);
@@ -27,5 +27,7 @@ test("category landing pages reuse promotion styling and tenant branding only",a
  assert.match(hosted,/booking_settings/);
  assert.match(hosted,/websiteUrl=\{websiteUrl\}/);
  assert.match(hosted,/logo_url,brand_color/);
+ assert.match(hosted,/landingType="category"/);
+ assert.match(domain,/landingType="category"/);
  assert.match(layout,/!barePublicShell&&<footer/);
 });

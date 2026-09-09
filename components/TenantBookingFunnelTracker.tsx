@@ -72,7 +72,16 @@ export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, opti
  void fetch(`/api/public-booking/${encodeURIComponent(slug)}/funnel`, { method: "POST", headers: { "content-type": "application/json" }, keepalive: true, cache: "no-store", credentials: "same-origin", body: JSON.stringify(payload) }).then((response) => logDebug(slug, event, "fetch_complete", { status: response.status, eventType: payload.metadata.timing_event_type ?? event, flushReason: payload.metadata.timing_flush_reason ?? null, sendMethod: "fetch", persistSucceeded: response.ok })).catch(() => logDebug(slug, event, "fetch_failed", { eventType: payload.metadata.timing_event_type ?? event, flushReason: payload.metadata.timing_flush_reason ?? null, sendMethod: "fetch", persistSucceeded: false }));
 }
 
-export function TenantBookingFunnelTracker({ businessSlug, initialSessionId }: { businessSlug: string; initialSessionId?: string }) {
+type TenantBookingFunnelTrackerProps = {
+ businessSlug: string;
+ initialSessionId?: string;
+ landingType?: "website" | "promotion" | "location" | "category" | "inventory_item";
+ landingId?: string;
+ landingLabel?: string;
+ inventoryItemId?: string;
+};
+
+export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, landingType = "website", landingId, landingLabel, inventoryItemId }: TenantBookingFunnelTrackerProps) {
  const pathname = usePathname();
  const searchParams = useSearchParams();
  const routeKey = `${pathname || "/"}?${searchParams?.toString() || ""}`;
@@ -88,7 +97,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId }: {
   if (!sent.current) {
    sent.current = true;
    sessionStartedAt.current = Date.now();
-   trackBookingFunnel(businessSlug, "landing_page_view");
+   trackBookingFunnel(businessSlug, "landing_page_view", { inventoryItemId, metadata: { landing_type: landingType, landing_id: landingId ?? null, landing_label: landingLabel ?? null } });
   } else {
    trackBookingFunnel(businessSlug, "landing_view", { metadata: { navigation_type: "spa" } });
   }
@@ -148,7 +157,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId }: {
    document.removeEventListener("change", onChange, true);
    document.removeEventListener("submit", onSubmit, true);
   };
- }, [businessSlug, initialSessionId, routeKey, pathname, searchParams]);
+ }, [businessSlug, initialSessionId, inventoryItemId, landingId, landingLabel, landingType, routeKey, pathname, searchParams]);
  useEffect(() => {
   if (!analyticsEnabled || typeof window === "undefined") return;
   let activeStartedAt: number | null = shouldCountPageAsActive(document.visibilityState, document.hasFocus()) ? Date.now() : null;
