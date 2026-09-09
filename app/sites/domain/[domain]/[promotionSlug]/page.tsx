@@ -4,6 +4,7 @@ import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
 import {PromotionLanding} from "@/components/PromotionLanding";
 import {CategoryLanding} from "@/components/CategoryLanding";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
+import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 import {LocationLanding} from "@/components/LocationLanding";
 import type {Metadata} from "next";
 
@@ -26,9 +27,9 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
  if(promotion){
   const {data:categories}=await db.from("promotion_categories").select("category_id").eq("promotion_id",promotion.id);
   const categoryIds=new Set((categories??[]).map(row=>row.category_id));
-  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<PromotionLanding promotion={promotion} business={site} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl="/booking" websiteUrl="/"/></>;
+  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>}<PromotionLanding promotion={promotion} business={site} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl="/booking" websiteUrl="/"/></>;
  }
- if(categoryPage)return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking" websiteUrl="/"/></>;
+ if(categoryPage)return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking" websiteUrl="/"/></>;
  if(!locationPage)notFound();
- return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}<LocationLanding page={locationPage} business={site} websiteUrl="/" ctaUrl={site.bookingEnabled?"/booking":"/#contact"} nearbyPages={nearbyPages??[]}/></>;
+ return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>}<LocationLanding page={locationPage} business={site} websiteUrl="/" ctaUrl={site.bookingEnabled?"/booking":"/#contact"} nearbyPages={nearbyPages??[]}/></>;
 }

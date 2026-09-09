@@ -8,8 +8,9 @@ test("custom domains resolve published category pages instead of returning an ea
  const route=await read("app/sites/domain/[domain]/[promotionSlug]/page.tsx");
  assert.match(route,/from\("category_website_pages"\)/);
  assert.match(route,/eq\("status","published"\)/);
- assert.match(route,/if\(!categoryPage\)notFound\(\)/);
- assert.ok(route.indexOf("if(!categoryPage)notFound()")>route.indexOf("if(promotion)"));
+ assert.match(route,/if\(categoryPage\)return/);
+ assert.match(route,/if\(!locationPage\)notFound\(\)/);
+ assert.ok(route.indexOf("if(categoryPage)return")>route.indexOf("if(promotion)"));
  assert.match(route,/<CategoryLanding/);
  assert.match(route,/item\.category_id===categoryPage\.category_id/);
 });

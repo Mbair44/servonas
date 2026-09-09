@@ -5,6 +5,7 @@ import {PromotionLanding} from "@/components/PromotionLanding";
 import {CategoryLanding} from "@/components/CategoryLanding";
 import {LocationLanding} from "@/components/LocationLanding";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
+import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 
 export const dynamic="force-dynamic";
 
@@ -32,8 +33,8 @@ export default async function PublicLandingPage({params}:{params:Promise<{siteSl
  ]);
  if(!business)notFound();
  const brandedBusiness={...business,logoUrl:bookingBrand?.logo_url??null,primaryColor:bookingBrand?.brand_color??business?.primary_color,services:services??[],rentalItems:(items??[]).map(item=>({...item,imageUrl:item.image_url,dailyPriceCents:item.daily_price_cents}))};
- if(promotion){const categoryIds=new Set((await db.from("promotion_categories").select("category_id").eq("promotion_id",promotion.id)).data?.map(row=>row.category_id)??[]);return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<PromotionLanding promotion={promotion} business={brandedBusiness} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl={`/book/${siteSlug}`} websiteUrl={websiteUrl}/></>;}
- if(categoryPage)return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<CategoryLanding page={categoryPage} business={brandedBusiness} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl={`/book/${siteSlug}`} websiteUrl={websiteUrl}/></>;
+ if(promotion){const categoryIds=new Set((await db.from("promotion_categories").select("category_id").eq("promotion_id",promotion.id)).data?.map(row=>row.category_id)??[]);return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<TenantBookingFunnelTracker businessSlug={siteSlug}/><PromotionLanding promotion={promotion} business={brandedBusiness} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl={`/book/${siteSlug}`} websiteUrl={websiteUrl}/></>;}
+ if(categoryPage)return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<TenantBookingFunnelTracker businessSlug={siteSlug}/><CategoryLanding page={categoryPage} business={brandedBusiness} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl={`/book/${siteSlug}`} websiteUrl={websiteUrl}/></>;
  if(!locationPage)notFound();
- return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<LocationLanding page={locationPage} business={brandedBusiness} websiteUrl={websiteUrl} ctaUrl={bookingBrand?.enabled?`/book/${siteSlug}`:`${websiteUrl}#contact`} nearbyPages={nearbyPages??[]}/></>;
+ return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<TenantBookingFunnelTracker businessSlug={siteSlug}/><LocationLanding page={locationPage} business={brandedBusiness} websiteUrl={websiteUrl} ctaUrl={bookingBrand?.enabled?`/book/${siteSlug}`:`${websiteUrl}#contact`} nearbyPages={nearbyPages??[]}/></>;
 }
