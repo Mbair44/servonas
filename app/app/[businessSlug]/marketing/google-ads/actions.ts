@@ -642,7 +642,7 @@ export async function updateGoogleAdsAdGroupAction(slug:string,campaignId:string
 
 export async function prepareGoogleAdsAdGroupAction(slug:string,campaignId:string,formData:FormData){
  const {supabase,business,user}=await context(slug);
- const target=text(formData,"advertisingTarget"),[kind,id]=target.split(":");
+ const target=text(formData,"advertisingTarget"),requestedCity=text(formData,"promotionCity"),requestedLandingPage=text(formData,"promotionLandingPage"),[kind,id]=target.split(":");
  if(!id||!["service","inventory","category"].includes(kind))redirect(path(slug,"error","Choose what you want to advertise."));
  const [{data:campaign},{data:website},{data:territories},{data:service},{data:inventory},{data:category},{data:categoryPage},{data:categoryItems},{data:existingGroups}]=await Promise.all([
   supabase.from("business_google_ads_campaigns").select("*").eq("business_id",business.id).eq("id",campaignId).maybeSingle(),
@@ -657,11 +657,14 @@ export async function prepareGoogleAdsAdGroupAction(slug:string,campaignId:strin
  ]);
  if(!campaign)redirect(path(slug,"error","The campaign could not be found."));
  const chosen:any=service??inventory??category;if(!chosen)redirect(path(slug,"error","That service is not available for this business."));
- const serviceName=String(categoryPage?.title||chosen.name),productContext=(categoryItems??[]).map((item:any)=>`${item.name}${item.description?`: ${item.description}`:""}`).join(" | ").slice(0,3000);
+ const citySupported=Boolean(requestedCity&&(territories??[]).some((row:any)=>String(row.name??"").toLowerCase().includes(requestedCity.toLowerCase())));
+ const serviceName=`${String(categoryPage?.title||chosen.name)}${citySupported?` ${requestedCity}`:""}`,productContext=(categoryItems??[]).map((item:any)=>`${item.name}${item.description?`: ${item.description}`:""}`).join(" | ").slice(0,3000);
  const websiteInput=website?{publicSlug:website.public_slug??null,customDomain:website.custom_domain??null,status:website.status??null,domainStatus:website.domain_status??null,heroHeading:categoryPage?.title??website.hero_heading??null,heroSubheading:categoryPage?.intro??website.hero_subheading??null,aboutText:[categoryPage?.meta_description,productContext,website.about_text].filter(Boolean).join(" | ")||null}:null;
  const recommendations=googleAdsRecommendedLandingPages({website:websiteInput,businessSlug:business.slug,businessName:business.name,serviceName,dedicatedPage:categoryPage?{slug:categoryPage.slug,published:categoryPage.status==="published"}:null});
  const dedicatedRoot=website?.custom_domain&&website.domain_status==="connected"?`https://${website.custom_domain}`:website?.public_slug&&website.status==="published"?`${(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"")}/sites/${website.public_slug}`:null;
- const destinationUrl=categoryPage?.status==="published"&&dedicatedRoot?`${dedicatedRoot}/${categoryPage.slug}`:recommendations.find(entry=>entry.recommended)?.url??campaign.destination_url;
+ let requestedDestination:string|null=null;
+ if(citySupported&&requestedLandingPage&&dedicatedRoot){try{const candidate=new URL(requestedLandingPage),root=new URL(dedicatedRoot),rootPath=root.pathname.replace(/\/$/,"");if(candidate.protocol==="https:"&&candidate.origin===root.origin&&(!rootPath||candidate.pathname===rootPath||candidate.pathname.startsWith(`${rootPath}/`)))requestedDestination=candidate.toString().replace(/\/$/,"");}catch{/* Ignore malformed or off-tenant destinations. */}}
+ const destinationUrl=requestedDestination??(categoryPage?.status==="published"&&dedicatedRoot?`${dedicatedRoot}/${categoryPage.slug}`:recommendations.find(entry=>entry.recommended)?.url??campaign.destination_url);
  const draft=await generateGoogleAdsDraft({businessId:business.id,businessName:business.name,industry:business.industry_profile,userId:user.id,service:{id:chosen.id,name:serviceName,description:String(chosen.description??categoryPage?.intro??productContext??"")||null},rentalItem:null,website:websiteInput,businessLocation:{city:business.city??null,state:business.state??null},serviceAreas:(territories??[]).map((row:any)=>String(row.name)),geoTargetType:(campaign.geo_target_type??"service_area") as any,geoValues:Array.isArray(campaign.geo_target_config?.values)?campaign.geo_target_config.values.map(String):[],radiusMiles:Number(campaign.geo_target_config?.radiusMiles)||null,dailyBudgetDollars:Number(campaign.daily_budget_micros??0)/1_000_000,biddingStrategy:campaign.bidding_strategy==="MANUAL_CPC"?"MANUAL_CPC":"MAXIMIZE_CLICKS",manualCpcBidDollars:Number(campaign.manual_cpc_bid_micros??0)/1_000_000});
  const existingKeywords=new Set((existingGroups??[]).flatMap((group:any)=>Array.isArray(group.keywords)?group.keywords:[]).map((value:any)=>String(value).trim().toLowerCase()));
  const keywords=draft.keywords.filter(value=>!existingKeywords.has(value.toLowerCase()));
@@ -671,7 +674,7 @@ export async function prepareGoogleAdsAdGroupAction(slug:string,campaignId:strin
  const priorDraft=(existingGroups??[]).find((group:any)=>group.status==="draft"&&String(group.ad_group_name).toLowerCase()===draft.adGroupName.toLowerCase());
  const {data:saved,error}=priorDraft?await supabase.from("business_google_ads_ad_groups").update(draftRecord).eq("business_id",business.id).eq("campaign_id",campaignId).eq("id",priorDraft.id).select("id").single():await supabase.from("business_google_ads_ad_groups").insert({...draftRecord,created_by:user.id}).select("id").single();
  if(error||!saved)redirect(path(slug,"error","Servonas could not prepare this ad group."));
- await writeGoogleAdsAuditLog({businessId:business.id,campaignId,actorUserId:user.id,eventType:"google_ads_ad_group_draft_prepared",metadata:{targetType:kind,targetId:id,destinationUrl,overlapCount,aiGenerated:draft.aiGenerated}});
+ await writeGoogleAdsAuditLog({businessId:business.id,campaignId,actorUserId:user.id,eventType:"google_ads_ad_group_draft_prepared",metadata:{targetType:kind,targetId:id,destinationUrl,promotionCity:citySupported?requestedCity:null,locationPageUsed:Boolean(requestedDestination),overlapCount,aiGenerated:draft.aiGenerated}});
  revalidatePath(`/app/${slug}/marketing/google-ads`);
  redirect(`/app/${encodeURIComponent(slug)}/marketing/google-ads?adGroupDraft=${encodeURIComponent(saved.id)}&success=${encodeURIComponent(`Servonas prepared your ${serviceName} ad group. Nothing has been published yet.`)}`);
 }
