@@ -1878,8 +1878,8 @@ export async function exchangeGoogleAdsCode(code: string, context: { businessId?
  });
 }
 
-export function createGoogleAdsOauthState(businessSlug: string, businessId: string, actorUserId?: string | null, popup?: boolean) {
- return { state: randomBytes(24).toString("base64url"), businessSlug, businessId, actorUserId: actorUserId ?? null, popup: popup === true };
+export function createGoogleAdsOauthState(businessSlug: string, businessId: string, actorUserId?: string | null, popup?: boolean, returnTo?: string | null) {
+ return { state: randomBytes(24).toString("base64url"), businessSlug, businessId, actorUserId: actorUserId ?? null, popup: popup === true, returnTo: returnTo ?? null };
 }
 
 export function googleAdsOauthUrl(state: string, options?: { forceAccountSelection?: boolean }) {

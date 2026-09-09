@@ -422,7 +422,7 @@ export default async function GoogleAdsPage({
  searchParams,
 }: {
  params: Promise<{ businessSlug: string }>;
- searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string; adGroupDraft?:string; promoteCity?:string; landingPage?:string }>;
+ searchParams: Promise<{ from?: string; to?: string; error?: string; success?: string; diagnostic?: string; manageLocations?: string; locationQuery?: string; adGroupDraft?:string; promoteCity?:string; landingPage?:string; returnTo?:string }>;
 }) {
  const { businessSlug } = await params;
  const query = await searchParams;
@@ -779,7 +779,7 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
      <strong>Do you already have a Google Ads account?</strong>
      <p>Start here and Servonas will walk you through the rest. You do not need to know Google Ads terminology to get going.</p>
     </div>
-    <GoogleAdsOauthLauncher businessSlug={businessSlug} />
+    <GoogleAdsOauthLauncher businessSlug={businessSlug} returnTo={query.returnTo}/>
    </section>}
    <div className="google-ads-guide-progress">
     <strong>Setup progress: {setupProgressCount} of {setupSteps.length} complete</strong>
@@ -847,8 +847,8 @@ const cplMicros = metricsTotals.conversions ? metricsTotals.spendMicros / metric
    </article>)}
   </section> : null}
 
-  {query.promoteCity&&query.landingPage?<section className="workspace-notice info google-ads-location-handoff" id="google-ads-campaigns"><strong>Promote {query.promoteCity}</strong><span>Servonas will use the matching location page for local searches instead of sending those visitors to your general homepage.</span><a href={query.landingPage} target="_blank" rel="noopener noreferrer">{query.landingPage}</a><small>Choose the service you want to advertise below. Servonas will prepare the searches and ad copy for your review before anything is published.</small></section>:null}
-  {hasCampaigns && <section className="google-ads-primary-stack" id={query.promoteCity?undefined:"google-ads-campaigns"}>
+  {query.promoteCity&&query.landingPage?<section className="workspace-notice info google-ads-location-handoff" id="google-ads-campaigns"><span>Recommended local promotion</span><strong>Promote {query.promoteCity}</strong><p>Reach people searching for your services in {query.promoteCity}. Servonas will use the matching city page instead of your general homepage.</p><div><b>Recommended services</b><ul>{(services??[]).slice(0,3).map((service:any)=><li key={service.id}>{service.name}</li>)}</ul></div><div><b>Landing page</b><a href={query.landingPage} target="_blank" rel="noopener noreferrer">{query.promoteCity} location page</a></div><div><b>Suggested starting budget</b><span>$5/day</span></div>{hasCampaigns?<a className="sv-button" href="#city-promotion-builder">Start {query.promoteCity} Ads</a>:<span>Finish Google Ads setup below, then Servonas will prepare this promotion.</span>}<details><summary>Review details</summary><small>Servonas will prepare high-intent city and service searches, exclusions for irrelevant traffic, responsive ad copy, city targeting, and the existing booking conversion tracking. Nothing publishes without your approval.</small></details></section>:null}
+  {hasCampaigns && <section className="google-ads-primary-stack" id={query.promoteCity?"city-promotion-builder":"google-ads-campaigns"}>
    <section className="google-ads-campaign-grid">
     {campaignCards.map(({ campaign, metric, effectiveGoogleStatus, effectivePrimaryStatus, primaryStatusReasons, statusSyncUnavailable, issuesAvailable, effectiveCardStatus, statusLabel, summary }) => {
      const syncedAt = formatTimestamp(campaign.last_sync_at, business.timezone);

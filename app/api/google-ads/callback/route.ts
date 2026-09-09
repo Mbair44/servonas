@@ -5,8 +5,11 @@ import { isServonasPlatformAdmin, platformAdminRole } from "@/lib/platformAccess
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { completeGoogleAdsOauth, discoverGoogleAdsAccounts, googleAdsRedirectUri, persistGoogleAdsOauthConnection, recordGoogleAdsBetaEvent, writeGoogleAdsAuditLog } from "@/lib/googleAdsManagement";
 
-const destination = (slug: string, kind: "success" | "error", message: string) =>
- new URL(`/app/${encodeURIComponent(slug)}/marketing/google-ads?${kind}=${encodeURIComponent(message)}`, process.env.NEXT_PUBLIC_APP_URL || "https://servonas.com");
+const destination = (slug: string, kind: "success" | "error", message: string, returnTo?:string|null) => {
+ const safeReturnTo=returnTo?.startsWith(`/app/${encodeURIComponent(slug)}/`)&&!returnTo.startsWith("//")?returnTo:null;
+ const url=new URL(safeReturnTo||`/app/${encodeURIComponent(slug)}/marketing/google-ads`,process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com");
+ url.searchParams.set(kind,message);return url;
+};
 
 const popupCompletionHtml = (redirectUrl: string, ok: boolean, message: string) => `<!doctype html>
 <html lang="en">
@@ -58,10 +61,10 @@ export async function GET(request: NextRequest) {
  const store = await cookies();
  const raw = store.get("servonas_google_ads_oauth")?.value;
  store.delete("servonas_google_ads_oauth");
- let saved: { state: string; businessSlug: string; businessId: string; actorUserId?: string | null; popup?: boolean } | null = null;
+ let saved: { state: string; businessSlug: string; businessId: string; actorUserId?: string | null; popup?: boolean; returnTo?:string|null } | null = null;
  try { saved = raw ? JSON.parse(raw) : null; } catch {}
  if (!saved || !state || state !== saved.state || !code) {
-  const redirectUrl = destination(saved?.businessSlug || "", "error", "Google Ads authorization could not be verified.").toString();
+  const redirectUrl = destination(saved?.businessSlug || "", "error", "Google Ads authorization could not be verified.",saved?.returnTo).toString();
   return saved?.popup ? popupResponse(redirectUrl, false, "Google Ads authorization could not be verified.") : NextResponse.redirect(redirectUrl);
  }
  const supabase = await createSupabaseServerClient();
@@ -74,7 +77,7 @@ export async function GET(request: NextRequest) {
   hasSavedActorUserId: Boolean(saved.actorUserId),
  });
  if (!user) {
-  const redirectUrl = destination(saved.businessSlug, "error", "Sign in to Servonas again, then reconnect Google Ads.").toString();
+  const redirectUrl = destination(saved.businessSlug, "error", "Sign in to Servonas again, then reconnect Google Ads.",saved.returnTo).toString();
   return saved.popup ? popupResponse(redirectUrl, false, "Sign in to Servonas again, then reconnect Google Ads.") : NextResponse.redirect(redirectUrl);
  }
  if (saved.actorUserId && saved.actorUserId !== user.id) {
@@ -85,7 +88,7 @@ export async function GET(request: NextRequest) {
    reason: "initiator_mismatch",
    sessionUserId: user.id,
   });
-  const redirectUrl = destination(saved.businessSlug, "error", "Google Ads reconnect must be completed by the Servonas user who started it. Please reconnect again.").toString();
+  const redirectUrl = destination(saved.businessSlug, "error", "Google Ads reconnect must be completed by the Servonas user who started it. Please reconnect again.",saved.returnTo).toString();
   return saved.popup ? popupResponse(redirectUrl, false, "Google Ads reconnect must be completed by the Servonas user who started it. Please reconnect again.") : NextResponse.redirect(redirectUrl);
  }
  const isPlatformAdmin = isServonasPlatformAdmin(user);
@@ -108,7 +111,7 @@ export async function GET(request: NextRequest) {
    isPlatformAdmin,
    isOwner: business?.owner_user_id === user.id,
   });
-  const redirectUrl = destination(saved.businessSlug, "error", "Google Ads authorization is not permitted for this workspace.").toString();
+  const redirectUrl = destination(saved.businessSlug, "error", "Google Ads authorization is not permitted for this workspace.",saved.returnTo).toString();
   return saved.popup ? popupResponse(redirectUrl, false, "Google Ads authorization is not permitted for this workspace.") : NextResponse.redirect(redirectUrl);
  }
  console.info("Google Ads callback workspace authorization completed", {
@@ -189,11 +192,11 @@ export async function GET(request: NextRequest) {
     });
   }
   const message = discovery.userMessage;
-  const redirectUrl = destination(saved.businessSlug, "success", message).toString();
+  const redirectUrl = destination(saved.businessSlug, "success", message,saved.returnTo).toString();
   return saved.popup ? popupResponse(redirectUrl, true, message) : NextResponse.redirect(redirectUrl);
  } catch (error) {
   const message = error instanceof Error ? error.message : "Google Ads connection failed.";
-  const redirectUrl = destination(saved.businessSlug, "error", message).toString();
+  const redirectUrl = destination(saved.businessSlug, "error", message,saved.returnTo).toString();
   return saved.popup ? popupResponse(redirectUrl, false, message) : NextResponse.redirect(redirectUrl);
  }
 }

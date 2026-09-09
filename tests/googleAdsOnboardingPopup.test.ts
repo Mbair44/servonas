@@ -33,8 +33,9 @@ test("google ads onboarding uses popup oauth with safe fallback and same-origin 
  assert.match(callbackRoute, /type:"servonas:google-ads-oauth-complete"/);
  assert.match(callbackRoute, /window\.opener\.postMessage\(payload,window\.location\.origin\)/);
  assert.match(callbackRoute, /window\.close\(\)/);
- assert.match(connectRoute, /const popup = new URL\(request\.url\)\.searchParams\.get\("popup"\) === "1"/);
- assert.match(connectRoute, /createGoogleAdsOauthState\(businessSlug, business\.id, user\.id, popup\)/);
+ assert.match(connectRoute, /popup=requestUrl\.searchParams\.get\("popup"\) === "1"/);
+ assert.match(connectRoute, /createGoogleAdsOauthState\(businessSlug, business\.id, user\.id, popup, returnTo\)/);
+ assert.match(callbackRoute,/saved\.returnTo/);
 });
 
 test("google ads onboarding keeps roadmap, progress, readiness checks, and hides internal identity from tenant-facing summary", async () => {

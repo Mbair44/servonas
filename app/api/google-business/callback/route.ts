@@ -104,7 +104,16 @@ export async function GET(request:Request){
   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"oauth_connected",googleAccountId:existingConnection?.google_account_id??null,googleLocationId:existingConnection?.google_location_id??null,locationTitle:existingConnection?.location_title??null});
   log("google_business_credentials_persist_completed",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,credentialRowId:saved.businessId,hasRefreshToken:true,connectionStatus:"oauth_connected"});
   stage="account_discovery";log("google_business_account_discovery_started",{googleBusinessCallbackId:callbackId,platformRequestId:requestId,businessId:saved.businessId,googleBusinessOperationId:callbackId});
-  const discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,businessSlug:saved.businessSlug,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??"",knownAccountId:existingConnection?.google_account_id});
+  let discovery;
+  try{
+   discovery=await discoverGoogleBusinessLocations(token.access_token!,{googleBusinessOperationId:callbackId,businessId:saved.businessId,businessSlug:saved.businessSlug,actorUserId:user.id,stage:"account_discovery",businessName:business?.name??"",knownAccountId:existingConnection?.google_account_id});
+  }catch(error){
+   if(!(error instanceof GoogleBusinessApiError)||error.httpStatus!==429)throw error;
+   const retry=nextGoogleBusinessDiscoveryRetry(1,error.retryAfter,Number(error.diagnostics.retryInfoSeconds??null)||null),attemptedAt=new Date().toISOString();
+   await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",googleAccountId:existingConnection?.google_account_id??null,googleLocationId:existingConnection?.google_location_id??null,locationTitle:existingConnection?.location_title??null,lastDiscoveryAttemptAt:attemptedAt,retryAfterAt:retry.at,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:"Google is connected. Account discovery is temporarily limited. Try again later.",discoveryRetryAttemptCount:1,discoveryOperationId:callbackId,discoveryRetrySource:retry.source,discoveryDiagnostics:error.diagnostics});
+   const redirectDestination=destination(saved.businessSlug,"success","Google is connected. Account discovery is temporarily limited. Try again later.");
+   return redirect({stage:"account_discovery",success:true,url:redirectDestination,businessId:saved.businessId,businessSlug:saved.businessSlug,userId:user.id});
+  }
   if(discovery.rateLimited){
    const retry=nextGoogleBusinessDiscoveryRetry(1,discovery.retryAfter,discovery.retryInfoSeconds);
    await persistGoogleBusinessConnection({businessId:saved.businessId,connectedBy:user.id,refreshToken:token.refresh_token,status:"account_discovery_rate_limited",googleAccountId:existingConnection?.google_account_id??null,googleLocationId:existingConnection?.google_location_id??null,locationTitle:existingConnection?.location_title??null,lastDiscoveryAttemptAt:new Date().toISOString(),retryAfterAt:retry.at,lastDiscoveryErrorCode:"rate_limited",lastDiscoveryErrorMessage:discovery.userMessage,discoveryRetryAttemptCount:1,discoveryOperationId:callbackId,discoveryRetrySource:retry.source,discoveryDiagnostics:discovery.diagnostics});
