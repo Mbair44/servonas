@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 import { canManageBusiness, canManageCustomers } from "@/lib/access";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
+import {validateDeliverySettings,type DeliveryPricingSettings,type DeliveryTier} from "@/lib/deliveryPricing";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 const checked=(f:FormData,k:string)=>f.get(k)==="on";
 const number=(f:FormData,k:string,fallback=0)=>{const n=Number(text(f,k));return Number.isFinite(n)?n:fallback;};
@@ -35,6 +36,21 @@ export async function saveRentalDeposit(slug:string,formData:FormData){
  const {error}=await supabase.from("booking_settings").update({rental_deposit_percent:percent,updated_at:new Date().toISOString()}).eq("business_id",business.id);
  if(error){console.error("Rental deposit setting save failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/booking?error=Rental+deposit+could+not+be+saved.+Apply+the+latest+database+migration`);}
  refresh(slug);redirect(`/app/${slug}/booking?success=Rental+deposit+updated`);
+}
+export async function saveDeliveryFeeSettings(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");
+ if(!canManageBusiness(role))redirect(`/app/${slug}/booking/delivery?error=Only+owners+and+admins+can+change+delivery+settings`);
+ let tiers:DeliveryTier[]=[];try{const parsed=JSON.parse(text(formData,"tiers"));if(Array.isArray(parsed))tiers=parsed.map(row=>({upToMiles:Number(row.upToMiles),feeCents:Math.round(Number(row.feeCents))}));}catch{redirect(`/app/${slug}/booking/delivery?error=Delivery+tiers+could+not+be+read`);}
+ const pricingMethod=text(formData,"pricingMethod")==="per_mile"?"per_mile":"distance_tiers",freeRadiusMiles=number(formData,"freeRadiusMiles"),maximumRaw=text(formData,"maximumDistanceMiles"),outsideRaw=text(formData,"outsideAreaAction"),outsideAreaAction=outsideRaw==="block"||outsideRaw==="long_distance_fee"?outsideRaw:"request_quote";
+ const pricing:DeliveryPricingSettings={enabled:checked(formData,"enabled"),pricingMethod,freeRadiusMiles,tiers,perMileRateCents:Math.round(number(formData,"perMileRate")*100),minimumFeeCents:Math.round(number(formData,"minimumFee")*100),maximumDistanceMiles:maximumRaw?Number(maximumRaw):null,outsideAreaAction,longDistanceFeeCents:Math.round(number(formData,"longDistanceFee")*100)};
+ const validation=validateDeliverySettings(pricing);if(validation)redirect(`/app/${slug}/booking/delivery?error=${encodeURIComponent(validation)}`);
+ const originAddressLine1=text(formData,"originAddressLine1"),originAddressLine2=text(formData,"originAddressLine2")||null,originCity=text(formData,"originCity"),originState=text(formData,"originState").toUpperCase(),originPostalCode=text(formData,"originPostalCode");
+ if(pricing.enabled&&(!originAddressLine1||!originCity||!/^[A-Z]{2}$/.test(originState)||!/^\d{5}(?:-\d{4})?$/.test(originPostalCode)))redirect(`/app/${slug}/booking/delivery?error=${encodeURIComponent("Enter a complete starting address.")}`);
+ const {data:existing}=await supabase.from("delivery_fee_settings").select("origin_address_line1,origin_address_line2,origin_city,origin_state,origin_postal_code").eq("business_id",business.id).maybeSingle();
+ const addressChanged=!existing||existing.origin_address_line1!==originAddressLine1||existing.origin_address_line2!==originAddressLine2||existing.origin_city!==originCity||existing.origin_state!==originState||existing.origin_postal_code!==originPostalCode;
+ const {error}=await supabase.from("delivery_fee_settings").upsert({business_id:business.id,enabled:pricing.enabled,origin_address_line1:originAddressLine1||null,origin_address_line2:originAddressLine2,origin_city:originCity||null,origin_state:originState||null,origin_postal_code:originPostalCode||null,origin_country_code:"US",...(addressChanged?{origin_place_id:null,origin_latitude:null,origin_longitude:null}:{}),pricing_method:pricing.pricingMethod,free_radius_miles:pricing.freeRadiusMiles,tiers:pricing.tiers,per_mile_rate_cents:pricing.perMileRateCents,minimum_fee_cents:pricing.minimumFeeCents,maximum_distance_miles:pricing.maximumDistanceMiles,outside_area_action:pricing.outsideAreaAction,long_distance_fee_cents:pricing.longDistanceFeeCents,delivery_taxable:checked(formData,"deliveryTaxable"),updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
+ if(error){console.error("Delivery settings save failed",{businessId:business.id,code:error.code});redirect(`/app/${slug}/booking/delivery?error=Delivery+settings+could+not+be+saved.+Apply+the+latest+database+migration`);}
+ refresh(slug);revalidatePath(`/app/${slug}/booking/delivery`);redirect(`/app/${slug}/booking/delivery?success=Delivery+policy+updated`);
 }
 export async function uploadBookingLogo(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"online_booking");if(!canManageBusiness(role))redirect(`/app/${slug}/booking?error=Only+owners+and+admins+can+change+the+booking+logo`);

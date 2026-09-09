@@ -295,6 +295,27 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
   revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(completionMessage)}`);
 }
 
+export async function overrideBookingDeliveryFee(slug:string,jobId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const amount=Number(text(formData,"deliveryFee")),reason=text(formData,"overrideReason");
+ if(!Number.isFinite(amount)||amount<0||amount>100000)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Enter a valid delivery fee.")}`);
+ const [{data:booking},{data:invoice},{data:job}]=await Promise.all([
+  supabase.from("bookings").select("id,status,tax_cents,total_cents,balance_due_cents,delivery_fee_cents,delivery_rule_snapshot").eq("business_id",business.id).eq("job_id",jobId).maybeSingle(),
+  supabase.from("invoices").select("id,status").eq("business_id",business.id).eq("job_id",jobId).neq("status","void").maybeSingle(),
+  supabase.from("jobs").select("subtotal,total_amount").eq("business_id",business.id).eq("id",jobId).maybeSingle(),
+ ]);
+ if(!booking)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("This job does not have a delivery-price snapshot.")}`);
+ if(invoice&&invoice.status!=="draft")redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Delivery cannot be changed after the invoice has been finalized.")}`);
+ const feeCents=Math.round(amount*100),rule=booking.delivery_rule_snapshot&&typeof booking.delivery_rule_snapshot==="object"?booking.delivery_rule_snapshot as Record<string,unknown>:{},taxRateBasisPoints=Number(rule.taxRateBasisPoints??0),oldTaxCents=Number(booking.tax_cents??0),newTaxCents=Math.round(feeCents*taxRateBasisPoints/10000),difference=feeCents-Number(booking.delivery_fee_cents??0)+newTaxCents-oldTaxCents,now=new Date().toISOString();
+ const {error}=await supabase.from("bookings").update({delivery_fee_cents:feeCents,tax_cents:newTaxCents,total_cents:Math.max(0,Number(booking.total_cents)+difference),balance_due_cents:Math.max(0,Number(booking.balance_due_cents)+difference),delivery_fee_override_reason:reason||null,delivery_fee_overridden_by:user.id,delivery_fee_overridden_at:now}).eq("id",booking.id).eq("business_id",business.id);
+ if(error)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Delivery fee could not be updated.")}`);
+ if(job)await supabase.from("jobs").update({subtotal:Number(job.subtotal)+difference/100,total_amount:Number(job.total_amount)+difference/100,updated_by:user.id}).eq("id",jobId).eq("business_id",business.id);
+ if(invoice?.status==="draft"){await supabase.from("invoices").update({fee_total_cents:feeCents,tax_total_cents:newTaxCents}).eq("id",invoice.id).eq("business_id",business.id);await supabase.from("invoice_fees").delete().eq("business_id",business.id).eq("invoice_id",invoice.id).eq("name_snapshot","Delivery");if(feeCents>0)await supabase.from("invoice_fees").insert({business_id:business.id,invoice_id:invoice.id,name_snapshot:"Delivery",amount_cents:feeCents,sort_order:900});}
+ await supabase.from("booking_funnel_events").insert({business_id:business.id,booking_id:booking.id,event_name:"delivery_fee_overridden",metadata:{original_fee_cents:Number(booking.delivery_fee_cents??0),final_fee_cents:feeCents,has_reason:Boolean(reason),actor_user_id:user.id}});
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Delivery fee updated.")}`);
+}
+
 export async function cancelJob(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
