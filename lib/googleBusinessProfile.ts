@@ -160,7 +160,7 @@ async function listGoogleBusinessLocationsUncached(accessToken:string,context:Go
  const retries=0;
  const knownAccountId=clean(context.knownAccountId,200).replace(/^accounts\//,"");
  let accounts:GoogleBusinessAccountsResponse;
- if(knownAccountId){
+ if(knownAccountId&&!context.force){
   accounts={accounts:[{name:`accounts/${knownAccountId}`}]};
   log("google_business_account_discovery_skipped_known_account",{googleBusinessOperationId:context.googleBusinessOperationId,businessId:context.businessId,businessSlug:context.businessSlug??null,stage:context.stage,accountId:knownAccountId});
  }else{
@@ -226,7 +226,7 @@ export async function retryGoogleBusinessLocationDiscovery(input:{businessId:str
  const {data:connection,error}=await db.from("business_google_profile_connections").select("refresh_token,status,google_account_id,google_location_id,location_title,retry_after_at,last_discovery_attempt_at,discovery_retry_attempt_count,discovery_retry_source").eq("business_id",input.businessId).maybeSingle();
  if(error)throw new GoogleBusinessPersistenceError(safePersistenceMessage(error),{persistenceType,tableName:persistenceResourceName,endpointPath:persistenceEndpointPath,method:"GET",operation:"select",conflictKey:persistenceConflictKey,httpStatus:persistenceStatus(error),databaseErrorCode:databaseErrorCode(error),safeErrorMessage:safePersistenceMessage(error)});
  if(!connection?.refresh_token)throw new Error("Reconnect Google Business Profile before retrying account discovery.");
- if(connection.google_account_id&&connection.google_location_id){
+ if(!input.force&&connection.google_account_id&&connection.google_location_id){
   const now=new Date().toISOString(),title=connection.location_title||input.businessName;
   await persistGoogleBusinessConnection({businessId:input.businessId,connectedBy:input.connectedBy,refreshToken:connection.refresh_token,status:"connected",googleAccountId:connection.google_account_id,googleLocationId:connection.google_location_id,locationTitle:title,lastDiscoverySuccessAt:now,retryAfterAt:null,lastDiscoveryErrorCode:null,lastDiscoveryErrorMessage:null,discoveryRetryAttemptCount:0,discoveryOperationId:input.googleBusinessOperationId});
   log("google_business_account_discovery_skipped_known_location",{businessId:input.businessId,businessSlug:input.businessSlug,stage:"account_discovery_retry",accountId:connection.google_account_id,locationId:connection.google_location_id,operationId:input.googleBusinessOperationId});
@@ -243,7 +243,7 @@ export async function retryGoogleBusinessLocationDiscovery(input:{businessId:str
  }
  const refreshContext={googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,businessSlug:input.businessSlug,stage:"oauth_token_refresh"};
  const accessToken=await refreshAccessToken(connection.refresh_token,refreshContext);
- const discovery=await discoverGoogleBusinessLocations(accessToken,{googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,businessSlug:input.businessSlug,actorUserId:input.actorUserId,stage:"account_discovery_retry",businessName:input.businessName,knownAccountId:connection.google_account_id,force:input.force});
+ const discovery=await discoverGoogleBusinessLocations(accessToken,{googleBusinessOperationId:input.googleBusinessOperationId,businessId:input.businessId,businessSlug:input.businessSlug,actorUserId:input.actorUserId,stage:"account_discovery_retry",businessName:input.businessName,knownAccountId:input.force?null:connection.google_account_id,force:input.force});
  const now=new Date().toISOString();
  if(discovery.rateLimited){
   const attempt=Number(connection.discovery_retry_attempt_count??0)+1,retry=nextGoogleBusinessDiscoveryRetry(attempt,discovery.retryAfter,discovery.retryInfoSeconds),nextRetryAt=retry.at,limitType=rateLimitType(discovery.diagnostics);
