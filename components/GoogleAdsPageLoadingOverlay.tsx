@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 
 const interactiveSelector = [
  "form",
@@ -18,6 +19,12 @@ function actionableLink(target: EventTarget | null) {
 export function GoogleAdsPageLoadingOverlay() {
  const [active, setActive] = useState(false);
  const [message, setMessage] = useState("Working on Google Ads…");
+ const pathname = usePathname();
+ const searchParams = useSearchParams();
+
+ useEffect(() => {
+  setActive(false);
+ }, [pathname, searchParams]);
 
  useEffect(() => {
   const root = document.querySelector(".google-ads-page");
