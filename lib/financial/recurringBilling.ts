@@ -42,18 +42,20 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
  let autoSend=useBusinessDefaults
   ?!Boolean(businessBilling?.review_before_processing)
   :customerBilling.auto_send_invoice??!Boolean(businessBilling?.review_before_processing);
- const {data:rentalBooking}=await db.from("bookings").select("id,subtotal_cents,total_cents,discount_cents,amount_paid_cents,balance_due_cents,final_payment_authorized_at,stripe_customer_id,stripe_payment_method_id").eq("business_id",invoice.business_id).eq("job_id",jobId).maybeSingle();
+ const {data:rentalBooking}=await db.from("bookings").select("id,subtotal_cents,tax_cents,total_cents,discount_cents,amount_paid_cents,balance_due_cents,delivery_fee_cents,final_payment_authorized_at,stripe_customer_id,stripe_payment_method_id").eq("business_id",invoice.business_id).eq("job_id",jobId).maybeSingle();
  if(rentalBooking){
   const rentalBalance=rentalCompletionBalance({subtotalCents:rentalBooking.subtotal_cents,totalCents:rentalBooking.total_cents,discountCents:rentalBooking.discount_cents,amountPaidCents:rentalBooking.amount_paid_cents,balanceDueCents:rentalBooking.balance_due_cents});
   const {error:rentalInvoiceError}=await db.from("invoices").update({
-   billing_method_snapshot:rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id?"auto_charge_after_completion":"invoice_after_completion",subtotal_cents:rentalBalance.subtotalCents,discount_total_cents:rentalBalance.discountCents,
-   grand_total_cents:rentalBalance.totalCents,deposit_type:rentalBalance.amountPaidCents>0?"fixed":"none",deposit_value:rentalBalance.amountPaidCents,deposit_required_cents:rentalBalance.amountPaidCents,
+   billing_method_snapshot:rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id?"auto_charge_after_completion":"invoice_after_completion",subtotal_cents:Number(rentalBooking.subtotal_cents??rentalBalance.subtotalCents),discount_total_cents:rentalBalance.discountCents,
+   tax_total_cents:Number(rentalBooking.tax_cents??0),fee_total_cents:Number(rentalBooking.delivery_fee_cents??0),grand_total_cents:rentalBalance.totalCents,deposit_type:rentalBalance.amountPaidCents>0?"fixed":"none",deposit_value:rentalBalance.amountPaidCents,deposit_required_cents:rentalBalance.amountPaidCents,
    amount_paid_cents:rentalBalance.amountPaidCents,balance_due_cents:rentalBalance.balanceDueCents,
   }).eq("id",invoiceId).eq("status","draft");
   if(rentalInvoiceError){
    console.error("Rental balance invoice preparation failed",{jobId,invoiceId,bookingId:rentalBooking.id,code:rentalInvoiceError.code});
    return{ok:false,invoiceId,error:rentalInvoiceError.code};
   }
+  await db.from("invoice_fees").delete().eq("business_id",invoice.business_id).eq("invoice_id",invoiceId).eq("name_snapshot","Delivery");
+  if(Number(rentalBooking.delivery_fee_cents)>0)await db.from("invoice_fees").insert({business_id:invoice.business_id,invoice_id:invoiceId,name_snapshot:"Delivery",amount_cents:Number(rentalBooking.delivery_fee_cents),sort_order:900});
   invoice.balance_due_cents=rentalBalance.balanceDueCents;
   const rentalAutopayAuthorized=Boolean(rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id);
   billingMethod=rentalAutopayAuthorized?"auto_charge_after_completion":"invoice_after_completion";

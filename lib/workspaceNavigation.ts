@@ -31,6 +31,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
   {id:"sales",label:"Sales",children:[
    {id:"estimates",label:"Estimates",href:`${base}/estimates`},
    {id:"online-booking",label:"Online Booking",href:`${base}/booking`},
+   {id:"delivery-settings",label:"Delivery & Service Area",href:`${base}/booking/delivery`},
   ]},
   {id:"marketing",label:"Marketing",icon:"chart",children:[
    {id:"funnel",label:"Funnel",href:`${base}/marketing/funnel`},

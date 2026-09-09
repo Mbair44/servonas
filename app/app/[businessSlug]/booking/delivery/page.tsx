@@ -1,0 +1,12 @@
+import Link from "next/link";
+import {WorkspaceNav} from "../../WorkspaceNav";
+import {requireWorkspace} from "@/lib/workspace";
+import {canManageBusiness} from "@/lib/access";
+import {DeliverySettingsEditor} from "@/components/DeliverySettingsEditor";
+import {saveDeliveryFeeSettings} from "../actions";
+
+export default async function DeliverySettingsPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{success?:string;error?:string}>}){
+ const {businessSlug}=await params,query=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
+ const {data:settings}=await supabase.from("delivery_fee_settings").select("*").eq("business_id",business.id).maybeSingle();
+ return <div className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><main className="epic3-content"><header className="epic3-header"><div><small>Online booking</small><h1>Delivery &amp; Service Area</h1><p>Set one simple policy and Servonas will show each customer their delivery or trip fee before payment.</p></div><Link href={`/app/${businessSlug}/booking`}>Back to booking</Link></header>{query.success&&<div className="workspace-notice success">{query.success}</div>}{query.error&&<div className="workspace-notice error">{query.error}</div>}<section className="workspace-panel"><div className="panel-title"><div><h2>Your delivery policy</h2><span>Distance is the normal one-way driving distance from your starting address.</span></div></div><DeliverySettingsEditor disabled={!canManageBusiness(role)} action={saveDeliveryFeeSettings.bind(null,businessSlug)} settings={{enabled:Boolean(settings?.enabled),origin_address_line1:settings?.origin_address_line1??business.address_line1,origin_address_line2:settings?.origin_address_line2??business.address_line2,origin_city:settings?.origin_city??business.city,origin_state:settings?.origin_state??business.state,origin_postal_code:settings?.origin_postal_code??business.postal_code,pricing_method:settings?.pricing_method,free_radius_miles:settings?.free_radius_miles,per_mile_rate_cents:settings?.per_mile_rate_cents,minimum_fee_cents:settings?.minimum_fee_cents,maximum_distance_miles:settings?.maximum_distance_miles,outside_area_action:settings?.outside_area_action,long_distance_fee_cents:settings?.long_distance_fee_cents,delivery_taxable:settings?.delivery_taxable,tiers:settings?.tiers}}/></section></main></div>;
+}
