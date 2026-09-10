@@ -17,6 +17,6 @@ export default async function PublicBusinessSite({params}:{params:Promise<{siteS
  const {siteSlug}=await params,db=getSupabaseAdmin();if(!db)notFound();
  const {data:settings}=await db.from("business_website_settings").select("*").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!settings)notFound();
- const site=await loadBusinessWebsiteData(db,settings);if(!site)notFound();
+ const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:true,cacheExternalReviews:true});if(!site)notFound();
  return <BusinessWebsite site={site} requestAction={submitWebsiteRequest.bind(null,siteSlug)} leadCaptureAction={submitWebsiteLeadCapture.bind(null,siteSlug)}/>;
 }

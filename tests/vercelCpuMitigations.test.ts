@@ -10,6 +10,8 @@ test("custom-domain website route reuses cached public website data",async()=>{
  assert.doesNotMatch(page,/from\("business_website_settings"\)/);
  assert.match(lib,/unstable_cache/);
  assert.match(lib,/const loadCachedPublishedBusinessWebsiteByDomain=unstable_cache/);
+ assert.match(lib,/const loadCachedGoogleBusinessProfileReviews=unstable_cache/);
+ assert.match(lib,/includeExternalReviews:true,cacheExternalReviews:true/);
  assert.match(lib,/export async function loadPublishedBusinessWebsiteByDomain/);
  assert.match(lib,/return queryPublishedBusinessWebsiteByDomain\(rawDomain,route\)/);
  assert.match(lib,/domainLookupTimeoutMs=2_500/);
