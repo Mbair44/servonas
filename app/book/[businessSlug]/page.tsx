@@ -29,7 +29,7 @@ export default async function PublicBookingPage({
   const query = await searchParams;
   const embedded = query.embed === "1";
   const googleMapsApiKey=publicGoogleMapsApiKey();
-  const data=await loadPublicBookingData(businessSlug);
+  const data=await loadPublicBookingData(businessSlug,query.promotion);
   if (!data) notFound();
   const {settings,services,schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
 

@@ -34,7 +34,7 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
  const query=await searchParams;
  const embedded=query.embed==="1";
  const googleMapsApiKey=publicGoogleMapsApiKey();
- const data=await loadPublicBookingData(bookingSlug);
+ const data=await loadPublicBookingData(bookingSlug,query.promotion);
  if(!data)notFound();
  const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
 

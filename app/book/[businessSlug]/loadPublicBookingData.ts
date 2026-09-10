@@ -19,7 +19,7 @@ export const loadPublicBookingSettings=unstable_cache(async(businessSlug:string)
   return settings??null;
 },["public-booking-settings"],{revalidate:300});
 
-export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
+export const loadPublicBookingData=unstable_cache(async(businessSlug:string,promotionCode?:string)=>{
   const supabase=getSupabaseAdmin();
   if(!supabase)return null;
   const settings=await loadPublicBookingSettings(businessSlug);
@@ -75,6 +75,10 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string)=>{
     ]);
     const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}]));
     rentalInventory=(data??[]).sort((left,right)=>{const a=categoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=categoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||a.name.localeCompare(b.name)||left.name.localeCompare(right.name);});
+    if(promotionCode){
+      const {data:discount}=await supabase.from("discounts").select("id,is_active").eq("business_id",settings.business_id).ilike("code",promotionCode).maybeSingle();
+      if(discount?.is_active){const {data:targets}=await supabase.from("discount_items").select("inventory_item_id").eq("business_id",settings.business_id).eq("discount_id",discount.id);const eligible=new Set((targets??[]).map(row=>row.inventory_item_id));rentalInventory=rentalInventory.filter(item=>eligible.has(item.id));}
+    }
     rentalUpsells=(upsells??[]).reduce((map:Record<string,string[]>,row)=>{(map[row.source_item_id]??=[]).push(row.suggested_item_id);return map;},{});
     for(const row of itemBlockedDates??[]){
       if(!row.inventory_item_id||!row.blocked_date)continue;

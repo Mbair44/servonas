@@ -117,7 +117,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
     if (href.startsWith("tel:")) trackBookingFunnel(businessSlug, "phone_click", { metadata });
     else if (href.startsWith("sms:")) trackBookingFunnel(businessSlug, "sms_click", { metadata });
     else if (href.startsWith("mailto:")) trackBookingFunnel(businessSlug, "email_click", { metadata });
-    else if (isBookingUrl(new URL(target.href, location.href), businessSlug)) trackBookingFunnel(businessSlug, "booking_cta_click", { metadata });
+    else if (isBookingUrl(new URL(target.href, location.href), businessSlug)) trackBookingFunnel(businessSlug, "booking_cta_click", { inventoryItemId:target.dataset.inventoryItemId||undefined, metadata });
     else trackBookingFunnel(businessSlug, "link_click", { metadata });
     return;
    }
