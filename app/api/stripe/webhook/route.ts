@@ -1,16 +1,37 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
+import {ensureRentalBookingJob,RentalBookingJobPersistenceError} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingSms } from "@/lib/sms";
 import { stripeConnectState } from "@/lib/stripeConnect";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import {recordBookingFunnelEvent} from "@/lib/bookingFunnel";
+import {createBusinessNotification} from "@/lib/businessNotifications";
+import {fulfillPaidRentalBooking} from "@/lib/rentalPaymentFulfillment";
 
 export const runtime = "nodejs";
 
 type AdminClient=NonNullable<ReturnType<typeof getSupabaseAdmin>>;
+type DatabaseError={code?:string;message?:string;details?:string;hint?:string};
+
+function sanitizedDatabaseError(error:DatabaseError|null|undefined){
+ return error?{code:error.code??null,message:error.message??null,details:error.details??null,hint:error.hint??null}:null;
+}
+
+class PaidRentalWebhookError extends Error{
+ constructor(
+  message:string,
+  readonly operation:string,
+  readonly resource:string,
+  readonly downstreamStatus:number|null=null,
+  readonly downstreamResponse:ReturnType<typeof sanitizedDatabaseError>=null,
+ ){super(message);this.name="PaidRentalWebhookError";}
+}
+
+function requireDatabaseSuccess(error:DatabaseError|null|undefined,operation:string,resource:string){
+ if(error)throw new PaidRentalWebhookError(`${operation} failed (${error.code??"unknown"}).`,operation,resource,400,sanitizedDatabaseError(error));
+}
 
 async function payloadHash(rawBody:string){
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(rawBody));
@@ -156,6 +177,55 @@ async function processInvoiceRefundEvent(event:Stripe.Event,rawBody:string,supab
   }
 }
 
+async function beginPaidRentalEvent(event:Stripe.Event,rawBody:string,supabase:AdminClient,bookingId:string,businessId:string|null){
+ const accountId=typeof event.account==="string"?event.account:null;
+ const inserted=await supabase.from("payment_webhook_events").insert({
+  provider:"stripe",provider_event_id:event.id,provider_account_id:accountId,event_type:event.type,
+  processing_status:"processing",attempt_count:1,payload_hash:await payloadHash(rawBody),
+  safe_metadata:{booking_id:bookingId,business_id:businessId,workflow:"rental_booking"},
+ }).select("id,processing_status,attempt_count").single();
+ if(!inserted.error&&inserted.data)return {id:inserted.data.id,duplicate:false};
+ if(inserted.error?.code!=="23505")throw new PaidRentalWebhookError("Paid rental webhook ledger is unavailable.","webhook_ledger_insert","payment_webhook_events",400,sanitizedDatabaseError(inserted.error));
+ const existing=await supabase.from("payment_webhook_events").select("id,processing_status,attempt_count").eq("provider","stripe").eq("provider_event_id",event.id).maybeSingle();
+ requireDatabaseSuccess(existing.error,"webhook_ledger_lookup","payment_webhook_events");
+ if(!existing.data)throw new PaidRentalWebhookError("Paid rental webhook ledger entry was not found.","webhook_ledger_lookup","payment_webhook_events");
+ if(existing.data.processing_status==="processed")return {id:existing.data.id,duplicate:true};
+ const retried=await supabase.from("payment_webhook_events").update({
+  processing_status:"processing",attempt_count:Number(existing.data.attempt_count??0)+1,last_error:null,
+  safe_metadata:{booking_id:bookingId,business_id:businessId,workflow:"rental_booking",retry:true},
+ }).eq("id",existing.data.id);
+ requireDatabaseSuccess(retried.error,"webhook_ledger_retry","payment_webhook_events");
+ return {id:existing.data.id,duplicate:false};
+}
+
+async function recordPaidRentalFailure(input:{
+ supabase:AdminClient;ledgerId:string|null;event:Stripe.Event;bookingId:string;businessId:string|null;businessSlug:string|null;
+ checkoutSessionId:string;paymentIntentId:string|null;customerId:string|null;jobId:string|null;error:unknown;
+}){
+ const failure=input.error instanceof PaidRentalWebhookError?input.error:input.error instanceof RentalBookingJobPersistenceError
+  ?new PaidRentalWebhookError(input.error.message,input.error.operation,input.error.resource,400,sanitizedDatabaseError(input.error.databaseError))
+  :new PaidRentalWebhookError(input.error instanceof Error?input.error.message:"Unknown paid rental fulfillment failure.","rental_fulfillment","bookings/jobs");
+ const recovery={
+  businessId:input.businessId,businessSlug:input.businessSlug,stripeEventId:input.event.id,stripeEventType:input.event.type,
+  checkoutSessionId:input.checkoutSessionId,paymentIntentId:input.paymentIntentId,bookingId:input.bookingId,
+  customerId:input.customerId,jobId:input.jobId,failingOperation:failure.operation,downstreamResource:failure.resource,
+  downstreamStatus:failure.downstreamStatus,downstreamResponse:failure.downstreamResponse,message:failure.message,retryState:"retryable",
+ };
+ if(input.ledgerId)await input.supabase.from("payment_webhook_events").update({
+  processing_status:"failed",last_error:failure.message.slice(0,1000),safe_metadata:{workflow:"rental_booking",...recovery},
+ }).eq("id",input.ledgerId);
+ console.error("PAID BOOKING FAILED TO CREATE JOB",recovery);
+ if(input.businessId){
+  try{await createBusinessNotification({
+   businessId:input.businessId,type:"paid_booking_job_creation_failed",category:"payments",title:"Paid booking failed to create job",
+   body:"Stripe confirmed this payment, but Servonas could not finish the operational job. The payment must not be charged again.",
+   priority:"urgent",actionLabel:"Review booking",actionUrl:input.businessSlug?`/app/${input.businessSlug}/jobs`:null,
+   externalResourceId:input.bookingId,dedupeKey:`paid-booking-job-failure:${input.bookingId}`,
+   metadata:{stripeEventId:input.event.id,checkoutSessionId:input.checkoutSessionId,paymentIntentId:input.paymentIntentId,bookingId:input.bookingId,customerId:input.customerId,jobId:input.jobId,failingOperation:failure.operation,retryState:"retryable"},
+  });}catch(notificationError){console.error("Paid booking failure notification could not be saved",{businessId:input.businessId,bookingId:input.bookingId,message:notificationError instanceof Error?notificationError.message:"unknown"});}
+ }
+}
+
 export async function POST(request: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -249,80 +319,66 @@ export async function POST(request: Request) {
     const eventSession = event.data.object as Stripe.Checkout.Session;
     const bookingId = eventSession.metadata?.booking_id;
     if (bookingId && eventSession.payment_status === "paid") {
-      const session = await stripe.checkout.sessions.retrieve(eventSession.id, {
-        expand: ["discounts.promotion_code", "discounts.coupon", "payment_intent.payment_method"],
-      },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
-      const finalTotalCents = Number(session.metadata?.total_cents || 0);
-      const amountPaidCents = Number(session.amount_total || 0);
-      const discountCents = Number(session.metadata?.discount_cents || 0);
-      const businessId=session.metadata?.business_id;
-      const discount = session.discounts?.[0];
-      const promotionCode = discount && typeof discount !== "string" && discount.promotion_code;
-      const coupon = discount && typeof discount !== "string" && discount.coupon;
-      const promotionCodeId =
-  typeof promotionCode === "string"
-    ? promotionCode
-    : promotionCode && typeof promotionCode === "object"
-      ? promotionCode.id
-      : null;
-
-const couponId =
-  typeof coupon === "string"
-    ? coupon
-    : coupon && typeof coupon === "object"
-      ? coupon.id
-      : null;
-
-      await supabase.from("bookings").update({
-        status: "confirmed",
-        stripe_checkout_session_id: session.id,
-        stripe_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id??null,
-        deposit_cents: amountPaidCents,
-        amount_paid_cents: amountPaidCents,
-        discount_cents: discountCents,
-        balance_due_cents: Math.max(0, finalTotalCents - amountPaidCents),
-        discount_id:session.metadata?.discount_id||null,
-        discount_code:session.metadata?.discount_code||null,
-        discount_name:session.metadata?.discount_name||null,
-        stripe_promotion_code_id: promotionCodeId,
-        stripe_coupon_id: couponId,
-        paid_at: new Date().toISOString(),
-      }).eq("id", bookingId);
-
-      if(session.metadata?.final_payment_authorized==="true"){
+      let ledgerId:string|null=null,jobId:string|null=null,customerId:string|null=null,businessId=eventSession.metadata?.business_id??null,businessSlug:string|null=null;
+      let paymentIntentId=typeof eventSession.payment_intent==="string"?eventSession.payment_intent:eventSession.payment_intent?.id??null;
+      try{
+        const ledger=await beginPaidRentalEvent(event,rawBody,supabase,bookingId,businessId);
+        ledgerId=ledger.id;
+        if(ledger.duplicate)return NextResponse.json({received:true,duplicate:true});
+        const session=await stripe.checkout.sessions.retrieve(eventSession.id,{
+          expand:["discounts.promotion_code","discounts.coupon","payment_intent.payment_method"],
+        },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
+        paymentIntentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id??null;
+        const finalTotalCents=Number(session.metadata?.total_cents||0),amountPaidCents=Number(session.amount_total||0),discountCents=Number(session.metadata?.discount_cents||0);
+        businessId=session.metadata?.business_id??businessId;
+        if(businessId){const business=await supabase.from("businesses").select("slug").eq("id",businessId).maybeSingle();businessSlug=business.data?.slug??null;}
+        const discount=session.discounts?.[0],promotionCode=discount&&typeof discount!=="string"&&discount.promotion_code,coupon=discount&&typeof discount!=="string"&&discount.coupon;
+        const promotionCodeId=typeof promotionCode==="string"?promotionCode:promotionCode&&typeof promotionCode==="object"?promotionCode.id:null;
+        const couponId=typeof coupon==="string"?coupon:coupon&&typeof coupon==="object"?coupon.id:null;
         const intent=typeof session.payment_intent==="object"?session.payment_intent:null;
         const paymentMethod=intent&&typeof intent.payment_method==="object"?intent.payment_method as Stripe.PaymentMethod:null;
         const providerCustomerId=typeof session.customer==="string"?session.customer:session.customer?.id??null;
-        if(providerCustomerId&&paymentMethod?.id){
-          const {error:authorizationError}=await supabase.from("bookings").update({
-            final_payment_authorized_at:new Date(event.created*1000).toISOString(),
-            stripe_customer_id:providerCustomerId,
-            stripe_payment_method_id:paymentMethod.id,
-          }).eq("id",bookingId);
-          if(authorizationError)throw new Error(`Rental final-payment authorization could not be saved (${authorizationError.code}).`);
-        }else{
-          console.error("Rental final-payment method was not returned by Stripe",{bookingId,businessId,checkoutSessionId:session.id,hasCustomer:Boolean(providerCustomerId),hasPaymentMethod:Boolean(paymentMethod?.id)});
-        }
+        jobId=await fulfillPaidRentalBooking({
+          confirmBooking:async()=>{
+            const confirmed=await supabase.from("bookings").update({
+              status:"confirmed",stripe_checkout_session_id:session.id,stripe_payment_intent_id:paymentIntentId,
+              deposit_cents:amountPaidCents,amount_paid_cents:amountPaidCents,discount_cents:discountCents,
+              balance_due_cents:Math.max(0,finalTotalCents-amountPaidCents),discount_id:session.metadata?.discount_id||null,
+              discount_code:session.metadata?.discount_code||null,discount_name:session.metadata?.discount_name||null,
+              stripe_promotion_code_id:promotionCodeId,stripe_coupon_id:couponId,paid_at:new Date().toISOString(),
+            }).eq("id",bookingId).select("id,business_id,customer_id,job_id").maybeSingle();
+            requireDatabaseSuccess(confirmed.error,"confirm_paid_booking","bookings");
+            if(!confirmed.data)throw new PaidRentalWebhookError("The paid booking record was not found.","confirm_paid_booking","bookings",404,null);
+            if(businessId&&confirmed.data.business_id!==businessId)throw new PaidRentalWebhookError("The paid booking tenant does not match Stripe metadata.","verify_booking_tenant","bookings",409,null);
+            businessId=confirmed.data.business_id??businessId;customerId=confirmed.data.customer_id??null;jobId=confirmed.data.job_id??null;
+          },
+          confirmItems:async()=>{const result=await supabase.from("booking_items").update({status:"confirmed"}).eq("booking_id",bookingId);requireDatabaseSuccess(result.error,"confirm_booking_items","booking_items");},
+          ensureJob:async()=>ensureRentalBookingJob(supabase,bookingId),
+          saveFinalPaymentAuthorization:async()=>{
+            if(session.metadata?.final_payment_authorized!=="true")return;
+            if(!providerCustomerId||!paymentMethod?.id)throw new PaidRentalWebhookError("Stripe did not return the authorized customer payment method.","save_final_payment_authorization","bookings",422,null);
+            const result=await supabase.from("bookings").update({final_payment_authorized_at:new Date(event.created*1000).toISOString(),stripe_customer_id:providerCustomerId,stripe_payment_method_id:paymentMethod.id}).eq("id",bookingId);
+            requireDatabaseSuccess(result.error,"save_final_payment_authorization","bookings");
+          },
+        });
+        if(businessId){const redemption=await supabase.rpc("finalize_discount_redemption",{p_business_id:businessId,p_booking_id:bookingId});requireDatabaseSuccess(redemption.error,"finalize_discount_redemption","rpc/finalize_discount_redemption");}
+        const processed=await supabase.from("payment_webhook_events").update({processing_status:"processed",processed_at:new Date().toISOString(),last_error:null,safe_metadata:{workflow:"rental_booking",business_id:businessId,business_slug:businessSlug,booking_id:bookingId,job_id:jobId,checkout_session_id:session.id,payment_intent_id:paymentIntentId,payment_status:"succeeded"}}).eq("id",ledgerId);
+        requireDatabaseSuccess(processed.error,"webhook_ledger_complete","payment_webhook_events");
+        if(businessId)await supabase.from("business_notifications").update({status:"resolved",resolved_at:new Date().toISOString(),updated_at:new Date().toISOString(),metadata:{bookingId,jobId,retryState:"recovered"}}).eq("business_id",businessId).eq("dedupe_key",`paid-booking-job-failure:${bookingId}`);
+        if(businessId)await Promise.allSettled([
+          recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"booking_completed",eventKey:`${bookingId}:booking_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
+          recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"payment_completed",eventKey:`${bookingId}:payment_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
+        ]);
+        const [emailResult,businessEmailResult]=await Promise.all([sendRentalBookingConfirmationEmail(bookingId,jobId),sendRentalBookingBusinessNotification(bookingId,jobId)]);
+        if(!emailResult.ok||!businessEmailResult.ok)console.error("Paid rental email delivery was incomplete",{bookingId,jobId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});
+        try{
+          if(paymentIntentId){const paymentIntent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:["latest_charge"]},typeof event.account==="string"?{stripeAccount:event.account}:undefined);const charge=typeof paymentIntent.latest_charge==="object"?paymentIntent.latest_charge as Stripe.Charge:null;if(charge?.receipt_url)await supabase.from("bookings").update({stripe_receipt_url:charge.receipt_url}).eq("id",bookingId);}
+          const {data:current}=await supabase.from("bookings").select("confirmation_sms_sent_at").eq("id",bookingId).single();if(!current?.confirmation_sms_sent_at)await sendBookingSms(bookingId,"confirmation");
+        }catch(smsError){console.error("Confirmation SMS failed:",smsError);}
+      }catch(error){
+        await recordPaidRentalFailure({supabase,ledgerId,event,bookingId,businessId,businessSlug,checkoutSessionId:eventSession.id,paymentIntentId,customerId,jobId,error});
+        return NextResponse.json({error:"Stripe confirmed payment, but Servonas could not finish the booking job. The event is safe to retry.",code:"paid_booking_fulfillment_failed"},{status:500});
       }
-
-      await supabase.from("booking_items").update({ status: "confirmed" }).eq("booking_id", bookingId);
-      if(businessId)await supabase.rpc("finalize_discount_redemption",{p_business_id:businessId,p_booking_id:bookingId});
-      if(businessId)await Promise.allSettled([
-        recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"booking_completed",eventKey:`${bookingId}:booking_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
-        recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"payment_completed",eventKey:`${bookingId}:payment_completed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe",item_count:Number(session.metadata?.item_count??0)},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
-      ]);
-      try{const jobId=await ensureRentalBookingJob(supabase,bookingId);const emailResult=await sendRentalBookingConfirmationEmail(bookingId,jobId);const businessEmailResult=await sendRentalBookingBusinessNotification(bookingId,jobId);if(!emailResult.ok||!businessEmailResult.ok){console.error("Paid rental email delivery was incomplete",{bookingId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});throw new Error("Paid rental confirmation emails were not delivered.");}}catch(jobError){console.error("Confirmed rental post-payment processing failed",{bookingId,error:jobError instanceof Error?jobError.message:"unknown"});throw jobError;}
-
-      try {
-        const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-        if (paymentIntentId) {
-          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] },typeof event.account==="string"?{stripeAccount:event.account}:undefined);
-          const charge = typeof paymentIntent.latest_charge === "object" ? paymentIntent.latest_charge as Stripe.Charge : null;
-          if (charge?.receipt_url) await supabase.from("bookings").update({ stripe_receipt_url: charge.receipt_url }).eq("id", bookingId);
-        }
-        const { data: current } = await supabase.from("bookings").select("confirmation_sms_sent_at").eq("id", bookingId).single();
-        if (!current?.confirmation_sms_sent_at) await sendBookingSms(bookingId, "confirmation");
-      } catch (smsError) { console.error("Confirmation SMS failed:", smsError); }
     }
   }
 
