@@ -61,7 +61,11 @@ test("CAPI remains tenant scoped and never logs credentials",async()=>{
  ]);
  assert.match(route,/from\("business_website_settings"\).*select\("meta_pixel_id"\).*eq\("business_id",businessId\)/s);
  assert.match(sender,/META_CONVERSIONS_API_ACCESS_TOKENS/);
+ assert.match(sender,/configuredPixel===pixelId/);
+ assert.doesNotMatch(sender,/!configuredPixel\|\|configuredPixel===pixelId/);
  assert.match(sender,/authorization:`Bearer \$\{token\}`/);
+ assert.match(sender,/graphVersion,endpoint:details\.endpoint/);
+ assert.match(sender,/response:details\.safeResponse/);
  assert.doesNotMatch(sender,/console\.(?:info|warn|error)\([^;]*\{[^}]*,\s*token(?:[,}])/i);
 });
 
