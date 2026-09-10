@@ -4,7 +4,8 @@ const money=(value:number)=>new Intl.NumberFormat("en-US",{style:"currency",curr
 export function PromotionLanding({promotion,business,items,baseBookingUrl,websiteUrl}:{promotion:any;business:any;items:any[];baseBookingUrl:string;websiteUrl:string}){
  const status=promotionStatus({...promotion,...promotion.discounts},Number(promotion.redemption_count??0)),sold=status==="sold_out"||status==="expired",discount=promotion.discounts;
  const offer=discount.discount_type==="percentage"?`${discount.discount_value/100}% off`:money(discount.discount_value)+" off",remaining=discount.usage_limit==null?null:Math.max(0,Number(discount.usage_limit)-Number(promotion.redemption_count??0));
- const url=`${baseBookingUrl}?promotion=${encodeURIComponent(discount.code)}`;
+ const returnTo=`${websiteUrl.replace(/\/$/,"")}/${promotion.slug}`;
+ const url=`${baseBookingUrl}?promotion=${encodeURIComponent(discount.code)}&promotionId=${encodeURIComponent(promotion.id)}&returnTo=${encodeURIComponent(returnTo)}`;
  const discountedPrice=(price:number)=>discount.discount_type==="percentage"?Math.max(0,Math.round(price*(1-discount.discount_value/10_000))):Math.max(0,price-discount.discount_value);
  return <main className="promotion-landing" style={{"--promotion-brand":business.primaryColor??business.primary_color??"#e8ab29"} as React.CSSProperties}>
   <header className="promotion-landing-header"><Link href={websiteUrl} className="promotion-brand" aria-label={`${business.name} main website`}>{business.logoUrl?<img src={business.logoUrl} alt={`${business.name} logo`}/>:<i>{business.name.slice(0,1)}</i>}<strong>{business.name}</strong></Link><a className="promotion-website-link" href={websiteUrl}>View full website</a></header>
