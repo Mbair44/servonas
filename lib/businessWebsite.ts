@@ -8,7 +8,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {normalizeWebsiteDomain} from "@/lib/website";
 
 type WebsiteRow=Record<string,any>;
-type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean};
+type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean;cacheExternalReviews?:boolean};
 type QueryResult<T>={data:T|null;error:unknown|null};
 type DomainResolutionRoute="/sites/domain/[domain]"|"/sites/domain/[domain]/booking"|"/sites/domain/[domain]/mechanical-bull-rental";
 type DomainLookupFailureKind="timeout"|"supabase_api_error"|"network_error"|"unexpected_error";
@@ -102,7 +102,7 @@ const normalizeQueryResult=<T,>(result:PromiseSettledResult<{data:T|null;error:u
 };
 
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow,options:LoadBusinessWebsiteDataOptions={}):Promise<BusinessSiteData|null>{
- const {includeExternalReviews=false}=options;
+ const {includeExternalReviews=false,cacheExternalReviews=false}=options;
  const businessId=String(settings.business_id);
  const [businessResult,servicesResult,rentalItemsResult,rentalCategoriesResult,hoursResult,territoriesResult,bookingResult,websiteOnboardingResult,promotionResult,locationPagesResult]=await Promise.allSettled([
   db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile,industry_other").eq("id",businessId).eq("is_deleted",false).maybeSingle(),
@@ -155,7 +155,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  let googleRating:null|Awaited<ReturnType<typeof getGoogleBusinessRating>>=null;
  if(includeExternalReviews){
   try{
-   googleProfile=await getGoogleBusinessProfileReviews(business.id);
+   googleProfile=await (cacheExternalReviews?loadCachedGoogleBusinessProfileReviews(business.id):getGoogleBusinessProfileReviews(business.id));
   }catch(error){
    console.warn("Google business profile review fetch failed",{businessId,message:error instanceof Error?error.message:String(error)});
   }
@@ -207,6 +207,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
 
 const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
 const legacyPublicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
+const loadCachedGoogleBusinessProfileReviews=unstable_cache(async(businessId:string)=>getGoogleBusinessProfileReviews(businessId),["public-google-business-profile-reviews"],{revalidate:300});
 
 const isMissingPhotoMotionStyleColumnError=(error:unknown)=>{
  const value=error as {code?:string;message?:string;details?:string;hint?:string}|null;
@@ -268,7 +269,7 @@ async function queryPublishedBusinessWebsiteByDomain(rawDomain:string,route:Doma
  if(publishedResult.kind==="error")return {kind:"unavailable",failure:publishedResult.failure,elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
  const publishedSettings=publishedResult.data?.[0]??null;
  if(publishedSettings){
-  const site=await loadBusinessWebsiteData(db,publishedSettings,{includeExternalReviews:false});
+  const site=await loadBusinessWebsiteData(db,publishedSettings,{includeExternalReviews:true,cacheExternalReviews:true});
   if(!site)return {kind:"not_found",elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
   logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_published_domain",table:"business_website_settings",statusOrCode:200,message:"Resolved custom domain.",elapsedMs:publishedResult.elapsedMs,response:"200",attempt:publishedResult.attemptCount});
   return {kind:"ok",settings:publishedSettings,site,elapsedMs:publishedResult.elapsedMs,attemptCount:publishedResult.attemptCount};
@@ -280,7 +281,7 @@ async function queryPublishedBusinessWebsiteByDomain(rawDomain:string,route:Doma
   logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"resolve_connected_domain",table:"business_website_settings",statusOrCode:404,message:"No matching custom domain found.",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,response:"404",attempt:publishedResult.attemptCount+connectedResult.attemptCount});
   return {kind:"not_found",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};
  }
- const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:false});
+ const site=await loadBusinessWebsiteData(db,settings,{includeExternalReviews:true,cacheExternalReviews:true});
  if(!site){
   logDomainLookupOutcome("info",{domain:rawDomain,route,operation:"hydrate_website",table:"businesses",statusOrCode:404,message:"Domain matched but no active business website data was available.",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,response:"404",attempt:publishedResult.attemptCount+connectedResult.attemptCount});
   return {kind:"not_found",elapsedMs:publishedResult.elapsedMs+connectedResult.elapsedMs,attemptCount:publishedResult.attemptCount+connectedResult.attemptCount};

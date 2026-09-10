@@ -75,7 +75,7 @@ test("promotion and standalone booking routes mount only the resolved tenant pix
   read("app/book/[businessSlug]/loadPublicBookingData.ts"),
  ]);
  assert.match(domainPromotion,/site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
- assert.match(hostedPromotion,/select\("business_id,meta_pixel_id"\)/);
+ assert.match(hostedPromotion,/select\("business_id,meta_pixel_id,/);
  assert.match(hostedPromotion,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
  assert.match(loader,/from\("business_website_settings"\)\.select\("meta_pixel_id"\)/);
  for(const route of [booking,checkout])assert.match(route,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
