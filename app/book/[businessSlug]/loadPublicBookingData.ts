@@ -58,6 +58,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string,prom
   const bookingLogo = signedLogo?.signedUrl ?? settings.logo_url ?? null;
   let rentalInventory: any[] = [];
   const rentalCapacity: Record<string, Record<string, number>> = {};
+  const rentalResourceCapacity: Record<string,number> = {};
   let rentalUpsells: Record<string,string[]> = {};
   let rentalOnlinePaymentsReady = false;
   const rentalBlockedDates: string[] = [];
@@ -67,14 +68,18 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string,prom
       .select("onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
-    const [{data},{data:rentalCategories},{data:upsells},{data:itemBlockedDates}]=await Promise.all([
+    const [{data},{data:resourceItems},{data:requirements},{data:rentalCategories},{data:upsells},{data:itemBlockedDates}]=await Promise.all([
       supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,length_ft,width_ft,height_ft,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected").eq("business_id", settings.business_id).eq("active", true),
+      supabase.from("inventory_items").select("id,stock_quantity").eq("business_id",settings.business_id),
+      supabase.from("rental_listing_inventory_requirements").select("listing_inventory_item_id,resource_inventory_item_id,quantity_required").eq("business_id",settings.business_id),
       supabase.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
       supabase.from("rental_item_upsells").select("source_item_id,suggested_item_id,sort_order").eq("business_id",settings.business_id).order("sort_order"),
       supabase.from("blocked_dates").select("inventory_item_id,blocked_date").eq("business_id",settings.business_id),
     ]);
-    const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}]));
-    rentalInventory=(data??[]).sort((left,right)=>{const a=categoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=categoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||a.name.localeCompare(b.name)||left.name.localeCompare(right.name);});
+    const categoryOrder=new Map((rentalCategories??[]).map((row,index)=>[row.id,{rank:index,name:row.name}])),requirementsByListing=new Map<string,{inventoryItemId:string;quantityRequired:number}[]>();
+    for(const row of requirements??[])(requirementsByListing.get(row.listing_inventory_item_id)??requirementsByListing.set(row.listing_inventory_item_id,[]).get(row.listing_inventory_item_id)!).push({inventoryItemId:row.resource_inventory_item_id,quantityRequired:Number(row.quantity_required)});
+    rentalInventory=(data??[]).map(item=>({...item,required_inventory:requirementsByListing.get(item.id)??[{inventoryItemId:item.id,quantityRequired:1}]})).sort((left,right)=>{const a=categoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=categoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||a.name.localeCompare(b.name)||left.name.localeCompare(right.name);});
+    for(const resource of resourceItems??[])rentalResourceCapacity[resource.id]=Number(resource.stock_quantity);
     if(promotionCode){
       const {data:discount}=await supabase.from("discounts").select("id,is_active").eq("business_id",settings.business_id).ilike("code",promotionCode).maybeSingle();
       if(discount?.is_active){
@@ -103,5 +108,5 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string,prom
     }
   }
   const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
-  return {settings,services:services??[],schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
+  return {settings,services:services??[],schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalResourceCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
 },["public-booking-page"],{revalidate:300});

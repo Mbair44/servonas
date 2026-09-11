@@ -3,6 +3,7 @@ import {loadPublicBookingData} from "@/app/book/[businessSlug]/loadPublicBooking
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {addDays,zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {resolveRentalCalendarDayAvailability,type RentalReservationWindow} from "@/lib/rentalCalendarAvailability";
+import {availableListingQuantity,requirementsForListing} from "@/lib/rentalSharedInventory";
 
 const activeStatuses=["pending_payment","paid","confirmed"];
 const itemIdPattern=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
@@ -25,86 +26,49 @@ async function withAvailabilityTimeout<T>(promise:Promise<T>,operation:string){
  ]);
 }
 
-type BookingItemAvailabilityRow={
- inventory_item_id?:string;
+type ResourceReservationRow={
+ resource_inventory_item_id:string;
  quantity:number|string|null;
- rental_date?:string|null;
- booking_id?:string|null;
- bookings?:any;
+ rental_starts_at:string;
+ rental_ends_at:string;
 };
 
-function reservationWindowFromRow({booking,row,timezone}:{booking:any;row:any;timezone:string}):RentalReservationWindow|null{
- if(booking?.rental_starts_at&&booking?.rental_ends_at){
-  const startsAt=new Date(booking.rental_starts_at),endsAt=new Date(booking.rental_ends_at);
-  if(Number.isNaN(startsAt.getTime())||Number.isNaN(endsAt.getTime())||endsAt<=startsAt)return null;
-  return {startsAt,endsAt,quantity:Number(row.quantity||0)};
- }
- if(!row?.rental_date||typeof booking?.event_start_time!=="string"||typeof booking?.event_end_time!=="string")return null;
- const startClock=time(booking.event_start_time),endClock=time(booking.event_end_time);
- if(startClock.length!==5||endClock.length!==5)return null;
- const startsAt=zonedDateTimeToUtc(row.rental_date,startClock,timezone),endsAt=zonedDateTimeToUtc(row.rental_date,endClock,timezone);
+function reservationWindowFromRow(row:ResourceReservationRow):RentalReservationWindow|null{
+ const startsAt=new Date(row.rental_starts_at),endsAt=new Date(row.rental_ends_at);
  if(Number.isNaN(startsAt.getTime())||Number.isNaN(endsAt.getTime())||endsAt<=startsAt)return null;
  return {startsAt,endsAt,quantity:Number(row.quantity||0)};
 }
 
-async function loadRelevantBookingItemRows({db,businessId,itemId,startDate,endDate,windowStartsAt,windowEndsAt}:{db:NonNullable<ReturnType<typeof getSupabaseAdmin>>;businessId:string;itemId?:string;startDate:string;endDate:string;windowStartsAt:string;windowEndsAt:string}){
- const overlappingBookingsQuery=db.from("bookings")
-  .select("id")
+async function loadRelevantResourceReservations({db,businessId,resourceIds,windowStartsAt,windowEndsAt}:{db:NonNullable<ReturnType<typeof getSupabaseAdmin>>;businessId:string;resourceIds?:string[];windowStartsAt:string;windowEndsAt:string}){
+ let query=db.from("booking_inventory_reservations")
+  .select("resource_inventory_item_id,quantity,rental_starts_at,rental_ends_at,bookings!inner(status)")
   .eq("business_id",businessId)
-  .in("status",activeStatuses)
-  .not("rental_starts_at","is",null)
-  .not("rental_ends_at","is",null)
+  .in("bookings.status",activeStatuses)
   .lt("rental_starts_at",windowEndsAt)
   .gt("rental_ends_at",windowStartsAt);
- const {data:overlappingBookings,error:bookingWindowError}=await overlappingBookingsQuery;
- if(bookingWindowError)return {rows:null,error:bookingWindowError};
-
- const intervalBookingIds=(overlappingBookings??[]).map(row=>row.id).filter((value):value is string=>typeof value==="string");
- const intervalItemsPromise=intervalBookingIds.length
-  ? (itemId
-     ? db.from("booking_items").select("booking_id,inventory_item_id,quantity,rental_date,bookings!inner(event_start_time,event_end_time,rental_starts_at,rental_ends_at,business_id)")
-        .eq("inventory_item_id",itemId)
-        .in("status",activeStatuses)
-        .in("booking_id",intervalBookingIds)
-     : db.from("booking_items").select("booking_id,inventory_item_id,quantity,rental_date,bookings!inner(event_start_time,event_end_time,rental_starts_at,rental_ends_at,business_id)")
-        .in("status",activeStatuses)
-        .in("booking_id",intervalBookingIds))
-  : Promise.resolve({data:[] as BookingItemAvailabilityRow[],error:null});
-
- const legacyItemsBase=db.from("booking_items")
-  .select("booking_id,inventory_item_id,quantity,rental_date,bookings!inner(event_start_time,event_end_time,rental_starts_at,rental_ends_at,business_id)")
-  .in("status",activeStatuses)
-  .gte("rental_date",startDate)
-  .lte("rental_date",endDate)
-  .eq("bookings.business_id",businessId)
-  .is("bookings.rental_starts_at",null)
-  .is("bookings.rental_ends_at",null);
- const legacyItemsPromise=itemId?legacyItemsBase.eq("inventory_item_id",itemId):legacyItemsBase;
-
- const [{data:intervalItems,error:intervalItemsError},{data:legacyItems,error:legacyItemsError}]=await Promise.all([intervalItemsPromise,legacyItemsPromise]);
- const queryError=intervalItemsError??legacyItemsError;
- if(queryError)return {rows:null,error:queryError};
- return {rows:[...(intervalItems??[]),...(legacyItems??[])],error:null};
+ if(resourceIds?.length)query=query.in("resource_inventory_item_id",resourceIds);
+ const {data,error}=await query;
+ return {rows:(data??[]) as ResourceReservationRow[],error};
 }
 
-async function loadCalendarAvailability({db,businessId,timezone,itemId,startDate,endDate,requestedQuantity,bufferMinutes,rentalDurationMinutes,bookingData}:{db:NonNullable<ReturnType<typeof getSupabaseAdmin>>;businessId:string;timezone:string;itemId:string;startDate:string;endDate:string;requestedQuantity:number;bufferMinutes:number;rentalDurationMinutes:number;bookingData:Awaited<ReturnType<typeof loadPublicBookingData>>;}){
+async function loadCalendarAvailability({db,businessId,timezone,itemId,startDate,endDate,requestedQuantity,bufferMinutes,rentalDurationMinutes,bookingData}:{db:NonNullable<ReturnType<typeof getSupabaseAdmin>>;businessId:string;timezone:string;itemId:string;startDate:string;endDate:string;requestedQuantity:number;bufferMinutes:number;rentalDurationMinutes:number;bookingData:NonNullable<Awaited<ReturnType<typeof loadPublicBookingData>>>;}){
  const queryWindowStartsAt=new Date(zonedDateTimeToUtc(startDate,"00:00",timezone).getTime()-bufferMinutes*60000).toISOString();
  const queryWindowEndsAt=new Date(zonedDateTimeToUtc(addDays(endDate,1),"00:00",timezone).getTime()+bufferMinutes*60000).toISOString();
  const item=bookingData?.rentalInventory?.find((entry:any)=>entry.id===itemId)??null;
- const blocked=(bookingData?.rentalBlockedDatesByItem?.[itemId]??[]).filter((value:string)=>value>=startDate&&value<=endDate).map((value:string)=>({blocked_date:value}));
+ const requirements=requirementsForListing(item??{id:itemId,name:"Rental"}),resourceIds=requirements.map(requirement=>requirement.inventoryItemId);
  const schedule=(bookingData?.schedule??{}) as Record<string,{start:string;end:string}>;
  const hours=Object.entries(schedule).map(([weekday,window])=>({weekday:Number(weekday),start_time:window.start,end_time:window.end}));
  const blackouts=(bookingData?.rentalBlockedDates??[]).filter((value:string)=>value>=startDate&&value<=endDate).map((value:string)=>({starts_at:zonedDateTimeToUtc(value,"00:00",timezone).toISOString(),ends_at:zonedDateTimeToUtc(addDays(value,1),"00:00",timezone).toISOString()}));
- const {rows:reservationRows,error:reservationError}=await loadRelevantBookingItemRows({db,businessId,itemId,startDate,endDate,windowStartsAt:queryWindowStartsAt,windowEndsAt:queryWindowEndsAt});
+ const {rows:reservationRows,error:reservationError}=await loadRelevantResourceReservations({db,businessId,resourceIds,windowStartsAt:queryWindowStartsAt,windowEndsAt:queryWindowEndsAt});
  if(!item)return {error:"Rental item not found.",status:404 as const};
  if(reservationError){
   console.error("Rental availability calendar query failed",{businessId,itemId,startDate,endDate,reservationError:reservationError?.message});
   return {error:"Availability could not be checked.",status:500 as const};
  }
- const reservations:RentalReservationWindow[]=[];
- for(const row of reservationRows??[]){const booking=Array.isArray(row.bookings)?row.bookings[0]:row.bookings;const reservation=reservationWindowFromRow({booking,row,timezone});if(!reservation){console.warn("Skipping invalid rental availability reservation row",{businessId,itemId,row});continue;}reservations.push(reservation);}
- const blockedDates=new Set((blocked??[]).map(row=>String(row.blocked_date))),businessBlackouts=(blackouts??[]).map(row=>({startsAt:new Date(row.starts_at),endsAt:new Date(row.ends_at)})),hoursByWeekday=new Map((hours??[]).map(row=>[Number(row.weekday),{start:time(row.start_time),end:time(row.end_time)}]));
- return {days:Object.fromEntries(daysBetween(startDate,endDate).map(value=>{const hours=hoursByWeekday.get(new Date(`${value}T12:00:00`).getDay());if(!hours)return [value,{available:false,reason:"blocked"}];return [value,resolveRentalCalendarDayAvailability({openingStart:zonedDateTimeToUtc(value,hours.start,timezone),openingEnd:zonedDateTimeToUtc(value,hours.end,timezone),rentalDurationMinutes,turnaroundMinutes:bufferMinutes,stockQuantity:Number(item.stock_quantity),requestedQuantity,hardBlocked:blockedDates.has(value),reservations,businessBlackouts})]}))};
+ const reservationsByResource=new Map<string,RentalReservationWindow[]>();
+ for(const row of reservationRows??[]){const reservation=reservationWindowFromRow(row);if(!reservation){console.warn("Skipping invalid rental availability reservation row",{businessId,itemId});continue;}(reservationsByResource.get(row.resource_inventory_item_id)??reservationsByResource.set(row.resource_inventory_item_id,[]).get(row.resource_inventory_item_id)!).push(reservation);}
+ const businessBlackouts=(blackouts??[]).map(row=>({startsAt:new Date(row.starts_at),endsAt:new Date(row.ends_at)})),hoursByWeekday=new Map((hours??[]).map(row=>[Number(row.weekday),{start:time(row.start_time),end:time(row.end_time)}]));
+ return {days:Object.fromEntries(daysBetween(startDate,endDate).map(value=>{const hours=hoursByWeekday.get(new Date(`${value}T12:00:00`).getDay());if(!hours)return [value,{available:false,reason:"blocked"}];const results=requirements.map(requirement=>resolveRentalCalendarDayAvailability({openingStart:zonedDateTimeToUtc(value,hours.start,timezone),openingEnd:zonedDateTimeToUtc(value,hours.end,timezone),rentalDurationMinutes,turnaroundMinutes:bufferMinutes,stockQuantity:Number(bookingData.rentalResourceCapacity?.[requirement.inventoryItemId]??0),requestedQuantity:requestedQuantity*requirement.quantityRequired,hardBlocked:(bookingData.rentalBlockedDatesByItem?.[itemId]??[]).includes(value)||(bookingData.rentalBlockedDatesByItem?.[requirement.inventoryItemId]??[]).includes(value),reservations:reservationsByResource.get(requirement.inventoryItemId)??[],businessBlackouts}));return [value,results.find(result=>!result.available)??{available:true}]}))};
 }
 
 export async function GET(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
@@ -126,18 +90,19 @@ export async function GET(request:Request,{params}:{params:Promise<{businessSlug
  if(requestedEndsAt<=requestedStartsAt)return NextResponse.json({error:"Choose an end after the rental start."},{status:400});
  const queryWindowStartsAt=new Date(requestedStartsAt.getTime()-buffer*60000).toISOString();
  const queryWindowEndsAt=new Date(requestedEndsAt.getTime()+buffer*60000).toISOString();
- const items=(bookingData.rentalInventory??[]).map((item:any)=>({id:item.id,stock_quantity:item.stock_quantity}));
+ const items=bookingData.rentalInventory??[],resourceIds=[...new Set(items.flatMap((item:any)=>requirementsForListing(item).map(requirement=>requirement.inventoryItemId)))];
  const blocked=Object.entries(bookingData.rentalBlockedDatesByItem??{}).flatMap(([inventoryItemId,dates])=>(dates as string[]).filter(value=>value>=date&&value<=endDate).map(()=>({inventory_item_id:inventoryItemId})));
  const businessBlocked=(bookingData.rentalBlockedDates??[]).some(value=>value>=date&&value<=endDate);
- const {rows:reserved,error}=await withAvailabilityTimeout(loadRelevantBookingItemRows({db,businessId:settings.business_id,startDate:date,endDate,windowStartsAt:queryWindowStartsAt,windowEndsAt:queryWindowEndsAt}),"rental availability query");
+ const {rows:reserved,error}=await withAvailabilityTimeout(loadRelevantResourceReservations({db,businessId:settings.business_id,resourceIds,windowStartsAt:queryWindowStartsAt,windowEndsAt:queryWindowEndsAt}),"rental availability query");
  if(error){
   console.error("Rental availability query failed",{businessSlug,businessId:settings.business_id,date,endDate,start,end,queryError:error?.message});
   return NextResponse.json({error:"Availability could not be checked."},{status:500});
  }
  const used=new Map<string,number>();
- for(const row of reserved??[]){const booking=Array.isArray(row.bookings)?row.bookings[0]:row.bookings;const reservation=reservationWindowFromRow({booking,row,timezone});if(!reservation){console.warn("Skipping invalid rental availability overlap row",{businessSlug,businessId:settings.business_id,row});continue;}if(reservation.startsAt.getTime()<requestedEndsAt.getTime()+buffer*60000&&reservation.endsAt.getTime()+buffer*60000>requestedStartsAt.getTime())used.set(row.inventory_item_id,(used.get(row.inventory_item_id)??0)+Number(row.quantity||0));}
+ for(const row of reserved??[]){const reservation=reservationWindowFromRow(row);if(!reservation){console.warn("Skipping invalid rental availability overlap row",{businessSlug,businessId:settings.business_id});continue;}if(reservation.startsAt.getTime()<requestedEndsAt.getTime()+buffer*60000&&reservation.endsAt.getTime()+buffer*60000>requestedStartsAt.getTime())used.set(row.resource_inventory_item_id,(used.get(row.resource_inventory_item_id)??0)+Number(row.quantity||0));}
  const blockedIds=new Set((blocked??[]).map(row=>row.inventory_item_id));
- return NextResponse.json({availability:Object.fromEntries((items??[]).map(item=>[item.id,businessBlocked||blockedIds.has(item.id)?0:Math.max(0,Number(item.stock_quantity)-Number(used.get(item.id)??0))])),bufferMinutes:buffer,businessBlocked},{headers:{"Cache-Control":"no-store"}});
+ const availableByResource=Object.fromEntries(resourceIds.map(resourceId=>[resourceId,Math.max(0,Number(bookingData.rentalResourceCapacity?.[resourceId]??0)-Number(used.get(resourceId)??0))]));
+ return NextResponse.json({availability:Object.fromEntries(items.map((item:any)=>{const resourceBlocked=requirementsForListing(item).some(requirement=>blockedIds.has(requirement.inventoryItemId));return [item.id,businessBlocked||blockedIds.has(item.id)||resourceBlocked?0:availableListingQuantity(item,availableByResource)];})),bufferMinutes:buffer,businessBlocked},{headers:{"Cache-Control":"no-store"}});
  }catch(error){
   if(error instanceof AvailabilityTimeoutError){
    console.warn("Rental availability timed out",{message:error.message,timeoutMs:availabilityQueryTimeoutMs});

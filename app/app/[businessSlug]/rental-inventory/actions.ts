@@ -131,6 +131,14 @@ export async function archiveRentalItem(slug:string,itemId:string){
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item deactivated."));
 }
 
+export async function saveRentalInventoryRequirements(slug:string,itemId:string,data:FormData){
+ const {supabase,business}=await context(slug),resourceIds=[...new Set(data.getAll("includedInventoryItemIds").map(String).filter(Boolean))];
+ if(!resourceIds.length)redirect(path(slug,"error","Choose at least one physical inventory item for this rental."));
+ const {error}=await supabase.rpc("replace_rental_listing_inventory_requirements",{p_business_id:business.id,p_listing_inventory_item_id:itemId,p_resource_inventory_item_ids:resourceIds});
+ if(error)redirect(path(slug,"error","Included inventory could not be saved. Apply the shared rental inventory migration first."));
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Included inventory updated."));
+}
+
 export async function addRentalItemBlockedDate(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug),startDate=text(data,"startDate"),endDate=text(data,"endDate")||startDate,reason=text(data,"reason");
  if(!datePattern.test(startDate)||!datePattern.test(endDate))redirect(path(slug,"error","Choose a valid start and end date to block."));
