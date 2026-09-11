@@ -160,9 +160,9 @@ export async function POST(request: Request) {
     });
     if (bookingError) {
       const message = bookingError.message || "Could not create the reservation.";
-      const conflict=bookingError.code==="23505"||/one_active_(?:reservation|booking)_per_item_date/i.test(message);
+      const sharedInventoryConflict=/same equipment/i.test(message),conflict=bookingError.code==="23505"||/one_active_(?:reservation|booking)_per_item_date|same equipment|already reserved/i.test(message);
       const deliveryCityConstraint=/bookings_delivery_city_check|delivery is currently available only/i.test(message);
-      const customerMessage=conflict?"That rental is already reserved for the selected date or time. Refresh availability and choose another option.":deliveryCityConstraint?"We couldn't save that delivery city. Select the address from Google’s suggestions and try again.":message;
+      const customerMessage=sharedInventoryConflict?"These rentals use some of the same equipment. Please choose either the combo or the individual item.":conflict?"That rental is already reserved for the selected date or time. Refresh availability and choose another option.":deliveryCityConstraint?"We couldn't save that delivery city. Select the address from Google’s suggestions and try again.":message;
       return NextResponse.json({ error: customerMessage }, { status: conflict||/available|reserved|blocked|inventory/i.test(message) ? 409 : 400 });
     }
 
