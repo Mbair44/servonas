@@ -246,7 +246,7 @@ export interface MarketingSpendProvider{
 }
 
 function bookingCountsForAnalytics(status:string|null|undefined){
- return status==="confirmed"||status==="paid";
+ return status==="confirmed"||status==="paid"||status==="scheduled"||status==="dispatched"||status==="en_route"||status==="arrived"||status==="in_progress"||status==="completed";
 }
 
 function average(values:number[]){

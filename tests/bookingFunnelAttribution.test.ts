@@ -106,6 +106,18 @@ test("does not count abandoned checkout as a booking until the persisted booking
  assert.equal(facebook.revenueCents,0);
 });
 
+test("keeps a paid booking in the funnel after it advances to scheduled operations",()=>{
+ const report=buildSourcePerformanceReport([], [
+  {booking_id:"b1",status:"scheduled",total_cents:27500,booking_attribution_snapshots:{utm_source:"facebook"}},
+ ],{facebook:5000});
+ const facebook=report.summaries.find((row)=>row.source==="facebook");
+ assert.ok(facebook);
+ assert.equal(facebook.bookings,1);
+ assert.equal(facebook.revenueCents,27500);
+ assert.equal(facebook.spendCents,5000);
+ assert.equal(facebook.roas,5.5);
+});
+
 test("facebook paid visitor who reaches /booking counts as a booking start before submit",()=>{
  const report=buildSourcePerformanceReport([
   {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click"}},
