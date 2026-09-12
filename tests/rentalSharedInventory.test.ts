@@ -85,3 +85,11 @@ test("inventory editor exposes Included inventory mapping", async () => {
   assert.match(page, /Choose the physical items required for this rental/);
   assert.match(page, /saveRentalInventoryRequirements/);
 });
+
+test("included inventory saves support the authorized platform-admin server path", async () => {
+  const migration = await readFile(new URL("../supabase/migrations/20260911000300_fix_shared_rental_inventory_save.sql", import.meta.url), "utf8");
+  assert.match(migration, /coalesce\(auth\.role\(\),''\)<>'service_role'/);
+  assert.match(migration, /public\.is_servonas_platform_admin\(\)/);
+  assert.match(migration, /public\.has_business_role\(p_business_id,array\['owner','admin'\]\)/);
+  assert.match(migration, /grant execute[\s\S]*authenticated,service_role/);
+});
