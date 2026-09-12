@@ -5,9 +5,29 @@ export function startOfCalendarWeek(date: string) {
   return addDays(date, weekday === 0 ? -6 : 1 - weekday);
 }
 
-export function calendarDays(date: string, view: "day" | "week") {
-  const first = view === "week" ? startOfCalendarWeek(date) : date;
-  return Array.from({ length: view === "week" ? 7 : 1 }, (_, index) => addDays(first, index));
+export type ScheduleView = "day" | "week" | "month";
+
+function monthBoundary(date: string, offset: number, day: number) {
+  const [year, month] = date.split("-").map(Number);
+  const value = new Date(Date.UTC(year, month - 1 + offset, day));
+  return value.toISOString().slice(0, 10);
+}
+
+export function shiftCalendarMonth(date: string, offset: number) {
+  return monthBoundary(date, offset, 1);
+}
+
+export function calendarDays(date: string, view: ScheduleView) {
+  if (view === "day") return [date];
+  if (view === "week") {
+    const first = startOfCalendarWeek(date);
+    return Array.from({ length: 7 }, (_, index) => addDays(first, index));
+  }
+  const first = startOfCalendarWeek(monthBoundary(date, 0, 1));
+  const lastOfMonth = addDays(monthBoundary(date, 1, 1), -1);
+  const last = addDays(startOfCalendarWeek(lastOfMonth), 6);
+  const length = Math.round((new Date(`${last}T12:00:00Z`).getTime() - new Date(`${first}T12:00:00Z`).getTime()) / 86_400_000) + 1;
+  return Array.from({ length }, (_, index) => addDays(first, index));
 }
 
 export function minutesInTimeZone(value: string, timeZone: string) {

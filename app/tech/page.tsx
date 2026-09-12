@@ -26,10 +26,12 @@ export default async function TechnicianHome({ searchParams }: { searchParams: P
   const activeProfiles = profiles.filter((profile) => businessById.has(profile.business_id));
   if (!activeProfiles.length) return <main className="tech-shell"><section className="tech-empty"><h1>No active workspace</h1><p>Your technician profiles belong to a workspace that is no longer active.</p><div className="tech-header-actions"><Link className="sv-button sv-secondary" href="/app">Back to main app</Link><form action={signOut}><button className="sv-button">Log out</button></form></div></section></main>;
   const ids = activeProfiles.map((profile) => profile.id);
-  const { data: rows, error } = await supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,arrival_window_start,arrival_window_end,service_address,business_id,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),services!jobs_service_tenant_fk(name),service_locations!jobs_service_location_tenant_fk(city,state)")
-    .in("assigned_technician_id", ids).eq("is_deleted", false).not("status", "in", '("completed","canceled","declined")').order("starts_at", { ascending: true, nullsFirst: false });
-  if (error) {
-    console.error("Technician home query failed", { code: error.code, userId: user.id });
+  const {data:assignments,error:assignmentError}=await supabase.from("job_assignments").select("job_id").in("technician_id",ids).eq("is_active",true);
+  const assignedJobIds=[...new Set((assignments??[]).map(assignment=>assignment.job_id))];
+  const { data: rows, error } = assignedJobIds.length?await supabase.from("jobs").select("id,job_number,title,status,priority,starts_at,arrival_window_start,arrival_window_end,service_address,business_id,customers!jobs_customer_tenant_fk(first_name,last_name,company_name),services!jobs_service_tenant_fk(name),service_locations!jobs_service_location_tenant_fk(city,state)")
+    .in("id", assignedJobIds).eq("is_deleted", false).not("status", "in", '("completed","canceled","declined")').order("starts_at", { ascending: true, nullsFirst: false }):{data:[],error:null};
+  if (assignmentError||error) {
+    console.error("Technician home query failed", { code: assignmentError?.code??error?.code, userId: user.id });
     throw new Error("Assigned jobs could not be loaded.");
   }
   const jobs = (rows ?? []) as unknown as TechJob[];

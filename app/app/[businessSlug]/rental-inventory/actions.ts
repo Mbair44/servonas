@@ -135,7 +135,11 @@ export async function saveRentalInventoryRequirements(slug:string,itemId:string,
  const {supabase,business}=await context(slug),resourceIds=[...new Set(data.getAll("includedInventoryItemIds").map(String).filter(Boolean))];
  if(!resourceIds.length)redirect(path(slug,"error","Choose at least one physical inventory item for this rental."));
  const {error}=await supabase.rpc("replace_rental_listing_inventory_requirements",{p_business_id:business.id,p_listing_inventory_item_id:itemId,p_resource_inventory_item_ids:resourceIds});
- if(error)redirect(path(slug,"error","Included inventory could not be saved. Apply the shared rental inventory migration first."));
+ if(error){
+  console.error("Included rental inventory save failed",{businessId:business.id,itemId,code:error.code??null,message:error.message??null});
+  const message=/permission_denied|42501/i.test(`${error.code} ${error.message}`)?"Only owners and administrators can link included inventory.":/PGRST202|replace_rental_listing_inventory_requirements/i.test(`${error.code} ${error.message}`)?"Included inventory setup is incomplete. Apply the latest shared inventory fix migration.":/invalid_included_inventory|rental_listing_not_found/i.test(error.message??"")?"One of the selected inventory items is no longer available. Refresh and try again.":"Included inventory could not be saved. Please try again.";
+  redirect(path(slug,"error",message));
+ }
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Included inventory updated."));
 }
 

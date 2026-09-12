@@ -106,7 +106,9 @@ create or replace function public.replace_rental_listing_inventory_requirements(
 language plpgsql security definer set search_path=public as $$
 declare v_resource_count integer;
 begin
-  if not public.has_business_role(p_business_id,array['owner','admin']) then
+  if coalesce(auth.role(),'')<>'service_role'
+    and not coalesce(public.is_servonas_platform_admin(),false)
+    and not coalesce(public.has_business_role(p_business_id,array['owner','admin']),false) then
     raise exception 'permission_denied';
   end if;
   if not exists(select 1 from public.inventory_items where id=p_listing_inventory_item_id and business_id=p_business_id) then

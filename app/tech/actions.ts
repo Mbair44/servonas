@@ -21,7 +21,9 @@ async function technicianJob(jobId: string) {
   const { data: profiles } = await supabase.from("technician_profiles").select("id").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
   const technicianIds = (profiles ?? []).map((profile) => profile.id);
   if (!technicianIds.length) redirect("/tech?error=Technician+profile+not+found");
-  const { data: job } = await supabase.from("jobs").select("id,business_id,assigned_technician_id,status").eq("id", jobId).in("assigned_technician_id", technicianIds).eq("is_deleted", false).maybeSingle();
+  const {data:assignment}=await supabase.from("job_assignments").select("id").eq("job_id",jobId).eq("is_active",true).in("technician_id",technicianIds).limit(1).maybeSingle();
+  if(!assignment)redirect("/tech?error=Assigned+job+not+found");
+  const { data: job } = await supabase.from("jobs").select("id,business_id,assigned_technician_id,status").eq("id", jobId).eq("is_deleted", false).maybeSingle();
   if (!job) redirect("/tech?error=Assigned+job+not+found");
   return { supabase, user, job };
 }

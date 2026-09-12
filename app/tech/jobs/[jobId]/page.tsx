@@ -29,8 +29,10 @@ export default async function TechnicianJobDetail({ params, searchParams }: {
   const { data: profiles } = await supabase.from("technician_profiles").select("id").eq("member_user_id", user.id).eq("is_active", true).eq("is_technician", true);
   const ids = (profiles ?? []).map((profile) => profile.id);
   if (!ids.length) notFound();
+  const {data:assignment}=await supabase.from("job_assignments").select("id").eq("job_id",jobId).eq("is_active",true).in("technician_id",ids).limit(1).maybeSingle();
+  if(!assignment)notFound();
   const { data: job, error } = await supabase.from("jobs").select("id,business_id,customer_id,service_location_id,job_number,title,description,internal_notes,status,priority,starts_at,ends_at,arrival_window_start,arrival_window_end,service_address,assigned_technician_id,customers!jobs_customer_tenant_fk(first_name,last_name,phone),service_locations!jobs_service_location_tenant_fk(location_name,street_address,unit,city,state,postal_code,access_instructions,gate_code,parking_notes,pets_present,property_notes),services!jobs_service_tenant_fk(name),businesses(name,timezone,industry_profile)")
-    .eq("id", jobId).in("assigned_technician_id", ids).eq("is_deleted", false).maybeSingle();
+    .eq("id", jobId).eq("is_deleted", false).maybeSingle();
   if (error) {
     console.error("Technician job detail query failed", { code: error.code, jobId, userId: user.id });
     throw new Error("The assigned job could not be loaded.");

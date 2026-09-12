@@ -9,7 +9,7 @@ type Location = { id: string; customer_id: string; location_name: string; street
 type Service = { id: string; name: string; duration_minutes?: number | null };
 type Technician = { id: string; preferred_name: string };
 type PriorJob = {id:string;job_number:number;title:string;customer_id:string;starts_at:string|null};
-type Job = Record<string, string | number | boolean | null | undefined>;
+type Job = Record<string, string | number | boolean | string[] | null | undefined>;
 
 function JobSectionIcon({name}:{name:"details"|"schedule"|"billing"|"notes"}){
  const paths={
@@ -38,7 +38,6 @@ export default function JobForm({
     customerId:String(job?.customer_id ?? defaultCustomerId),
     serviceLocationId:String(job?.service_location_id ?? ""),
     serviceId:String(job?.service_id ?? ""),
-    technicianId:String(job?.assigned_technician_id ?? ""),
     scheduleCommitment:String(job?.schedule_commitment ?? "fixed"),
     startsAt:String(job?.starts_at_local ?? defaultStartAt),
     endsAt:String(job?.ends_at_local ?? ""),
@@ -65,7 +64,8 @@ export default function JobForm({
   const initialLocation = state.values?.serviceLocationId ?? String(job?.service_location_id ?? "");
   const [locationId,setLocationId]=useState(initialLocation);
   const [serviceId,setServiceId]=useState(state.values?.serviceId??String(job?.service_id??""));
-  const [technicianId,setTechnicianId]=useState(state.values?.technicianId??String(job?.assigned_technician_id??""));
+  const initialTechnicianIds = state.technicianIds ?? (Array.isArray(job?.technician_ids) ? job.technician_ids : job?.assigned_technician_id ? [String(job.assigned_technician_id)] : []);
+  const [technicianIds,setTechnicianIds]=useState<string[]>(initialTechnicianIds);
   const isCreate=!job;
   const [startsAt,setStartsAt]=useState(state.values?.startsAt??String(job?.starts_at_local??defaultStartAt));
   const [endsAt,setEndsAt]=useState(state.values?.endsAt??String(job?.ends_at_local??""));
@@ -91,7 +91,7 @@ export default function JobForm({
     setCustomerId(value("customerId",String(job?.customer_id ?? defaultCustomerId)));
     setLocationId(value("serviceLocationId",String(job?.service_location_id ?? "")));
     setServiceId(value("serviceId",String(job?.service_id ?? "")));
-    setTechnicianId(value("technicianId",String(job?.assigned_technician_id ?? "")));
+    setTechnicianIds(state.technicianIds ?? (Array.isArray(job?.technician_ids) ? job.technician_ids : job?.assigned_technician_id ? [String(job.assigned_technician_id)] : []));
     setStartsAt(value("startsAt",String(job?.starts_at_local ?? defaultStartAt)));
     setEndsAt(value("endsAt",String(job?.ends_at_local ?? "")));
     setDuration(value("estimatedDurationMinutes",String(job?.estimated_duration_minutes ?? "")));
@@ -101,7 +101,7 @@ export default function JobForm({
     setTax(value("taxAmount",String(job?.tax_amount ?? 0)));
     setDiscount(value("discountAmount",String(job?.discount_amount ?? 0)));
     setReturnVisit(value("isReturnVisit",job?.is_return_visit===true?"on":"")==="on");
-  },[defaultCustomerId,defaultStartAt,job,state.values,value]);
+  },[defaultCustomerId,defaultStartAt,job,state.technicianIds,state.values,value]);
   useEffect(()=>{
     if(customerLocations.length===1){
       setLocationId(customerLocations[0].id);
@@ -114,7 +114,7 @@ export default function JobForm({
     const location=customerLocations.find(item=>item.id===locationId);
     const suggested=location?.default_technician_id&&technicians.some(item=>item.id===location.default_technician_id)
       ?location.default_technician_id:technicians.length===1?technicians[0].id:"";
-    if(suggested)setTechnicianId(suggested);
+    if(suggested)setTechnicianIds([suggested]);
   },[customerId,customerLocations,job,locationId,serviceId,technicians]);
   useEffect(()=>{
     if(job||duration||!serviceId)return;
@@ -157,7 +157,7 @@ export default function JobForm({
       <label>Customer <b className="required-mark">Required</b><select required name="customerId" value={customerId} onChange={(event) => {setCustomerId(event.target.value);updateValue("customerId",event.target.value);}}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</option>)}</select>{error("customerId")}</label>
       <label>Service location<select name="serviceLocationId" value={locationId} onChange={event=>{setLocationId(event.target.value);updateValue("serviceLocationId",event.target.value);}}><option value="">No saved location</option>{customerLocations.map((location) => <option key={location.id} value={location.id}>{location.location_name} — {location.street_address}, {location.city}</option>)}</select>{error("serviceLocationId")}</label>
       <label>Service<select name="serviceId" value={serviceId} onChange={event=>{setServiceId(event.target.value);updateValue("serviceId",event.target.value);}}><option value="">Custom work</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select>{error("serviceId")}</label>
-      <label>Primary technician<select name="technicianId" value={technicianId} onChange={event=>{technicianTouched.current=true;setTechnicianId(event.target.value);updateValue("technicianId",event.target.value);}}><option value="">Unassigned</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.preferred_name}</option>)}</select>{error("technicianId")}</label>
+      <div className="wide job-technician-picker"><span>Assigned technicians</span><small>Choose everyone working this job. The first selected technician is primary for dispatch.</small>{technicianIds.map(id=><input key={id} type="hidden" name="technicianIds" value={id}/>)}<div>{technicians.map((technician) => { const selectedIndex=technicianIds.indexOf(technician.id); return <label key={technician.id}><input type="checkbox" value={technician.id} checked={selectedIndex>=0} onChange={event=>{technicianTouched.current=true;setTechnicianIds(current=>event.target.checked?[...current,technician.id]:current.filter(id=>id!==technician.id));}}/><span>{technician.preferred_name}{selectedIndex===0?<b>Primary</b>:null}</span></label>; })}{!technicians.length&&<p>No assignable technicians.</p>}</div>{error("technicianIds")}</div>
     </div></fieldset>
     <fieldset className="job-form-section job-schedule-section"><legend><i><JobSectionIcon name="schedule"/></i><span><strong>Schedule &amp; dispatch</strong><small>Set appointment time, arrival flexibility, and priority.</small></span></legend><div className="job-form-grid">
       <input type="hidden" name="scheduleCommitment" value={isCreate?(arrivalPreset==="exact"?"fixed":"flexible"):(fixedTime?"fixed":"flexible")}/>

@@ -42,3 +42,14 @@ test("rental inventory page exposes the compact performance card",async()=>{
  assert.match(page,/Paid rentals/);
  assert.match(page,/Add purchase cost to track break-even/);
 });
+
+test("completed rental revenue uses the strongest payment source and supports legacy bookings",async()=>{
+ const migration=await readFile(new URL("../supabase/migrations/20260911000400_fix_rental_inventory_revenue.sql",import.meta.url),"utf8");
+ assert.match(migration,/j\.status='completed'/);
+ assert.match(migration,/greatest\(coalesce\(invoice\.collected_cents,0\),line\.booking_collected_cents\)/);
+ assert.match(migration,/left join public\.booking_inventory_reservations/);
+ assert.match(migration,/coalesce\(reservation\.resource_inventory_item_id,recognized\.listing_inventory_item_id\)/);
+ assert.match(migration,/count\(distinct booking_id\)/);
+ assert.match(migration,/grant execute[\s\S]*authenticated,service_role/);
+ assert.doesNotMatch(migration,/delivery_fee_cents|tax_cents|operator_charge_cents/);
+});

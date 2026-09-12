@@ -14,7 +14,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
   const { businessSlug, jobId } = await params;
   const query = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
-  const [{ data: job, error }, { data: history }, { data: notes }, { data: photoRows }, { data: technicians },{data:recoveryMessages},{data:deliveryBooking}] = await Promise.all([
+  const [{ data: job, error }, { data: history }, { data: notes }, { data: photoRows }, { data: technicians },{data:recoveryMessages},{data:deliveryBooking},{data:assignments}] = await Promise.all([
     supabase.from("jobs").select("*,customers!jobs_customer_tenant_fk(id,first_name,last_name,company_name,email,phone),service_locations!jobs_service_location_tenant_fk(id,location_name,street_address,unit,city,state,postal_code),services!jobs_service_tenant_fk(name)").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
     supabase.from("job_timeline_events").select("id,event_type,summary,actor_name,occurred_at,employees!job_timeline_actor_employee_fk(preferred_name)").eq("job_id", jobId).eq("business_id", business.id).order("occurred_at", { ascending: false }),
     supabase.from("job_notes").select("id,body,note_type,author_name,created_at,updated_at,employees!job_notes_author_employee_fk(preferred_name)").eq("job_id", jobId).eq("business_id", business.id).order("created_at", { ascending: false }),
@@ -22,10 +22,13 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
     supabase.from("technician_directory").select("id,preferred_name,technician_status").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).order("preferred_name"),
     supabase.from("missed_call_recovery_messages").select("id,direction,body,ai_generated,delivery_status,created_at").eq("business_id",business.id).eq("job_id",jobId).order("created_at"),
     supabase.from("bookings").select("id,delivery_address,delivery_city,delivery_state,delivery_zip,delivery_distance_miles,delivery_fee_original_cents,delivery_fee_cents,delivery_pricing_method,delivery_rule_snapshot,delivery_origin_snapshot,delivery_inside_service_area,delivery_fee_override_reason,delivery_fee_overridden_at").eq("business_id",business.id).eq("job_id",jobId).maybeSingle(),
+    supabase.from("job_assignments").select("technician_id,assignment_role,assigned_at").eq("business_id",business.id).eq("job_id",jobId).eq("is_active",true).order("assigned_at"),
   ]);
   if (error) console.error("Job detail query failed", { code: error.code, businessId: business.id, jobId });
   if (!job) notFound();
-  const customer = relation(job.customers), location = relation(job.service_locations), service = relation(job.services), technician = technicians?.find(item=>item.id===job.assigned_technician_id);
+  const customer = relation(job.customers), location = relation(job.service_locations), service = relation(job.services);
+  const assignmentIds=assignments?.length?(assignments??[]).sort((a,b)=>a.assignment_role==="primary"?-1:b.assignment_role==="primary"?1:0).map(item=>item.technician_id):job.assigned_technician_id?[job.assigned_technician_id]:[];
+  const assignedTechnicians=assignmentIds.map(id=>technicians?.find(item=>item.id===id)).filter(Boolean);
   const canEdit = canManageCustomers(role);
   const statusTransitions = availableJobTransitions(job.status as JobStatus);
   const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: business.timezone }).format(new Date(value)) : "Not set";
@@ -41,7 +44,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
       <article className="job-metric-status"><div><i><CustomerActionIcon name="check"/></i><span><small>Status</small><strong>{job.status.replaceAll("_"," ")}</strong></span></div><p>Current job stage</p></article>
       <article className="next-service"><div><i><CustomerActionIcon name="calendar"/></i><span><small>Scheduled</small><strong>{dateTime(job.starts_at)}</strong></span></div><p>{job.schedule_commitment==="flexible"?"Flexible appointment":"Set appointment"}</p></article>
       <article className="last-service"><div><i><CustomerActionIcon name="clock"/></i><span><small>Duration</small><strong>{job.estimated_duration_minutes?`${job.estimated_duration_minutes} min`:"—"}</strong></span></div><p>Estimated service time</p></article>
-      <article className="job-metric-technician"><div><i><CustomerActionIcon name="customer"/></i><span><small>Technician</small><strong>{technician?.preferred_name||"Unassigned"}</strong></span></div><p>Primary assignment</p></article>
+      <article className="job-metric-technician"><div><i><CustomerActionIcon name="customer"/></i><span><small>Technicians</small><strong className="job-assignee-summary">{assignedTechnicians.slice(0,3).map(item=><i key={item!.id} title={item!.preferred_name}>{item!.preferred_name.split(/\s+/).map((part:string)=>part[0]).join("").slice(0,2).toUpperCase()}</i>)}<span>{assignedTechnicians.map(item=>item?.preferred_name).join(", ")||"Unassigned"}</span></strong></span></div><p>{assignedTechnicians.length?`${assignedTechnicians.length} assigned`:"Needs assignment"}</p></article>
       <article className="spent"><div><i><CustomerActionIcon name="chart"/></i><span><small>Job total</small><strong>{money(job.total_amount)}</strong></span></div><p>Service total</p></article>
       <article className="balance"><div><i><CustomerActionIcon name="card"/></i><span><small>Payment</small><strong>{job.payment_status.replaceAll("_"," ")}</strong></span></div><p>{job.booking_source||"Direct booking"}</p></article>
     </section>
