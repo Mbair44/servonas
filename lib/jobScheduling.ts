@@ -92,6 +92,12 @@ export async function checkJobSchedule({
     return { available: false, code: "TECHNICIAN_HOURS", message: "The technician is not available for assignment." };
   }
   const employeeId=technicianResult.data.employee_id;
+  const {data:assignmentRows,error:assignmentError}=await supabase.from("job_assignments").select("job_id").eq("business_id",businessId).eq("technician_id",technicianId).eq("is_active",true);
+  if(assignmentError){
+    console.error("Technician assignment lookup failed",{businessId,code:assignmentError.code});
+    return {available:false,code:"VERIFICATION_FAILED",message:"Technician availability could not be verified."};
+  }
+  const assignedJobIds=(assignmentRows??[]).map(assignment=>assignment.job_id);
   const employeeProfileResult=employeeId
     ?await supabase.from("employee_availability_profiles").select("time_zone,weekly_schedule_configured,maximum_daily_jobs,maximum_daily_minutes")
       .eq("business_id",businessId).eq("employee_id",employeeId).maybeSingle()
@@ -116,9 +122,10 @@ export async function checkJobSchedule({
     supabase.from("employee_availability_exceptions").select("starts_at,ends_at,availability_effect")
       .eq("business_id",businessId).eq("employee_id",employeeId).eq("approval_status","approved")
       .lt("starts_at",candidateEnd.toISOString()).gt("ends_at",candidateStart.toISOString()),
-    supabase.from("jobs").select("id,starts_at,ends_at").eq("business_id",businessId)
-      .eq("assigned_technician_id",technicianId).eq("is_deleted",false)
-      .not("status","in",'("canceled","declined")').gte("starts_at",dayStart.toISOString()).lt("starts_at",dayEnd.toISOString()),
+    assignedJobIds.length?supabase.from("jobs").select("id,starts_at,ends_at").eq("business_id",businessId)
+      .in("id",assignedJobIds).eq("is_deleted",false)
+      .not("status","in",'("canceled","declined")').gte("starts_at",dayStart.toISOString()).lt("starts_at",dayEnd.toISOString())
+      :Promise.resolve({data:[],error:null}),
   ]):[
     {data:[],error:null},{data:[],error:null},{data:[],error:null},
   ];
@@ -162,9 +169,10 @@ export async function checkJobSchedule({
     return {available:false,code:"TECHNICIAN_HOURS",message:"The job exceeds the employee’s maximum daily hours."};
   }
 
+  if(!assignedJobIds.length)return {available:true};
   let query = supabase.from("jobs")
     .select("job_number,starts_at,ends_at,arrival_window_start,arrival_window_end")
-    .eq("business_id", businessId).eq("assigned_technician_id", technicianId)
+    .eq("business_id", businessId).in("id",assignedJobIds)
     .eq("is_deleted", false).not("status", "in", '("canceled","declined")')
     .or(`and(starts_at.lt.${candidateEnd.toISOString()},ends_at.gt.${candidateStart.toISOString()}),and(arrival_window_start.lt.${candidateEnd.toISOString()},arrival_window_end.gt.${candidateStart.toISOString()})`);
   if (excludeJobId) query = query.neq("id", excludeJobId);

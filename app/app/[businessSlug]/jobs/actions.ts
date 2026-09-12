@@ -11,11 +11,16 @@ import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validate
 import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 
-export type JobActionState = { error?: string; warning?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> };
+export type JobActionState = { error?: string; warning?: string; fieldErrors?: Record<string, string>; values?: Record<string, string>; technicianIds?: string[] };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const valuesFrom = (formData: FormData) => Object.fromEntries(
   [...formData.entries()].filter(([, value]) => typeof value === "string"),
 ) as Record<string, string>;
+const technicianIdsFrom = (formData: FormData) => {
+  const selected=[...new Set(formData.getAll("technicianIds").map(String).filter(Boolean))];
+  const legacy=text(formData,"technicianId");
+  return selected.length||formData.has("technicianIds")?selected:legacy?[legacy]:[];
+};
 const localDate = (value: string, timeZone: string) => {
   if (!value) return null;
   const [date, time] = value.split("T");
@@ -51,7 +56,8 @@ async function prepareJob(
   const customerId = text(formData, "customerId");
   const locationId = text(formData, "serviceLocationId");
   const serviceId = text(formData, "serviceId");
-  const technicianId = text(formData, "technicianId");
+  const technicianIds = technicianIdsFrom(formData);
+  const technicianId = technicianIds[0] ?? "";
   const scheduleCommitment=text(formData,"scheduleCommitment")==="flexible"?"flexible":"fixed";
   const isReturnVisit=formData.get("isReturnVisit")==="on",returnVisitForJobId=isReturnVisit?text(formData,"returnVisitForJobId"):"";
   const startsAt = localDate(text(formData, "startsAt"), business.timezone);
@@ -80,39 +86,41 @@ async function prepareJob(
   if (!jobStatuses.includes(status as typeof jobStatuses[number])) errors.status = "Choose a valid status.";
   if (!jobPriorities.includes(priority as typeof jobPriorities[number])) errors.priority = "Choose a valid priority.";
   if (!paymentStatuses.includes(paymentStatus as typeof paymentStatuses[number])) errors.paymentStatus = "Choose a valid payment status.";
-  if (Object.keys(errors).length) return { error: "Please correct the highlighted fields.", errors, values };
+  if (Object.keys(errors).length) return { error: "Please correct the highlighted fields.", errors, values, technicianIds };
 
-  const [customer, location, service, technician] = await Promise.all([
+  const [customer, location, service, technicianRows] = await Promise.all([
     ownedRecord(supabase, "customers", customerId, business.id),
     ownedRecord(supabase, "service_locations", locationId, business.id),
     ownedRecord(supabase, "services", serviceId, business.id),
-    ownedRecord(supabase, "technician_profiles", technicianId, business.id),
+    technicianIds.length ? supabase.from("technician_profiles").select("id").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).in("id", technicianIds) : Promise.resolve({ data: [] }),
   ]);
   if (!customer) errors.customerId = "Customer does not belong to this business.";
   if (locationId && (!location || location.customer_id !== customerId)) errors.serviceLocationId = "Location does not belong to this customer.";
   if (serviceId && !service) errors.serviceId = "Service does not belong to this business.";
-  if (technicianId && !technician) errors.technicianId = "Technician is not assignable.";
-  if (Object.keys(errors).length) return { error: "One or more selections are invalid.", errors, values };
+  if ((technicianRows.data?.length ?? 0) !== technicianIds.length) errors.technicianIds = "One or more technicians are not assignable.";
+  if (Object.keys(errors).length) return { error: "One or more selections are invalid.", errors, values, technicianIds };
   if(returnVisitForJobId){
     const {data:originalJob}=await supabase.from("jobs").select("id,customer_id,starts_at").eq("business_id",business.id).eq("id",returnVisitForJobId).eq("is_deleted",false).maybeSingle();
     if(!originalJob||originalJob.customer_id!==customerId||originalJob.id===excludeJobId||(startsAt&&originalJob.starts_at&&new Date(originalJob.starts_at)>=startsAt))return {error:"Choose an earlier job for the same customer.",errors:{returnVisitForJobId:"The original job must be an earlier job for this customer."},values};
   }
-  const schedulingCheck = scheduleCommitment==="fixed"?await checkJobSchedule({
+  const schedulingChecks = scheduleCommitment==="fixed" ? await Promise.all(technicianIds.map(id => checkJobSchedule({
     supabase, businessId: business.id, timeZone: business.timezone,
     startsAt, endsAt, arrivalWindowStart: arrivalStart, arrivalWindowEnd: arrivalEnd,
-    technicianId: technicianId || null, excludeJobId,
-  }):null;
+    technicianId: id, excludeJobId,
+  }))) : [];
+  const schedulingCheck = schedulingChecks.find(result => !result.available) ?? null;
   if(schedulingCheck&&!schedulingCheck.available){
     const schedulingMessage=schedulingCheck.message??"The requested schedule is unavailable.";
     const isMinimumNotice=schedulingMessage==="The requested time does not meet the minimum scheduling notice.";
     if(!(allowMinimumNoticeOverride&&isMinimumNotice&&text(formData,"overrideMinimumNotice")==="true")){
-      if(allowMinimumNoticeOverride&&isMinimumNotice)return {warning:schedulingMessage,values};
-      return {error:schedulingMessage,errors:{startsAt:schedulingMessage},values};
+      if(allowMinimumNoticeOverride&&isMinimumNotice)return {warning:schedulingMessage,values,technicianIds};
+      return {error:schedulingMessage,errors:{startsAt:schedulingMessage},values,technicianIds};
     }
   }
   const estimatedDuration = Number(text(formData, "estimatedDurationMinutes") || 0);
   return {
     values,
+    technicianIds,
     technicianId: technicianId || null,
     payload: {
       customer_id: customerId,
@@ -153,7 +161,7 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
   const { data: existing } = await supabase.from("jobs").select("id").eq("business_id", business.id).eq("request_key", requestKey).maybeSingle();
   if (existing) redirect(`/app/${slug}/jobs/${existing.id}`);
   const prepared = await prepareJob(formData, context, undefined, true);
-  if (!("payload" in prepared)) return { error: prepared.error, warning: prepared.warning, fieldErrors: prepared.errors, values: prepared.values };
+  if (!("payload" in prepared)) return { error: prepared.error, warning: prepared.warning, fieldErrors: prepared.errors, values: prepared.values, technicianIds: prepared.technicianIds };
   const payload = prepared.payload!;
   const { data: job, error } = await supabase.from("jobs").insert({
     ...payload, business_id: business.id, request_key: requestKey,
@@ -167,10 +175,8 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
     console.error("Office job creation failed", { code: error?.code, businessId: business.id });
     return { error: "The job could not be created.", values };
   }
-  if (prepared.technicianId) {
-    const { error: assignmentError } = await supabase.rpc("set_job_primary_technician", { p_job_id: job.id, p_technician_id: prepared.technicianId });
-    if (assignmentError) console.error("Initial job assignment failed", { code: assignmentError.code, businessId: business.id, jobId: job.id });
-  }
+  const { error: assignmentError } = await supabase.rpc("set_job_technicians", { p_job_id: job.id, p_technician_ids: prepared.technicianIds });
+  if (assignmentError) console.error("Initial job assignment failed", { code: assignmentError.code, businessId: business.id, jobId: job.id });
   await Promise.allSettled([
     JobNotificationService.jobBooked(job.id),
     payload.status === "confirmed" ? JobNotificationService.jobConfirmed(job.id) : Promise.resolve(),
@@ -188,14 +194,14 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
   const { data: owned } = await supabase.from("jobs").select("id,status,starts_at,ends_at,assigned_technician_id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!owned) return { error: "Job not found.", values };
   const prepared = await prepareJob(formData, context, jobId);
-  if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values };
+  if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values, technicianIds: prepared.technicianIds };
   const payload = prepared.payload!;
   const { error } = await supabase.from("jobs").update({ ...payload, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id);
   if (error) {
     console.error("Office job update failed", { code: error.code, businessId: business.id, jobId });
     return { error: "The job could not be saved.", values };
   }
-  const { error: assignmentError } = await supabase.rpc("set_job_primary_technician", { p_job_id: jobId, p_technician_id: prepared.technicianId });
+  const { error: assignmentError } = await supabase.rpc("set_job_technicians", { p_job_id: jobId, p_technician_ids: prepared.technicianIds });
   if (assignmentError) return { error: "Job details saved, but technician assignment could not be updated.", values };
   await Promise.allSettled([
     prepared.technicianId && prepared.technicianId !== owned.assigned_technician_id
@@ -214,7 +220,8 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
   if (!canManageCustomers(role)) {
     redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Your workspace role does not allow job assignment. Ask an owner or admin to grant manager access.")}`);
   }
-  const technicianId = text(formData, "technicianId") || null;
+  const technicianIds = technicianIdsFrom(formData);
+  const technicianId = technicianIds[0] ?? null;
   const { data: job, error: jobError } = await supabase.from("jobs")
     .select("id,starts_at,ends_at,arrival_window_start,arrival_window_end,assigned_technician_id,schedule_commitment")
     .eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
@@ -222,32 +229,30 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
     console.error("Job assignment lookup failed", { code: jobError?.code, businessId: business.id, jobId });
     redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The job could not be loaded for assignment.")}`);
   }
-  if (technicianId) {
-    const technician = await ownedRecord(supabase, "technician_profiles", technicianId, business.id);
-    if (!technician) {
+  if (technicianIds.length) {
+    const { data: selectedTechnicians } = await supabase.from("technician_profiles").select("id,technician_status").eq("business_id", business.id).eq("is_active", true).eq("is_technician", true).eq("can_be_assigned_jobs", true).in("id", technicianIds);
+    if ((selectedTechnicians?.length ?? 0) !== technicianIds.length) {
       redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Choose an active technician who can be assigned jobs.")}`);
     }
-    if (technician.technician_status === "off_duty") {
+    if (selectedTechnicians?.some(technician => technician.technician_status === "off_duty")) {
       redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("That technician is currently off duty.")}`);
     }
   }
-  const conflict = job.schedule_commitment==="fixed"?await validateJobSchedule({
-    supabase,
-    businessId: business.id,
-    timeZone: business.timezone,
+  const conflicts = job.schedule_commitment==="fixed" ? await Promise.all(technicianIds.map(id => validateJobSchedule({
+    supabase, businessId: business.id, timeZone: business.timezone,
     startsAt: job.starts_at ? new Date(job.starts_at) : null,
     endsAt: job.ends_at ? new Date(job.ends_at) : null,
     arrivalWindowStart: job.arrival_window_start ? new Date(job.arrival_window_start) : null,
     arrivalWindowEnd: job.arrival_window_end ? new Date(job.arrival_window_end) : null,
-    technicianId,
-    excludeJobId: jobId,
-  }):null;
+    technicianId: id, excludeJobId: jobId,
+  }))) : [];
+  const conflict = conflicts.find(Boolean);
   if (conflict) {
     redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(conflict)}`);
   }
-  const { error } = await supabase.rpc("set_job_primary_technician", {
+  const { error } = await supabase.rpc("set_job_technicians", {
     p_job_id: jobId,
-    p_technician_id: technicianId,
+    p_technician_ids: technicianIds,
   });
   if (error) {
     console.error("Job technician assignment failed", { code: error.code, businessId: business.id, jobId });
@@ -260,7 +265,7 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
   revalidatePath(`/app/${slug}/jobs`);
   revalidatePath(`/app/${slug}/schedule`);
   revalidatePath(`/app/${slug}/dispatch`);
-  redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(technicianId ? "Technician assigned." : "Job moved to unassigned.")}`);
+  redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(technicianIds.length ? `${technicianIds.length} technician${technicianIds.length === 1 ? "" : "s"} assigned.` : "Job moved to unassigned.")}`);
 }
 
 export async function changeJobStatus(slug: string, jobId: string, formData: FormData) {
