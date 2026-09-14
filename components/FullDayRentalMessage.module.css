@@ -1,0 +1,16 @@
+.notice {
+  display: grid;
+  gap: 5px;
+  margin: 16px 0;
+  padding: 13px 16px;
+  max-width: 560px;
+  border: 1px solid #dce5ed;
+  border-left: 3px solid var(--site-primary, #64748b);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.notice .heading { font-size: .95rem; line-height: 1.4; font-weight: 750; }
+.notice .body { font-size: .875rem; line-height: 1.55; white-space: pre-wrap; }
