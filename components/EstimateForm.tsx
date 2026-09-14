@@ -3,6 +3,8 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { EstimateActionState, EstimateFeeDraft, EstimateLineDraft } from "@/app/app/[businessSlug]/estimates/actions";
 import { type Discount } from "@/lib/financial/calculations";
+import {AdminPromotionField} from "./AdminPromotionField";
+import type {DiscountSnapshot} from "@/lib/discounts";
 import { calculateFinancialDocument } from "@/lib/financial/calculations";
 import { formatCents, parseCurrencyToCents, priceBookUnitTypes } from "@/lib/financial/priceBook";
 import { calculateInvoiceDocumentWithTax, resolveInvoiceTaxContext, type BusinessTaxSettings, type InvoiceFinancialDocumentResult } from "@/lib/financial/tax";
@@ -876,6 +878,7 @@ export default function EstimateForm({
                 </button>
               </div>
             )}
+            {isInvoice&&<AdminPromotionField subtotalCents={totals?.subtotalCents??0} customerId={customerId} initialSnapshot={(estimate as unknown as {discount_snapshot?:DiscountSnapshot})?.discount_snapshot} onDiscount={cents=>{setDiscountType(cents?"fixed":"none");setDiscountValue(String(cents/100));setShowDiscount(Boolean(cents));}}/>}
             {error("documentDiscountValue")}
 
             {showFees && (
