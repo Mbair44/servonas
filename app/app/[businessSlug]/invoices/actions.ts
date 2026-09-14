@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { canManageCustomers } from "@/lib/access";
+import {validateRentalPromo,type DiscountSnapshot} from "@/lib/discounts";
+import {calculateFinancialDocument} from "@/lib/financial/calculations";
 import type { Discount } from "@/lib/financial/calculations";
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { calculateInvoiceDocumentWithTax, resolveInvoiceTaxContext, type BusinessTaxSettings } from "@/lib/financial/tax";
@@ -378,7 +380,7 @@ async function calculateInvoiceTotalsForBusiness(input: {
   };
 }
 
-async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWorkspaceCapability>>){
+async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWorkspaceCapability>>,excludeInvoiceId?:string){
   const values=valuesFrom(data),errors:Record<string,string>={};
   const lines=safeJson<EstimateLineDraft[]>(text(data,"linesJson"),[]);
   const fees=safeJson<EstimateFeeDraft[]>(text(data,"feesJson"),[]);
@@ -427,10 +429,27 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   const feeCents=fees.map((fee,index)=>{const amount=parseCurrencyToCents(fee.amount);if(!fee.name.trim()||amount===null)errors.fees=`Correct fee ${index+1}.`;return amount??-1;});
   const rawDocumentDiscountType=text(data,"documentDiscountType");
   const rawDepositType=text(data,"depositType");
-  const documentDiscount=discount(rawDocumentDiscountType,text(data,"documentDiscountValue")||"0");
+  let documentDiscount=discount(rawDocumentDiscountType,text(data,"documentDiscountValue")||"0");
   const deposit=discount(rawDepositType,text(data,"depositValue")||"0");
   if(!documentDiscount)errors.documentDiscountValue="Enter a valid document discount.";
   if(!deposit)errors.depositValue="Enter a valid deposit.";
+  let discountSnapshot:DiscountSnapshot|null=null;
+  let promoCode=text(data,"promoCode");
+  if(!promoCode&&excludeInvoiceId){
+    const {data:oldPrice}=await context.supabase.from("invoices").select("subtotal_cents,discount_snapshot").eq("id",excludeInvoiceId).eq("business_id",context.business.id).maybeSingle();
+    if(oldPrice?.discount_snapshot&&!Object.keys(errors).length){
+      try{const base=calculateFinancialDocument({currency:"USD",lines:lineInputs.map(line=>({...line,taxable:false,discount:undefined}))});if(base.subtotalCents!==Number(oldPrice.subtotal_cents))promoCode=oldPrice.discount_snapshot.code;}catch{errors.lines="Review the invoice line amounts.";}
+    }
+  }
+  if(promoCode&&!Object.keys(errors).length){
+    if(lineInputs.some(line=>line.discount&&line.discount.type!=="none"&&line.discount.value>0))errors.documentDiscountValue="Remove line discounts before applying a promotion.";
+    else try{
+      const undiscounted=calculateFinancialDocument({currency:"USD",lines:lineInputs.map(line=>({...line,taxable:false,discount:undefined}))});
+      const promo=await validateRentalPromo(context.supabase,{businessId:context.business.id,code:promoCode,customerId,excludeInvoiceId,items:undiscounted.lines.map((line,index)=>({id:lineInputs[index].id,quantity:1,unitPriceCents:line.lineSubtotalCents}))});
+      if(!promo.ok){if("reason" in promo&&promo.reason==="below_minimum")documentDiscount={type:"none",value:0};else errors.documentDiscountValue=promo.error;}
+      else{documentDiscount={type:"fixed",value:promo.discountCents};discountSnapshot=promo.snapshot;}
+    }catch(error){errors.documentDiscountValue=error instanceof Error?error.message:"The promotion could not be calculated.";}
+  }
   let totals;
   let lineArtifacts:TaxLineArtifact[]=[];
   if(!Object.keys(errors).length){
@@ -461,7 +480,7 @@ async function prepare(data:FormData,context:Awaited<ReturnType<typeof requireWo
   return {values,lines,fees,totals,lineArtifacts,payload:{
     customer_id:customerId,service_location_id:locationId,job_id:jobId,title,
     customer_notes:text(data,"customerMessage")||null,internal_notes:text(data,"internalNotes")||null,
-    currency:"USD",subtotal_cents:totals.subtotalCents,discount_total_cents:totals.discountTotalCents,
+    discount_snapshot:discountSnapshot,currency:"USD",subtotal_cents:totals.subtotalCents,discount_total_cents:totals.discountTotalCents,
     tax_total_cents:totals.taxTotalCents,fee_total_cents:totals.feeTotalCents,grand_total_cents:totals.grandTotalCents,
     tax_rate_basis_points:totals.taxSnapshot.taxRateBasisPoints,
     taxable_subtotal_cents:totals.taxSnapshot.taxableSubtotalCents,
@@ -563,11 +582,12 @@ export async function createInvoice(slug:string,_state:InvoiceActionState,data:F
 export async function updateInvoice(slug:string,invoiceId:string,_state:InvoiceActionState,data:FormData):Promise<InvoiceActionState>{
   const context=await requireWorkspaceCapability(slug,"invoices");
   if(!canManageCustomers(context.role))return {error:"You do not have permission to edit invoices."};
-  const {data:current}=await context.supabase.from("invoices").select("status").eq("id",invoiceId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle();
+  const {data:current}=await context.supabase.from("invoices").select("status,subtotal_cents,discount_total_cents,discount_snapshot").eq("id",invoiceId).eq("business_id",context.business.id).eq("is_deleted",false).maybeSingle();
   if(!current)return {error:"Invoice not found."};
   if(current.status!=="draft")return {error:"Only draft invoices can be edited. Paid invoices are immutable."};
-  const prepared=await prepare(data,context);
+  const prepared=await prepare(data,context,invoiceId);
   if(!prepared.payload||!prepared.lines||!prepared.fees||!prepared.totals)return {error:prepared.error,fieldErrors:prepared.errors,values:prepared.values};
+  if(!text(data,"promoCode")&&current.discount_snapshot&&Number(current.subtotal_cents)===prepared.payload.subtotal_cents&&Number(current.discount_total_cents)===prepared.payload.discount_total_cents)prepared.payload.discount_snapshot=current.discount_snapshot;
   const {error}=await context.supabase.from("invoices").update({...prepared.payload,updated_by:context.user.id}).eq("id",invoiceId).eq("business_id",context.business.id).eq("status","draft");
   if(error){console.error("Invoice update failed",{code:error.code,invoiceId,businessId:context.business.id});return {error:"The invoice could not be saved.",values:prepared.values};}
   const childError=await replaceChildren(context,invoiceId,prepared);

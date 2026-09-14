@@ -1,5 +1,6 @@
 "use server";
 
+import {validateRentalPromo,type DiscountSnapshot} from "@/lib/discounts";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
@@ -78,7 +79,7 @@ async function prepareJob(
   }
   const subtotal = nonNegativeMoney(text(formData, "subtotal"));
   const tax = nonNegativeMoney(text(formData, "taxAmount"));
-  const discount = nonNegativeMoney(text(formData, "discountAmount"));
+  let discount = nonNegativeMoney(text(formData, "discountAmount"));
   if (subtotal === null || tax === null || discount === null) errors.money = "Amounts cannot be negative.";
   const status = text(formData, "status");
   const priority = text(formData, "priority");
@@ -117,6 +118,18 @@ async function prepareJob(
       return {error:schedulingMessage,errors:{startsAt:schedulingMessage},values,technicianIds};
     }
   }
+  let discountSnapshot:DiscountSnapshot|null|undefined;
+  let promoCode=text(formData,"promoCode");
+  const {data:existingPrice}=excludeJobId?await supabase.from("jobs").select("subtotal,discount_amount,discount_snapshot").eq("id",excludeJobId).eq("business_id",business.id).maybeSingle():{data:null};
+  if(!promoCode&&existingPrice?.discount_snapshot&&Number(existingPrice.subtotal)!==subtotal)promoCode=existingPrice.discount_snapshot.code;
+  if(promoCode){
+    const promo=await validateRentalPromo(supabase,{businessId:business.id,code:promoCode,customerId,excludeJobId,items:[{id:"office_rental_subtotal",quantity:1,unitPriceCents:Math.round((subtotal??0)*100)}]});
+    if(!promo.ok){if("reason" in promo&&promo.reason==="below_minimum"){discount=0;discountSnapshot=null;}else{errors.money=promo.error;return {error:promo.error,errors,values};}}
+    else{discount=promo.discountCents/100;discountSnapshot=promo.snapshot;}
+  }else if(excludeJobId){
+    // Preserve the historical snapshot only while its price is unchanged.
+    if(existingPrice?.discount_snapshot&&(Number(existingPrice.subtotal)!==subtotal||Number(existingPrice.discount_amount)!==discount))discountSnapshot=null;
+  }
   const estimatedDuration = Number(text(formData, "estimatedDurationMinutes") || 0);
   return {
     values,
@@ -142,6 +155,7 @@ async function prepareJob(
       subtotal: subtotal ?? 0,
       tax_amount: tax ?? 0,
       discount_amount: discount ?? 0,
+      ...(discountSnapshot!==undefined?{discount_snapshot:discountSnapshot}:{}),
       payment_status: paymentStatus,
       booking_source: text(formData, "source") || "dashboard",
       is_return_visit:isReturnVisit,

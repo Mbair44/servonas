@@ -1,5 +1,7 @@
 "use client";
 
+import {AdminPromotionField} from "./AdminPromotionField";
+import type {DiscountSnapshot} from "@/lib/discounts";
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JobActionState } from "@/app/app/[businessSlug]/jobs/actions";
 import { jobPriorities, jobStatuses, paymentStatuses } from "@/lib/jobValidation";
@@ -175,6 +177,7 @@ export default function JobForm({
     <fieldset className="job-form-section job-billing-section"><legend><i><JobSectionIcon name="billing"/></i><span><strong>Billing</strong><small>Set the job value and payment status.</small></span></legend><div className="job-form-grid job-billing-grid">
       <label>Subtotal<input name="subtotal" type="number" min="0" step="0.01" value={subtotal} onChange={event=>setSubtotal(event.target.value)}/></label>
       <label>Tax<input name="taxAmount" type="number" min="0" step="0.01" value={tax} onChange={event=>setTax(event.target.value)}/></label>
+      <AdminPromotionField subtotalCents={Math.round(Number(subtotal)*100)} customerId={customerId} initialSnapshot={(job as unknown as {discount_snapshot?:DiscountSnapshot})?.discount_snapshot} onDiscount={cents=>setDiscount(String(cents/100))}/>
       <label>Discount<input name="discountAmount" type="number" min="0" step="0.01" value={discount} onChange={event=>setDiscount(event.target.value)}/>{error("money")}</label>
       <div className="job-calculated-total"><span>Total</span><strong>{new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(total)}</strong></div>
       <label>Payment status<select name="paymentStatus" value={value("paymentStatus", String(job?.payment_status ?? "unpaid"))} onChange={event=>updateValue("paymentStatus",event.target.value)}>{paymentStatuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label>
