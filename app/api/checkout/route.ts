@@ -1,3 +1,4 @@
+import {cancellationPolicyError} from "@/lib/cancellationPolicy";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -16,6 +17,8 @@ import type {VerifiedGoogleAddress} from "@/lib/googleAddress";
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type CheckoutBody = {
+  cancellationPolicyAccepted?:boolean|string;
+  cancellationPolicyText?:string;
   businessSlug?: string;
   items?: RequestedItem[];
   rentalDate?: string;
@@ -89,6 +92,11 @@ export async function POST(request: Request) {
       ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
+    const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment").eq("business_id",business.id).maybeSingle():{data:null,error:null};
+    if(policyLoadError)return NextResponse.json({error:"The cancellation policy could not be verified. Please try again."},{status:503});
+    const policyError=cancellationPolicyError(cancellationPolicy,body.cancellationPolicyAccepted,body.cancellationPolicyText);
+    if(policyError)return NextResponse.json({error:policyError},{status:400});
+    const policyAcknowledged=Boolean(cancellationPolicy?.cancellation_policy_enabled&&(body.cancellationPolicyAccepted===true||body.cancellationPolicyAccepted==="true"));
     let deliveryQuote:DeliveryQuote|null=null;
     if(business){
       const {data:deliveryConfig}=await supabase.from("delivery_fee_settings").select("enabled").eq("business_id",business.id).maybeSingle();
@@ -123,11 +131,13 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected")
+      .select("business_id,id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
     if (itemError || !items || items.length !== ids.length) return NextResponse.json({ error: "One or more selected rental items are no longer available." }, { status: 404 });
+
+    if(items.some(item=>item.business_id&&item.business_id!==business?.id))return NextResponse.json({error:"Open this business’s booking page to reserve these rentals."},{status:400});
 
     const itemsById = new Map(items.map((item) => [item.id, item]));
     const orderedItems = requestedItems.map((requested) => ({ ...itemsById.get(requested.inventoryItemId)!, quantity: requested.quantity }));
@@ -177,11 +187,11 @@ export async function POST(request: Request) {
     const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + item.totalUnitPriceCents * item.quantity, 0)+operatorTotalCents;
     const discountCents=promo?.ok?promo.discountCents:0,deliveryFeeCents=deliveryQuote?.feeCents??0,deliveryTaxCents=deliveryQuote?.taxCents??0,totalCents=Math.max(0,subtotalCents-discountCents)+deliveryFeeCents+deliveryTaxCents;
     const depositCents = Math.round(totalCents * depositPercent / 100);
-    if(onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
+    if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
     if(onlinePaymentsReady&&depositCents>0&&depositCents<totalCents&&body.finalPaymentAccepted!=="true"&&body.finalPaymentAccepted!==true)return NextResponse.json({error:"Please authorize the remaining balance to be charged after the job is completed."},{status:400});
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
-    const {error:pricingSnapshotError}=await supabase.from("bookings").update({subtotal_cents:subtotalCents,tax_cents:deliveryTaxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryQuote?.snapshot.rule??null,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
+    const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,subtotal_cents:subtotalCents,tax_cents:deliveryTaxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryQuote?.snapshot.rule??null,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
     if(pricingSnapshotError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation pricing could not be finalized. Please try again."},{status:500});}
     if(business){
       const sessionId=validSessionId(body.attributionSessionId)?body.attributionSessionId:null;
