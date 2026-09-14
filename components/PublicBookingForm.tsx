@@ -32,6 +32,7 @@ interface Props {
   publicSlug: string;
   timezone: string;
   embedded?: boolean;
+  policyBasePath?: string;
 }
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -55,6 +56,7 @@ function timeLabel(value: string) {
 }
 
 export default function PublicBookingForm(props: Props) {
+  const policyBase=props.policyBasePath??`/book/${props.publicSlug}`;
   const [state, formAction, pending] = useActionState(props.action, initialState);
   const [serviceId, setServiceId] = useState("");
   const [date, setDate] = useState("");
@@ -235,7 +237,7 @@ export default function PublicBookingForm(props: Props) {
       <label><span className="booking-field-title">Last name <small>Optional</small></span><input name="lastName" autoComplete="family-name" defaultValue={state.values?.lastName} /></label>
       <label><span className="booking-field-title">Email <span className="booking-required" aria-hidden="true">*</span></span><input name="email" type="email" autoComplete="email" required defaultValue={state.values?.email} />{fieldError("email")}</label>
       <label><span className="booking-field-title">Phone <span className="booking-required" aria-hidden="true">*</span></span><input name="phone" type="tel" autoComplete="tel" required defaultValue={state.values?.phone} />{fieldError("phone")}</label>
-      <label className="wide toggle-row"><input name="smsConsent" type="checkbox" defaultChecked={state.values?.smsConsent === "on"} aria-describedby="sms-consent-help" /><span><b>Text me booking updates <small>Optional</small></b><small id="sms-consent-help">By checking this box, you agree to receive transactional appointment texts from {props.businessName}. Message frequency varies. Message and data rates may apply. Reply STOP to cancel or HELP for help. Consent is not a condition of purchase and is not shared with third parties for marketing. <Link href={`/book/${props.publicSlug}/terms`} target="_blank">Text Messaging Terms</Link> · <Link href={`/book/${props.publicSlug}/privacy`} target="_blank">Privacy Policy</Link></small>{fieldError("smsConsent")}</span></label>
+      <label className="wide toggle-row"><input name="smsConsent" type="checkbox" defaultChecked={state.values?.smsConsent === "on"} aria-describedby="sms-consent-help" /><span><b>Text me booking updates <small>Optional</small></b><small id="sms-consent-help">By checking this box, you agree to receive transactional appointment texts from {props.businessName}. Message frequency varies. Message and data rates may apply. Reply STOP to cancel or HELP for help. Consent is not a condition of purchase and is not shared with third parties for marketing. <Link href={`${policyBase}/privacy`} target="_blank">Privacy Policy</Link> · <Link href={`${policyBase}/terms`} target="_blank">Terms of Service</Link></small>{fieldError("smsConsent")}</span></label>
       {props.collectAddress && <label className="wide"><span className="booking-field-title">Service address <span className="booking-required" aria-hidden="true">*</span></span><input ref={addressRef} name="address" autoComplete="off" required value={address} onChange={(event) => { setAddress(event.target.value); setPlaceId(""); setStructuredAddress({ line1: "", line2: "", city: "", region: "", postalCode: "", countryCode: "US" }); }} placeholder="Start typing and select an address" aria-describedby="address-help" />{fieldError("address")}{addressLookupError && <small className="field-error" role="alert">{addressLookupError}</small>}<small id="address-help" className="field-help">{props.googleMapsApiKey ? "Select an address from Google’s suggestions." : "Address verification is not configured."}</small></label>}
       <label className="wide">How can we help? <small>Optional</small><textarea name="details" rows={4} defaultValue={state.values?.details} /></label>
       <label className="wide booking-photo-field">Add a photo <span>Optional</span><input name="bookingPhoto" type="file" accept="image/jpeg,image/png,image/webp,image/heic"/>{fieldError("bookingPhoto")}<small className="field-help">You can attach one JPG, PNG, WebP, or HEIC image up to 10MB to help the business understand the job.</small></label>
