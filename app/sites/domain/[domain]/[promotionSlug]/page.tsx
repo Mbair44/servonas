@@ -1,3 +1,4 @@
+import {loadPromotionEligibility,filterPromotionInventory} from "@/lib/promotionEligibility";
 import {notFound} from "next/navigation";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
@@ -25,9 +26,8 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
   db.from("inventory_items").select("id,name,description,daily_price_cents,image_url,category_id").eq("business_id",businessId).eq("active",true),
  ]);
  if(promotion){
-  const {data:categories}=await db.from("promotion_categories").select("category_id").eq("promotion_id",promotion.id);
-  const categoryIds=new Set((categories??[]).map(row=>row.category_id));
-  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="promotion" landingId={promotion.id} landingLabel={promotion.slug}/>}<PromotionLanding promotion={promotion} business={site} items={categoryIds.size?(items??[]).filter(item=>categoryIds.has(item.category_id)):items??[]} baseBookingUrl="/booking" websiteUrl="/"/></>;
+  const eligibility=await loadPromotionEligibility(db,businessId,promotion.discount_id);
+  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="promotion" landingId={promotion.id} landingLabel={promotion.slug}/>}<PromotionLanding promotion={promotion} business={site} items={filterPromotionInventory(items??[],promotion.discounts.applies_to,eligibility.eligibleIds)} baseBookingUrl="/booking" websiteUrl="/"/></>;
  }
  if(categoryPage)return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="category" landingId={categoryPage.category_id} landingLabel={categoryPage.slug}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking" websiteUrl="/"/></>;
  if(!locationPage)notFound();

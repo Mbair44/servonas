@@ -1,10 +1,11 @@
+import {loadPromotionEligibility} from "./promotionEligibility.ts";
 import {discountAmountForBase,selectDiscountTier,validateDiscountTiers,discountTierLabel,type DiscountTier} from "./discountTiers.ts";
 export type DiscountRule={tiers?:DiscountTier[];id:string;business_id:string;name:string;code:string;discount_type:"percentage"|"fixed";discount_value:number;applies_to:"order"|"selected_items";minimum_subtotal_cents:number|null;starts_at:string|null;expires_at:string|null;usage_limit:number|null;per_customer_limit:number|null;first_time_customer_only:boolean;is_active:boolean};
 export type PricedItem={id:string;quantity:number;unitPriceCents:number;rentalUnitPriceCents?:number};
 export type DiscountSnapshot={promotionId?:string|null;discountId:string;name:string;code:string;tier:DiscountTier|null;tierLabel:string|null;discountType:"fixed"|"percentage";discountValue:number;qualifyingSubtotalCents:number;eligibleSubtotalCents:number;discountCents:number};
 export type DiscountEvaluation={ok:true;snapshot:DiscountSnapshot;discountId:string;name:string;code:string;subtotalCents:number;eligibleSubtotalCents:number;discountCents:number;totalCents:number}|{ok:false;error:string;reason?:"below_minimum"};
 export const normalizePromoCode=(value:string)=>value.trim().toUpperCase();
-export const promotionEligibleItemIds=(targets:{inventory_item_id?:string|null}[],categoryItems:{id?:string|null}[])=>new Set([...targets.map(row=>row.inventory_item_id),...categoryItems.map(row=>row.id)].filter((id):id is string=>Boolean(id)));
+export {promotionEligibleItemIds} from "./promotionEligibility.ts";
 export function calculateDiscount(rule:DiscountRule,items:PricedItem[],eligibleIds:Set<string>,now=new Date(),eligibility:{totalUses?:number;customerUses?:number;hasPriorBooking?:boolean}={}):DiscountEvaluation{
  const tierError=validateDiscountTiers(rule.tiers??[],rule.applies_to);if(tierError)return {ok:false,error:tierError};
  if(items.some(item=>!Number.isSafeInteger(item.quantity)||item.quantity<=0||!Number.isFinite(item.unitPriceCents)||item.unitPriceCents<0||(item.rentalUnitPriceCents!==undefined&&(!Number.isSafeInteger(item.rentalUnitPriceCents)||item.rentalUnitPriceCents<0))))return {ok:false,error:"Review the rental quantities and prices."};
@@ -34,9 +35,8 @@ export async function validateRentalPromo(db:any,input:{businessId:string;code:s
  let existingRedemptionId:string|undefined;
  if(input.excludeJobId||input.excludeInvoiceId){const {data:existing}=await db.from("discount_redemptions").select("id").eq("business_id",input.businessId).eq(input.excludeJobId?"job_id":"invoice_id",input.excludeJobId??input.excludeInvoiceId).maybeSingle();existingRedemptionId=existing?.id;}
  const withoutCurrent=(query:any)=>existingRedemptionId?query.neq("id",existingRedemptionId):query;
- const [{data:targets},{data:promotion},{count:totalUses}]=await Promise.all([
-  db.from("discount_items").select("inventory_item_id").eq("business_id",input.businessId).eq("discount_id",rule.id),
-  db.from("promotions").select("id").eq("business_id",input.businessId).eq("discount_id",rule.id).maybeSingle(),
+ const [eligibility,{count:totalUses}]=await Promise.all([
+  loadPromotionEligibility(db,input.businessId,rule.id),
   withoutCurrent(db.from("discount_redemptions").select("id",{count:"exact",head:true}).eq("discount_id",rule.id).in("status",["pending","redeemed"])),
  ]);
  if(rule.usage_limit!=null&&Number(totalUses??0)>=rule.usage_limit)return{ok:false as const,error:"This promo code has reached its usage limit."};
@@ -44,9 +44,7 @@ export async function validateRentalPromo(db:any,input:{businessId:string;code:s
  if(!customerId&&input.email){const {data:customer}=await db.from("customers").select("id").eq("business_id",input.businessId).ilike("email",input.email.trim()).eq("is_deleted",false).maybeSingle();customerId=customer?.id;}
  if(customerId&&rule.per_customer_limit!=null){const {count}=await withoutCurrent(db.from("discount_redemptions").select("id",{count:"exact",head:true}).eq("discount_id",rule.id).eq("customer_id",customerId).in("status",["pending","redeemed"]));if(Number(count??0)>=rule.per_customer_limit)return{ok:false as const,error:"This promo code has already been used the maximum number of times for this customer."};}
  if(rule.first_time_customer_only&&customerId){const {count}=await db.from("bookings").select("id",{count:"exact",head:true}).eq("business_id",input.businessId).eq("customer_id",customerId).in("status",["confirmed","paid","completed"]);if(Number(count??0)>0)return{ok:false as const,error:"This promo code is only available to first-time customers."};}
- let categoryItems:{id?:string|null}[]=[];
- if(rule.applies_to==="selected_items"&&promotion?.id){const {data:categories}=await db.from("promotion_categories").select("category_id").eq("promotion_id",promotion.id);const categoryIds=[...new Set((categories??[]).map((row:any)=>row.category_id).filter(Boolean))];if(categoryIds.length){const {data}=await db.from("inventory_items").select("id").eq("business_id",input.businessId).eq("active",true).in("category_id",categoryIds);categoryItems=data??[];}}
- const result=calculateDiscount(rule,input.items,promotionEligibleItemIds(targets??[],categoryItems),new Date(),{totalUses:Number(totalUses??0),customerUses:0,hasPriorBooking:false});
- if(result.ok)result.snapshot.promotionId=promotion?.id??null;
+ const result=calculateDiscount(rule,input.items,eligibility.eligibleIds,new Date(),{totalUses:Number(totalUses??0),customerUses:0,hasPriorBooking:false});
+ if(result.ok)result.snapshot.promotionId=eligibility.promotionId;
  return result;
 }
