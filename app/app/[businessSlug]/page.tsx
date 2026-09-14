@@ -1,3 +1,4 @@
+import {SalesPerformance} from "@/components/SalesPerformance";
 import Link from "next/link";
 import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { calendarDays } from "@/lib/scheduleCalendar";
@@ -115,6 +116,8 @@ export default async function Workspace({ params, searchParams }: {
       <article className="executive-card kpi-card"><div className="card-icon green" aria-hidden="true">$</div><div><span>Payments this month</span><strong>{formatCents(money("payments_month_cents"))}</strong></div><p>{formatCents(money("payments_today_cents"))} received today</p><Link href={`/app/${businessSlug}/invoices`}>View invoices <span aria-hidden="true">→</span></Link></article>
       <article className="executive-card kpi-card"><div className="card-icon green" aria-hidden="true">◎</div><div><span>Customers</span><strong>{customers?.length ?? 0} <small>customers</small></strong></div><p>{newCustomers} new this week</p><Link href={`/app/${businessSlug}/customers`}>Manage customers <span aria-hidden="true">→</span></Link></article>
     </div></section>
+
+    {["owner","admin","manager"].includes(role)&&<SalesPerformance db={supabase} businessId={business.id} businessSlug={businessSlug} today={today} query={query}/>}
 
     {alerts.length > 0 && <section className="attention-alerts" aria-labelledby="attention-heading"><div className="section-heading"><div><span>Action center</span><h2 id="attention-heading">Needs attention</h2></div><p>Items that may need an office decision.</p></div><div>{alerts.map((alert) => <Link key={alert.label} href={alert.href}><strong>{alert.count}</strong><span>{alert.label}</span><b aria-hidden="true">→</b></Link>)}</div></section>}
 
