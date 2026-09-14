@@ -1,5 +1,6 @@
 "use server";
 
+import {jobAssignmentErrorMessage} from "@/lib/jobAssignmentErrors";
 import {validateRentalPromo,type DiscountSnapshot} from "@/lib/discounts";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -190,13 +191,14 @@ export async function createJob(slug: string, _state: JobActionState, formData: 
     return { error: "The job could not be created.", values };
   }
   const { error: assignmentError } = await supabase.rpc("set_job_technicians", { p_job_id: job.id, p_technician_ids: prepared.technicianIds });
-  if (assignmentError) console.error("Initial job assignment failed", { code: assignmentError.code, businessId: business.id, jobId: job.id });
+  if (assignmentError) console.error("Initial job assignment failed", { code: assignmentError.code, message: assignmentError.message, businessId: business.id, jobId: job.id });
   await Promise.allSettled([
     JobNotificationService.jobBooked(job.id),
     payload.status === "confirmed" ? JobNotificationService.jobConfirmed(job.id) : Promise.resolve(),
-    prepared.technicianId ? JobNotificationService.technicianAssigned(job.id) : Promise.resolve(),
+    !assignmentError && prepared.technicianId ? JobNotificationService.technicianAssigned(job.id) : Promise.resolve(),
   ]);
   revalidatePath(`/app/${slug}`); revalidatePath(`/app/${slug}/jobs`);
+  if (assignmentError) redirect(`/app/${slug}/jobs/${job.id}?error=${encodeURIComponent(`Job created, but ${jobAssignmentErrorMessage(assignmentError)}`)}`);
   redirect(`/app/${slug}/jobs/${job.id}?success=Job+created`);
 }
 
@@ -216,7 +218,11 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
     return { error: "The job could not be saved.", values };
   }
   const { error: assignmentError } = await supabase.rpc("set_job_technicians", { p_job_id: jobId, p_technician_ids: prepared.technicianIds });
-  if (assignmentError) return { error: "Job details saved, but technician assignment could not be updated.", values };
+  if (assignmentError) {
+    console.error("Job team update failed", {code:assignmentError.code,message:assignmentError.message,businessId:business.id,jobId});
+    revalidatePath(`/app/${slug}/jobs`); revalidatePath(`/app/${slug}/jobs/${jobId}`);
+    return { error: `Job details saved. ${jobAssignmentErrorMessage(assignmentError)}`, values, technicianIds:prepared.technicianIds };
+  }
   await Promise.allSettled([
     prepared.technicianId && prepared.technicianId !== owned.assigned_technician_id
       ? JobNotificationService.technicianAssigned(jobId) : Promise.resolve(),
@@ -269,8 +275,8 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
     p_technician_ids: technicianIds,
   });
   if (error) {
-    console.error("Job technician assignment failed", { code: error.code, businessId: business.id, jobId });
-    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The technician assignment could not be saved.")}`);
+    console.error("Job technician assignment failed", { code: error.code, message:error.message, businessId: business.id, jobId });
+    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(jobAssignmentErrorMessage(error))}`);
   }
   if (technicianId && technicianId !== job.assigned_technician_id) {
     await JobNotificationService.technicianAssigned(jobId);
