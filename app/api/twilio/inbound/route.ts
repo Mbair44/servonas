@@ -20,13 +20,16 @@ export async function POST(request:Request){
  const webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
  if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
  const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",body=params.get("Body")??"";
- const {data,error}=await db.rpc("process_inbound_sms",{p_provider_message_id:sid,p_from_phone:from,p_to_phone:to,p_body:body});
+ const {data,error}=await db.rpc("process_inbound_sms",{p_provider_message_id:sid,p_from_phone:from,p_to_phone:to,p_body:body,...(security.mode==="tenant"?{p_business_id:security.businessId,p_account_sid:accountSid,p_opt_out_type:params.get("OptOutType")??""}:{})});
  if(error){
   console.error("Inbound SMS processing failed",{code:error.code,message:error.message,sid});
   return NextResponse.json({error:error.code==="P0002"?"Number not configured":"Processing failed"},{status:error.code==="P0002"?404:500});
  }
  const result=data as IntakeResult;
- if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia:Number(params.get("NumMedia")||0),messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});}}
+ if(security.mode==="tenant"&&result.business_id!==security.businessId)return NextResponse.json({error:"Tenant mismatch"},{status:403});
+ if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia:Number(params.get("NumMedia")||0),messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});return NextResponse.json({error:"Usage persistence failed"},{status:503});}}
+ // Tenant replies are recorded without legacy parent-account auto sends.
+ if(security.mode==="tenant"||result.duplicate)return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>',{headers:{"Content-Type":"text/xml"}});
  const recovery=await advanceMissedCallConversation(db,{businessId:result.business_id,customerId:result.customer_id,providerMessageId:sid,body});
  if(recovery)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  if(result.duplicate||!result.reply)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});

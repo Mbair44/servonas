@@ -1,0 +1,20 @@
+create schema auth;
+create role anon;
+create role authenticated;
+create role service_role;
+create function auth.role() returns text language sql as $$select current_setting('request.jwt.claim.role',true)$$;
+select set_config('request.jwt.claim.role','service_role',false);
+create function public.normalize_phone_e164(value text) returns text language sql immutable as $$select case when value ~ '^\+1[0-9]{10}$' then value else null end$$;
+create table business_twilio_accounts(id uuid primary key,business_id uuid,twilio_subaccount_sid text,provisioning_status text);
+create table twilio_phone_numbers(business_id uuid,business_twilio_account_id uuid,phone_number_e164 text,status text,provisioning_status text);
+create table twilio_tenant_activation_events(id bigint generated always as identity primary key,business_id uuid);
+create table twilio_message_usage(id uuid);
+create table business_inbound_sms_settings(business_id uuid primary key,enabled boolean,inbound_number_e164 text,auto_reply_enabled boolean,auto_reply_body text,emergency_reply_body text);
+create table customers(id uuid primary key default gen_random_uuid(),business_id uuid,first_name text,last_name text,phone text,phone_normalized text,preferred_contact_method text,tags text[],lead_source text,notes text,is_active boolean,sms_consent_status text,sms_consent_recorded_at timestamptz,sms_opted_out_at timestamptz,intake_data jsonb,intake_data_verified boolean,is_deleted boolean default false,created_at timestamptz default now(),updated_at timestamptz);
+create table customer_sms_consents(business_id uuid,customer_id uuid,phone_e164 text,status text,source text,provider_message_id text,evidence jsonb,updated_at timestamptz,unique(business_id,phone_e164));
+create table inbound_sms_messages(id uuid primary key default gen_random_uuid(),business_id uuid,customer_id uuid,provider text default 'twilio',provider_message_id text,from_phone_e164 text,to_phone_e164 text,body text,classification text,escalation_reasons text[],likely_spam boolean,extracted_data jsonb,unique(provider,provider_message_id));
+create table business_activity(business_id uuid,action text,entity_type text,entity_id uuid,summary text);
+insert into business_twilio_accounts values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','ACtenantA','active'),('10000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','ACtenantB','active');
+insert into twilio_phone_numbers values('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','+14805550111','active','active'),('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002','+16025550222','active','active');
+-- Deliberately wrong legacy settings must not reroute tenant A into tenant B.
+insert into business_inbound_sms_settings values('20000000-0000-0000-0000-000000000002',true,'+14805550111',true,'reply','emergency');
