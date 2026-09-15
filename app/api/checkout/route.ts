@@ -13,6 +13,7 @@ import {operatorCharge} from "@/lib/rentalOperators";
 import {recordBookingFunnelEvent,snapshotBookingAttribution,validSessionId} from "@/lib/bookingFunnel";
 import {deliveryQuoteMessage,quoteBusinessDelivery,type DeliveryQuote} from "@/lib/deliveryQuote";
 import type {VerifiedGoogleAddress} from "@/lib/googleAddress";
+import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
@@ -27,6 +28,7 @@ type CheckoutBody = {
   lastName?: string;
   email?: string;
   phone?: string;
+  smsConsent?: string | boolean;
   address?: string;
   city?: string;
   zipCode?: string;
@@ -89,7 +91,7 @@ export async function POST(request: Request) {
       ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent,timezone,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
       : {data:null};
     const {data: business}=publicBooking
-      ? await supabase.from("businesses").select("id,slug").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
+      ? await supabase.from("businesses").select("id,slug,name").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
     const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment").eq("business_id",business.id).maybeSingle():{data:null,error:null};
@@ -179,6 +181,9 @@ export async function POST(request: Request) {
     const booking = Array.isArray(data) ? data[0] : data;
     if (!booking?.booking_id) return NextResponse.json({ error: "The reservation was not created. Please try again." }, { status: 500 });
 
+    const smsConsent=body.smsConsent===true||body.smsConsent==="true";
+    const disclosure=webBookingSmsConsentDisclosure(business?.name??"this business");
+
     const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id").eq("booking_id",booking.booking_id);
     if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
@@ -190,6 +195,10 @@ export async function POST(request: Request) {
     if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
     if(onlinePaymentsReady&&depositCents>0&&depositCents<totalCents&&body.finalPaymentAccepted!=="true"&&body.finalPaymentAccepted!==true)return NextResponse.json({error:"Please authorize the remaining balance to be charged after the job is completed."},{status:400});
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
+    if(business){
+      const {error:consentError}=await supabase.rpc("record_web_booking_sms_consent",{p_booking_id:booking.booking_id,p_granted:smsConsent,p_disclosure:disclosure,p_disclosure_version:WEB_BOOKING_SMS_CONSENT_VERSION});
+      if(consentError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation consent record could not be saved. Please try again."},{status:500});}
+    }
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
     const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,subtotal_cents:subtotalCents,tax_cents:deliveryTaxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,discount_snapshot:promo?.ok?promo.snapshot:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryQuote?.snapshot.rule??null,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
     if(pricingSnapshotError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation pricing could not be finalized. Please try again."},{status:500});}
