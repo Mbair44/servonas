@@ -7,6 +7,7 @@ import { getAccessibleMetaAdAccounts, metaAdsReadyLabel, type MetaAdsAccount } f
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { MetaAdsSyncButton } from "./MetaAdsSyncButton";
 import { buildMetaCampaignTraffic } from "@/lib/metaCampaignTraffic";
+import {metaCampaignTrafficEventNames} from "@/lib/bookingFunnel";
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
@@ -32,7 +33,7 @@ export default async function MetaAdsPage({
     supabase.from("business_ad_platform_sync_events").select("stage,outcome,rows_synced,error_category,error_code,created_at").eq("business_id", business.id).eq("provider", "meta").order("created_at", { ascending: false }).limit(10),
     reportingDb.from("promotions").select("id,name,slug").eq("business_id",business.id).order("created_at",{ascending:false}),
     reportingDb.from("booking_attribution_sessions").select("id,first_landing_path,first_landing_url,utm_source,utm_medium,utm_campaign,fbclid").eq("business_id",business.id).gte("session_started_at",`${from}T00:00:00.000Z`).lte("session_started_at",`${to}T23:59:59.999Z`).limit(5000),
-    reportingDb.from("booking_funnel_events").select("attribution_session_id,event_name,metadata").eq("business_id",business.id).gte("occurred_at",`${from}T00:00:00.000Z`).lte("occurred_at",`${to}T23:59:59.999Z`).in("event_name",["promotion_landing_view","checkout_started","initiate_checkout","booking_completed","purchase","payment_completed"]).limit(10000),
+    reportingDb.from("booking_funnel_events").select("attribution_session_id,event_name,metadata").eq("business_id",business.id).gte("occurred_at",`${from}T00:00:00.000Z`).lte("occurred_at",`${to}T23:59:59.999Z`).in("event_name",metaCampaignTrafficEventNames).limit(10000),
   ]);
   const status = statuses.find((entry) => entry.provider === "meta")!;
   const copy = adPlatformStateCopy(status.state);

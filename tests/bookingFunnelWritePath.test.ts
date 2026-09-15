@@ -18,12 +18,23 @@ test("booking funnel route persists service_id and structured diagnostics",async
 });
 
 test("database event constraint includes every event accepted by the application",async()=>{
- const [eventsSource,migration]=await Promise.all([read("lib/bookingFunnel.ts"),read("supabase/migrations/20260905000100_sync_booking_funnel_event_constraint.sql")]);
+ const [eventsSource,migration]=await Promise.all([read("lib/bookingFunnel.ts"),read("supabase/migrations/20260915000200_sync_current_booking_funnel_events.sql")]);
  const declaration=eventsSource.match(/bookingFunnelEvents=\[(.*?)\] as const/s)?.[1]??"";
  const events=[...declaration.matchAll(/"([a-z_]+)"/g)].map(match=>match[1]);
+ const constraint=migration.match(/check \(event_name in \((.*?)\)\);/s)?.[1]??"";
+ const allowed=[...constraint.matchAll(/'([a-z_]+)'/g)].map(match=>match[1]);
  assert.ok(events.includes("button_click"));
- for(const event of events)assert.match(migration,new RegExp(`'${event}'`),`${event} is missing from the database constraint`);
+ assert.deepEqual(new Set(allowed),new Set(events));
+ assert.equal(allowed.length,events.length,"the constraint must neither omit events nor admit unknown events");
+ for(const event of ["booking_date_selection_started","initiate_checkout","promotion_inventory_viewed"])assert.ok(allowed.includes(event));
  assert.match(migration,/drop constraint if exists booking_funnel_events_event_name_check/);
+});
+
+test("promotion inventory views may describe a result set without one item or service id",async()=>{
+ const [schema,booking]=await Promise.all([read("supabase/migrations/20260817000100_booking_funnel_attribution.sql"),read("components/PartyRentalBookingClient.tsx")]);
+ assert.match(schema,/inventory_item_id uuid references/);
+ assert.doesNotMatch(schema,/inventory_item_id uuid not null/);
+ assert.match(booking,/trackBookingFunnel\(businessSlug,availableIds\.length\?"promotion_inventory_viewed":"promotion_no_inventory_available",\{metadata:/);
 });
 
 test("booking tracker payload can carry service identifiers for service funnels",async()=>{
