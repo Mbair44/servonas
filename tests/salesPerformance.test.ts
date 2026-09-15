@@ -70,6 +70,13 @@ test("tenant managers and Servonas platform admins can see Sales Performance",as
  const dashboard=await readFile(new URL("../app/app/[businessSlug]/page.tsx",import.meta.url),"utf8");
  assert.match(dashboard,/\["owner","admin","manager","platform_admin"\]\.includes\(role\).*<SalesPerformance/);
 });
+test("Sales Performance RPCs authorize the verified platform-admin server path",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20260915000100_platform_admin_sales_performance.sql",import.meta.url),"utf8");
+ for(const name of ["financial_collected_payment_details","financial_collected_payments","sales_performance_summary","sales_performance_details"])assert.match(sql,new RegExp(`create or replace function public\\.${name}`));
+ assert.equal((sql.match(/auth\.role\(\)<>\'service_role\'.*public\.is_servonas_platform_admin\(\)/g)??[]).length,3);
+ assert.match(sql,/to authenticated,service_role/);
+ assert.doesNotMatch(sql,/security definer/);
+});
 test("sales and the existing dashboard share a tenant-authorized collection source",async()=>{
  const sql=await migration();assert.match(sql,/financial_dashboard_summary/);assert.equal((sql.match(/from public.financial_collected_payments\(p_business_id\)/g)??[]).length,2);
  assert.match(sql,/p\.booking_id is null or p\.invoice_id is not null/);assert.match(sql,/p\.status in\('succeeded','partially_refunded','refunded'\)/);
