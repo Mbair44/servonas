@@ -66,6 +66,10 @@ test("selected custom ranges can switch back to rolling charts",()=>{
  const options=salesPerformanceOptions({salesPeriod:"custom",salesStart:"2026-09-01",salesEnd:today,salesTrend:"24"},today);assert.equal(options.trendWindow,24);assert.equal(options.grouping,"month");
 });
 const migration=()=>readFile(new URL("../supabase/migrations/20260914000600_sales_performance.sql",import.meta.url),"utf8");
+test("tenant managers and Servonas platform admins can see Sales Performance",async()=>{
+ const dashboard=await readFile(new URL("../app/app/[businessSlug]/page.tsx",import.meta.url),"utf8");
+ assert.match(dashboard,/\["owner","admin","manager","platform_admin"\]\.includes\(role\).*<SalesPerformance/);
+});
 test("sales and the existing dashboard share a tenant-authorized collection source",async()=>{
  const sql=await migration();assert.match(sql,/financial_dashboard_summary/);assert.equal((sql.match(/from public.financial_collected_payments\(p_business_id\)/g)??[]).length,2);
  assert.match(sql,/p\.booking_id is null or p\.invoice_id is not null/);assert.match(sql,/p\.status in\('succeeded','partially_refunded','refunded'\)/);

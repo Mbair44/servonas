@@ -117,7 +117,7 @@ export default async function Workspace({ params, searchParams }: {
       <article className="executive-card kpi-card"><div className="card-icon green" aria-hidden="true">◎</div><div><span>Customers</span><strong>{customers?.length ?? 0} <small>customers</small></strong></div><p>{newCustomers} new this week</p><Link href={`/app/${businessSlug}/customers`}>Manage customers <span aria-hidden="true">→</span></Link></article>
     </div></section>
 
-    {["owner","admin","manager"].includes(role)&&<SalesPerformance db={supabase} businessId={business.id} businessSlug={businessSlug} today={today} query={query}/>}
+    {["owner","admin","manager","platform_admin"].includes(role)&&<SalesPerformance db={supabase} businessId={business.id} businessSlug={businessSlug} today={today} query={query}/>}
 
     {alerts.length > 0 && <section className="attention-alerts" aria-labelledby="attention-heading"><div className="section-heading"><div><span>Action center</span><h2 id="attention-heading">Needs attention</h2></div><p>Items that may need an office decision.</p></div><div>{alerts.map((alert) => <Link key={alert.label} href={alert.href}><strong>{alert.count}</strong><span>{alert.label}</span><b aria-hidden="true">→</b></Link>)}</div></section>}
 
