@@ -11,6 +11,8 @@ type Location = { id: string; customer_id: string; location_name: string; street
 type Service = { id: string; name: string; duration_minutes?: number | null };
 type Technician = { id: string; preferred_name: string };
 type PriorJob = {id:string;job_number:number;title:string;customer_id:string;starts_at:string|null};
+type RentalBookingItem={id:string;inventory_item_id:string;quantity:number;name:string};
+type RentalInventoryItem={id:string;name:string};
 type Job = Record<string, string | number | boolean | string[] | null | undefined>;
 
 function JobSectionIcon({name}:{name:"details"|"schedule"|"billing"|"notes"}){
@@ -24,11 +26,11 @@ function JobSectionIcon({name}:{name:"details"|"schedule"|"billing"|"notes"}){
 }
 
 export default function JobForm({
-  id, action, customers, locations, services, technicians, priorJobs=[], job, submitLabel, defaultCustomerId = "", defaultStartAt="", source="dashboard", onCancel,
+  id, action, customers, locations, services, technicians, priorJobs=[], rentalBookingItems=[], rentalInventory=[], job, submitLabel, defaultCustomerId = "", defaultStartAt="", source="dashboard", onCancel,
 }: {
   id?:string;
   action: (state: JobActionState, formData: FormData) => Promise<JobActionState>;
-  customers: Customer[]; locations: Location[]; services: Service[]; technicians: Technician[];priorJobs?:PriorJob[];
+  customers: Customer[]; locations: Location[]; services: Service[]; technicians: Technician[];priorJobs?:PriorJob[];rentalBookingItems?:RentalBookingItem[];rentalInventory?:RentalInventoryItem[];
   job?: Job; submitLabel: string; defaultCustomerId?: string; defaultStartAt?:string;source?:string; onCancel?:()=>void;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
@@ -83,6 +85,9 @@ export default function JobForm({
   const requestKey = useRef(typeof crypto === "undefined" ? "" : crypto.randomUUID());
   const value = useCallback((name: string, fallback = "") => formValues[name] ?? fallback,[formValues]);
   const [subtotal,setSubtotal]=useState(value("subtotal",String(job?.subtotal??0))),[tax,setTax]=useState(value("taxAmount",String(job?.tax_amount??0))),[discount,setDiscount]=useState(value("discountAmount",String(job?.discount_amount??0)));
+  const [bookingItemId,setBookingItemId]=useState(state.values?.bookingItemId??rentalBookingItems[0]?.id??"");
+  const selectedBookingItem=rentalBookingItems.find(item=>item.id===bookingItemId)??rentalBookingItems[0];
+  const [replacementInventoryItemId,setReplacementInventoryItemId]=useState(state.values?.rentalInventoryItemId??selectedBookingItem?.inventory_item_id??"");
   const error = (name: string) => state.fieldErrors?.[name]
     ? <small className="crm-field-error">{state.fieldErrors[name]}</small> : null;
   const customerLocations = useMemo(
@@ -175,6 +180,7 @@ export default function JobForm({
       {returnVisit&&<><label className="wide">Original job <small>Optional</small><select name="returnVisitForJobId" value={value("returnVisitForJobId",String(job?.return_visit_for_job_id??""))} onChange={event=>updateValue("returnVisitForJobId",event.target.value)}><option value="">Not linked to a specific job</option>{priorJobs.filter(item=>item.customer_id===customerId&&item.id!==job?.id).map(item=><option key={item.id} value={item.id}>#{item.job_number} · {item.title}{item.starts_at?` · ${new Date(item.starts_at).toLocaleDateString()}`:""}</option>)}</select>{error("returnVisitForJobId")}</label><label className="wide">Return-visit reason <small>Optional</small><textarea name="returnVisitReason" rows={2} maxLength={1000} value={value("returnVisitReason",String(job?.return_visit_reason??""))} onChange={event=>updateValue("returnVisitReason",event.target.value)} placeholder="Warranty callback, issue continued, follow-up repair…"/></label></>}
     </div></fieldset>
     <fieldset className="job-form-section job-billing-section"><legend><i><JobSectionIcon name="billing"/></i><span><strong>Billing</strong><small>Set the job value and payment status.</small></span></legend><div className="job-form-grid job-billing-grid">
+      {rentalBookingItems.length>0&&<><label>Booked rental<select name="bookingItemId" value={bookingItemId} onChange={event=>{const nextId=event.target.value,nextItem=rentalBookingItems.find(item=>item.id===nextId);setBookingItemId(nextId);setReplacementInventoryItemId(nextItem?.inventory_item_id??"");}}>{rentalBookingItems.map(item=><option key={item.id} value={item.id}>{item.name}{item.quantity>1?` × ${item.quantity}`:""}</option>)}</select></label><label>Replacement rental<select name="rentalInventoryItemId" value={replacementInventoryItemId} onChange={event=>setReplacementInventoryItemId(event.target.value)}>{rentalInventory.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><small>The replacement must be available for this booking&apos;s existing rental period.</small>{error("rentalInventoryItemId")}</label></>}
       <label>Subtotal<input name="subtotal" type="number" min="0" step="0.01" value={subtotal} onChange={event=>setSubtotal(event.target.value)}/></label>
       <label>Tax<input name="taxAmount" type="number" min="0" step="0.01" value={tax} onChange={event=>setTax(event.target.value)}/></label>
       <AdminPromotionField subtotalCents={Math.round(Number(subtotal)*100)} customerId={customerId} initialSnapshot={(job as unknown as {discount_snapshot?:DiscountSnapshot})?.discount_snapshot} onDiscount={cents=>setDiscount(String(cents/100))}/>
