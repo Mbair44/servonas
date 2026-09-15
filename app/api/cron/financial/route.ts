@@ -2,6 +2,7 @@ import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
 import {calculateClosedMessagingPeriods,reconcileTenantMessageUsage} from "@/lib/twilio/messageUsage";
+import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 export const runtime="nodejs";
 export async function GET(request:Request){
  const expected=process.env.CRON_SECRET,provided=request.headers.get("authorization");
@@ -16,8 +17,17 @@ export async function GET(request:Request){
   if(updateError){console.error("Overdue invoice update failed",{code:updateError.code,invoiceId:invoice.id});continue;}
   if(updated){await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"overdue"});await sendInvoiceFinancialEmail(invoice.id,"invoice_overdue");processed++;}
  }
+ const {data:scheduledBookings,error:scheduledError}=await db.from("bookings").select("job_id").not("job_id","is",null).not("final_payment_authorized_at","is",null).lte("balance_charge_scheduled_for",new Date().toISOString()).gt("balance_due_cents",0).in("status",["paid","confirmed","completed"]).limit(100);
+ let scheduledBalancesProcessed=0;
+ if(scheduledError)console.error("Scheduled booking balance scan failed",{code:scheduledError.code});
+ for(const booking of scheduledBookings??[]){
+  const {data:job}=await db.from("jobs").select("status").eq("id",booking.job_id).maybeSingle();
+  if(job?.status!=="completed")continue;
+  const result=await processCompletedJobBilling(String(booking.job_id));
+  if(result.ok&&result.action!=="scheduled")scheduledBalancesProcessed++;
+ }
  let twilioUsage:{reconciliation?:unknown;billingPeriods?:unknown;error?:string}={};try{twilioUsage.reconciliation=await reconcileTenantMessageUsage(100);twilioUsage.billingPeriods=await calculateClosedMessagingPeriods();}catch(error){twilioUsage={error:"Twilio usage maintenance failed"};console.error("Twilio usage maintenance failed",{errorName:error instanceof Error?error.name:"unknown"});}
  const websiteManagement={snapshots:0,error:undefined as string|undefined};
  try{const {data:managed,error:managedError}=await db.from("business_website_management").select("business_id,enabled,monthly_cost_cents");if(managedError)throw managedError;const rows=(managed??[]).map(row=>({business_id:row.business_id,billing_period_start:`${today.slice(0,7)}-01`,managed:row.enabled,cost_cents:row.enabled?row.monthly_cost_cents:0,updated_at:new Date().toISOString()}));if(rows.length){const {error:snapshotError}=await db.from("business_website_management_periods").upsert(rows,{onConflict:"business_id,billing_period_start"});if(snapshotError)throw snapshotError;}websiteManagement.snapshots=rows.length;}catch(error){websiteManagement.error="Website management snapshot failed";console.error("Website management snapshot failed",{errorName:error instanceof Error?error.name:"unknown"});}
- return NextResponse.json({ok:true,processed,twilioUsage,websiteManagement});
+ return NextResponse.json({ok:true,processed,scheduledBalancesProcessed,twilioUsage,websiteManagement});
 }
