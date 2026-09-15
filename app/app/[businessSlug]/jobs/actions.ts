@@ -234,6 +234,15 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
       }
     }
   }
+  const bookingItemId=text(formData,"bookingItemId"),replacementInventoryItemId=text(formData,"rentalInventoryItemId");
+  if(bookingItemId&&replacementInventoryItemId){
+    const {error:rentalSwapError}=await supabase.rpc("swap_booking_rental_item",{p_business_id:business.id,p_job_id:jobId,p_booking_item_id:bookingItemId,p_new_inventory_item_id:replacementInventoryItemId});
+    if(rentalSwapError){
+      console.error("Booked rental item swap failed",{code:rentalSwapError.code,message:rentalSwapError.message,businessId:business.id,jobId,bookingItemId});
+      const unavailable=/already reserved|blocked|multi_day|max_days|quantity/i.test(rentalSwapError.message??"");
+      return{error:unavailable?"The replacement rental is not available for this booking’s date and time. The original rental remains reserved.":"The job price was saved, but the rental item could not be changed. The original rental remains reserved.",fieldErrors:{rentalInventoryItemId:unavailable?"Choose another available rental.":"The rental could not be changed."},values};
+    }
+  }
   const { error: assignmentError } = await supabase.rpc("set_job_technicians", { p_job_id: jobId, p_technician_ids: prepared.technicianIds });
   if (assignmentError) {
     console.error("Job team update failed", {code:assignmentError.code,message:assignmentError.message,businessId:business.id,jobId});
