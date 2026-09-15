@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
+import {bookingBalanceAfterDeliveryChange,bookingBalanceForTotal,jobFinancialTotalCents} from "@/lib/financial/bookingBalance";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
 import { checkJobSchedule, validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
@@ -207,7 +208,7 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
   const { supabase, user, business, role } = context;
   const values = valuesFrom(formData);
   if (!canManageCustomers(role)) return { error: "You do not have permission to edit jobs.", values };
-  const { data: owned } = await supabase.from("jobs").select("id,status,starts_at,ends_at,assigned_technician_id").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
+  const { data: owned } = await supabase.from("jobs").select("id,status,starts_at,ends_at,assigned_technician_id,subtotal,tax_amount,discount_amount").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
   if (!owned) return { error: "Job not found.", values };
   const prepared = await prepareJob(formData, context, jobId);
   if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values, technicianIds: prepared.technicianIds };
@@ -216,6 +217,22 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
   if (error) {
     console.error("Office job update failed", { code: error.code, businessId: business.id, jobId });
     return { error: "The job could not be saved.", values };
+  }
+  const previousTotalCents=jobFinancialTotalCents({subtotal:Number(owned.subtotal),taxAmount:Number(owned.tax_amount),discountAmount:Number(owned.discount_amount)}),updatedTotalCents=jobFinancialTotalCents({subtotal:Number(payload.subtotal),taxAmount:Number(payload.tax_amount),discountAmount:Number(payload.discount_amount)});
+  const {data:booking,error:bookingLookupError}=await supabase.from("bookings").select("id,total_cents,amount_paid_cents,balance_due_cents").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
+  if(bookingLookupError){
+    console.error("Linked booking balance lookup failed",{code:bookingLookupError.code,businessId:business.id,jobId});
+    return{error:"The job was saved, but its booking balance could not be verified.",values};
+  }
+  if(booking){
+    const balance=bookingBalanceForTotal(updatedTotalCents,booking.amount_paid_cents),financialTotalChanged=previousTotalCents!==updatedTotalCents,bookingBalanceIsStale=Number(booking.total_cents)!==balance.totalCents||Number(booking.balance_due_cents)!==balance.balanceDueCents;
+    if(financialTotalChanged||bookingBalanceIsStale){
+      const {error:bookingUpdateError}=await supabase.from("bookings").update({total_cents:balance.totalCents,balance_due_cents:balance.balanceDueCents}).eq("id",booking.id).eq("business_id",business.id);
+      if(bookingUpdateError){
+        console.error("Linked booking balance update failed",{code:bookingUpdateError.code,businessId:business.id,jobId,bookingId:booking.id});
+        return{error:"The job was saved, but its booking balance could not be updated.",values};
+      }
+    }
   }
   const { error: assignmentError } = await supabase.rpc("set_job_technicians", { p_job_id: jobId, p_technician_ids: prepared.technicianIds });
   if (assignmentError) {
@@ -326,16 +343,16 @@ export async function overrideBookingDeliveryFee(slug:string,jobId:string,formDa
  const amount=Number(text(formData,"deliveryFee")),reason=text(formData,"overrideReason");
  if(!Number.isFinite(amount)||amount<0||amount>100000)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Enter a valid delivery fee.")}`);
  const [{data:booking},{data:invoice},{data:job}]=await Promise.all([
-  supabase.from("bookings").select("id,status,tax_cents,total_cents,balance_due_cents,delivery_fee_cents,delivery_rule_snapshot").eq("business_id",business.id).eq("job_id",jobId).maybeSingle(),
+  supabase.from("bookings").select("id,status,tax_cents,total_cents,amount_paid_cents,balance_due_cents,delivery_fee_cents,delivery_rule_snapshot").eq("business_id",business.id).eq("job_id",jobId).maybeSingle(),
   supabase.from("invoices").select("id,status").eq("business_id",business.id).eq("job_id",jobId).neq("status","void").maybeSingle(),
   supabase.from("jobs").select("subtotal,total_amount").eq("business_id",business.id).eq("id",jobId).maybeSingle(),
  ]);
  if(!booking)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("This job does not have a delivery-price snapshot.")}`);
  if(invoice&&invoice.status!=="draft")redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Delivery cannot be changed after the invoice has been finalized.")}`);
- const feeCents=Math.round(amount*100),rule=booking.delivery_rule_snapshot&&typeof booking.delivery_rule_snapshot==="object"?booking.delivery_rule_snapshot as Record<string,unknown>:{},taxRateBasisPoints=Number(rule.taxRateBasisPoints??0),oldTaxCents=Number(booking.tax_cents??0),newTaxCents=Math.round(feeCents*taxRateBasisPoints/10000),difference=feeCents-Number(booking.delivery_fee_cents??0)+newTaxCents-oldTaxCents,now=new Date().toISOString();
- const {error}=await supabase.from("bookings").update({delivery_fee_cents:feeCents,tax_cents:newTaxCents,total_cents:Math.max(0,Number(booking.total_cents)+difference),balance_due_cents:Math.max(0,Number(booking.balance_due_cents)+difference),delivery_fee_override_reason:reason||null,delivery_fee_overridden_by:user.id,delivery_fee_overridden_at:now}).eq("id",booking.id).eq("business_id",business.id);
+ const feeCents=Math.round(amount*100),rule=booking.delivery_rule_snapshot&&typeof booking.delivery_rule_snapshot==="object"?booking.delivery_rule_snapshot as Record<string,unknown>:{},taxRateBasisPoints=Number(rule.taxRateBasisPoints??0),oldTaxCents=Number(booking.tax_cents??0),newTaxCents=Math.round(feeCents*taxRateBasisPoints/10000),difference=feeCents-Number(booking.delivery_fee_cents??0)+newTaxCents-oldTaxCents,now=new Date().toISOString(),balance=bookingBalanceAfterDeliveryChange({totalCents:Number(booking.total_cents),amountPaidCents:booking.amount_paid_cents,oldDeliveryFeeCents:Number(booking.delivery_fee_cents??0),newDeliveryFeeCents:feeCents,oldTaxCents,newTaxCents});
+ const {error}=await supabase.from("bookings").update({delivery_fee_cents:feeCents,tax_cents:newTaxCents,total_cents:balance.totalCents,balance_due_cents:balance.balanceDueCents,delivery_fee_override_reason:reason||null,delivery_fee_overridden_by:user.id,delivery_fee_overridden_at:now}).eq("id",booking.id).eq("business_id",business.id);
  if(error)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Delivery fee could not be updated.")}`);
- if(job)await supabase.from("jobs").update({subtotal:Number(job.subtotal)+difference/100,total_amount:Number(job.total_amount)+difference/100,updated_by:user.id}).eq("id",jobId).eq("business_id",business.id);
+ if(job)await supabase.from("jobs").update({subtotal:Number(job.subtotal)+difference/100,updated_by:user.id}).eq("id",jobId).eq("business_id",business.id);
  if(invoice?.status==="draft"){await supabase.from("invoices").update({fee_total_cents:feeCents,tax_total_cents:newTaxCents}).eq("id",invoice.id).eq("business_id",business.id);await supabase.from("invoice_fees").delete().eq("business_id",business.id).eq("invoice_id",invoice.id).eq("name_snapshot","Delivery");if(feeCents>0)await supabase.from("invoice_fees").insert({business_id:business.id,invoice_id:invoice.id,name_snapshot:"Delivery",amount_cents:feeCents,sort_order:900});}
  await supabase.from("booking_funnel_events").insert({business_id:business.id,booking_id:booking.id,event_name:"delivery_fee_overridden",metadata:{original_fee_cents:Number(booking.delivery_fee_cents??0),final_fee_cents:feeCents,has_reason:Boolean(reason),actor_user_id:user.id}});
  revalidatePath(`/app/${slug}/jobs/${jobId}`);redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Delivery fee updated.")}`);

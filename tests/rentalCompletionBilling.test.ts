@@ -2,6 +2,27 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {rentalCompletionBalance} from "../lib/financial/rentalCompletionBalance.ts";
+import {bookingBalanceAfterDeliveryChange,bookingBalanceForTotal} from "../lib/financial/bookingBalance.ts";
+
+test("job price increases recalculate the booking balance from total minus paid",()=>{
+ assert.deepEqual(bookingBalanceForTotal(15000,5000),{totalCents:15000,balanceDueCents:10000});
+});
+
+test("job price decreases recalculate the booking balance from total minus paid",()=>{
+ assert.deepEqual(bookingBalanceForTotal(8000,5000),{totalCents:8000,balanceDueCents:3000});
+});
+
+test("a price below the amount already paid never creates a negative balance",()=>{
+ assert.deepEqual(bookingBalanceForTotal(4000,5000),{totalCents:4000,balanceDueCents:0});
+});
+
+test("an unchanged booking total keeps the same remaining balance",()=>{
+ assert.deepEqual(bookingBalanceForTotal(10000,5000),{totalCents:10000,balanceDueCents:5000});
+});
+
+test("delivery fee and its tax adjust total while preserving payments",()=>{
+ assert.deepEqual(bookingBalanceAfterDeliveryChange({totalCents:10000,amountPaidCents:5000,oldDeliveryFeeCents:1000,newDeliveryFeeCents:2000,oldTaxCents:80,newTaxCents:160}),{totalCents:11080,balanceDueCents:6080});
+});
 
 test("a discounted rental keeps its remaining deposit balance at completion",()=>{
  const balance=rentalCompletionBalance({subtotalCents:15000,totalCents:7500,discountCents:7500,amountPaidCents:3750,balanceDueCents:3750});
@@ -28,6 +49,8 @@ test("completion billing uses the post-discount total only once and surfaces fai
  assert.match(jobs,/remaining-balance invoice could not be finalized/);
  assert.match(jobs,/Job completed and the remaining balance was paid/);
  assert.match(jobs,/billing\.action==="payment_failed"/);
+ assert.match(jobs,/bookingBalanceForTotal/);
+ assert.doesNotMatch(jobs,/total_amount:Number\(job\.total_amount\)/);
  assert.match(tech,/remaining-balance invoice needs office attention/);
  assert.match(checkout,/customer_creation:"always"/);
  assert.match(checkout,/setup_future_usage:"off_session"/);
