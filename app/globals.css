@@ -23,6 +23,8 @@
   --radius: 24px;
 }
 
+.receivables-table>.invoice-table-head,.receivables-table>div[role=row]{display:grid;grid-template-columns:minmax(190px,1.25fr) 100px 125px 110px 125px minmax(135px,.9fr) minmax(175px,1.1fr);align-items:center;gap:13px;min-width:1080px;padding:12px 18px}.receivables-table>div[role=row]:not(.invoice-table-head){min-height:76px;border-bottom:1px solid #edf0f4;color:#25324b;font-size:.75rem}.receivables-table span[role=cell]{display:grid;gap:4px}.receivables-table span[role=cell]>small{color:#68758d}.receivables-table details{margin-top:5px}.receivables-table details summary{color:#155eef;cursor:pointer;font-weight:800}.receivables-table details form{display:flex;align-items:center;gap:6px;margin-top:7px}.receivables-table details input{max-width:140px;padding:6px;border:1px solid #cfd8e6;border-radius:7px}.receivables-table .estimate-status.processing,.receivables-table .estimate-status.scheduled{background:#eef4ff;color:#175cd3}.receivables-table .estimate-status.due{background:#fff7ed;color:#c2410c}.receivables-table .estimate-status.failed,.receivables-table .estimate-status.past_due{background:#fff1f2;color:#be123c}.receivables-table .estimate-status.paid{background:#ecfdf3;color:#027a48}.invoice-stat-row>article{display:grid;min-width:190px;min-height:112px;flex:1;align-content:center;gap:4px;padding:16px 18px;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 6px 22px #1522470a}@media(max-width:1180px){.invoice-stat-row>article{min-width:0}}@media(max-width:640px){.invoice-stat-row>article{grid-column:1/-1}}
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {

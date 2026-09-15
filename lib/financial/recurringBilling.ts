@@ -7,13 +7,15 @@ import {rentalCompletionBalance} from "@/lib/financial/rentalCompletionBalance";
 type CompletionResult={
   ok:boolean;
   invoiceId?:string;
-  action?:"draft"|"sent"|"paid"|"payment_failed";
+  action?:"draft"|"sent"|"paid"|"payment_failed"|"scheduled";
   error?:string;
 };
 
 export async function processCompletedJobBilling(jobId:string):Promise<CompletionResult>{
  const db=getSupabaseAdmin();
  if(!db)return{ok:false,error:"Supabase is unavailable."};
+ const {data:scheduledBooking}=await db.from("bookings").select("id,balance_charge_scheduled_for,final_payment_authorized_at,balance_due_cents").eq("job_id",jobId).maybeSingle();
+ if(scheduledBooking?.final_payment_authorized_at&&Number(scheduledBooking.balance_due_cents)>0&&scheduledBooking.balance_charge_scheduled_for&&new Date(scheduledBooking.balance_charge_scheduled_for).getTime()>Date.now())return{ok:true,action:"scheduled"};
  const {data:created,error:createError}=await db.rpc("create_completed_job_invoice",{p_job_id:jobId});
  if(createError){
   console.error("Completed-job billing invoice creation failed",{jobId,code:createError.code,message:createError.message});
@@ -130,14 +132,16 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
  const autopayEnabled=rentalBooking?Boolean(rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id):Boolean(profile?.autopay_enabled);
  const providerCustomerId=rentalBooking?.stripe_customer_id??profile?.provider_customer_id??null;
  const providerPaymentMethodId=rentalBooking?.stripe_payment_method_id??method?.provider_payment_method_id??null;
- const attemptKey=`completed-job:${jobId}:autopay:1`;
- const {data:existingAttempt}=await db.from("payment_attempts").select("id,status,payment_id")
-  .eq("business_id",invoice.business_id).eq("idempotency_key",attemptKey).maybeSingle();
+ const {data:attemptRows}=await db.from("payment_attempts").select("id,status,payment_id,attempt_number")
+  .eq("business_id",invoice.business_id).eq("invoice_id",invoiceId).order("attempt_number",{ascending:false}).limit(1);
+ const existingAttempt=attemptRows?.[0]??null;
  if(existingAttempt?.status==="succeeded")return{ok:true,invoiceId,action:"paid"};
  if(existingAttempt?.status==="pending"&&existingAttempt.payment_id)return{ok:true,invoiceId,action:"draft"};
- const {data:newAttempt,error:attemptError}=existingAttempt?{data:existingAttempt,error:null}:await db.from("payment_attempts").insert({
+ const attemptNumber=existingAttempt?.status==="failed"||existingAttempt?.status==="canceled"?Number(existingAttempt.attempt_number)+1:1;
+ const attemptKey=`completed-job:${jobId}:autopay:${attemptNumber}`;
+ const {data:newAttempt,error:attemptError}=existingAttempt&&!['failed','canceled'].includes(existingAttempt.status)?{data:existingAttempt,error:null}:await db.from("payment_attempts").insert({
   business_id:invoice.business_id,invoice_id:invoiceId,payment_method_id:method?.id??null,
-  attempt_number:1,idempotency_key:attemptKey,status:"pending",
+  attempt_number:attemptNumber,idempotency_key:attemptKey,status:"pending",
  }).select("id,status,payment_id").single();
  const attempt=newAttempt;
  if(attemptError||!attempt){
