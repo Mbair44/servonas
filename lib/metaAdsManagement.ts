@@ -488,7 +488,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
         impressions: Number(row.impressions ?? 0),
         reach: Number(row.reach ?? 0),
         clicks: Number(row.clicks ?? 0),
-        link_clicks: metricValue(row.actions, "link_click"),
+        link_clicks: metricValue(row.actions, "outbound_click") || metricValue(row.actions, "link_click"),
         landing_page_views: metricValue(row.actions, "landing_page_view"),
         ctr: row.ctr == null ? null : Number(row.ctr),
         cpc_amount: row.cpc == null ? null : Number(row.cpc),
