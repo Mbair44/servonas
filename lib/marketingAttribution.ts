@@ -119,6 +119,15 @@ const quickExitThresholdMs=5_000;
 const qualityMeaningfulTypes=new Set(["button_click","link_click","booking_cta_click","phone_click","sms_click","email_click","form_start","form_submit","booking_started","product_service_selection","checkout_started","lead_submitted","payment_completed","reserve_clicked","item_added_to_cart"]);
 
 const canonicalEventMap:Record<string,BookingFunnelEvent|"booking_start"|"item_added">={
+ promotion_landing_view:"landing_view",
+ promotion_primary_cta_clicked:"booking_start",
+ booking_date_selection_started:"availability_check",
+ booking_date_selected:"date_selected",
+ promotion_inventory_viewed:"inventory_view",
+ promotion_item_selected:"booking_start",
+ promotion_no_inventory_available:"availability_check",
+ initiate_checkout:"checkout_started",
+ purchase:"payment_completed",
  landing_page_view:"landing_view",
  landing_view:"landing_view",
  service_view:"service_view",

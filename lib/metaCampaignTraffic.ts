@@ -15,7 +15,7 @@ export function buildMetaCampaignTraffic(input:{promotions:Promotion[];performan
  for(const metric of input.performance){const id=clean(metric.campaign_id)||null,name=String(metric.campaign_name??metric.campaign_id??"Unnamed Meta campaign"),key=id||token(name);const current=campaignMap.get(key);campaignMap.set(key,{id,name,clicks:(current?.clicks??0)+Number(metric.link_clicks??0)});}
  const make=(key:string,kind:MetaCampaignTrafficRow["kind"],label:string,detail:string,sessions:Session[],metaLinkClicks:number|null)=>{
   const ids=new Set(sessions.map(session=>session.id)),events=input.events.filter(event=>event.attribution_session_id&&ids.has(event.attribution_session_id));
-  const views=events.filter(event=>event.event_name==="promotion_landing_view").length,checkouts=uniqueFor(events,new Set(["checkout_started","initiate_checkout"])),bookings=uniqueFor(events,new Set(["booking_completed"])),purchases=uniqueFor(events,new Set(["purchase","payment_completed"])),denominator=sessions.length;
+  const views=events.filter(event=>event.event_name===bookingFunnelEventGroups.promotionLanding[0]).length,checkouts=uniqueFor(events,new Set<string>(bookingFunnelEventGroups.checkout)),bookings=uniqueFor(events,new Set<string>(bookingFunnelEventGroups.booking)),purchases=uniqueFor(events,new Set<string>(bookingFunnelEventGroups.purchase)),denominator=sessions.length;
   return{key,kind,label,detail,metaLinkClicks,uniqueLandingSessions:denominator,promotionLandingViews:views,fbclidSessions:sessions.filter(session=>Boolean(session.fbclid)).length,metaUtmSessions:sessions.filter(metaUtm).length,checkoutStarts:checkouts,bookings,purchases,landingToCheckout:denominator?checkouts/denominator:null,landingToBooking:denominator?bookings/denominator:null};
  };
  const rows:MetaCampaignTrafficRow[]=[];
@@ -23,3 +23,4 @@ export function buildMetaCampaignTraffic(input:{promotions:Promotion[];performan
  for(const [campaignKey,campaign] of campaignMap){const campaignTokens=new Set([clean(campaign.id),clean(campaign.name),token(campaign.name)].filter(Boolean)),matches=input.sessions.filter(session=>campaignTokens.has(clean(session.utm_campaign))||campaignTokens.has(token(session.utm_campaign)));rows.push(make(`campaign:${campaignKey}`,"meta_campaign",campaign.name,campaign.id?`Meta campaign ${campaign.id}`:"Meta campaign",matches,campaign.clicks));}
  return rows.sort((a,b)=>(b.uniqueLandingSessions-a.uniqueLandingSessions)||(b.metaLinkClicks??-1)-(a.metaLinkClicks??-1)||a.label.localeCompare(b.label));
 }
+import {bookingFunnelEventGroups} from "./bookingFunnel.ts";
