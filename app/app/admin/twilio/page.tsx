@@ -6,7 +6,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {isServonasPlatformAdmin} from "@/lib/platformAccess";
 import {smsTestBusiness,smsTestLiveEnabled} from "@/lib/twilio/testSms";
 import {verifyTenantReadiness} from "@/lib/twilio/liveReadiness";
-import {sendTestSms} from "./testActions";
+import TestSmsForm from "./TestSmsForm";
 import TemporaryDiagnostic from "./TemporaryDiagnostic";
 import TemporaryCopperStateBounceRelink from "./TemporaryCopperStateBounceRelink";
 export const dynamic="force-dynamic";
@@ -26,7 +26,7 @@ export default async function TwilioAdmin({searchParams}:{searchParams:Promise<{
  <dl>{Object.entries(readiness.resources).map(([name,r])=><div key={name}><dt>{name}</dt><dd>{r.sid} · {r.status}</dd></div>)}</dl>
  {query.error&&<p role="alert">{query.error}</p>}{storageError&&<p role="alert">Test history is unavailable. Check the SMS pilot migration.</p>}
  {!smsTestLiveEnabled()&&<p>Live pilot sending is disabled for this environment.</p>}
- <form action={sendTestSms}><input type="hidden" name="requestKey" value={randomUUID()}/><fieldset disabled={readiness.state!=="ready"||!smsTestLiveEnabled()||Boolean(storageError)}><legend>Send one real test SMS</legend><label>Destination <input name="to" type="tel" placeholder="+14805550123" pattern="\+1[2-9][0-9]{9}" required/></label><p>The message identifies {business.name}, asks for a reply, and includes STOP instructions.</p><label><input type="checkbox" name="consent" required/> This recipient agreed to this test SMS and any Twilio charges.</label><p><button className="sv-button">Send test SMS</button></p></fieldset></form>
+ <TestSmsForm requestKey={randomUUID()} businessName={business.name} disabled={readiness.state!=="ready"||!smsTestLiveEnabled()||Boolean(storageError)}/>
  {/* TEMPORARY: remove after Copper State Bounce resource linkage is complete. */}
  {business.id==="cb25acc0-3623-4c06-9041-89a88f4ad6ed"&&<TemporaryDiagnostic run={query.diagnostic==="1"}/>} 
  {business.id==="cb25acc0-3623-4c06-9041-89a88f4ad6ed"&&<TemporaryCopperStateBounceRelink outcome={query.relink}/>} 
