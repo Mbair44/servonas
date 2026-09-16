@@ -5,7 +5,8 @@ import { isServonasPlatformAdmin, platformAdminRole } from "./platformAccess";
 import { assertCanAccess, getEntitlementSummary } from "./entitlements/service";
 import type { CapabilityCode } from "./entitlements/catalog";
 import { EntitlementAccessError, entitlementAccessMessage } from "./entitlements/errors";
-export async function requireWorkspace(slug: string) {
+import { cache } from "react";
+export const requireWorkspace = cache(async function requireWorkspace(slug: string) {
   const sessionSupabase = await createSupabaseServerClient();
   const { data: { user } } = await sessionSupabase.auth.getUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(`/app/${slug}`)}`);
@@ -61,7 +62,7 @@ export async function requireWorkspace(slug: string) {
   if (!membership) notFound();
   const entitlementSummary = await getEntitlementSummary(sessionSupabase, business.id);
   return { supabase, user, business, role: membership.role as string, isPlatformAdmin: false, entitlementSummary };
-}
+});
 
 export async function requireWorkspaceCapability(slug: string, capability: CapabilityCode) {
   const context = await requireWorkspace(slug);
