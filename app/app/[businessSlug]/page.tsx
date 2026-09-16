@@ -9,6 +9,7 @@ import { EntitlementBanner } from "./EntitlementBanner";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {eventQualifies,poolWeatherProvider} from "@/lib/weather/poolWeatherProvider";
 import {AddJobDrawer} from "@/components/AddJobDrawer";
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const activeStatuses = new Set(["pending","confirmed","scheduled","dispatched","en_route","arrived","in_progress"]);
@@ -30,6 +31,9 @@ export default async function Workspace({ params, searchParams }: {
   const { businessSlug } = await params;
   const query = await searchParams;
   const { supabase, user, business, role, entitlementSummary } = await requireWorkspace(businessSlug);
+  // requireWorkspace has already authorized this platform administrator for the
+  // tenant. Keep privileged financial reads server-only and tenant-scoped.
+  const financialDb=role==="platform_admin"?(getSupabaseAdmin()??supabase):supabase;
   const now = new Date();
   const nowMs = now.getTime();
   const today = dateInTimeZone(now, business.timezone);
@@ -67,8 +71,8 @@ export default async function Workspace({ params, searchParams }: {
     console.error("Executive dashboard query failed", { jobsCode: jobsError?.code, customersCode: customersError?.code, businessId: business.id });
     throw new Error("Dashboard metrics could not be loaded.");
   }
-  const {data:financial,error:financialError}=await supabase.rpc("financial_dashboard_summary",{p_business_id:business.id,p_as_of:today});
-  if(financialError)console.error("Financial dashboard summary failed",{code:financialError.code,businessId:business.id});
+  const {data:financial,error:financialError}=await financialDb.rpc("financial_dashboard_summary",{p_business_id:business.id,p_as_of:today});
+  if(financialError)console.error("Financial dashboard summary failed",{code:financialError.code,message:financialError.message,details:financialError.details,hint:financialError.hint,businessId:business.id});
   const money=(key:string)=>Number((financial as Record<string,unknown>|null)?.[key]??0);
   const isPool=hasIndustryCapability(business.industry_profile,"poolWeatherScheduling");
   const [{data:poolWeatherSettings},{data:poolDismissals}]=isPool?await Promise.all([supabase.from("pool_service_settings").select("weather_alerts_enabled,wind_threshold_mph,rain_threshold_inches,heat_threshold_f,freeze_threshold_f").eq("business_id",business.id).maybeSingle(),supabase.from("pool_weather_alert_dismissals").select("event_key").eq("business_id",business.id)]):[{data:null},{data:[]}];
@@ -117,7 +121,7 @@ export default async function Workspace({ params, searchParams }: {
       <article className="executive-card kpi-card"><div className="card-icon green" aria-hidden="true">◎</div><div><span>Customers</span><strong>{customers?.length ?? 0} <small>customers</small></strong></div><p>{newCustomers} new this week</p><Link href={`/app/${businessSlug}/customers`}>Manage customers <span aria-hidden="true">→</span></Link></article>
     </div></section>
 
-    {["owner","admin","manager","platform_admin"].includes(role)&&<SalesPerformance db={supabase} businessId={business.id} businessSlug={businessSlug} today={today} query={query}/>}
+    {["owner","admin","manager","platform_admin"].includes(role)&&<SalesPerformance db={financialDb} businessId={business.id} businessSlug={businessSlug} today={today} query={query}/>}
 
     {alerts.length > 0 && <section className="attention-alerts" aria-labelledby="attention-heading"><div className="section-heading"><div><span>Action center</span><h2 id="attention-heading">Needs attention</h2></div><p>Items that may need an office decision.</p></div><div>{alerts.map((alert) => <Link key={alert.label} href={alert.href}><strong>{alert.count}</strong><span>{alert.label}</span><b aria-hidden="true">→</b></Link>)}</div></section>}
 
