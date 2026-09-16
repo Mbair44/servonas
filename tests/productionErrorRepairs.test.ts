@@ -13,6 +13,16 @@ test("financial reporting preserves member access and uses validated server acce
  assert.match(page,/message:financialError\.message,details:financialError\.details,hint:financialError\.hint,businessId:business\.id/);
 });
 
+test("financial dashboard guard and sales details use the repaired canonical access and customer email",async()=>{
+ const [migration,workspace]=await Promise.all([read("supabase/migrations/20260916000100_fix_financial_dashboard_and_sales_details.sql"),read("lib/workspace.ts")]);
+ assert.match(migration,/create or replace function public\.financial_dashboard_summary/);
+ assert.match(migration,/auth\.role\(\)<>'service_role'.*has_business_role\(p_business_id,array\['owner','admin','manager'\]\).*is_servonas_platform_admin\(\)/s);
+ assert.match(migration,/'customerKey',case when nullif\(lower\(btrim\(c\.email\)\),''\) is not null/);
+ assert.doesNotMatch(migration,/b\.email/);
+ assert.match(migration,/c\.business_id=p_business_id/);
+ assert.match(workspace,/requireWorkspace = cache\(async function requireWorkspace/);
+});
+
 test("Meta CAPI keeps the canonical durable claim and logs resolvable PostgREST errors",async()=>{
  const [sender,migration]=await Promise.all([read("lib/metaConversions.ts"),read("supabase/migrations/20260915000500_repair_meta_conversion_events.sql")]);
  assert.match(sender,/from\("meta_conversion_events"\)\.insert/);
@@ -35,6 +45,13 @@ test("funnel event writes guarantee their composite session parent and retain st
  for(const name of ["booking_started","booking_date_selection_started","promotion_inventory_viewed","initiate_checkout"])assert.match(constraint,new RegExp(`'${name}'`));
  assert.match(route,/sessionId,event,inventoryItemId,serviceId,code:error\.code,message:error\.message,details:error\.details,hint:error\.hint,source:/);
  assert.match(route,/normalizeMarketingSource\(body\.attribution\)/);
+});
+
+test("concurrent initial heartbeats use an atomic id conflict and preserve first touch",async()=>{
+ const route=await read("app/api/public-booking/[businessSlug]/funnel/route.ts");
+ assert.match(route,/\.upsert\(sessionRow,\{onConflict:"id",ignoreDuplicates:true\}\)/);
+ assert.match(route,/existing\?db\.from\("booking_attribution_sessions"\)\.update\(sessionRow\)/);
+ assert.match(route,/first_landing_url:clean\(body\.landingUrl/);
 });
 
 test("checkout funnel persistence and Meta CAPI remain independent operations",async()=>{

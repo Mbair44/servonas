@@ -104,7 +104,7 @@ test("analytics endpoints skip obvious bots and prefetch traffic",async()=>{
  assert.match(funnel,/case "booking_started":/);
  assert.match(funnel,/if\(body\.touchSession\|\|body\.touchOnly\)/);
  assert.match(funnel,/existing\?db\.from\("booking_attribution_sessions"\)\.update\(sessionRow\)/);
- assert.match(funnel,/:db\.from\("booking_attribution_sessions"\)\.insert\(sessionRow\)/);
+ assert.match(funnel,/:db\.from\("booking_attribution_sessions"\)\.upsert\(sessionRow,\{onConflict:"id",ignoreDuplicates:true\}\)/);
  assert.match(marketingComponent,/publicOptionalAnalyticsEnabled/);
  assert.match(marketing,/const bots=\/bot\|crawler\|spider/);
  assert.match(marketing,/if\(!optionalAnalyticsEnabled\(\)\)return new NextResponse\(null,\{status:204\}\)/);
