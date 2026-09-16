@@ -29,7 +29,7 @@ export async function sendMetaConversion(input:MetaConversionInput){
  const now=new Date().toISOString();
  const {error:claimError}=await db.from("meta_conversion_events").insert({business_id:input.businessId,pixel_id:input.pixelId,event_name:input.event,event_id:input.eventId,event_source_url:input.eventSourceUrl,status:"pending",last_attempt_at:now});
  if(claimError?.code==="23505"){debug(input.event,input.eventId,true,{businessId:input.businessId,reason:"ledger_duplicate"});return {sent:false,reason:"duplicate" as const};}
- if(claimError){console.error("Meta CAPI event claim failed",{stage:"event_claim",businessId:input.businessId,businessSlug:input.businessSlug,event:input.event,event_id:input.eventId,code:claimError.code});return {sent:false,reason:"claim_failed" as const};}
+ if(claimError){console.error("Meta CAPI event claim failed",{stage:"event_claim",businessId:input.businessId,businessSlug:input.businessSlug,event:input.event,event_id:input.eventId,code:claimError.code,message:claimError.message,details:claimError.details,hint:claimError.hint});return {sent:false,reason:"claim_failed" as const};}
  const token=accessTokenForPixel(input.pixelId);
  if(!token){
   await db.from("meta_conversion_events").update({status:"configuration_missing",error_code:"access_token_missing",updated_at:new Date().toISOString()}).eq("business_id",input.businessId).eq("event_name",input.event).eq("event_id",input.eventId);

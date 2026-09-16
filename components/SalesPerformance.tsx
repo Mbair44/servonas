@@ -25,11 +25,13 @@ export async function SalesPerformance({db,businessId,businessSlug,today,query}:
   db.rpc("sales_performance_details",{p_business_id:businessId,p_from:from,p_through:today})
  ]);
  const action=`/app/${businessSlug}`;
- if(error||!data){console.error("Sales performance unavailable",{businessId,code:error?.code});return <section id="sales-performance" className={`executive-card ${styles.section}`} aria-labelledby="sales-heading"><h2 id="sales-heading">Sales Performance</h2><p role="status">Sales performance is temporarily unavailable. Your bookings and payments are unaffected.</p></section>;}
+ if(error||!data){console.error("Sales performance unavailable",{businessId,code:error?.code,message:error?.message,details:error?.details,hint:error?.hint});return <section id="sales-performance" className={`executive-card ${styles.section}`} aria-labelledby="sales-heading"><h2 id="sales-heading">Sales Performance</h2><p role="status">Sales performance is temporarily unavailable. Your bookings and payments are unaffected.</p></section>;}
  const sales=data as SalesData,daily=sales.daily??[],revenue=revenueInRange(daily,range),average=monthlyAverage(daily,sales.firstCollectedDate,today),points=revenueTrend(daily,trendRange,grouping,today);
  const receipts=(details.data??[]) as SalesReceipt[];
  const customerMetrics=customerCategoryMetrics(receipts,range),previousCustomers=customerCategoryMetrics(receipts,comparisons.previous),lastYearCustomers=customerCategoryMetrics(receipts,comparisons.lastYear);
  const detailsAvailable=!details.error&&details.data!=null&&customerMetrics.revenueCents===revenue;
+ if(details.error)console.error("Sales performance details unavailable",{code:details.error.code,message:details.error.message,details:details.error.details,hint:details.error.hint,businessId});
+ else if(details.data!=null&&customerMetrics.revenueCents!==revenue)console.error("Sales performance details do not reconcile",{businessId,summaryRevenueCents:revenue,detailRevenueCents:customerMetrics.revenueCents});
  const previousAvailable=previousCustomers.revenueCents===revenueInRange(daily,comparisons.previous);
  const lastYearAvailable=lastYearCustomers.revenueCents===revenueInRange(daily,comparisons.lastYear);
  const previousLabel=period==="this_month"?"vs last month (same dates)":period==="last_month"?"vs the month before":"vs the previous equal-length period";
