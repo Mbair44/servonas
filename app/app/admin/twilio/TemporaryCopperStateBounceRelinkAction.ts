@@ -15,6 +15,8 @@ const campaignSid = "QE2c6890da8086d771620e9b13fadeba0b";
 const messagingServiceSid = "MG75c5f096e1531a4bfd072ecb405244f8";
 const phoneSid = "PN2f36bf13572ff8b9e3602635d8625afd";
 const phone = "+14804855057";
+const customerProfileSid = "BUb95d1fd4604237ee7a740348e9ef5c9b";
+const trustProductSid = "BU7bbbf0f0677e04a48278c85d72a44009";
 const isSid = (value: string, prefix: string) => new RegExp(`^${prefix}[0-9A-Za-z]{32}$`).test(value);
 const value = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
 type RelinkFailure = "verify_twilio_failed" | "account_row_missing" | "activation_row_missing" | "phone_upsert_failed" | "compliance_upsert_failed" | "vault_failed" | "readiness_failed";
@@ -70,7 +72,7 @@ export async function relinkCopperStateBounce(form: FormData) {
   const phoneFields = { business_twilio_account_id: accountId, twilio_phone_number_sid: phoneSid, phone_number_e164: phone, messaging_service_sid: messagingServiceSid, status: "active", provisioning_status: "active", provisioning_error: null, is_primary: true, last_synced_at: now, updated_at: now };
   const phoneWrite = phoneResult.data ? await db.from("twilio_phone_numbers").update(phoneFields).eq("id", phoneResult.data.id).eq("business_id", businessId) : await db.from("twilio_phone_numbers").insert({ business_id: businessId, ...phoneFields });
   if (phoneWrite.error) abort("phone_upsert_failed");
-  const complianceWrite = complianceResult.data ? await db.from("twilio_compliance_registrations").update({ business_twilio_account_id: accountId, twilio_brand_sid: brandSid, updated_at: now }).eq("id", complianceResult.data.id).eq("business_id", businessId) : await db.from("twilio_compliance_registrations").insert({ business_id: businessId, business_twilio_account_id: accountId, twilio_brand_sid: brandSid, registration_type: "secondary_customer_profile", status: "draft" });
+  const complianceWrite = complianceResult.data ? await db.from("twilio_compliance_registrations").update({ business_twilio_account_id: accountId, twilio_brand_sid: brandSid, twilio_customer_profile_sid: customerProfileSid, twilio_trust_product_sid: trustProductSid, updated_at: now }).eq("id", complianceResult.data.id).eq("business_id", businessId) : await db.from("twilio_compliance_registrations").insert({ business_id: businessId, business_twilio_account_id: accountId, twilio_brand_sid: brandSid, twilio_customer_profile_sid: customerProfileSid, twilio_trust_product_sid: trustProductSid, registration_type: "secondary_customer_profile", status: "draft" });
   if (complianceWrite.error) abort("compliance_upsert_failed");
   const vault = await getSubaccountWebhookSecretResolver().storeSubaccountAuthToken({ businessId, subaccountSid: targetAccountSid, authToken: targetAuthToken });
   if (vault.status !== "available") abort("vault_failed");
