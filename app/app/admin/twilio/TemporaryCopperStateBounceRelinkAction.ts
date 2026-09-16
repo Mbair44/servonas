@@ -55,7 +55,6 @@ export async function relinkCopperStateBounce(form: FormData) {
   if (accountResult.error) abort("account_row_missing");
   if (!account) { outcome = "account_row_missing"; throw new Error("relink_stage"); }
   if (activationResult.error) abort("activation_row_missing");
-  if (!activation) { outcome = "activation_row_missing"; throw new Error("relink_stage"); }
   if (phoneResult.error) abort("phone_upsert_failed");
   if (complianceResult.error) abort("compliance_upsert_failed");
   const accountId = account.id;
@@ -63,15 +62,18 @@ export async function relinkCopperStateBounce(form: FormData) {
   const previousState = { account: accountResult.data, activation: activationResult.data, phone: phoneResult.data, compliance: complianceResult.data };
   const accountUpdate = await db.from("business_twilio_accounts").update({ twilio_subaccount_sid: targetAccountSid, twilio_subaccount_status: "active", provisioning_status: "active", provisioning_error: null, external_twilio_account: true, external_twilio_previous_state: previousState, last_synced_at: now, updated_at: now }).eq("id", accountId).eq("business_id", businessId);
   if (accountUpdate.error) abort("account_row_missing");
-  const vault = await getSubaccountWebhookSecretResolver().storeSubaccountAuthToken({ businessId, subaccountSid: targetAccountSid, authToken: targetAuthToken });
-  if (vault.status !== "available") abort("vault_failed");
-  const activationUpdate = await db.from("twilio_tenant_activations").update({ business_twilio_account_id: accountId, brand_registration_sid: brandSid, campaign_sid: campaignSid, messaging_service_sid: messagingServiceSid, phone_number_sid: phoneSid, status: "active", current_step: "complete", outbound_sender_mode: "messaging_service", legacy_sms_preserved: false, last_error_category: null, updated_at: now }).eq("id", activation.id).eq("business_id", businessId);
-  if (activationUpdate.error) abort("activation_row_missing");
+  const activationFields = { business_twilio_account_id: accountId, brand_registration_sid: brandSid, campaign_sid: campaignSid, messaging_service_sid: messagingServiceSid, phone_number_sid: phoneSid, status: "active", current_step: "complete", outbound_sender_mode: "messaging_service", legacy_sms_preserved: false, last_error_category: null, updated_at: now };
+  const activationWrite = activation
+    ? await db.from("twilio_tenant_activations").update(activationFields).eq("id", activation.id).eq("business_id", businessId)
+    : await db.from("twilio_tenant_activations").insert({ business_id: businessId, ...activationFields });
+  if (activationWrite.error) abort("activation_row_missing");
   const phoneFields = { business_twilio_account_id: accountId, twilio_phone_number_sid: phoneSid, phone_number_e164: phone, messaging_service_sid: messagingServiceSid, status: "active", provisioning_status: "active", provisioning_error: null, is_primary: true, last_synced_at: now, updated_at: now };
   const phoneWrite = phoneResult.data ? await db.from("twilio_phone_numbers").update(phoneFields).eq("id", phoneResult.data.id).eq("business_id", businessId) : await db.from("twilio_phone_numbers").insert({ business_id: businessId, ...phoneFields });
   if (phoneWrite.error) abort("phone_upsert_failed");
   const complianceWrite = complianceResult.data ? await db.from("twilio_compliance_registrations").update({ business_twilio_account_id: accountId, twilio_brand_sid: brandSid, updated_at: now }).eq("id", complianceResult.data.id).eq("business_id", businessId) : await db.from("twilio_compliance_registrations").insert({ business_id: businessId, business_twilio_account_id: accountId, twilio_brand_sid: brandSid, registration_type: "secondary_customer_profile", status: "draft" });
   if (complianceWrite.error) abort("compliance_upsert_failed");
+  const vault = await getSubaccountWebhookSecretResolver().storeSubaccountAuthToken({ businessId, subaccountSid: targetAccountSid, authToken: targetAuthToken });
+  if (vault.status !== "available") abort("vault_failed");
   try { const readiness = await verifyTenantReadiness(businessId); outcome = readiness.state === "ready" ? "ready" : "readiness_failed"; } catch { outcome = "readiness_failed"; }
  } catch {
   // outcome already identifies the failed stage; provider details remain server-side.

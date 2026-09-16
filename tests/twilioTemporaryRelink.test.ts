@@ -38,6 +38,8 @@ test("relink scopes writes to the fixed CSB business, replaces Vault only after 
  assert.match(action, /brand_registration_sid: brandSid, campaign_sid: campaignSid, messaging_service_sid: messagingServiceSid, phone_number_sid: phoneSid/);
  assert.match(action, /twilio_phone_number_sid: phoneSid, phone_number_e164: phone, messaging_service_sid: messagingServiceSid/);
  assert.match(action, /outbound_sender_mode: "messaging_service"/);
+ assert.match(action, /activation\s*\?/);
+ assert.match(action, /insert\(\{ business_id: businessId, \.\.\.activationFields \}\)/);
  assert.match(action, /phoneResult\.data \? .*update\(phoneFields\).*insert/);
  assert.match(action, /complianceResult\.data \? .*update.*insert/);
  assert.match(action, /phone_upsert_failed|compliance_upsert_failed|vault_failed|readiness_failed/);
