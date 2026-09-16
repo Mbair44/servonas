@@ -17,7 +17,8 @@ const phoneSid = "PN2f36bf13572ff8b9e3602635d8625afd";
 const phone = "+14804855057";
 const isSid = (value: string, prefix: string) => new RegExp(`^${prefix}[0-9A-Za-z]{32}$`).test(value);
 const value = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
-const fail = () => redirect("/app/admin/twilio?relink=failed");
+type RelinkFailure = "verify_twilio_failed" | "account_row_missing" | "activation_row_missing" | "phone_upsert_failed" | "compliance_upsert_failed" | "vault_failed" | "readiness_failed";
+const fail = (stage: RelinkFailure) => redirect(`/app/admin/twilio?relink=${stage}`);
 
 type Account = { sid?: string; owner_account_sid?: string; status?: string };
 type Resource = { sid?: string; account_sid?: string; service_sid?: string; messaging_service_sid?: string; brand_registration_sid?: string; campaign_status?: string; phone_number?: string; status?: string };
@@ -27,8 +28,9 @@ export async function relinkCopperStateBounce(form: FormData) {
  const { data: { user } } = await session.auth.getUser();
  const targetAccountSid = value(form, "targetAccountSid");
  const targetAuthToken = String(form.get("targetAuthToken") ?? "").trim();
- if (!isServonasPlatformAdmin(user) || value(form, "confirmation") !== "RELINK CSB" || !isSid(targetAccountSid, "AC") || targetAuthToken.length < 20 || targetAuthToken.length > 128) return fail();
- let outcome = "failed";
+ if (!isServonasPlatformAdmin(user) || value(form, "confirmation") !== "RELINK CSB" || !isSid(targetAccountSid, "AC") || targetAuthToken.length < 20 || targetAuthToken.length > 128) return fail("verify_twilio_failed");
+ let outcome = "verify_twilio_failed";
+ const abort = (stage: RelinkFailure): never => { outcome = stage; throw new Error("relink_stage"); };
  try {
   const tenant = getSubaccountTwilioHttpClient(targetAccountSid, targetAuthToken);
   const [tenantAccount, brand, service, campaign, providerPhone, senderPool] = await Promise.all([
@@ -39,34 +41,37 @@ export async function relinkCopperStateBounce(form: FormData) {
    tenant.request<Resource>(`https://api.twilio.com/2010-04-01/Accounts/${targetAccountSid}/IncomingPhoneNumbers/${phoneSid}.json`, { method: "GET" }),
    tenant.request<Resource>(`https://messaging.twilio.com/v1/Services/${messagingServiceSid}/PhoneNumbers/${phoneSid}`, { method: "GET" }),
   ]);
-  if (tenantAccount.sid !== targetAccountSid || tenantAccount.status !== "active" || brand.sid !== brandSid || brand.account_sid !== targetAccountSid || brand.status?.toUpperCase() !== "APPROVED" || service.sid !== messagingServiceSid || service.account_sid !== targetAccountSid || campaign.sid !== campaignSid || campaign.account_sid !== targetAccountSid || campaign.messaging_service_sid !== messagingServiceSid || campaign.brand_registration_sid !== brandSid || campaign.campaign_status?.toUpperCase() !== "VERIFIED" || providerPhone.sid !== phoneSid || providerPhone.account_sid !== targetAccountSid || providerPhone.phone_number !== phone || senderPool.sid !== phoneSid || senderPool.account_sid !== targetAccountSid || senderPool.service_sid !== messagingServiceSid) return fail();
+  if (tenantAccount.sid !== targetAccountSid || tenantAccount.status !== "active" || brand.sid !== brandSid || brand.account_sid !== targetAccountSid || brand.status?.toUpperCase() !== "APPROVED" || service.sid !== messagingServiceSid || service.account_sid !== targetAccountSid || campaign.sid !== campaignSid || campaign.account_sid !== targetAccountSid || campaign.messaging_service_sid !== messagingServiceSid || campaign.brand_registration_sid !== brandSid || campaign.campaign_status?.toUpperCase() !== "VERIFIED" || providerPhone.sid !== phoneSid || providerPhone.account_sid !== targetAccountSid || providerPhone.phone_number !== phone || senderPool.sid !== phoneSid || senderPool.account_sid !== targetAccountSid || senderPool.service_sid !== messagingServiceSid) abort("verify_twilio_failed");
 
   const db = getSupabaseAdmin();
-  if (!db) return fail();
+  if (!db) abort("account_row_missing");
   const [accountResult, activationResult, phoneResult, complianceResult] = await Promise.all([
    db.from("business_twilio_accounts").select("id,twilio_subaccount_sid,twilio_subaccount_status,provisioning_status,provisioning_error,external_twilio_account").eq("business_id", businessId).maybeSingle(),
    db.from("twilio_tenant_activations").select("id,status,current_step,brand_registration_sid,campaign_sid,messaging_service_sid,phone_number_sid,legacy_sms_preserved,outbound_sender_mode,last_error_category").eq("business_id", businessId).maybeSingle(),
-   db.from("twilio_phone_numbers").select("id,twilio_phone_number_sid,phone_number_e164,messaging_service_sid,status,provisioning_status,provisioning_error").eq("business_id", businessId).eq("is_primary", true).eq("status", "active").maybeSingle(),
+   db.from("twilio_phone_numbers").select("id,twilio_phone_number_sid,phone_number_e164,messaging_service_sid,status,provisioning_status,provisioning_error,is_primary").eq("business_id", businessId).eq("phone_number_e164", phone).maybeSingle(),
    db.from("twilio_compliance_registrations").select("id,twilio_brand_sid,twilio_customer_profile_sid,twilio_trust_product_sid,status").eq("business_id", businessId).eq("registration_type", "secondary_customer_profile").maybeSingle(),
   ]);
-  if (accountResult.error || activationResult.error || phoneResult.error || complianceResult.error || !accountResult.data || !activationResult.data || !phoneResult.data || !complianceResult.data) return fail();
+  if (accountResult.error || !accountResult.data) abort("account_row_missing");
+  if (activationResult.error || !activationResult.data) abort("activation_row_missing");
+  if (phoneResult.error) abort("phone_upsert_failed");
+  if (complianceResult.error) abort("compliance_upsert_failed");
   const accountId = accountResult.data.id;
   const now = new Date().toISOString();
   const previousState = { account: accountResult.data, activation: activationResult.data, phone: phoneResult.data, compliance: complianceResult.data };
   const accountUpdate = await db.from("business_twilio_accounts").update({ twilio_subaccount_sid: targetAccountSid, twilio_subaccount_status: "active", provisioning_status: "active", provisioning_error: null, external_twilio_account: true, external_twilio_previous_state: previousState, last_synced_at: now, updated_at: now }).eq("id", accountId).eq("business_id", businessId);
-  if (accountUpdate.error) return fail();
+  if (accountUpdate.error) abort("account_row_missing");
   const vault = await getSubaccountWebhookSecretResolver().storeSubaccountAuthToken({ businessId, subaccountSid: targetAccountSid, authToken: targetAuthToken });
-  if (vault.status !== "available") return fail();
-  const [activationUpdate, phoneUpdate, complianceUpdate] = await Promise.all([
-   db.from("twilio_tenant_activations").update({ business_twilio_account_id: accountId, brand_registration_sid: brandSid, campaign_sid: campaignSid, messaging_service_sid: messagingServiceSid, phone_number_sid: phoneSid, status: "active", current_step: "complete", outbound_sender_mode: "messaging_service", legacy_sms_preserved: false, last_error_category: null, updated_at: now }).eq("id", activationResult.data.id).eq("business_id", businessId),
-   db.from("twilio_phone_numbers").update({ business_twilio_account_id: accountId, twilio_phone_number_sid: phoneSid, phone_number_e164: phone, messaging_service_sid: messagingServiceSid, status: "active", provisioning_status: "active", provisioning_error: null, last_synced_at: now, updated_at: now }).eq("id", phoneResult.data.id).eq("business_id", businessId),
-   db.from("twilio_compliance_registrations").update({ business_twilio_account_id: accountId, twilio_brand_sid: brandSid, updated_at: now }).eq("id", complianceResult.data.id).eq("business_id", businessId),
-  ]);
-  if (activationUpdate.error || phoneUpdate.error || complianceUpdate.error) return fail();
-  const readiness = await verifyTenantReadiness(businessId);
-  outcome = readiness.state;
+  if (vault.status !== "available") abort("vault_failed");
+  const activationUpdate = await db.from("twilio_tenant_activations").update({ business_twilio_account_id: accountId, brand_registration_sid: brandSid, campaign_sid: campaignSid, messaging_service_sid: messagingServiceSid, phone_number_sid: phoneSid, status: "active", current_step: "complete", outbound_sender_mode: "messaging_service", legacy_sms_preserved: false, last_error_category: null, updated_at: now }).eq("id", activationResult.data.id).eq("business_id", businessId);
+  if (activationUpdate.error) abort("activation_row_missing");
+  const phoneFields = { business_twilio_account_id: accountId, twilio_phone_number_sid: phoneSid, phone_number_e164: phone, messaging_service_sid: messagingServiceSid, status: "active", provisioning_status: "active", provisioning_error: null, is_primary: true, last_synced_at: now, updated_at: now };
+  const phoneWrite = phoneResult.data ? await db.from("twilio_phone_numbers").update(phoneFields).eq("id", phoneResult.data.id).eq("business_id", businessId) : await db.from("twilio_phone_numbers").insert({ business_id: businessId, ...phoneFields });
+  if (phoneWrite.error) abort("phone_upsert_failed");
+  const complianceWrite = complianceResult.data ? await db.from("twilio_compliance_registrations").update({ business_twilio_account_id: accountId, twilio_brand_sid: brandSid, updated_at: now }).eq("id", complianceResult.data.id).eq("business_id", businessId) : await db.from("twilio_compliance_registrations").insert({ business_id: businessId, business_twilio_account_id: accountId, twilio_brand_sid: brandSid, registration_type: "secondary_customer_profile", status: "draft" });
+  if (complianceWrite.error) abort("compliance_upsert_failed");
+  try { const readiness = await verifyTenantReadiness(businessId); outcome = readiness.state === "ready" ? "ready" : "readiness_failed"; } catch { outcome = "readiness_failed"; }
  } catch {
-  outcome = "failed";
+  // outcome already identifies the failed stage; provider details remain server-side.
  }
  redirect(`/app/admin/twilio?relink=${outcome}`);
 }
