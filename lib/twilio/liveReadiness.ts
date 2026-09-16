@@ -3,7 +3,7 @@ import {getParentTwilioHttpClient,getSubaccountTwilioHttpClient,type TwilioHttpC
 import {getSubaccountWebhookSecretResolver} from "./subaccountWebhookSecrets.ts";
 export type ReadinessState="not_connected"|"compliance_pending"|"number_required"|"ready"|"error";
 export type LiveReadiness={state:ReadinessState;issues:string[];resources:Record<string,{sid:string;status:string}>;checkedAt:string};
-export type Chain={parentSid:string;accountSid:string;brandSid:string;profileSid:string;trustSid:string;serviceSid:string;campaignSid:string;phoneSid:string;phone:string;inboundUrl:string;statusUrl:string};
+export type Chain={parentSid:string;accountSid:string;brandSid:string;profileSid:string;trustSid:string;serviceSid:string;campaignSid:string;phoneSid:string;phone:string;inboundUrl:string;statusUrl:string;externalAccount?:boolean};
 type Resource={sid:string;account_sid?:string;status?:string;[key:string]:unknown};
 export const campaignApproved=(value:unknown)=>String(value??"").toUpperCase()==="VERIFIED";
 export function tenantWebhookUrls(){
@@ -19,7 +19,7 @@ export async function verifyTwilioChain(c:Chain,parent:TwilioHttpClient,tenant:T
  try{
   const base=`https://api.twilio.com/2010-04-01/Accounts/${c.accountSid}`;
   const entries=await Promise.all([
-   tenant.request<Resource>(`${base}.json`),parent.request<Resource>(`https://messaging.twilio.com/v1/a2p/BrandRegistrations/${c.brandSid}`),
+   tenant.request<Resource>(`${base}.json`),(c.externalAccount?tenant:parent).request<Resource>(`https://messaging.twilio.com/v1/a2p/BrandRegistrations/${c.brandSid}`),
    tenant.request<Resource>(`https://messaging.twilio.com/v1/Services/${c.serviceSid}`),
    tenant.request<Resource>(`https://messaging.twilio.com/v1/Services/${c.serviceSid}/Compliance/Usa2p/${c.campaignSid}`),
    tenant.request<Resource>(`${base}/IncomingPhoneNumbers/${c.phoneSid}.json`),
@@ -28,8 +28,8 @@ export async function verifyTwilioChain(c:Chain,parent:TwilioHttpClient,tenant:T
   const [account,brand,service,campaign,phone,pool]=entries;
   for(const [name,r] of entries.map((r,i)=>[["account","brand","service","campaign","number","sender_pool"][i],r] as const))result.resources[name]={sid:r.sid,status:String(name==="campaign"?r.campaign_status:r.status??"found")};
   const require=(condition:boolean,message:string)=>{if(!condition)result.issues.push(message);};
-  require(account.sid===c.accountSid&&account.owner_account_sid===c.parentSid&&account.status==="active"&&c.parentSid!==c.accountSid,"Subaccount identity, parent ownership, or active status does not match.");
-  require(brand.sid===c.brandSid&&brand.account_sid===c.parentSid&&brand.customer_profile_bundle_sid===c.profileSid&&brand.a2p_profile_bundle_sid===c.trustSid,"Brand ownership or tenant profile association does not match.");
+  require(account.sid===c.accountSid&&account.status==="active"&&(c.externalAccount|| (account.owner_account_sid===c.parentSid&&c.parentSid!==c.accountSid)),"Account identity, ownership, or active status does not match.");
+  require(brand.sid===c.brandSid&&brand.account_sid===(c.externalAccount?c.accountSid:c.parentSid)&&brand.customer_profile_bundle_sid===c.profileSid&&brand.a2p_profile_bundle_sid===c.trustSid,"Brand ownership or tenant profile association does not match.");
   require(brand.mock!==true&&campaign.mock!==true,"Mock compliance resources cannot authorize production SMS.");
   require(service.sid===c.serviceSid&&service.account_sid===c.accountSid,"Messaging Service does not belong to this tenant account.");
   require(campaign.sid===c.campaignSid&&campaign.account_sid===c.accountSid&&campaign.messaging_service_sid===c.serviceSid&&campaign.brand_registration_sid===c.brandSid,"Campaign account, Messaging Service, or Brand does not match.");
@@ -52,7 +52,7 @@ export async function verifyTenantReadiness(businessId:string):Promise<LiveReadi
  try{
   const db=getSupabaseAdmin();if(!db)return fail("error","Production database configuration is unavailable.");
   const [account,activation,phone,compliance,access]=await Promise.all([
-   db.from("business_twilio_accounts").select("id,twilio_subaccount_sid,provisioning_status,webhook_secret_status").eq("business_id",businessId).maybeSingle(),
+   db.from("business_twilio_accounts").select("id,twilio_subaccount_sid,provisioning_status,webhook_secret_status,external_twilio_account").eq("business_id",businessId).maybeSingle(),
    db.from("twilio_tenant_activations").select("business_twilio_account_id,brand_registration_sid,campaign_sid,messaging_service_sid,phone_number_sid").eq("business_id",businessId).maybeSingle(),
    db.from("twilio_phone_numbers").select("business_twilio_account_id,twilio_phone_number_sid,phone_number_e164,provisioning_status").eq("business_id",businessId).eq("status","active").eq("is_primary",true).maybeSingle(),
    db.from("twilio_compliance_registrations").select("business_twilio_account_id,twilio_brand_sid,twilio_customer_profile_sid,twilio_trust_product_sid").eq("business_id",businessId).eq("registration_type","secondary_customer_profile").maybeSingle(),
@@ -68,6 +68,6 @@ export async function verifyTenantReadiness(businessId:string):Promise<LiveReadi
   const token=await getSubaccountWebhookSecretResolver().getSubaccountAuthToken({businessId,subaccountSid:a.twilio_subaccount_sid});
   if(!token)return fail("error","Tenant Vault credential could not be retrieved.");
   const parentSid=process.env.TWILIO_ACCOUNT_SID?.trim();if(!parentSid)return fail("error","Parent account configuration is missing.");
-  return verifyTwilioChain({parentSid,accountSid:a.twilio_subaccount_sid,brandSid:v.brand_registration_sid,profileSid:c.twilio_customer_profile_sid,trustSid:c.twilio_trust_product_sid,serviceSid:v.messaging_service_sid,campaignSid:v.campaign_sid,phoneSid:p.twilio_phone_number_sid,phone:p.phone_number_e164,...tenantWebhookUrls()},getParentTwilioHttpClient(),getSubaccountTwilioHttpClient(a.twilio_subaccount_sid,token));
+  return verifyTwilioChain({parentSid,accountSid:a.twilio_subaccount_sid,brandSid:v.brand_registration_sid,profileSid:c.twilio_customer_profile_sid,trustSid:c.twilio_trust_product_sid,serviceSid:v.messaging_service_sid,campaignSid:v.campaign_sid,phoneSid:p.twilio_phone_number_sid,phone:p.phone_number_e164,externalAccount:a.external_twilio_account===true,...tenantWebhookUrls()},getParentTwilioHttpClient(),getSubaccountTwilioHttpClient(a.twilio_subaccount_sid,token));
  }catch(error){return fail("error",error instanceof Error?error.message:"Live verification failed.");}
 }
