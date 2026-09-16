@@ -42,7 +42,9 @@ const sessionMetricUpdate=(metadata:Record<string,unknown>)=>{
  const source=metadata.timing_event_type==="final_flush"?"final_flush":metadata.timing_event_type==="heartbeat"?"heartbeat":null;
  return {incrementMilliseconds,source,finalFlushReceived:metadata.timing_is_final===true,flushReason:textValue(metadata.timing_flush_reason,40)};
 };
-const eventKeyFor=(body:{sessionId:string;event:string;path?:string;inventoryItemId?:string;serviceId?:string;metadata?:object})=>{
+const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;path?:string;inventoryItemId?:string;serviceId?:string;metadata?:object})=>{
+ // A click ID is stable across request retries, but new for each intentional click.
+ if(validSessionId(body.interactionId))return `${body.sessionId}:interaction:${body.interactionId}`;
  const metadata=safeMetadata(body.metadata);
  const parts=[body.sessionId,body.event];
  switch(body.event){
@@ -90,7 +92,7 @@ const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
  if(!bookingFunnelEnabled())return new NextResponse(null,{status:204});
  const purpose=request.headers.get("purpose")||request.headers.get("x-middleware-prefetch")||"",ua=request.headers.get("user-agent")||"";
- const body=await request.json().catch(()=>null) as {sessionId?:string;event?:string;path?:string;pageType?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;serviceId?:string;metadata?:object;touchSession?:boolean;touchOnly?:boolean}|null;
+ const body=await request.json().catch(()=>null) as {sessionId?:string;interactionId?:string;event?:string;path?:string;pageType?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;serviceId?:string;metadata?:object;touchSession?:boolean;touchOnly?:boolean}|null;
  if(!body||!validSessionId(body.sessionId)||!body.event||!allowed.has(body.event))return NextResponse.json({error:"Invalid analytics event."},{status:400});
  const sessionId=body.sessionId as string,event=body.event as string;
  const db=getSupabaseAdmin();if(!db)return new NextResponse(null,{status:204});
@@ -134,13 +136,13 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
  }
  const inventoryItemId=clean(body.inventoryItemId,100)||null;
  const serviceId=clean(body.serviceId,100)||clean(metadata.service_id,100)||null;
- const eventKey=eventKeyFor({sessionId,event,path:body.path,inventoryItemId:body.inventoryItemId,serviceId:body.serviceId,metadata});
+ const eventKey=eventKeyFor({sessionId,event,interactionId:body.interactionId,path:body.path,inventoryItemId:body.inventoryItemId,serviceId:body.serviceId,metadata});
  const row={business_id:businessId,attribution_session_id:sessionId,event_name:event as BookingFunnelEvent,inventory_item_id:inventoryItemId,service_id:serviceId,event_key:eventKey,metadata};
  const {error}=await db.from("booking_funnel_events").insert(row);
  if(error&&error.code!=="23505"){
   if(event==="inventory_item_clicked"&&legacyClickConstraint(error)){
    const fallbackMetadata={...metadata,click_intent:true,original_event:event};
-   const fallbackEventKey=eventKeyFor({sessionId,event:"inventory_item_view",path:body.path,inventoryItemId:body.inventoryItemId,serviceId:body.serviceId,metadata:fallbackMetadata});
+   const fallbackEventKey=eventKeyFor({sessionId,event:"inventory_item_view",interactionId:body.interactionId,path:body.path,inventoryItemId:body.inventoryItemId,serviceId:body.serviceId,metadata:fallbackMetadata});
    const {error:fallbackError}=await db.from("booking_funnel_events").insert({...row,event_name:"inventory_item_view",event_key:fallbackEventKey,metadata:fallbackMetadata});
    if(fallbackError&&fallbackError.code!=="23505")console.error("Booking funnel click fallback save failed",{stage:"event_insert_fallback",businessId,businessSlug,sessionId,event,inventoryItemId,serviceId,code:fallbackError.code,message:fallbackError.message,details:fallbackError.details,hint:fallbackError.hint});
   }else console.error("Booking funnel event save failed",{stage:"event_insert",businessId,businessSlug,sessionId,event,inventoryItemId,serviceId,code:error.code,message:error.message,details:error.details,hint:error.hint,source:normalizeMarketingSource(body.attribution)});
