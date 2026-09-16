@@ -49,6 +49,7 @@ function canonicalEventName(value: string) {
     availability_check_started: "availability_check",
     availability_check: "availability_check",
     rental_availability_checked: "availability_check",
+    booking_date_selected: "date_selected",
     date_selected: "date_selected",
     availability_date_selected: "date_selected",
     event_date_selected: "date_selected",
@@ -156,11 +157,11 @@ function buildRequestedDateCells(month: string, totals: Map<string, number>) {
 }
 
 function buildRentalItemAnalytics(events: FunnelEventRow[], bookingItems: BookingItemRow[], bookingSourceMap: Map<string, MarketingSource>, itemNames: Map<string, string>) {
-  const rows = new Map<string, { id: string; name: string; views: number; datePicks: number; bookingStarts: number; bookings: number; revenueCents: number }>();
+  const rows = new Map<string, { id: string; name: string; clicks: number; datePicks: number; bookingStarts: number; bookings: number; revenueCents: number }>();
   const bucket = (itemId: string) => {
     const existing = rows.get(itemId);
     if (existing) return existing;
-    const next = { id: itemId, name: itemNames.get(itemId) ?? "Rental item", views: 0, datePicks: 0, bookingStarts: 0, bookings: 0, revenueCents: 0 };
+    const next = { id: itemId, name: itemNames.get(itemId) ?? "Rental item", clicks: 0, datePicks: 0, bookingStarts: 0, bookings: 0, revenueCents: 0 };
     rows.set(itemId, next);
     return next;
   };
@@ -168,7 +169,7 @@ function buildRentalItemAnalytics(events: FunnelEventRow[], bookingItems: Bookin
     if (!row.inventory_item_id) continue;
     const current = bucket(row.inventory_item_id);
     const canonical = canonicalEventName(String(row.event_name));
-    if (canonical === "inventory_view") current.views += 1;
+    if (row.event_name === "inventory_item_clicked" || (row.event_name === "inventory_item_view" && row.metadata?.click_intent === true)) current.clicks += 1;
     if (canonical === "booking_start") current.bookingStarts += 1;
     if (canonical === "availability_check" || canonical === "date_selected") current.datePicks += 1;
   }
@@ -180,7 +181,7 @@ function buildRentalItemAnalytics(events: FunnelEventRow[], bookingItems: Bookin
     current.bookings += 1;
     current.revenueCents += Math.max(0, Number(row.unit_price_cents ?? 0) * Math.max(1, Number(row.quantity ?? 1)));
   }
-  return [...rows.values()].sort((left, right) => right.views - left.views || right.datePicks - left.datePicks || right.bookings - left.bookings || left.name.localeCompare(right.name));
+  return [...rows.values()].sort((left, right) => right.clicks - left.clicks || right.datePicks - left.datePicks || right.bookings - left.bookings || left.name.localeCompare(right.name));
 }
 
 function sourceLabel(source: SourceFilter) {
@@ -598,7 +599,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
           </form>
           <div className="booking-weekdays">{weekdays.map((day) => <span key={day}>{day}</span>)}</div>
           <div className="booking-calendar-grid marketing-demand-grid">
-            {cells.map((cell, index) => cell.date ? <Link key={cell.date} href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: reportFromDate, to: reportToDate, source, month: selectedMonth, date: cell.date })}`} className={`marketing-demand-day${selectedDate === cell.date ? " selected" : ""}`}><strong>{cell.day}</strong><small>{cell.count}</small></Link> : <span key={`blank-${index}`} className="marketing-demand-day blank" />)}
+            {cells.map((cell, index) => cell.date ? <Link key={cell.date} href={`/app/${businessSlug}/marketing/funnel?${queryString({ from: reportFromDate, to: reportToDate, source, month: selectedMonth, date: cell.date })}`} className={`marketing-demand-day${cell.count > 0 ? " has-clicks" : ""}${selectedDate === cell.date ? " selected" : ""}`}><strong>{cell.day}</strong><small>{cell.count}</small></Link> : <span key={`blank-${index}`} className="marketing-demand-day blank" />)}
           </div>
         </div>
         <aside className="workspace-panel marketing-requested-date-detail">
@@ -613,8 +614,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="workspace-panel">
       <header><div><h2>Most-clicked rental items</h2><p>Understand exactly which rentals customers were interested in during the selected report window.</p></div></header>
-      <div className="marketing-sources-table marketing-rental-items-table"><div><b>Rental item</b><b>Views / clicks</b><b>Date picks / availability checks</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{itemRows.map((item) => <div key={item.id}><span>{item.name}</span><span>{item.views}</span><span>{item.datePicks}</span><span>{item.bookingStarts}</span><span>{item.bookings}</span><span>{money(item.revenueCents)}</span></div>)}</div>
-      <div className="marketing-rental-item-cards">{itemRows.map((item) => <article className="workspace-panel" key={`mobile-${item.id}`}><h3>{item.name}</h3><p>{item.views} views</p><p>{item.datePicks} date picks</p><p>{item.bookings} bookings</p><p>{money(item.revenueCents)} revenue</p></article>)}</div>
+      <div className="marketing-sources-table marketing-rental-items-table"><div><b>Rental item</b><b>Item clicks</b><b>Date picks / availability checks</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{itemRows.map((item) => <div key={item.id}><span>{item.name}</span><span>{item.clicks}</span><span>{item.datePicks}</span><span>{item.bookingStarts}</span><span>{item.bookings}</span><span>{money(item.revenueCents)}</span></div>)}</div>
+      <div className="marketing-rental-item-cards">{itemRows.map((item) => <article className="workspace-panel" key={`mobile-${item.id}`}><h3>{item.name}</h3><p>{item.clicks} clicks</p><p>{item.datePicks} date picks</p><p>{item.bookings} bookings</p><p>{money(item.revenueCents)} revenue</p></article>)}</div>
     </section>
   </section></main>;
 }
