@@ -8,8 +8,9 @@ import {smsTestBusiness,smsTestLiveEnabled} from "@/lib/twilio/testSms";
 import {verifyTenantReadiness} from "@/lib/twilio/liveReadiness";
 import {sendTestSms} from "./testActions";
 import TemporaryDiagnostic from "./TemporaryDiagnostic";
+import TemporaryCopperStateBounceRelink from "./TemporaryCopperStateBounceRelink";
 export const dynamic="force-dynamic";
-export default async function TwilioAdmin({searchParams}:{searchParams:Promise<{error?:string;diagnostic?:string}>}){
+export default async function TwilioAdmin({searchParams}:{searchParams:Promise<{error?:string;diagnostic?:string;relink?:string}>}){
  const session=await createSupabaseServerClient(),{data:{user}}=await session.auth.getUser();
  if(!user)redirect("/login?next=/app/admin/twilio");if(!isServonasPlatformAdmin(user))redirect("/app");
  let business;try{business=await smsTestBusiness();}catch(error){return <main className="workspace-panel"><h1>Twilio SMS test</h1><p>{error instanceof Error?error.message:"Configuration unavailable."}</p></main>;}
@@ -27,7 +28,8 @@ export default async function TwilioAdmin({searchParams}:{searchParams:Promise<{
  {!smsTestLiveEnabled()&&<p>Live pilot sending is disabled for this environment.</p>}
  <form action={sendTestSms}><input type="hidden" name="requestKey" value={randomUUID()}/><fieldset disabled={readiness.state!=="ready"||!smsTestLiveEnabled()||Boolean(storageError)}><legend>Send one real test SMS</legend><label>Destination <input name="to" type="tel" placeholder="+14805550123" pattern="\+1[2-9][0-9]{9}" required/></label><p>The message identifies {business.name}, asks for a reply, and includes STOP instructions.</p><label><input type="checkbox" name="consent" required/> This recipient agreed to this test SMS and any Twilio charges.</label><p><button className="sv-button">Send test SMS</button></p></fieldset></form>
  {/* TEMPORARY: remove after Copper State Bounce resource linkage is complete. */}
- {business.id==="cb25acc0-3623-4c06-9041-89a88f4ad6ed"&&<TemporaryDiagnostic run={query.diagnostic==="1"}/>}
+ {business.id==="cb25acc0-3623-4c06-9041-89a88f4ad6ed"&&<TemporaryDiagnostic run={query.diagnostic==="1"}/>} 
+ {business.id==="cb25acc0-3623-4c06-9041-89a88f4ad6ed"&&<TemporaryCopperStateBounceRelink outcome={query.relink}/>} 
  <h2>Test history</h2><p>“Accepted” means Twilio accepted the API request. Look for a delivery callback below. Unknown/sending outcomes must be checked in Twilio before resending.</p>
  {(attempts.data??[]).map(attempt=>{const m=attempt.metadata as {to?:string;messageSid?:string;error?:string;errorCode?:string},record=usage.data?.find(r=>r.twilio_message_sid===m.messageSid||r.source_id===String(attempt.id));return <article key={attempt.id}><p>{attempt.occurred_at} · {m.to} · <strong>{record?.message_status??attempt.to_status}</strong></p><p>SID: {record?.twilio_message_sid??m.messageSid??"Not recorded"}</p><p>Delivery callback: {record?.last_status_callback_at??"Not observed"}</p>{(m.error||record?.provider_error_code)&&<p role="status">{record?.provider_error_code??m.errorCode} {record?.provider_error_message??m.error}</p>}</article>;})}
  <h2>Recent inbound replies</h2><Link href={`/app/${business.slug}/customers/messages`}>Open customer SMS inbox</Link>{(inbound.data??[]).map(m=><article key={m.provider_message_id}><p>{m.received_at} · {m.from_phone_e164} · {m.provider_message_id}</p><p>{m.body}</p></article>)}
