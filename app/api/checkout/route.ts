@@ -6,6 +6,7 @@ import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
+import {sendRentalBookingConfirmationSms} from "@/lib/communications/rentalBookingConfirmationSms";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
 import {calculateRentalCalendarDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
@@ -224,6 +225,7 @@ export async function POST(request: Request) {
       if(!emailResult.ok)console.error("Invoice-later rental confirmation email was not delivered",{bookingId:booking.booking_id,reason:emailResult.error});
       const businessEmailResult=await sendRentalBookingBusinessNotification(booking.booking_id,jobId);
       if(!businessEmailResult.ok)console.error("Invoice-later rental business notification was not delivered",{bookingId:booking.booking_id,reason:businessEmailResult.error});
+      try{const smsResult=await sendRentalBookingConfirmationSms(booking.booking_id,jobId);if(!smsResult.ok)console.error("Invoice-later rental confirmation SMS was not delivered",{bookingId:booking.booking_id,businessId:business?.id??null});}catch{console.error("Invoice-later rental confirmation SMS failed",{bookingId:booking.booking_id,businessId:business?.id??null});}
       if(business)await Promise.allSettled([
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId,event:"booking_completed",eventKey:`${booking.booking_id}:booking_completed`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{payment_mode:"invoice_later",item_count:orderedItems.length},bookingTotalCents:totalCents,amountPaidCents:0,currency:"USD"}),
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId:body.attributionSessionId,event:"lead_submitted",eventKey:`${booking.booking_id}:lead_submitted`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{payment_mode:"invoice_later",item_count:orderedItems.length},bookingTotalCents:totalCents,currency:"USD"}),

@@ -3,7 +3,7 @@ import Stripe from "stripe";
 import {ensureRentalBookingJob,RentalBookingJobPersistenceError} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { sendBookingSms } from "@/lib/sms";
+import { sendRentalBookingConfirmationSms } from "@/lib/communications/rentalBookingConfirmationSms";
 import { stripeConnectState } from "@/lib/stripeConnect";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import {recordBookingFunnelEvent} from "@/lib/bookingFunnel";
@@ -373,8 +373,8 @@ export async function POST(request: Request) {
         if(!emailResult.ok||!businessEmailResult.ok)console.error("Paid rental email delivery was incomplete",{bookingId,jobId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});
         try{
           if(paymentIntentId){const paymentIntent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:["latest_charge"]},typeof event.account==="string"?{stripeAccount:event.account}:undefined);const charge=typeof paymentIntent.latest_charge==="object"?paymentIntent.latest_charge as Stripe.Charge:null;if(charge?.receipt_url)await supabase.from("bookings").update({stripe_receipt_url:charge.receipt_url}).eq("id",bookingId);}
-          const {data:current}=await supabase.from("bookings").select("confirmation_sms_sent_at").eq("id",bookingId).single();if(!current?.confirmation_sms_sent_at)await sendBookingSms(bookingId,"confirmation");
-        }catch(smsError){console.error("Confirmation SMS failed:",smsError);}
+          const smsResult=await sendRentalBookingConfirmationSms(bookingId,jobId);if(!smsResult.ok)console.error("Paid rental confirmation SMS was not delivered",{bookingId,businessId});
+        }catch(smsError){console.error("Paid rental confirmation SMS failed",{bookingId,businessId});}
       }catch(error){
         await recordPaidRentalFailure({supabase,ledgerId,event,bookingId,businessId,businessSlug,checkoutSessionId:eventSession.id,paymentIntentId,customerId,jobId,error});
         return NextResponse.json({error:"Stripe confirmed payment, but Servonas could not finish the booking job. The event is safe to retry.",code:"paid_booking_fulfillment_failed"},{status:500});
