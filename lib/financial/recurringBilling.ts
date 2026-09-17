@@ -3,6 +3,7 @@ import {generatePublicDocumentToken,publicDocumentTokenHash} from "@/lib/publicD
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
 import {stripeClient,stripeProviderError} from "@/lib/stripeConnect";
 import {rentalCompletionBalance} from "@/lib/financial/rentalCompletionBalance";
+import {sendRentalLifecycleSms} from "@/lib/communications/rentalLifecycleSms";
 
 type CompletionResult={
   ok:boolean;
@@ -188,6 +189,7 @@ export async function processCompletedJobBilling(jobId:string):Promise<Completio
   if(status==="succeeded"){
    await sendInvoiceFinancialEmail(invoiceId,"payment_succeeded",{paymentId:payment.id});
    await sendInvoiceFinancialEmail(invoiceId,"receipt_sent",{paymentId:payment.id});
+   await sendRentalLifecycleSms({ jobId, paymentId: payment.id, type: "payment_receipt" }).catch(() => console.error("Rental payment receipt SMS failed", { businessId: invoice.business_id, jobId, paymentId: payment.id }));
    return{ok:true,invoiceId,action:"paid"};
   }
   return{ok:true,invoiceId,action:"payment_failed"};

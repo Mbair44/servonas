@@ -16,6 +16,7 @@ import { requireWorkspaceCapability } from "@/lib/workspace";
 import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publicDocumentToken";
 import { stripeClient,stripeProviderError } from "@/lib/stripeConnect";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
+import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
 import type { EstimateFeeDraft, EstimateLineDraft } from "../estimates/actions";
 
 export type InvoiceActionState={error?:string;fieldErrors?:Record<string,string>;values?:Record<string,string>};
@@ -681,7 +682,7 @@ export async function recordOfflinePayment(slug:string,invoiceId:string,data:For
   });
   if(error){console.error("Offline invoice payment failed",{code:error.code,message:error.message,businessId:business.id,invoiceId});redirect(path(slug,invoiceId,"error",error.code==="23514"?"Payment exceeds the balance or the invoice cannot accept payments.":"Payment could not be recorded. Apply the Checkpoint 6 migration if needed."));}
   const {data:payment}=await supabase.from("payments").select("id").eq("business_id",business.id).eq("idempotency_key",requestKey).maybeSingle();
-  if(payment)await sendInvoiceFinancialEmail(invoiceId,"payment_succeeded",{paymentId:payment.id});
+  if(payment){await sendInvoiceFinancialEmail(invoiceId,"payment_succeeded",{paymentId:payment.id});await sendRentalLifecycleSms({paymentId:payment.id,type:"payment_receipt"}).catch(()=>console.error("Rental payment receipt SMS failed",{businessId:business.id,invoiceId,paymentId:payment.id}));}
   revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
   redirect(path(slug,invoiceId,"success","Offline payment recorded"));
 }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
+import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
 import { availableJobTransitions, canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { validateJobSchedule } from "@/lib/jobScheduling";
 import { requireWorkspaceCapability } from "@/lib/workspace";
@@ -340,7 +341,7 @@ export async function updateDispatchStatus(slug: string, jobId: string, formData
     redirect(dispatchPath(slug, date, "error", "Job status could not be updated."));
   }
   await updateTechnicianOperationalState(supabase, business.id, job.assigned_technician_id, requested);
-  if (requested === "en_route") await JobNotificationService.technicianEnRoute(jobId);
+  if (requested === "en_route") { await JobNotificationService.technicianEnRoute(jobId); await sendRentalLifecycleSms({ jobId, type: "technician_en_route" }).catch(() => console.error("Rental on-the-way SMS failed", { businessId: business.id, jobId })); }
   if (requested === "completed") {
     await Promise.allSettled([
       JobNotificationService.jobCompleted(jobId),

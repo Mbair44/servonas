@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
+import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 import {bookingBalanceAfterDeliveryChange,bookingBalanceForTotal,jobFinancialTotalCents} from "@/lib/financial/bookingBalance";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
@@ -332,7 +333,7 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
   const { error } = await supabase.from("jobs").update({ status, ...timestamps, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false);
   if (error) redirect(`/app/${slug}/jobs/${jobId}?error=Status+could+not+be+updated`);
   if (status === "confirmed") await JobNotificationService.jobConfirmed(jobId);
-  if (status === "en_route") await JobNotificationService.technicianEnRoute(jobId);
+  if (status === "en_route") { await JobNotificationService.technicianEnRoute(jobId); await sendRentalLifecycleSms({ jobId, type: "technician_en_route" }).catch(() => console.error("Rental on-the-way SMS failed", { businessId: business.id, jobId })); }
   if (status === "completed") {
     await Promise.allSettled([JobNotificationService.jobCompleted(jobId),JobNotificationService.reviewRequest(jobId)]);
     const billing=await processCompletedJobBilling(jobId);

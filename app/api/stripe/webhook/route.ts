@@ -4,6 +4,7 @@ import {ensureRentalBookingJob,RentalBookingJobPersistenceError} from "@/lib/ren
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendRentalBookingConfirmationSms } from "@/lib/communications/rentalBookingConfirmationSms";
+import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
 import { stripeConnectState } from "@/lib/stripeConnect";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import {recordBookingFunnelEvent} from "@/lib/bookingFunnel";
@@ -71,7 +72,7 @@ async function processInvoicePaymentEvent(
   const ledgerId=ledger.data.id;
   try{
     const {data:payment,error:lookupError}=await supabase.from("payments")
-      .select("id,business_id,invoice_id,provider_account_id,status")
+      .select("id,business_id,invoice_id,job_id,provider_account_id,status")
       .eq("id",paymentId).eq("provider","stripe").eq("provider_account_id",accountId).maybeSingle();
     if(lookupError)throw new Error(`Payment lookup failed (${lookupError.code}).`);
     if(!payment){
@@ -118,6 +119,7 @@ async function processInvoicePaymentEvent(
       processing_status:"processed",processed_at:new Date().toISOString(),
       safe_metadata:{payment_id:payment.id,business_id:payment.business_id,invoice_id:payment.invoice_id,status},
     }).eq("id",ledgerId);
+    if(status==="succeeded")await sendRentalLifecycleSms({jobId:payment.job_id??undefined,paymentId:payment.id,type:"payment_receipt"}).catch(()=>console.error("Rental payment receipt SMS failed",{businessId:payment.business_id,paymentId:payment.id}));
     return NextResponse.json({received:true});
   }catch(error){
     const message=error instanceof Error?error.message:"Unknown invoice payment webhook error.";
