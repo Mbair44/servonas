@@ -9,7 +9,7 @@ test("party-rental SMS consent is optional and unchecked by default",async()=>{
  const input=source.match(/<input className="inline-checkbox" type="checkbox" name="smsConsent"[^>]*\/>/)?.[0]??"";
  assert.ok(input);
  assert.doesNotMatch(input,/defaultChecked|checked=|required/);
- assert.match(source,/Text me about my booking <small>Optional<\/small>/);
+ assert.match(source,/Text me updates about my booking <small>Optional<\/small>/);
 });
 
 test("SMS disclosure includes carrier language, STOP, HELP, and public policy links",async()=>{

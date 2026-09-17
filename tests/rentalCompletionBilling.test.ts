@@ -60,5 +60,6 @@ test("completion billing uses the post-discount total only once and surfaces fai
  assert.match(billing,/rental_completion_autopay/);
  assert.match(billing,/off_session:true/);
  assert.match(migration,/stripe_payment_method_id text/);
- assert.match(bookingClient,/I authorize \{businessName\} to charge the remaining/);
+ assert.match(bookingClient,/name="finalPaymentAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);
+ assert.match(bookingClient,/Book & pay \$\{money\(deposit\)\}/);
 });
