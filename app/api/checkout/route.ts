@@ -1,4 +1,5 @@
 import {cancellationPolicyError} from "@/lib/cancellationPolicy";
+import {DEFAULT_WEATHER_POLICY,DEFAULT_RENTAL_WAIVER_POLICY} from "@/lib/rentalPolicies";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -21,6 +22,8 @@ type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type CheckoutBody = {
   cancellationPolicyAccepted?:boolean|string;
   cancellationPolicyText?:string;
+  weatherPolicyText?:string;
+  rentalWaiverPolicyText?:string;
   businessSlug?: string;
   items?: RequestedItem[];
   rentalDate?: string;
@@ -95,10 +98,12 @@ export async function POST(request: Request) {
       ? await supabase.from("businesses").select("id,slug,name").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
-    const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment").eq("business_id",business.id).maybeSingle():{data:null,error:null};
+    const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text").eq("business_id",business.id).maybeSingle():{data:null,error:null};
     if(policyLoadError)return NextResponse.json({error:"The cancellation policy could not be verified. Please try again."},{status:503});
     const policyError=cancellationPolicyError(cancellationPolicy,body.cancellationPolicyAccepted,body.cancellationPolicyText);
     if(policyError)return NextResponse.json({error:policyError},{status:400});
+    const weatherPolicy=cancellationPolicy?.weather_policy_text??DEFAULT_WEATHER_POLICY,waiverPolicy=cancellationPolicy?.rental_waiver_policy_text??DEFAULT_RENTAL_WAIVER_POLICY;
+    if(body.weatherPolicyText!==weatherPolicy||body.rentalWaiverPolicyText!==waiverPolicy)return NextResponse.json({error:"The rental policies changed. Refresh checkout and review them before continuing."},{status:400});
     const policyAcknowledged=Boolean(cancellationPolicy?.cancellation_policy_enabled&&(body.cancellationPolicyAccepted===true||body.cancellationPolicyAccepted==="true"));
     let deliveryQuote:DeliveryQuote|null=null;
     if(business){
@@ -201,7 +206,7 @@ export async function POST(request: Request) {
       if(consentError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation consent record could not be saved. Please try again."},{status:500});}
     }
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
-    const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,subtotal_cents:subtotalCents,tax_cents:deliveryTaxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,discount_snapshot:promo?.ok?promo.snapshot:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryQuote?.snapshot.rule??null,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
+    const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,weather_policy_text_snapshot:weatherPolicy,rental_waiver_policy_text_snapshot:waiverPolicy,rental_terms_acknowledged_at:new Date().toISOString(),subtotal_cents:subtotalCents,tax_cents:deliveryTaxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,discount_snapshot:promo?.ok?promo.snapshot:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryQuote?.snapshot.rule??null,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
     if(pricingSnapshotError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation pricing could not be finalized. Please try again."},{status:500});}
     if(business){
       const sessionId=validSessionId(body.attributionSessionId)?body.attributionSessionId:null;
