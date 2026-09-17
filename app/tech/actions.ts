@@ -7,6 +7,7 @@ import { generatePublicDocumentToken,publicDocumentTokenHash } from "@/lib/publi
 import { parseCurrencyToCents } from "@/lib/financial/priceBook";
 import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
+import {sendRentalLifecycleSms} from "@/lib/communications/rentalLifecycleSms";
 import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { jobStatuses } from "@/lib/jobValidation";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
@@ -69,6 +70,7 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
         : "The job status could not be updated. Refresh and try again.";
     redirect(redirectWith("error", message));
   }
+  if(status==="en_route")await sendRentalLifecycleSms({jobId,type:"technician_en_route"}).catch(()=>console.error("Rental on-the-way SMS failed",{businessId:job.business_id,jobId}));
   if(status==="completed"){
     const billing=await processCompletedJobBilling(jobId);
     if(!billing.ok||billing.action==="payment_failed"){
