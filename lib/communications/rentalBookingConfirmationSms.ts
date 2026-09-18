@@ -1,12 +1,13 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendTenantTwilioMessage } from "@/lib/twilio/messageUsage";
+import {createBookingManageToken} from "@/lib/bookingManage/tokens";
 
 const first = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 
-export function rentalBookingConfirmationSmsBody(businessName: string, rentalItemNames: string[], rentalDate: string | null) {
+export function rentalBookingConfirmationSmsBody(businessName: string, rentalItemNames: string[], rentalDate: string | null, manageBookingUrl?:string|null) {
  const date = rentalDate ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${rentalDate}T12:00:00Z`)) : "your scheduled rental date";
  const names = new Intl.ListFormat("en-US", { style: "long", type: "conjunction" }).format(rentalItemNames);
- return `${businessName}: 🎉 You’re booked! Your ${names ? `${names} rental` : "rental"} is confirmed for ${date}. We’ll text you again as your event gets closer. Questions? Just reply here. Reply STOP to opt out.`;
+ return `${businessName}: 🎉 You’re booked! Your ${names ? `${names} rental` : "rental"} is confirmed for ${date}. We’ll text you again as your event gets closer.${manageBookingUrl?` Need to make a change or payment? Manage your booking here: ${manageBookingUrl}`:""} Questions? Just reply here. Reply STOP to opt out.`;
 }
 
 export async function sendRentalBookingConfirmationSms(bookingId: string, jobId: string) {
@@ -25,7 +26,10 @@ export async function sendRentalBookingConfirmationSms(bookingId: string, jobId:
   const name = first(row.inventory_items)?.name?.trim();
   return name ? [name] : [];
  });
- const body = rentalBookingConfirmationSmsBody(business?.name ?? "Your rental business", rentalItemNames, item?.rental_date ?? null);
+ let manageBookingUrl:string|null=null;
+ const {data:activeToken}=await db.from("booking_manage_tokens").select("id").eq("booking_id",bookingId).eq("business_id",booking.business_id).is("revoked_at",null).maybeSingle();
+ if(!activeToken){try{const token=await createBookingManageToken(bookingId,booking.business_id);manageBookingUrl=`${(process.env.NEXT_PUBLIC_SITE_URL||"http://localhost:3000").replace(/\/$/,"")}/manage-booking/${token}`;}catch{console.error("Manage booking link generation failed",{bookingId,businessId:booking.business_id});}}
+ const body = rentalBookingConfirmationSmsBody(business?.name ?? "Your rental business", rentalItemNames, item?.rental_date ?? null,manageBookingUrl);
  const event = await db.from("job_communication_events").insert({ job_id: jobId, channel: "sms", template_key: "booking_confirmation", status: "queued" }).select("id").single();
  if (event.error?.code === "23505") return { ok: true, duplicate: true };
  if (event.error || !event.data) return { ok: false, error: "SMS event could not be claimed." };
