@@ -38,3 +38,4 @@ The required SQL scripts are in `supabase/`. The project assumes the schema, liv
 The completed-account conversion uses the existing global Google tag in `app/layout.tsx`.
 `NEXT_PUBLIC_GOOGLE_ADS_SIGNUP_CONVERSION` is optional; when omitted it defaults to
 `AW-18340749438/-fjTCKncxtscEP7AxqlE`.
+
