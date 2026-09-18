@@ -46,3 +46,13 @@ test("on-the-way and durable payment success paths trigger their lifecycle SMS",
   assert.match(stripeWebhook, /paymentId:payment\.id,type:"payment_receipt"/);
   assert.match(helper, /payment_not_succeeded/);
 });
+
+test("lifecycle copy uses rental items and gates review texts on the tenant review URL", () => {
+  assert.match(helper, /booking_items\(rental_date,inventory_items\(name\)\)/);
+  assert.match(helper, /rentalItemNames/);
+  assert.match(helper, /🎉 Just a reminder/);
+  assert.match(helper, /🚚 We’re on the way/);
+  assert.match(helper, /Payment received! We received your/);
+  assert.match(helper, /google_review_url/);
+  assert.match(helper, /google_review_url_missing/);
+});
