@@ -45,7 +45,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string,prom
           .eq("is_deleted", false)
           .order("sort_order")
           .order("name"),
-    supabase.from("business_website_settings").select("full_day_rental_message,meta_pixel_id,cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment").eq("business_id",settings.business_id).maybeSingle(),
+    supabase.from("business_website_settings").select("full_day_rental_message,meta_pixel_id,cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text").eq("business_id",settings.business_id).maybeSingle(),
   ]);
   const schedule = Object.fromEntries(
     (hours ?? []).map((hour: any) => [

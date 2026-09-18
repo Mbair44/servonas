@@ -1,21 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
-
-const checkout = readFileSync(new URL("../components/PartyRentalBookingClient.tsx", import.meta.url), "utf8");
-
-test("one required rental agreement acknowledgement preserves existing backend fields", () => {
- assert.match(checkout, /name="agreementAccepted" value="true" required aria-required="true"/);
- assert.match(checkout, /name="depositAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);
- assert.match(checkout, /name="finalPaymentAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);
- assert.match(checkout, /name="cancellationPolicyAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);
- assert.match(checkout, /Rental Agreement/);
- assert.match(checkout, /Deposit\/Cancellation Policy/);
-});
-
-test("rental checkout presents payment totals before its agreement and CTA", () => {
- assert.match(checkout, /Due today <strong>\{money\(onlinePaymentsReady\?deposit:0\)\}<\/strong>/);
- assert.match(checkout, /Remaining after event <strong>\{money\(onlinePaymentsReady\?total-deposit:total\)\}<\/strong>/);
- assert.match(checkout, /Total <strong>\{money\(total\)\}<\/strong>/);
- assert.match(checkout, /Book & pay \$\{money\(deposit\)\}/);
-});
+import {readFile} from "node:fs/promises";
+const path=new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),route=new URL("../app/api/checkout/route.ts",import.meta.url),migration=new URL("../supabase/migrations/20260917000200_rental_weather_waiver_policies.sql",import.meta.url);
+test("one compact required agreement preserves existing backend acknowledgments",async()=>{const checkout=await readFile(path,"utf8");assert.match(checkout,/name="agreementAccepted" value="true" required aria-required="true"/);assert.match(checkout,/name="depositAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);assert.match(checkout,/name="finalPaymentAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);assert.match(checkout,/I agree to the Rental Terms and authorize the remaining balance/);assert.match(checkout,/Cancellation Policy/);assert.match(checkout,/Weather Policy/);assert.match(checkout,/Rental Waiver & Safety Rules/);assert.match(checkout,/rental-policy-modal/);});
+test("checkout presents the requested payment summary and snapshots tenant policies",async()=>{const checkout=await readFile(path,"utf8"),api=await readFile(route,"utf8"),sql=await readFile(migration,"utf8");assert.match(checkout,/Due today <strong>\{money\(onlinePaymentsReady\?deposit:0\)\}<\/strong>/);assert.match(checkout,/Remaining balance <strong>\{money\(onlinePaymentsReady\?total-deposit:total\)\}<\/strong>/);assert.match(checkout,/Book & pay \$\{money\(deposit\)\}/);assert.match(api,/weather_policy_text_snapshot/);assert.match(api,/rental_waiver_policy_text_snapshot/);assert.match(sql,/weather_policy_text/);assert.match(sql,/rental_waiver_policy_text/);});
