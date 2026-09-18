@@ -31,12 +31,28 @@ export async function POST(_: Request, { params }: { params: Promise<{ token: st
   const db = getSupabaseAdmin();
   if (!access || !db) return unavailable("booking_not_payable", "This booking cannot update its scheduled payment method.", 404, {});
 
-  const { data: booking } = await db.from("bookings")
-    .select("id,business_id,status,balance_due_cents,balance_charge_scheduled_for,stripe_customer_id,customer_id,customers(first_name,last_name,email,phone),business_payment_accounts(provider_account_id,charges_enabled)")
+  const { data: booking, error: bookingError } = await db.from("bookings")
+    .select("id,business_id,status,balance_due_cents,balance_charge_scheduled_for,stripe_customer_id,customer_id")
     .eq("id", access.booking_id).eq("business_id", access.business_id).maybeSingle();
-  if (!booking) return unavailable("booking_not_payable", "This booking cannot update its scheduled payment method.", 404, {});
+  if (bookingError) {
+    console.error("Manage booking SetupIntent booking lookup failed", {
+      bookingId: access.booking_id, businessId: access.business_id, code: bookingError.code,
+      message: bookingError.message, details: bookingError.details ?? null, hint: bookingError.hint ?? null,
+    });
+    return unavailable("booking_lookup_failed", "We couldn't load this booking right now. Please try again.", 503, { bookingId: access.booking_id, businessId: access.business_id });
+  }
+  if (!booking) return unavailable("booking_not_payable", "This booking cannot update its scheduled payment method.", 404, { bookingId: access.booking_id, businessId: access.business_id });
 
-  const account = Array.isArray(booking.business_payment_accounts) ? booking.business_payment_accounts[0] : booking.business_payment_accounts;
+  const { data: account, error: accountError } = await db.from("business_payment_accounts")
+    .select("provider_account_id,charges_enabled").eq("business_id", booking.business_id).eq("provider", "stripe").maybeSingle();
+  if (accountError) {
+    console.error("Manage booking SetupIntent payment account lookup failed", {
+      bookingId: booking.id, businessId: booking.business_id, code: accountError.code,
+      message: accountError.message, details: accountError.details ?? null, hint: accountError.hint ?? null,
+    });
+    return unavailable("stripe_account_missing", "Online payment method updates are temporarily unavailable. Please contact us.", 503, { bookingId: booking.id, businessId: booking.business_id, bookingStatus: booking.status });
+  }
+
   const scheduledAt = booking.balance_charge_scheduled_for ? new Date(booking.balance_charge_scheduled_for).getTime() : NaN;
   const details: Diagnostic = {
     bookingId: booking.id, businessId: booking.business_id, bookingStatus: booking.status,
@@ -52,7 +68,11 @@ export async function POST(_: Request, { params }: { params: Promise<{ token: st
   if (!account) return unavailable("stripe_account_missing", "Online payment method updates are temporarily unavailable. Please contact us.", 503, details);
   if (!account.provider_account_id || !account.charges_enabled || !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) return unavailable("stripe_account_not_ready", "Online payment method updates are temporarily unavailable. Please contact us.", 503, details);
 
-  const customer = Array.isArray(booking.customers) ? booking.customers[0] : booking.customers;
+  const { data: customer, error: customerError } = booking.customer_id ? await db.from("customers")
+    .select("first_name,last_name,email,phone").eq("id", booking.customer_id).maybeSingle() : { data: null, error: null };
+  if (customerError) console.info("Manage booking SetupIntent customer lookup unavailable", {
+    bookingId: booking.id, businessId: booking.business_id, code: customerError.code, message: customerError.message,
+  });
   let stripeCustomerId: string;
   try {
     details.customerRecoveryAttempted = true;
