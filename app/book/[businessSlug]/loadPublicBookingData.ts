@@ -4,27 +4,48 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {addDays, dateInTimeZone, zonedDateTimeToUtc} from "@/lib/bookingTime";
 
-export const loadPublicBookingSettings=unstable_cache(async(businessSlug:string)=>{
+const publicBookingCacheMiss=Symbol("public-booking-cache-miss");
+const publicBookingRetryDelayMs=350;
+const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+const isFutureIssuedJwtError=(error:{code?:string|null;message?:string|null}|null)=>error?.code==="PGRST303"&&/jwt issued at future/i.test(error.message??"");
+
+async function queryPublicBookingSettings(businessSlug:string){
   const supabase=getSupabaseAdmin();
   if(!supabase)return null;
-  const { data: settings, error } = await supabase
-    .from("booking_settings")
-    .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,buffer_minutes,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url,industry_profile)")
-    .ilike("public_slug", businessSlug)
-    .eq("enabled", true)
-    .maybeSingle();
-  if(error){
-    console.error("Public booking settings lookup failed",{businessSlug,code:error.code??null,message:error.message??null,details:error.details??null,hint:error.hint??null});
-    return null;
+  for(let attempt=1;attempt<=2;attempt++){
+    const { data: settings, error } = await supabase
+      .from("booking_settings")
+      .select("business_id,enabled,logo_path,logo_url,brand_color,welcome_message,collect_address,intake_questions,maximum_days_ahead,timezone,buffer_minutes,rental_duration_minutes,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,rental_deposit_percent,businesses(name,website_url,industry_profile)")
+      .ilike("public_slug", businessSlug)
+      .eq("enabled", true)
+      .maybeSingle();
+    if(!error){
+      if(attempt===2)console.info("Public booking settings lookup recovered after retry",{businessSlug});
+      return settings??null;
+    }
+    const retryable=isFutureIssuedJwtError(error);
+    console.error("Public booking settings lookup failed",{businessSlug,attempt,willRetry:retryable&&attempt===1,code:error.code??null,message:error.message??null,details:error.details??null,hint:error.hint??null});
+    if(!retryable||attempt===2)return null;
+    await sleep(publicBookingRetryDelayMs);
   }
-  return settings??null;
+  return null;
+}
+
+const loadCachedPublicBookingSettings=unstable_cache(async(businessSlug:string)=>{
+  const settings=await queryPublicBookingSettings(businessSlug);
+  if(!settings)throw publicBookingCacheMiss;
+  return settings;
 },["public-booking-settings"],{revalidate:300});
 
-export const loadPublicBookingData=unstable_cache(async(businessSlug:string,promotionCode?:string,promotionId?:string)=>{
+export async function loadPublicBookingSettings(businessSlug:string){
+  try{return await loadCachedPublicBookingSettings(businessSlug);}catch(error){if(error===publicBookingCacheMiss)return null;throw error;}
+}
+
+async function queryPublicBookingData(businessSlug:string,promotionCode?:string,promotionId?:string){
   const supabase=getSupabaseAdmin();
-  if(!supabase)return null;
+  if(!supabase)throw publicBookingCacheMiss;
   const settings=await loadPublicBookingSettings(businessSlug);
-  if (!settings) return null;
+  if (!settings) throw publicBookingCacheMiss;
   const businessRelation=settings.businesses as {name?:string;website_url?:string|null;industry_profile?:string|null}|{name?:string;website_url?:string|null;industry_profile?:string|null}[]|null|undefined;
   const businessRecord=Array.isArray(businessRelation)?businessRelation[0]:businessRelation;
   const businessName = businessRecord?.name;
@@ -70,7 +91,7 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string,prom
       .eq("business_id",settings.business_id).eq("provider","stripe").maybeSingle();
     rentalOnlinePaymentsReady=stripePaymentsReady(paymentAccount??{});
     const [{data},{data:resourceItems},{data:requirements},{data:rentalCategories},{data:upsells},{data:itemBlockedDates}]=await Promise.all([
-      supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,length_ft,width_ft,height_ft,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected").eq("business_id", settings.business_id).eq("active", true),
+      supabase.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,allow_quantity,stock_quantity,length_ft,width_ft,height_ft,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,inventory_item_specifications(label,value,icon,sort_order,is_public),inventory_item_booking_options(id,name,required,sort_order,inventory_item_booking_option_choices(id,label,price_adjustment_cents,sort_order))").eq("business_id", settings.business_id).eq("active", true),
       supabase.from("inventory_items").select("id,stock_quantity").eq("business_id",settings.business_id),
       supabase.from("rental_listing_inventory_requirements").select("listing_inventory_item_id,resource_inventory_item_id,quantity_required").eq("business_id",settings.business_id),
       supabase.from("rental_inventory_categories").select("id,name,sort_order").eq("business_id",settings.business_id).order("sort_order").order("name"),
@@ -109,4 +130,10 @@ export const loadPublicBookingData=unstable_cache(async(businessSlug:string,prom
   }
   const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
   return {fullDayRentalMessage:websiteSettings?.full_day_rental_message,cancellationPolicy:websiteSettings,settings,services:services??[],schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalResourceCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
-},["public-booking-page"],{revalidate:300,tags:["public-promotion-inventory"]});
+}
+
+const loadCachedPublicBookingData=unstable_cache(queryPublicBookingData,["public-booking-page"],{revalidate:300,tags:["public-promotion-inventory"]});
+
+export async function loadPublicBookingData(businessSlug:string,promotionCode?:string,promotionId?:string){
+  try{return await loadCachedPublicBookingData(businessSlug,promotionCode,promotionId);}catch(error){if(error===publicBookingCacheMiss)return null;throw error;}
+}

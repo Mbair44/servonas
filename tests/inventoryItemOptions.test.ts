@@ -1,0 +1,5 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const read=(path:string)=>readFileSync(new URL(`../${path}`,import.meta.url),"utf8");
+test("generic item specs and options are tenant scoped and snapshot safely",()=>{const migration=read("supabase/migrations/20260918000100_inventory_item_specifications_and_booking_options.sql"),checkout=read("app/api/checkout/route.ts"),client=read("components/PartyRentalBookingClient.tsx"),job=read("lib/rentalBookingJob.ts");assert.match(migration,/inventory_item_specifications/);assert.match(migration,/inventory_item_booking_options/);assert.match(migration,/business_id uuid not null/);assert.match(migration,/option_selections jsonb/);assert.match(migration,/enable row level security/);assert.match(checkout,/optionSnapshotsByItem/);assert.match(checkout,/Choose \$\{option\.name\}/);assert.match(checkout,/option_adjustment_cents:item\.optionAdjustmentCents/);assert.match(client,/Booking options/);assert.match(client,/inventory-details/);assert.match(job,/option_selections/);});

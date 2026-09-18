@@ -19,6 +19,7 @@ import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
+type RequestedOption = { inventoryItemId?: string; optionId?: string; choiceId?: string };
 type CheckoutBody = {
   cancellationPolicyAccepted?:boolean|string;
   cancellationPolicyText?:string;
@@ -45,6 +46,7 @@ type CheckoutBody = {
   googlePlaceId?: string;
   promoCode?: string;
   operators?: RequestedOperator[];
+  options?: RequestedOption[];
   attributionSessionId?: string;
 };
 
@@ -147,6 +149,13 @@ export async function POST(request: Request) {
 
     if(items.some(item=>item.business_id&&item.business_id!==business?.id))return NextResponse.json({error:"Open this business’s booking page to reserve these rentals."},{status:400});
 
+    const {data:configuredOptions,error:optionsError}=await supabase.from("inventory_item_booking_options").select("id,inventory_item_id,name,required,inventory_item_booking_option_choices(id,label,price_adjustment_cents)").eq("business_id",business!.id).in("inventory_item_id",ids);
+    if(optionsError)return NextResponse.json({error:"Booking options could not be verified. Please try again."},{status:503});
+    const submittedOptions=Array.isArray(body.options)?body.options:[];
+    const selectionsByItem=new Map<string,{optionId:string;choiceId:string}[]>();
+    for(const selection of submittedOptions){if(!hasText(selection.inventoryItemId)||!hasText(selection.optionId)||!hasText(selection.choiceId))return NextResponse.json({error:"Choose a valid booking option."},{status:400});(selectionsByItem.get(selection.inventoryItemId)??selectionsByItem.set(selection.inventoryItemId,[]).get(selection.inventoryItemId)!).push({optionId:selection.optionId,choiceId:selection.choiceId});}
+    const optionSnapshotsByItem=new Map<string,{option_id:string;option_name:string;choice_id:string;choice_label:string;price_adjustment_cents:number}[]>();
+    for(const option of configuredOptions??[]){const selected=(selectionsByItem.get(option.inventory_item_id)??[]).filter(value=>value.optionId===option.id);if(option.required&&selected.length!==1)return NextResponse.json({error:`Choose ${option.name}.`},{status:400});if(selected.length>1)return NextResponse.json({error:`Choose only one ${option.name}.`},{status:400});if(selected.length){const choice=(option.inventory_item_booking_option_choices??[]).find((value:any)=>value.id===selected[0].choiceId);if(!choice)return NextResponse.json({error:`Choose a valid ${option.name}.`},{status:400});(optionSnapshotsByItem.get(option.inventory_item_id)??optionSnapshotsByItem.set(option.inventory_item_id,[]).get(option.inventory_item_id)!).push({option_id:option.id,option_name:option.name,choice_id:choice.id,choice_label:choice.label,price_adjustment_cents:Number(choice.price_adjustment_cents)});}}
     const itemsById = new Map(items.map((item) => [item.id, item]));
     const orderedItems = requestedItems.map((requested) => ({ ...itemsById.get(requested.inventoryItemId)!, quantity: requested.quantity }));
     for (const item of orderedItems) {
@@ -156,7 +165,7 @@ export async function POST(request: Request) {
     const startInstant=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,publicBooking?.timezone??"America/Phoenix"),endInstant=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,publicBooking?.timezone??"America/Phoenix");
     const businessRules={standardRentalHours:Number(publicBooking?.standard_rental_hours??24),allowMultiDay:Boolean(publicBooking?.allow_multi_day_rentals),additionalDayPricingType:(publicBooking?.additional_day_pricing_type??"full_price") as "full_price"|"percentage_discount"|"flat_rate",additionalDayDiscountPercent:Number(publicBooking?.additional_day_discount_percent??0),additionalDayFlatRateCents:publicBooking?.additional_day_flat_rate_cents==null?null:Number(publicBooking.additional_day_flat_rate_cents),maxRentalDays:publicBooking?.max_rental_days==null?null:Number(publicBooking.max_rental_days)};
     const requestedOperators=new Map((Array.isArray(body.operators)?body.operators:[]).filter(row=>hasText(row.inventoryItemId)).map(row=>[row.inventoryItemId!.trim(),row.selected===true]));
-    let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),price=calculateRentalUnitPrice(item.daily_price_cents,rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));return {...item,...price,operator};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
+    let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),price=calculateRentalUnitPrice(item.daily_price_cents,rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));const optionSelections=optionSnapshotsByItem.get(item.id)??[],optionAdjustmentCents=optionSelections.reduce((sum,selection)=>sum+selection.price_adjustment_cents,0);return {...item,...price,operator,optionSelections,optionAdjustmentCents};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
     const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,rentalUnitPriceCents:item.totalUnitPriceCents,unitPriceCents:item.totalUnitPriceCents+(item.operator.chargeCents/item.quantity)}));
     const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
@@ -193,9 +202,9 @@ export async function POST(request: Request) {
     const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id").eq("booking_id",booking.booking_id);
     if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
-    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
+    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
     if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
-    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + item.totalUnitPriceCents * item.quantity, 0)+operatorTotalCents;
+    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + (item.totalUnitPriceCents+item.optionAdjustmentCents) * item.quantity, 0)+operatorTotalCents;
     const discountCents=promo?.ok?promo.discountCents:0,deliveryFeeCents=deliveryQuote?.feeCents??0,deliveryTaxCents=deliveryQuote?.taxCents??0,totalCents=Math.max(0,subtotalCents-discountCents)+deliveryFeeCents+deliveryTaxCents;
     const depositCents = Math.round(totalCents * depositPercent / 100);
     if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
