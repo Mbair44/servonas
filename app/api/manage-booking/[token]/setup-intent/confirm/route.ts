@@ -11,8 +11,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const setupIntentId = typeof body?.setupIntentId === "string" ? body.setupIntentId : null;
   const db = getSupabaseAdmin();
   if (!access || !setupIntentId || !db) return NextResponse.json({ error: "Unable to update the payment method." }, { status: 404 });
-  const { data: booking } = await db.from("bookings").select("id,business_id,stripe_customer_id,business_payment_accounts(provider_account_id,charges_enabled)").eq("id", access.booking_id).eq("business_id", access.business_id).maybeSingle();
-  const account = Array.isArray(booking?.business_payment_accounts) ? booking?.business_payment_accounts[0] : booking?.business_payment_accounts;
+  const { data: booking } = await db.from("bookings").select("id,business_id,stripe_customer_id").eq("id", access.booking_id).eq("business_id", access.business_id).maybeSingle();
+  const { data: account } = booking ? await db.from("business_payment_accounts").select("provider_account_id,charges_enabled").eq("business_id", booking.business_id).eq("provider", "stripe").maybeSingle() : { data: null };
   if (!booking || !booking.stripe_customer_id || !account?.provider_account_id || !account.charges_enabled) return NextResponse.json({ error: "Unable to update the payment method." }, { status: 409 });
   try {
     const setupIntent = await stripeClient().setupIntents.retrieve(setupIntentId, {}, { stripeAccount: account.provider_account_id });

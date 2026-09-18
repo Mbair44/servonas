@@ -19,3 +19,9 @@ test("successful SetupIntent confirmation updates only the booking payment metho
   assert.match(confirmRoute, /stripeAccount: account\.provider_account_id/);
   assert.doesNotMatch(confirmRoute, /default_payment_method/);
 });
+test("SetupIntent loads the Stripe payment account separately from the booking", () => {
+  assert.match(route, /from\("business_payment_accounts"\)/);
+  assert.match(route, /\.eq\("business_id", booking\.business_id\)\.eq\("provider", "stripe"\)/);
+  assert.doesNotMatch(route, /business_payment_accounts\(provider_account_id,charges_enabled\)/);
+  assert.match(route, /booking_lookup_failed/);
+});
