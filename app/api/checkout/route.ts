@@ -10,7 +10,7 @@ import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail
 import {sendRentalBookingConfirmationSms} from "@/lib/communications/rentalBookingConfirmationSms";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
-import {calculateRentalCalendarDays,calculateRentalUnitPrice,resolveRentalPricingRules} from "@/lib/rentalPricing";
+import {calculateRentalCalendarDays,calculateRentalUnitPrice,resolveRentalPricingRules,resolveRentalDurationRules,rentalDurationAdjustment} from "@/lib/rentalPricing";
 import {operatorCharge} from "@/lib/rentalOperators";
 import {recordBookingFunnelEvent,snapshotBookingAttribution,validSessionId} from "@/lib/bookingFunnel";
 import {deliveryQuoteMessage,quoteBusinessDelivery,type DeliveryQuote} from "@/lib/deliveryQuote";
@@ -48,6 +48,8 @@ type CheckoutBody = {
   operators?: RequestedOperator[];
   options?: RequestedOption[];
   attributionSessionId?: string;
+  additionalHours?: number;
+  overnight?: boolean;
 };
 
 function hasText(value: unknown): value is string {
@@ -94,7 +96,7 @@ export async function POST(request: Request) {
     if (!supabase) return NextResponse.json({ error: "Booking is temporarily unavailable." }, { status: 503 });
 
     const {data: publicBooking}=hasText(body.businessSlug)
-      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent,timezone,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
+      ? await supabase.from("booking_settings").select("business_id,rental_deposit_percent,timezone,standard_rental_hours,allow_multi_day_rentals,additional_day_pricing_type,additional_day_discount_percent,additional_day_flat_rate_cents,max_rental_days,allow_extended_rental,additional_hour_price_cents,overnight_available,overnight_price_cents").ilike("public_slug",body.businessSlug.trim()).eq("enabled",true).maybeSingle()
       : {data:null};
     const {data: business}=publicBooking
       ? await supabase.from("businesses").select("id,slug,name").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
@@ -141,7 +143,7 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("business_id,id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected")
+      .select("business_id,id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
@@ -163,9 +165,12 @@ export async function POST(request: Request) {
       if (item.quantity > item.stock_quantity) return NextResponse.json({ error: `Only ${item.stock_quantity} of ${item.name} are in inventory.` }, { status: 400 });
     }
     const startInstant=zonedDateTimeToUtc(body.rentalDate!,body.startTime!,publicBooking?.timezone??"America/Phoenix"),endInstant=zonedDateTimeToUtc(body.rentalEndDate!,body.endTime!,publicBooking?.timezone??"America/Phoenix");
+    const durationBusinessRules={standardRentalHours:Number(publicBooking?.standard_rental_hours??24),allowExtendedRental:Boolean(publicBooking?.allow_extended_rental),additionalHourPriceCents:Number(publicBooking?.additional_hour_price_cents??0),overnightAvailable:Boolean(publicBooking?.overnight_available),overnightPriceCents:Number(publicBooking?.overnight_price_cents??0)};
+    const requestedAdditionalHours=Math.max(0,Math.min(168,Math.floor(Number(body.additionalHours??0))));
+    const requestedOvernight=body.overnight===true;
     const businessRules={standardRentalHours:Number(publicBooking?.standard_rental_hours??24),allowMultiDay:Boolean(publicBooking?.allow_multi_day_rentals),additionalDayPricingType:(publicBooking?.additional_day_pricing_type??"full_price") as "full_price"|"percentage_discount"|"flat_rate",additionalDayDiscountPercent:Number(publicBooking?.additional_day_discount_percent??0),additionalDayFlatRateCents:publicBooking?.additional_day_flat_rate_cents==null?null:Number(publicBooking.additional_day_flat_rate_cents),maxRentalDays:publicBooking?.max_rental_days==null?null:Number(publicBooking.max_rental_days)};
     const requestedOperators=new Map((Array.isArray(body.operators)?body.operators:[]).filter(row=>hasText(row.inventoryItemId)).map(row=>[row.inventoryItemId!.trim(),row.selected===true]));
-    let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),price=calculateRentalUnitPrice(item.daily_price_cents,rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));const optionSelections=optionSnapshotsByItem.get(item.id)??[],optionAdjustmentCents=optionSelections.reduce((sum,selection)=>sum+selection.price_adjustment_cents,0);return {...item,...price,operator,optionSelections,optionAdjustmentCents};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
+    let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=orderedItems.map(item=>{const rules=resolveRentalPricingRules(businessRules,item),price=calculateRentalUnitPrice(item.daily_price_cents,rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));const duration= rentalDurationAdjustment(resolveRentalDurationRules(durationBusinessRules,item),requestedAdditionalHours,requestedOvernight),optionSelections=optionSnapshotsByItem.get(item.id)??[],optionAdjustmentCents=optionSelections.reduce((sum,selection)=>sum+selection.price_adjustment_cents,0);return {...item,...price,operator,...duration,optionSelections,optionAdjustmentCents};});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
     const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,rentalUnitPriceCents:item.totalUnitPriceCents,unitPriceCents:item.totalUnitPriceCents+(item.operator.chargeCents/item.quantity)}));
     const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
@@ -202,9 +207,9 @@ export async function POST(request: Request) {
     const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id").eq("booking_id",booking.booking_id);
     if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
-    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
+    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents,standard_rental_hours_snapshot:resolveRentalDurationRules(durationBusinessRules,item).standardRentalHours,additional_hours:item.additionalHours,overnight_selected:item.overnight,duration_adjustment_cents:item.durationAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
     if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
-    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + (item.totalUnitPriceCents+item.optionAdjustmentCents) * item.quantity, 0)+operatorTotalCents;
+    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + (item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents) * item.quantity, 0)+operatorTotalCents;
     const discountCents=promo?.ok?promo.discountCents:0,deliveryFeeCents=deliveryQuote?.feeCents??0,deliveryTaxCents=deliveryQuote?.taxCents??0,totalCents=Math.max(0,subtotalCents-discountCents)+deliveryFeeCents+deliveryTaxCents;
     const depositCents = Math.round(totalCents * depositPercent / 100);
     if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
