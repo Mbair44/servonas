@@ -320,6 +320,11 @@ export async function POST(request: Request) {
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const eventSession = event.data.object as Stripe.Checkout.Session;
     const bookingId = eventSession.metadata?.booking_id;
+    if (bookingId && eventSession.payment_status === "paid" && eventSession.metadata?.payment_kind==="customer_balance") {
+      const businessId=eventSession.metadata?.business_id??null;if(!businessId)return NextResponse.json({received:true});
+      const ledger=await beginPaidRentalEvent(event,rawBody,supabase,bookingId,businessId);if(ledger.duplicate)return NextResponse.json({received:true,duplicate:true});
+      try{const session=await stripe.checkout.sessions.retrieve(eventSession.id,{},typeof event.account==="string"?{stripeAccount:event.account}:undefined);const paymentIntentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id??null;const result=await supabase.rpc("apply_customer_balance_payment",{p_business_id:businessId,p_booking_id:bookingId,p_payment_reference:paymentIntentId??session.id,p_amount_cents:Number(session.amount_total??0),p_checkout_session_id:session.id});requireDatabaseSuccess(result.error,"apply_customer_balance_payment","rpc/apply_customer_balance_payment");await supabase.from("payment_webhook_events").update({processing_status:"processed",processed_at:new Date().toISOString(),last_error:null,safe_metadata:{workflow:"customer_balance",booking_id:bookingId,business_id:businessId,checkout_session_id:session.id,payment_intent_id:paymentIntentId}}).eq("id",ledger.id);return NextResponse.json({received:true});}catch(error){await supabase.from("payment_webhook_events").update({processing_status:"failed",last_error:error instanceof Error?error.message.slice(0,1000):"customer balance payment failed"}).eq("id",ledger.id);throw error;}
+    }
     if (bookingId && eventSession.payment_status === "paid") {
       let ledgerId:string|null=null,jobId:string|null=null,customerId:string|null=null,businessId=eventSession.metadata?.business_id??null,businessSlug:string|null=null;
       let paymentIntentId=typeof eventSession.payment_intent==="string"?eventSession.payment_intent:eventSession.payment_intent?.id??null;
