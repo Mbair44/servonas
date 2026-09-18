@@ -1,0 +1,10 @@
+create or replace function public.apply_customer_balance_payment(p_business_id uuid,p_booking_id uuid,p_payment_reference text,p_amount_cents integer,p_checkout_session_id text) returns table(amount_paid_cents integer,balance_due_cents integer,applied boolean) language plpgsql security definer set search_path=public as $$
+declare b public.bookings%rowtype; previous integer;begin
+ if p_amount_cents<=0 or p_payment_reference is null then raise exception 'Invalid payment';end if;
+ select * into b from public.bookings where id=p_booking_id and business_id=p_business_id for update;if not found then raise exception 'Booking not found';end if;
+ if b.status not in('confirmed','paid','completed') then raise exception 'Booking cannot accept payment';end if;
+ if exists(select 1 from public.booking_change_audit where booking_id=p_booking_id and payment_reference=p_payment_reference) then return query select b.amount_paid_cents,b.balance_due_cents,false;return;end if;
+ previous:=coalesce(b.amount_paid_cents,0);update public.bookings set amount_paid_cents=previous+p_amount_cents,balance_due_cents=coalesce(total_cents,0)-(previous+p_amount_cents),status=case when previous+p_amount_cents>=coalesce(total_cents,0) then 'paid' else status end,balance_charge_scheduled_for=case when previous+p_amount_cents>=coalesce(total_cents,0) then null else balance_charge_scheduled_for end where id=p_booking_id;
+ insert into public.booking_change_audit(booking_id,business_id,change_source,change_type,new_values,resulting_total_cents,resulting_balance_due_cents,payment_reference) values(p_booking_id,p_business_id,'customer','balance_payment',jsonb_build_object('amount_cents',p_amount_cents,'checkout_session_id',p_checkout_session_id),b.total_cents,coalesce(b.total_cents,0)-(previous+p_amount_cents),p_payment_reference);
+ return query select previous+p_amount_cents,coalesce(b.total_cents,0)-(previous+p_amount_cents),true;end $$;
+revoke all on function public.apply_customer_balance_payment(uuid,uuid,text,integer,text) from public;grant execute on function public.apply_customer_balance_payment(uuid,uuid,text,integer,text) to service_role;
