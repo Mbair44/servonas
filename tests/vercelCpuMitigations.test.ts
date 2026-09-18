@@ -61,8 +61,8 @@ test("domain lookup retry is bounded and cannot loop indefinitely",async()=>{
 
 test("public booking page caches its expensive shared data loader",async()=>{
  const [page,loader,availabilityRoute]=await Promise.all([read("app/book/[businessSlug]/page.tsx"),read("app/book/[businessSlug]/loadPublicBookingData.ts"),read("app/api/public-booking/[businessSlug]/rental-availability/route.ts")]);
-  assert.match(loader,/export const loadPublicBookingData=unstable_cache/);
-  assert.match(loader,/export const loadPublicBookingSettings=unstable_cache/);
+  assert.match(loader,/const loadCachedPublicBookingData=unstable_cache/);
+  assert.match(loader,/const loadCachedPublicBookingSettings=unstable_cache/);
   assert.match(loader,/revalidate:300/);
   assert.match(page,/await loadPublicBookingData\(businessSlug\)/);
   assert.doesNotMatch(loader,/getInventoryCapacityUsage/);

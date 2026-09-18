@@ -11,7 +11,7 @@ export class RentalBookingJobPersistenceError extends Error{
 }
 
 export async function ensureRentalBookingJob(db:SupabaseClient,bookingId:string){
- const {data:booking,error}=await db.from("bookings").select("id,business_id,customer_id,job_id,event_start_time,event_end_time,delivery_address,delivery_city,delivery_state,delivery_zip,notes,discount_snapshot,subtotal_cents,tax_cents,delivery_fee_cents,discount_cents,total_cents,balance_due_cents,amount_paid_cents,bookings_items:booking_items(rental_date,quantity,operator_selected,operator_billable_hours,operator_hourly_rate_cents,operator_charge_cents,inventory_items(name))").eq("id",bookingId).maybeSingle();
+ const {data:booking,error}=await db.from("bookings").select("id,business_id,customer_id,job_id,event_start_time,event_end_time,delivery_address,delivery_city,delivery_state,delivery_zip,notes,discount_snapshot,subtotal_cents,tax_cents,delivery_fee_cents,discount_cents,total_cents,balance_due_cents,amount_paid_cents,bookings_items:booking_items(rental_date,quantity,operator_selected,operator_billable_hours,operator_hourly_rate_cents,operator_charge_cents,option_selections,inventory_items(name))").eq("id",bookingId).maybeSingle();
  if(error)throw new RentalBookingJobPersistenceError("load_rental_booking","bookings",error);
  if(!booking)throw new Error("Rental booking could not be loaded (not_found).");
  if(booking.job_id)return booking.job_id;
