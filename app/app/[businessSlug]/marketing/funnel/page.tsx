@@ -7,6 +7,7 @@ import { dateInTimeZone } from "@/lib/bookingTime";
 import {
   attachSessionMetricsToSourceReport,
   buildSessionQualityReport,
+  buildLandingPageFunnelReport,
   type AttributedBookingRow,
   buildSourcePerformanceReport,
   defaultSessionEngagementThresholdMs,
@@ -207,15 +208,16 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
-  const [eventsResponse, spendBySource, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse] = await Promise.all([
-    supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
+  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse] = await Promise.all([
+    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
+    supabase.from("business_ad_platform_daily_performance").select("campaign_name,spend_amount").eq("business_id", business.id).eq("provider", "meta").gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
     supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
-    supabase.from("booking_funnel_events").select("event_name,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
+    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
     supabase.from("business_website_settings").select("status,custom_domain,public_slug,request_service_enabled,booking_enabled").eq("business_id", business.id).maybeSingle(),
     supabase.from("booking_settings").select("enabled,public_slug").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_payment_accounts").select("onboarding_status,charges_enabled,payouts_enabled,details_submitted").eq("business_id", business.id).eq("provider", "stripe").maybeSingle(),
@@ -270,6 +272,12 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     sessions,
   );
   const sessionQuality = buildSessionQualityReport(sessions, { includeAutomated, engagementThresholdMs: defaultSessionEngagementThresholdMs });
+  const spendByCampaign = ((campaignSpendResponse.data ?? []) as Array<{ campaign_name: string | null; spend_amount: number | string | null }>).reduce<Record<string, number>>((totals, row) => {
+    const campaign = row.campaign_name?.trim().toLowerCase();
+    if (campaign) totals[campaign] = (totals[campaign] ?? 0) + Math.max(0, Math.round(Number(row.spend_amount ?? 0) * 100));
+    return totals;
+  }, {});
+  const landingPageFunnel = buildLandingPageFunnelReport({ sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings, spendByCampaign });
   const timedDurationSeconds = sessions.flatMap((session) => session.total_session_duration_milliseconds == null ? [] : [Math.max(0, Number(session.total_session_duration_milliseconds) / 1000)]).sort((left, right) => left - right);
   const timingDiagnostics = {
     available: timedDurationSeconds.length,
@@ -559,8 +567,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         </details>)}
       </div>
       <div className="marketing-session-landing-panel">
-        <header><div><h3>Landing page performance</h3><p>See whether the homepage or a specific landing page is driving engagement, quick exits, and CTA clicks.</p></div></header>
-        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>Engaged</b><b>Quick exits</b><b>Avg active time</b><b>CTA interaction rate</b></div>{sessionQuality.landingPagePerformance.map((row) => <details key={row.path} className="marketing-landing-row"><summary><span>{row.path}</span><span>{row.sessions}</span><span>{row.engaged}</span><span>{row.quickExits}</span><span>{ms(row.avgActiveTimeMs)}</span><span>{Math.round(row.ctaInteractionRate * 100)}%</span></summary><div className="marketing-landing-row-detail"><div className="marketing-conversion-list"><div><dt>Traffic source</dt><dd>{breakdownSummary(row.trafficSources, "No attribution yet")}</dd></div><div><dt>Campaign</dt><dd>{breakdownSummary(row.campaigns, "No campaign detail")}</dd></div><div><dt>Device</dt><dd>{breakdownSummary(row.devices, "No device detail")}</dd></div><div><dt>Verification</dt><dd>{row.verifiedSessions} verified · {row.sessions - row.verifiedSessions} unverified</dd></div></div></div></details>)}</div>
+        <header><div><h3>Landing page performance</h3><p>Follow each first-touch landing page from session through completed booking revenue.</p></div></header>
+        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>CTA clicks</b><b>CTA rate</b><b>Booking visits</b><b>Item selections</b><b>Checkout starts</b><b>Bookings</b><b>Conversion</b><b>Revenue</b><b>Revenue / session</b><b>CAC</b><b>ROAS</b></div>{landingPageFunnel.map((row) => <div key={row.path}><span>{row.path}</span><span>{row.sessions}</span><span>{row.ctaClicks}</span><span>{percent(row.ctaRate)}</span><span>{row.bookingPageVisits}</span><span>{row.itemSelections}</span><span>{row.checkoutStarts}</span><span>{row.completedBookings}</span><span>{percent(row.bookingConversionRate)}</span><span>{money(row.revenueCents)}</span><span>{money(row.revenuePerSessionCents)}</span><span>{row.cacCents == null ? "—" : money(row.cacCents)}</span><span>{row.roas == null ? "—" : `${row.roas.toFixed(2)}×`}</span></div>)}</div>
       </div>
     </section>
 

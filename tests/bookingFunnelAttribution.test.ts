@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,normalizeMarketingSource,normalizeSessionAttribution,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -257,4 +257,30 @@ test("classifies booking revenue from snapshot referrer-only attribution",()=>{
  const facebook=report.summaries.find((row)=>row.source==="facebook");
  assert.equal(facebook?.bookings,1);
  assert.equal(facebook?.revenueCents,15000);
+});
+
+
+test("keeps landing-page attribution through checkout and counts only unique funnel events",()=>{
+ const report=buildLandingPageFunnelReport({
+  sessions:[{id:"s1",first_landing_path:"/fall-party-special",utm_source:"facebook",utm_campaign:"Fall"}],
+  events:[
+   {attribution_session_id:"s1",event_name:"promotion_primary_cta_clicked",event_key:"cta-1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+   {attribution_session_id:"s1",event_name:"promotion_primary_cta_clicked",event_key:"cta-1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+   {attribution_session_id:"s1",event_name:"booking_started",event_key:"booking-page",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+   {attribution_session_id:"s1",event_name:"item_added_to_cart",event_key:"item-1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+   {attribution_session_id:"s1",event_name:"checkout_started",event_key:"checkout-1",booking_id:"b1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+   {attribution_session_id:"s1",event_name:"checkout_started",event_key:"checkout-1",booking_id:"b1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  ],
+  bookings:[{booking_id:"b1",status:"confirmed",total_cents:17500,booking_attribution_snapshots:{first_landing_path:"/fall-party-special",utm_campaign:"Fall"}}],
+ });
+ assert.deepEqual(report[0]&&{path:report[0].path,sessions:report[0].sessions,cta:report[0].ctaClicks,bookingVisits:report[0].bookingPageVisits,items:report[0].itemSelections,checkout:report[0].checkoutStarts,bookings:report[0].completedBookings,revenue:report[0].revenueCents},{path:"/fall-party-special",sessions:1,cta:1,bookingVisits:1,items:1,checkout:1,bookings:1,revenue:17500});
+});
+
+test("keeps intentional repeated CTA interactions while CTA rate remains session based",()=>{
+ const report=buildLandingPageFunnelReport({sessions:[{id:"s1",first_landing_path:"/fall-party-special"}],events:[
+  {attribution_session_id:"s1",event_name:"booking_cta_click",event_key:"cta-1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"booking_cta_click",event_key:"cta-2",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+ ],bookings:[]});
+ assert.equal(report[0]?.ctaClicks,2);
+ assert.equal(report[0]?.ctaRate,1);
 });
