@@ -33,6 +33,7 @@ export type AttributionSessionLike={
 
 export type FunnelEventRow={
  attribution_session_id?:string|null;
+ event_key?:string|null;
  event_name:BookingFunnelEvent|string;
  occurred_at?:string|null;
  booking_id?:string|null;
@@ -82,6 +83,7 @@ export type MarketingSourceSummary={
 
 export type AttributionSessionMetricsRow=AttributionSessionLike&{
  id:string;
+ last_path?:string|null;
  browser?:string|null;
  operating_system?:string|null;
  device_type?:string|null;
@@ -626,6 +628,54 @@ function distinctCount(sets:Array<Set<string>|undefined>){
  const identities=new Set<string>();
  for(const set of sets)for(const identity of set??[])identities.add(identity);
  return identities.size;
+}
+
+export type LandingPageFunnelRow={
+ path:string;
+ sessions:number;
+ ctaClicks:number;
+ ctaRate:number;
+ bookingPageVisits:number;
+ itemSelections:number;
+ checkoutStarts:number;
+ completedBookings:number;
+ bookingConversionRate:number;
+ revenueCents:number;
+ revenuePerSessionCents:number;
+ spendCents:number|null;
+ cacCents:number|null;
+ roas:number|null;
+};
+
+const completedBookingStatuses=new Set(["confirmed","paid","scheduled","dispatched","en_route","arrived","in_progress","completed"]);
+const landingPath=(value:string|null|undefined)=>normalizePathname(cleanValue(value)||"/");
+const snapshotFor=(row:AttributedBookingRow)=>Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
+const eventSessionFor=(row:FunnelEventRow)=>Array.isArray(row.booking_attribution_sessions)?row.booking_attribution_sessions[0]:row.booking_attribution_sessions;
+
+/** Groups existing first-touch sessions, funnel events, and authoritative bookings by landing page. */
+export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];spendByCampaign?:Record<string,number|null|undefined>}):LandingPageFunnelRow[]{
+ const buckets=new Map<string,{sessions:Set<string>;ctaEvents:Set<string>;ctaSessions:Set<string>;bookingVisits:Set<string>;itemEvents:Set<string>;checkoutStarts:Set<string>;bookings:Set<string>;revenue:number;campaigns:Set<string>}>();
+ const bucket=(path:string)=>{const normalized=landingPath(path);let value=buckets.get(normalized);if(!value){value={sessions:new Set(),ctaEvents:new Set(),ctaSessions:new Set(),bookingVisits:new Set(),itemEvents:new Set(),checkoutStarts:new Set(),bookings:new Set(),revenue:0,campaigns:new Set()};buckets.set(normalized,value);}return value;};
+ const sessionPaths=new Map<string,string>();
+ for(const session of input.sessions){const path=landingPath(session.first_landing_path);sessionPaths.set(session.id,path);const current=bucket(path);current.sessions.add(session.id);if(session.utm_campaign)current.campaigns.add(session.utm_campaign);}
+ for(const event of input.events){
+  const session=eventSessionFor(event);const sessionId=event.attribution_session_id??null;const path=landingPath(session?.first_landing_path??(sessionId?sessionPaths.get(sessionId):null));const current=bucket(path);const name=String(event.event_name);const identity=event.event_key||`${sessionId??"anonymous"}:${name}:${event.booking_id??""}`;
+  if(name==="booking_cta_click"||name==="promotion_primary_cta_clicked"){current.ctaEvents.add(identity);if(sessionId)current.ctaSessions.add(sessionId);}
+  if(name==="booking_started"&&sessionId)current.bookingVisits.add(sessionId);
+  if(["promotion_item_selected","inventory_item_clicked","item_added_to_cart","reserve_clicked"].includes(name))current.itemEvents.add(identity);
+  if(["checkout_started","initiate_checkout"].includes(name))current.checkoutStarts.add(event.booking_id||sessionId||identity);
+ }
+ for(const booking of input.bookings){
+  if(!completedBookingStatuses.has(String(booking.status??"").toLowerCase()))continue;
+  const snapshot=snapshotFor(booking);const current=bucket(landingPath(snapshot?.first_landing_path));
+  if(current.bookings.has(booking.booking_id))continue;
+  current.bookings.add(booking.booking_id);current.revenue+=Math.max(0,Number(booking.total_cents??0));if(snapshot?.utm_campaign)current.campaigns.add(snapshot.utm_campaign);
+ }
+ return [...buckets.entries()].map(([path,current])=>{
+  const matchedCampaigns=[...current.campaigns];const spend=matchedCampaigns.length===1?input.spendByCampaign?.[matchedCampaigns[0]!.trim().toLowerCase()]??null:null;
+  const completedBookings=current.bookings.size;
+  return {path,sessions:current.sessions.size,ctaClicks:current.ctaEvents.size,ctaRate:current.sessions.size?current.ctaSessions.size/current.sessions.size:0,bookingPageVisits:current.bookingVisits.size,itemSelections:current.itemEvents.size,checkoutStarts:current.checkoutStarts.size,completedBookings,bookingConversionRate:current.sessions.size?completedBookings/current.sessions.size:0,revenueCents:current.revenue,revenuePerSessionCents:current.sessions.size?Math.round(current.revenue/current.sessions.size):0,spendCents:spend,cacCents:spend!=null&&completedBookings?Math.round(spend/completedBookings):null,roas:spend!=null&&spend>0?current.revenue/spend:null};
+ }).sort((a,b)=>b.sessions-a.sessions||a.path.localeCompare(b.path));
 }
 
 export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
