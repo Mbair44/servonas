@@ -12,11 +12,11 @@ type CompletionResult={
   error?:string;
 };
 
-export async function processCompletedJobBilling(jobId:string):Promise<CompletionResult>{
+export async function processCompletedJobBilling(jobId:string,options:{force?:boolean}={}):Promise<CompletionResult>{
  const db=getSupabaseAdmin();
  if(!db)return{ok:false,error:"Supabase is unavailable."};
  const {data:scheduledBooking}=await db.from("bookings").select("id,balance_charge_scheduled_for,final_payment_authorized_at,balance_due_cents").eq("job_id",jobId).maybeSingle();
- if(scheduledBooking?.final_payment_authorized_at&&Number(scheduledBooking.balance_due_cents)>0&&scheduledBooking.balance_charge_scheduled_for&&new Date(scheduledBooking.balance_charge_scheduled_for).getTime()>Date.now())return{ok:true,action:"scheduled"};
+ if(!options.force&&scheduledBooking?.final_payment_authorized_at&&Number(scheduledBooking.balance_due_cents)>0&&scheduledBooking.balance_charge_scheduled_for&&new Date(scheduledBooking.balance_charge_scheduled_for).getTime()>Date.now())return{ok:true,action:"scheduled"};
  const {data:created,error:createError}=await db.rpc("create_completed_job_invoice",{p_job_id:jobId});
  if(createError){
   console.error("Completed-job billing invoice creation failed",{jobId,code:createError.code,message:createError.message});
