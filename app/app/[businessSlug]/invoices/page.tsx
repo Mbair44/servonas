@@ -217,6 +217,7 @@ export default async function InvoicesPage({
           {canManageCustomers(role) && (
             <nav className="employee-primary-actions" aria-label="Invoice actions">
               <Link className="sv-button sv-secondary" href={`${base}/receivables`}>Outstanding payments</Link>
+              <Link className="sv-button sv-secondary" href={`/app/${businessSlug}/financials/scheduled-payments`}>Scheduled payments</Link>
               <Link className="sv-button" href={`${base}/new`}>
                 <span aria-hidden="true">＋</span>
                 New invoice
