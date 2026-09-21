@@ -297,8 +297,10 @@ test("groups idempotent checkout steps under their originating landing page",()=
 });
 
 test("landing performance renders a compact checkout drill-down",async()=>{
- const page=await readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8");
+ const [page,styles]=await Promise.all([readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8"),readFile(new URL("../app/globals.css",import.meta.url),"utf8")]);
  assert.match(page,/marketing-checkout-drilldown/);
  assert.match(page,/No checkout-step data yet/);
  assert.match(page,/checkoutDropoff/);
+ assert.match(styles,/\.marketing-session-landing-table>details\{display:block;min-width:1480px\}/);
+ assert.match(styles,/\.marketing-checkout-drilldown>div\{grid-template-columns:repeat\(8,minmax\(0,1fr\)\);overflow:visible\}/);
 });
