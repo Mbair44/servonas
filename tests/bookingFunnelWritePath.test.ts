@@ -14,7 +14,22 @@ test("booking funnel route persists service_id and structured diagnostics",async
  assert.match(route,/hasFbclid:Boolean\(attribution\.fbclid\)/);
  assert.match(route,/bookingSettings\?\.business_id/);
  assert.match(route,/business_website_settings/);
- assert.match(route,/\.eq\("status","published"\)/);
+  assert.match(route,/\.eq\("status","published"\)/);
+ assert.match(route,/\.from\("businesses"\)\.select\("id"\)\.ilike\("slug",businessSlug\)/);
+ assert.match(route,/const diagnosticResponse=/);
+ assert.match(route,/reason:"business_slug_unresolved"/);
+ assert.match(route,/reason:"event_insert_failed"/);
+});
+
+test("promotion landing views use the lifecycle-safe sender and first-party diagnostics remain consent-independent",async()=>{
+ const [tracker,route]=await Promise.all([read("components/TenantBookingFunnelTracker.tsx"),read("app/api/public-booking/[businessSlug]/funnel/route.ts")]);
+ assert.match(tracker,/beacon: landingType === "promotion"/);
+ assert.match(tracker,/firstPartyFunnelIndependentOfConsent: true/);
+ assert.match(tracker,/analyticsConsent: localStorage\.getItem\(analyticsConsentKey\) \?\? "unset"/);
+ assert.match(tracker,/analytics_consent:localStorage\.getItem\(analyticsConsentKey\)\?\?"unset"/);
+ assert.match(tracker,/reason: "client_deduped"/);
+ assert.match(tracker,/x-servonas-funnel-result/);
+ assert.match(route,/\["promotion_landing_view","landing_page_view","landing_view"\]\.includes\(event\)/);
 });
 
 test("database event constraint includes every event accepted by the application",async()=>{
