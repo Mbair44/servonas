@@ -53,3 +53,11 @@ test("completed rental revenue uses the strongest payment source and supports le
  assert.match(migration,/grant execute[\s\S]*authenticated,service_role/);
  assert.doesNotMatch(migration,/delivery_fee_cents|tax_cents|operator_charge_cents/);
 });
+
+test("a $225 rental sold at 50 percent off attributes $112.50 regardless of deposit collection",async()=>{
+ const migration=await readFile(new URL("../supabase/migrations/20260921000500_fix_rental_item_final_net_revenue.sql",import.meta.url),"utf8");
+ assert.match(migration,/final_sale_cents/);
+ assert.match(migration,/item_gross_cents\/totals\.rental_gross_cents/);
+ assert.match(migration,/b\.total_cents.*b\.delivery_fee_cents.*b\.tax_cents.*b\.operator_total_cents/);
+ assert.doesNotMatch(migration,/amount_paid_cents|collected_cents|invoice_collections|booking_discount_cents/);
+});
