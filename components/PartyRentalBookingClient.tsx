@@ -115,7 +115,9 @@ const selectedCount=selected.reduce((count,item)=>count+(quantities[item.id]??0)
  const operatorTotal=selected.reduce((sum,item)=>sum+operatorPricing(item).chargeCents,0),subtotal=selected.reduce((sum,item)=>sum+(priced(item).totalUnitPriceCents+optionAdjustment(item))*(quantities[item.id]??0),0)+operatorTotal,deliveryFee=deliveryQuote?.feeCents??0,deliveryTax=deliveryQuote?.taxCents??0,total=(appliedPromo?.totalCents??subtotal)+deliveryFee+deliveryTax,deposit=Math.round(total*safeDepositPercent/100),appliedPromoLabel=appliedPromo?[appliedPromo.automatic?appliedPromo.name:`${appliedPromo.name} (${appliedPromo.code})`,appliedPromo.snapshot?.tierLabel].filter(Boolean).join(" · "):"";
  const currentMonth=new Date();currentMonth.setDate(1);currentMonth.setHours(0,0,0,0);
  const year=viewDate.getFullYear(),month=viewDate.getMonth(),first=new Date(year,month,1).getDay(),count=new Date(year,month+1,0).getDate();
- const todayIso=iso(currentMonth.getFullYear(),currentMonth.getMonth(),currentMonth.getDate());
+ // Use the rental business timezone. Browser-local midnight must not make a
+ // prior Arizona rental day look selectable.
+ const todayParts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Phoenix",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()),todayByType=new Map(todayParts.map(part=>[part.type,part.value])),todayIso=`${todayByType.get("year")}-${todayByType.get("month")}-${todayByType.get("day")}`;
  const availabilityQuantity=availabilityItem?Math.max(1,quantities[availabilityItem.id]??1):1,calendarStart=iso(year,month,1),calendarEnd=iso(year,month,count),calendarKey=availabilityItem?`${availabilityItem.id}:${availabilityQuantity}:${calendarStart}:${calendarEnd}`:"";
  const prettyDate=new Date(`${date}T12:00:00`),pretty=date&&!Number.isNaN(prettyDate.getTime())?prettyDate.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"}):"";
  const eventDateLabel=date?(endDate&&endDate!==date?`${formatLongDate(date)} – ${formatLongDate(endDate)}`:formatLongDate(date)):"";
