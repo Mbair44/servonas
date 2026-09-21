@@ -19,6 +19,8 @@ export function bookingFunnelEnabled(){
 }
 
 export function publicBookingFunnelEnabled(){
- if(isDisabled(process.env.NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS))return false;
+ // Funnel attribution is first-party operational measurement. It deliberately
+ // has its own switch so disabling optional third-party marketing analytics
+ // does not silently discard booking attribution.
  return !isDisabled(process.env.NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS);
 }

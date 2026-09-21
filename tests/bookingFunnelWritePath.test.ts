@@ -32,6 +32,13 @@ test("promotion landing views use the lifecycle-safe sender and first-party diag
  assert.match(route,/\["promotion_landing_view","landing_page_view","landing_view"\]\.includes\(event\)/);
 });
 
+test("first-party booking funnel has an independent operational feature flag",async()=>{
+ const flags=await read("lib/optionalAnalytics.ts");
+ const publicFunnel=flags.match(/export function publicBookingFunnelEnabled\(\)\{([\s\S]*?)\n\}/)?.[1]??"";
+ assert.match(publicFunnel,/NEXT_PUBLIC_DISABLE_BOOKING_FUNNEL_ANALYTICS/);
+ assert.doesNotMatch(publicFunnel,/NEXT_PUBLIC_DISABLE_OPTIONAL_ANALYTICS/);
+});
+
 test("database event constraint includes every event accepted by the application",async()=>{
  const [eventsSource,migration]=await Promise.all([read("lib/bookingFunnel.ts"),read("supabase/migrations/20260915000200_sync_current_booking_funnel_events.sql")]);
  const declaration=eventsSource.match(/bookingFunnelEvents=\[(.*?)\] as const/s)?.[1]??"";

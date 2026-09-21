@@ -37,12 +37,15 @@ test("public website loader and shell keep Meta Pixel tenant scoped and preview-
  assert.match(loader,/metaPixelId:sanitizeMetaPixelId\(settings\.meta_pixel_id\)/);
  assert.match(site,/!preview&&site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
  assert.match(component,/ANALYTICS_CONSENT_KEY/);
- assert.match(component,/if\(!allowed\|\|!normalizedPixelId\)return null;/);
+ assert.match(component,/if\(!allowed\|\|!normalizedPixelId\|\|pathBlocked\(pathname\?\?""\)\)return null;/);
  assert.match(component,/ensureMetaPixelScript\(\)/);
  assert.match(component,/ensureMetaPixelStub\(\)/);
  assert.match(component,/fbq\("init",normalizedPixelId\)/);
  assert.match(component,/fbq\("track","PageView"\)/);
  assert.match(component,/__servonasMetaPixelPageViews/);
+ assert.match(component,/reason:value==="granted"\?"consent_granted":"consent_not_granted"/);
+ assert.match(component,/action:"pageview_attempted"/);
+ assert.match(component,/capiSent:false/);
 });
 
 test("tenant meta pixel only uses Servonas-owned Meta code and ignores invalid ids",async()=>{
@@ -92,7 +95,7 @@ test("tenant meta pixel can initialize immediately after consent without a hard 
  assert.match(helper,/export const ANALYTICS_CONSENT_KEY="servonas\.analytics_consent"/);
  assert.match(helper,/isServonasAnalyticsHost/);
  assert.match(helper,/isPublicAnalyticsConsentPath/);
- assert.match(component,/const update=\(\)=>setAllowed\(localStorage\.getItem\(CONSENT_KEY\)==="granted"\)/);
+ assert.match(component,/action:"consent_checked"/);
  assert.match(component,/window\.addEventListener\("storage",update\)/);
  assert.match(component,/window\.setInterval\(update,250\)/);
  assert.match(component,/ensureMetaPixelScript\(\);\s+const fbq=ensureMetaPixelStub\(\);/s);
