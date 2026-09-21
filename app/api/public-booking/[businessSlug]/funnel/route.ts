@@ -78,6 +78,11 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
   break;
  case "booking_started":
  case "customer_info_entered":
+ case "customer_info_completed":
+ case "delivery_address_completed":
+ case "terms_accepted":
+ case "payment_cta_clicked":
+ case "payment_started":
  case "lead_submitted":
  case "checkout_started":
   parts.push(clean(body.path,1000),clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""));
