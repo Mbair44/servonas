@@ -10,6 +10,7 @@ import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailServ
 import {recordBookingFunnelEvent} from "@/lib/bookingFunnel";
 import {createBusinessNotification} from "@/lib/businessNotifications";
 import {fulfillPaidRentalBooking} from "@/lib/rentalPaymentFulfillment";
+import {applyPaidBookingItemAmendment} from "@/lib/bookingManage/stagedAmendments";
 
 export const runtime = "nodejs";
 
@@ -320,6 +321,11 @@ export async function POST(request: Request) {
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const eventSession = event.data.object as Stripe.Checkout.Session;
     const bookingId = eventSession.metadata?.booking_id;
+    if(eventSession.metadata?.payment_kind==="booking_item_amendment"&&eventSession.metadata?.amendment_id&&bookingId&&eventSession.payment_status==="paid"){
+      const businessId=eventSession.metadata.business_id??null;if(!businessId)return NextResponse.json({received:true});
+      const ledger=await beginPaidRentalEvent(event,rawBody,supabase,bookingId,businessId);if(ledger.duplicate)return NextResponse.json({received:true,duplicate:true});
+      try{const session=await stripe.checkout.sessions.retrieve(eventSession.id,{},typeof event.account==="string"?{stripeAccount:event.account}:undefined);const paymentIntentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id??null;await applyPaidBookingItemAmendment(supabase,{amendmentId:eventSession.metadata.amendment_id,paymentReference:paymentIntentId,checkoutSessionId:session.id,amountPaidCents:Number(session.amount_total??0)});await supabase.from("payment_webhook_events").update({processing_status:"processed",processed_at:new Date().toISOString(),last_error:null,safe_metadata:{workflow:"booking_item_amendment",booking_id:bookingId,business_id:businessId,amendment_id:eventSession.metadata.amendment_id}}).eq("id",ledger.id);return NextResponse.json({received:true});}catch(error){const message=error instanceof Error?error.message:"booking amendment application failed";await supabase.from("payment_webhook_events").update({processing_status:"failed",last_error:message.slice(0,1000),safe_metadata:{workflow:"booking_item_amendment",booking_id:bookingId,business_id:businessId,amendment_id:eventSession.metadata.amendment_id,recoverable:true}}).eq("id",ledger.id);console.error("PAID BOOKING AMENDMENT APPLICATION FAILED",{bookingId,businessId,amendmentId:eventSession.metadata.amendment_id,message});return NextResponse.json({error:"Paid amendment requires reconciliation.",code:"booking_amendment_application_failed"},{status:500});}
+    }
     if (bookingId && eventSession.payment_status === "paid" && eventSession.metadata?.payment_kind==="customer_balance") {
       const businessId=eventSession.metadata?.business_id??null;if(!businessId)return NextResponse.json({received:true});
       const ledger=await beginPaidRentalEvent(event,rawBody,supabase,bookingId,businessId);if(ledger.duplicate)return NextResponse.json({received:true,duplicate:true});
@@ -391,6 +397,10 @@ export async function POST(request: Request) {
 
   if (event.type === "checkout.session.expired" || event.type === "checkout.session.async_payment_failed") {
     const session = event.data.object as Stripe.Checkout.Session;
+    if(session.metadata?.payment_kind==="booking_item_amendment"&&session.metadata?.amendment_id){
+      await supabase.from("booking_amendments").update({status:event.type==="checkout.session.expired"?"expired":"failed",expired_at:event.type==="checkout.session.expired"?new Date().toISOString():null,failure_reason:event.type==="checkout.session.expired"?"checkout expired":"payment failed"}).eq("id",session.metadata.amendment_id).in("status",["pending_payment","payment_processing"]);
+      return NextResponse.json({received:true});
+    }
     const bookingId = session.metadata?.booking_id;
     if (bookingId) {
       await supabase.from("bookings").update({ status: "expired" }).eq("id", bookingId).eq("status", "pending_payment");

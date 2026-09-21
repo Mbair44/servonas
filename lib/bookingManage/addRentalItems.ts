@@ -9,7 +9,7 @@ export type RentalItemAddition={inventoryItemId:string;quantity:number;options?:
  * listing IDs, quantities, and option selectors; all money values are calculated here
  * or inside the locking RPC.
  */
-export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:string;bookingId:string;items:RentalItemAddition[];idempotencyKey:string;changeSource?:"customer_manage_booking"|"staff"|"system"}){
+export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:string;bookingId:string;items:RentalItemAddition[];idempotencyKey:string;changeSource?:"customer_manage_booking"|"staff"|"system";amendmentId?:string}){
  if(!Array.isArray(input.items)||!input.items.length)throw new Error("Choose at least one rental item.");
  const {data:booking,error:bookingError}=await db.from("bookings").select("id,business_id,customer_id,status,rental_starts_at,rental_ends_at,discount_code,discount_cents,discount_snapshot,booking_items:booking_items(inventory_item_id,quantity,unit_price_cents,operator_charge_cents)").eq("id",input.bookingId).eq("business_id",input.businessId).maybeSingle();
  if(bookingError||!booking)throw new Error("Booking not found.");
@@ -30,7 +30,7 @@ export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:strin
  const additions=input.items.map(item=>{const inventoryItem=byId.get(item.inventoryItemId);if(!inventoryItem)throw new Error("One or more selected rentals are no longer available.");const price=calculateRentalUnitPrice(Number(inventoryItem.daily_price_cents),days,resolveRentalPricingRules(businessRules,inventoryItem));return{id:item.inventoryItemId,quantity:Number(item.quantity),rentalUnitPriceCents:price.totalUnitPriceCents,unitPriceCents:price.totalUnitPriceCents};});
  let discountCents=Number(booking.discount_cents??0),discountSnapshot=booking.discount_snapshot??null;
  if(booking.discount_code){const promo=await validateRentalPromo(db,{businessId:input.businessId,customerId:booking.customer_id??undefined,code:booking.discount_code,items:[...existing,...additions]});if(promo.ok){discountCents=promo.discountCents;discountSnapshot=promo.snapshot;}else{discountCents=0;discountSnapshot=null;}}
- const {data,error}=await db.rpc("add_rental_items_to_booking",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items,p_discount_cents:discountCents,p_discount_snapshot:discountSnapshot,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking"});
+ const {data,error}=await db.rpc("add_rental_items_to_booking",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items,p_discount_cents:discountCents,p_discount_snapshot:discountSnapshot,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null});
  if(error)throw new Error(error.message||"Could not update the booking.");
  return data;
 }
