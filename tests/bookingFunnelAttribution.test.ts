@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
 import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
@@ -283,4 +284,21 @@ test("keeps intentional repeated CTA interactions while CTA rate remains session
  ],bookings:[]});
  assert.equal(report[0]?.ctaClicks,2);
  assert.equal(report[0]?.ctaRate,1);
+});
+
+test("groups idempotent checkout steps under their originating landing page",()=>{
+ const report=buildLandingPageFunnelReport({sessions:[{id:"s1",first_landing_path:"/fall-party-special"}],events:[
+  {attribution_session_id:"s1",booking_id:"b1",event_name:"checkout_started",event_key:"b1:checkout",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",booking_id:"b1",event_name:"customer_info_completed",event_key:"b1:customer",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",booking_id:"b1",event_name:"customer_info_completed",event_key:"b1:customer",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",booking_id:"b1",event_name:"payment_succeeded",event_key:"b1:paid",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+ ],bookings:[]});
+ assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,customer_info_completed:1,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:1,booking_confirmed:0});
+});
+
+test("landing performance renders a compact checkout drill-down",async()=>{
+ const page=await readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8");
+ assert.match(page,/marketing-checkout-drilldown/);
+ assert.match(page,/No checkout-step data yet/);
+ assert.match(page,/checkoutDropoff/);
 });

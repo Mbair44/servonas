@@ -645,6 +645,7 @@ export type LandingPageFunnelRow={
  spendCents:number|null;
  cacCents:number|null;
  roas:number|null;
+ checkoutSteps:Record<string,number>;
 };
 
 const completedBookingStatuses=new Set(["confirmed","paid","scheduled","dispatched","en_route","arrived","in_progress","completed"]);
@@ -654,8 +655,9 @@ const eventSessionFor=(row:FunnelEventRow)=>Array.isArray(row.booking_attributio
 
 /** Groups existing first-touch sessions, funnel events, and authoritative bookings by landing page. */
 export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];spendByCampaign?:Record<string,number|null|undefined>}):LandingPageFunnelRow[]{
- const buckets=new Map<string,{sessions:Set<string>;ctaEvents:Set<string>;ctaSessions:Set<string>;bookingVisits:Set<string>;itemEvents:Set<string>;checkoutStarts:Set<string>;bookings:Set<string>;revenue:number;campaigns:Set<string>}>();
- const bucket=(path:string)=>{const normalized=landingPath(path);let value=buckets.get(normalized);if(!value){value={sessions:new Set(),ctaEvents:new Set(),ctaSessions:new Set(),bookingVisits:new Set(),itemEvents:new Set(),checkoutStarts:new Set(),bookings:new Set(),revenue:0,campaigns:new Set()};buckets.set(normalized,value);}return value;};
+ const checkoutEventNames=["checkout_started","customer_info_completed","delivery_address_completed","terms_accepted","payment_cta_clicked","payment_started","payment_succeeded","booking_confirmed"];
+ const buckets=new Map<string,{sessions:Set<string>;ctaEvents:Set<string>;ctaSessions:Set<string>;bookingVisits:Set<string>;itemEvents:Set<string>;checkoutStarts:Set<string>;checkoutSteps:Map<string,Set<string>>;bookings:Set<string>;revenue:number;campaigns:Set<string>}>();
+ const bucket=(path:string)=>{const normalized=landingPath(path);let value=buckets.get(normalized);if(!value){value={sessions:new Set(),ctaEvents:new Set(),ctaSessions:new Set(),bookingVisits:new Set(),itemEvents:new Set(),checkoutStarts:new Set(),checkoutSteps:new Map(checkoutEventNames.map(name=>[name,new Set()])),bookings:new Set(),revenue:0,campaigns:new Set()};buckets.set(normalized,value);}return value;};
  const sessionPaths=new Map<string,string>();
  for(const session of input.sessions){const path=landingPath(session.first_landing_path);sessionPaths.set(session.id,path);const current=bucket(path);current.sessions.add(session.id);if(session.utm_campaign)current.campaigns.add(session.utm_campaign);}
  for(const event of input.events){
@@ -664,6 +666,7 @@ export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionM
   if(name==="booking_started"&&sessionId)current.bookingVisits.add(sessionId);
   if(["promotion_item_selected","inventory_item_clicked","item_added_to_cart","reserve_clicked"].includes(name))current.itemEvents.add(identity);
   if(["checkout_started","initiate_checkout"].includes(name))current.checkoutStarts.add(event.booking_id||sessionId||identity);
+  if(checkoutEventNames.includes(name))current.checkoutSteps.get(name)?.add(event.booking_id||identity);
  }
  for(const booking of input.bookings){
   if(!completedBookingStatuses.has(String(booking.status??"").toLowerCase()))continue;
@@ -674,7 +677,7 @@ export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionM
  return [...buckets.entries()].map(([path,current])=>{
   const matchedCampaigns=[...current.campaigns];const spend=matchedCampaigns.length===1?input.spendByCampaign?.[matchedCampaigns[0]!.trim().toLowerCase()]??null:null;
   const completedBookings=current.bookings.size;
-  return {path,sessions:current.sessions.size,ctaClicks:current.ctaEvents.size,ctaRate:current.sessions.size?current.ctaSessions.size/current.sessions.size:0,bookingPageVisits:current.bookingVisits.size,itemSelections:current.itemEvents.size,checkoutStarts:current.checkoutStarts.size,completedBookings,bookingConversionRate:current.sessions.size?completedBookings/current.sessions.size:0,revenueCents:current.revenue,revenuePerSessionCents:current.sessions.size?Math.round(current.revenue/current.sessions.size):0,spendCents:spend,cacCents:spend!=null&&completedBookings?Math.round(spend/completedBookings):null,roas:spend!=null&&spend>0?current.revenue/spend:null};
+  return {path,sessions:current.sessions.size,ctaClicks:current.ctaEvents.size,ctaRate:current.sessions.size?current.ctaSessions.size/current.sessions.size:0,bookingPageVisits:current.bookingVisits.size,itemSelections:current.itemEvents.size,checkoutStarts:current.checkoutStarts.size,completedBookings,bookingConversionRate:current.sessions.size?completedBookings/current.sessions.size:0,revenueCents:current.revenue,revenuePerSessionCents:current.sessions.size?Math.round(current.revenue/current.sessions.size):0,spendCents:spend,cacCents:spend!=null&&completedBookings?Math.round(spend/completedBookings):null,roas:spend!=null&&spend>0?current.revenue/spend:null,checkoutSteps:Object.fromEntries(checkoutEventNames.map(name=>[name,current.checkoutSteps.get(name)?.size??0]))};
  }).sort((a,b)=>b.sessions-a.sessions||a.path.localeCompare(b.path));
 }
 
