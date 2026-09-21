@@ -13,6 +13,12 @@ const safeMetadata=(value:unknown)=>{if(!value||typeof value!=="object"||Array.i
 const legacyClickConstraint=(error:{code?:string;message?:string;details?:string}|null)=>Boolean(error?.code==="23514"&&(error.message?.includes("booking_funnel_events_event_name_check")||error.details?.includes("booking_funnel_events_event_name_check")));
 const diagnosticsEnabled=()=>process.env.BOOKING_FUNNEL_DIAGNOSTICS==="1";
 const logStage=(message:string,details:Record<string,unknown>)=>{if(diagnosticsEnabled())console.info(message,details);};
+const diagnosticResponse=(result:string)=>new NextResponse(null,{status:204,headers:diagnosticsEnabled()?{"x-servonas-funnel-result":result}:undefined});
+const referrerHostname=(value:unknown)=>{try{return new URL(clean(value,2000)).hostname||null;}catch{return null;}};
+const diagnosticRequest=(body:{sessionId?:string;event?:string;path?:string;referrer?:string;attribution?:AttributionValues;metadata?:object}|null,businessSlug:string,stage:string,extra:Record<string,unknown>={})=>{
+ const attribution=body?.attribution??{},metadata=safeMetadata(body?.metadata);
+ logStage("Booking funnel diagnostic",{stage,businessSlug,pathname:clean(body?.path,500)||null,event:body?.event??null,sessionPresent:Boolean(body?.sessionId),attributionPresent:Object.values(attribution).some(Boolean),utmSource:clean(attribution.utm_source,100)||null,utmMedium:clean(attribution.utm_medium,100)||null,utmCampaign:clean(attribution.utm_campaign,100)||null,referrerHostname:referrerHostname(body?.referrer),analyticsConsent:textValue(metadata.analytics_consent,20),...extra});
+};
 const pageType=(value:unknown)=>{const next=clean(value,40).toLowerCase();return next&&/^[a-z_]+$/.test(next)?next:null;};
 const wholeNumber=(value:unknown,max=3600)=>{const next=Number(value);if(!Number.isFinite(next))return 0;return Math.max(0,Math.min(max,Math.round(next)));};
 const nullableWholeNumber=(value:unknown,max=3_600_000)=>{if(value==null||value==="")return null;const next=Number(value);if(!Number.isFinite(next))return null;return Math.max(0,Math.min(max,Math.round(next)));};
@@ -92,26 +98,28 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  }
  return parts.join(":").slice(0,500);
 };
-const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const db=getSupabaseAdmin();if(!db)return null;const {data:bookingSettings}=await db.from("booking_settings").select("business_id").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();if(bookingSettings?.business_id)return bookingSettings.business_id;const {data:websiteSettings}=await db.from("business_website_settings").select("business_id").ilike("public_slug",businessSlug).eq("status","published").maybeSingle();return websiteSettings?.business_id??null;},["booking-funnel-business-id"],{revalidate:300});
+const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const db=getSupabaseAdmin();if(!db)return null;const {data:bookingSettings}=await db.from("booking_settings").select("business_id").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();if(bookingSettings?.business_id)return bookingSettings.business_id;const {data:websiteSettings}=await db.from("business_website_settings").select("business_id").ilike("public_slug",businessSlug).eq("status","published").maybeSingle();if(websiteSettings?.business_id)return websiteSettings.business_id;const {data:business}=await db.from("businesses").select("id").ilike("slug",businessSlug).maybeSingle();return business?.id??null;},["booking-funnel-business-id"],{revalidate:300});
 
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
- if(!bookingFunnelEnabled())return new NextResponse(null,{status:204});
+ if(!bookingFunnelEnabled())return diagnosticResponse("funnel_disabled");
  const purpose=request.headers.get("purpose")||request.headers.get("x-middleware-prefetch")||"",ua=request.headers.get("user-agent")||"";
  const body=await request.json().catch(()=>null) as {sessionId?:string;interactionId?:string;event?:string;path?:string;pageType?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;serviceId?:string;metadata?:object;touchSession?:boolean;touchOnly?:boolean}|null;
- if(!body||!validSessionId(body.sessionId)||!body.event||!allowed.has(body.event))return NextResponse.json({error:"Invalid analytics event."},{status:400});
+ const {businessSlug}=await params;
+ diagnosticRequest(body,businessSlug,"received");
+ if(!body||!validSessionId(body.sessionId)||!body.event||!allowed.has(body.event)){diagnosticRequest(body,businessSlug,"rejected",{reason:"invalid_payload"});return NextResponse.json({error:"Invalid analytics event."},{status:400});}
  const sessionId=body.sessionId as string,event=body.event as string;
- const db=getSupabaseAdmin();if(!db)return new NextResponse(null,{status:204});
- const {businessSlug}=await params,businessId=await businessIdForBookingSlug(businessSlug);
- if(!businessId)return new NextResponse(null,{status:204});
+ const db=getSupabaseAdmin();if(!db){diagnosticRequest(body,businessSlug,"rejected",{reason:"admin_client_unavailable"});return diagnosticResponse("admin_client_unavailable");}
+ const businessId=await businessIdForBookingSlug(businessSlug);
+ if(!businessId){diagnosticRequest(body,businessSlug,"rejected",{reason:"business_slug_unresolved"});return diagnosticResponse("business_slug_unresolved");}
  const metadata=safeMetadata(body.metadata);
  const automation=automationClassification({userAgent:ua,purpose,referrer:clean(body.referrer,2000),event,metadata});
  const interaction=meaningfulInteraction(event,metadata);
  if(body.touchSession||body.touchOnly){
-  const nowIso=new Date().toISOString(),attribution=body.attribution??{},sessionPath=clean(body.path,1000)||null,sessionPageType=pageType(body.pageType),metricUpdate=sessionMetricUpdate(metadata),first:Record<string,unknown>={id:sessionId,business_id:businessId,first_landing_url:clean(body.landingUrl,2000)||null,first_landing_path:sessionPath,first_referrer:clean(body.referrer,2000)||null,last_seen_at:nowIso,updated_at:nowIso,session_started_at:nowIso,session_ended_at:metricUpdate.finalFlushReceived?nowIso:null,entry_path:sessionPath,last_path:sessionPath,entry_page_type:sessionPageType,last_page_type:sessionPageType,total_session_duration_seconds:metricUpdate.incrementMilliseconds==null?0:Math.round(metricUpdate.incrementMilliseconds/1000),engaged_duration_seconds:metricUpdate.incrementMilliseconds==null?0:Math.round(metricUpdate.incrementMilliseconds/1000),total_session_duration_milliseconds:metricUpdate.incrementMilliseconds,engaged_duration_milliseconds:metricUpdate.incrementMilliseconds,duration_source:metricUpdate.source,duration_final_flush_received:metricUpdate.finalFlushReceived,duration_last_flush_reason:metricUpdate.flushReason,page_count:body.event==="landing_page_view"||body.event==="landing_view"?1:0,engaged_page_count:["service_view","inventory_view","inventory_item_view","rental_viewed","available_inventory_viewed"].includes(event)?1:0,browser:textValue(metadata.browser),operating_system:textValue(metadata.operating_system),device_type:textValue(metadata.device_type),first_interaction_type:interaction.occurred?interaction.type:null,first_interaction_label:interaction.occurred?interaction.label:null,first_interaction_identifier:interaction.occurred?interaction.identifier:null,first_interaction_path:interaction.occurred?interaction.path:null,first_interaction_at:interaction.occurred?nowIso:null,time_to_first_interaction_milliseconds:interaction.occurred?interaction.milliseconds:null,meaningful_interaction_count:interaction.occurred?1:0,automated_classification:automation.classification,automated_classification_reason:automation.reason};
+  const nowIso=new Date().toISOString(),attribution=body.attribution??{},sessionPath=clean(body.path,1000)||null,sessionPageType=pageType(body.pageType),metricUpdate=sessionMetricUpdate(metadata),first:Record<string,unknown>={id:sessionId,business_id:businessId,first_landing_url:clean(body.landingUrl,2000)||null,first_landing_path:sessionPath,first_referrer:clean(body.referrer,2000)||null,last_seen_at:nowIso,updated_at:nowIso,session_started_at:nowIso,session_ended_at:metricUpdate.finalFlushReceived?nowIso:null,entry_path:sessionPath,last_path:sessionPath,entry_page_type:sessionPageType,last_page_type:sessionPageType,total_session_duration_seconds:metricUpdate.incrementMilliseconds==null?0:Math.round(metricUpdate.incrementMilliseconds/1000),engaged_duration_seconds:metricUpdate.incrementMilliseconds==null?0:Math.round(metricUpdate.incrementMilliseconds/1000),total_session_duration_milliseconds:metricUpdate.incrementMilliseconds,engaged_duration_milliseconds:metricUpdate.incrementMilliseconds,duration_source:metricUpdate.source,duration_final_flush_received:metricUpdate.finalFlushReceived,duration_last_flush_reason:metricUpdate.flushReason,page_count:["promotion_landing_view","landing_page_view","landing_view"].includes(event)?1:0,engaged_page_count:["service_view","inventory_view","inventory_item_view","rental_viewed","available_inventory_viewed"].includes(event)?1:0,browser:textValue(metadata.browser),operating_system:textValue(metadata.operating_system),device_type:textValue(metadata.device_type),first_interaction_type:interaction.occurred?interaction.type:null,first_interaction_label:interaction.occurred?interaction.label:null,first_interaction_identifier:interaction.occurred?interaction.identifier:null,first_interaction_path:interaction.occurred?interaction.path:null,first_interaction_at:interaction.occurred?nowIso:null,time_to_first_interaction_milliseconds:interaction.occurred?interaction.milliseconds:null,meaningful_interaction_count:interaction.occurred?1:0,automated_classification:automation.classification,automated_classification_reason:automation.reason};
   for(const key of attributionKeys)first[key]=clean(attribution[key],500)||null;
   const {data:existing,error:existingError}=await db.from("booking_attribution_sessions").select("id,page_count,engaged_page_count,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,duration_last_flush_reason,first_interaction_type,meaningful_interaction_count,automated_classification,automated_classification_reason").eq("business_id",businessId).eq("id",sessionId).maybeSingle();
-  if(existingError){console.error("Booking attribution session lookup failed",{stage:"session_lookup",businessId,businessSlug,sessionId,event,code:existingError.code,message:existingError.message,details:existingError.details,hint:existingError.hint});return new NextResponse(null,{status:204});}
-  const pageIncrement=body.event==="landing_page_view"||body.event==="landing_view"?1:0;
+  if(existingError){console.error("Booking attribution session lookup failed",{stage:"session_lookup",businessId,businessSlug,sessionId,event,code:existingError.code,message:existingError.message,details:existingError.details,hint:existingError.hint});diagnosticRequest(body,businessSlug,"rejected",{reason:"session_lookup_failed"});return diagnosticResponse("session_lookup_failed");}
+  const pageIncrement=["promotion_landing_view","landing_page_view","landing_view"].includes(event)?1:0;
   const engagedIncrement=["service_view","inventory_view","inventory_item_view","rental_viewed","available_inventory_viewed"].includes(event)?1:0;
   const previousMilliseconds=existing?(existing.total_session_duration_milliseconds==null?Math.max(0,Number(existing.total_session_duration_seconds??0))*1000:Math.max(0,Number(existing.total_session_duration_milliseconds))):0;
   const nextMilliseconds=metricUpdate.incrementMilliseconds==null?previousMilliseconds:previousMilliseconds+metricUpdate.incrementMilliseconds;
@@ -122,21 +130,21 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
   // winning row's first-touch attribution intact.
   const sessionWrite=existing?db.from("booking_attribution_sessions").update(sessionRow).eq("business_id",businessId).eq("id",sessionId):db.from("booking_attribution_sessions").upsert(sessionRow,{onConflict:"id",ignoreDuplicates:true});
   const {error:sessionError}=await sessionWrite;
-  if(sessionError){console.error("Booking attribution session save failed",{stage:"session_upsert",businessId,businessSlug,sessionId,event,code:sessionError.code,message:sessionError.message,details:sessionError.details,hint:sessionError.hint});return new NextResponse(null,{status:204});}
+  if(sessionError){console.error("Booking attribution session save failed",{stage:"session_upsert",businessId,businessSlug,sessionId,event,code:sessionError.code,message:sessionError.message,details:sessionError.details,hint:sessionError.hint});diagnosticRequest(body,businessSlug,"rejected",{reason:"session_upsert_failed"});return diagnosticResponse("session_upsert_failed");}
   logStage("Booking funnel session upsert completed",{stage:"session_upsert",businessId,businessSlug,sessionId,event,source:normalizeMarketingSource(attribution),hasGclid:Boolean(attribution.gclid||attribution.gbraid||attribution.wbraid),hasFbclid:Boolean(attribution.fbclid),touchSession:Boolean(body.touchSession),touchOnly:Boolean(body.touchOnly),pageType:sessionPageType,activeMilliseconds:metricUpdate.incrementMilliseconds,durationSource:metricUpdate.source,finalFlushReceived:metricUpdate.finalFlushReceived,flushReason:metricUpdate.flushReason,meaningfulInteraction:interaction.occurred,automatedClassification:automation.classification});
  }
- if(body.touchOnly||event==="session_heartbeat")return new NextResponse(null,{status:204});
+ if(body.touchOnly||event==="session_heartbeat")return diagnosticResponse("session_touched");
  if(!body.touchSession){
   const attribution=body.attribution??{},nowIso=new Date().toISOString(),sessionSeed:Record<string,unknown>={id:sessionId,business_id:businessId,first_landing_url:clean(body.landingUrl,2000)||null,first_landing_path:clean(body.path,1000)||null,first_referrer:clean(body.referrer,2000)||null,last_seen_at:nowIso,updated_at:nowIso};
   for(const key of attributionKeys)sessionSeed[key]=clean(attribution[key],500)||null;
   const {error:parentError}=await db.from("booking_attribution_sessions").insert(sessionSeed);
   if(parentError&&parentError.code!=="23505"){
    console.error("Booking attribution session guarantee failed",{stage:"session_parent_insert",businessId,businessSlug,sessionId,event,code:parentError.code,message:parentError.message,details:parentError.details,hint:parentError.hint});
-   return new NextResponse(null,{status:204});
+   return diagnosticResponse("session_parent_insert_failed");
   }
   if(parentError?.code==="23505"){
    const {data:parent}=await db.from("booking_attribution_sessions").select("business_id").eq("id",sessionId).maybeSingle();
-   if(parent?.business_id!==businessId){console.error("Booking attribution session tenant mismatch",{stage:"session_parent_verify",businessId,businessSlug,sessionId,event,parentBusinessId:parent?.business_id??null});return new NextResponse(null,{status:204});}
+   if(parent?.business_id!==businessId){console.error("Booking attribution session tenant mismatch",{stage:"session_parent_verify",businessId,businessSlug,sessionId,event,parentBusinessId:parent?.business_id??null});return diagnosticResponse("session_tenant_mismatch");}
   }
  }
  const inventoryItemId=clean(body.inventoryItemId,100)||null;
@@ -153,5 +161,6 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
   }else console.error("Booking funnel event save failed",{stage:"event_insert",businessId,businessSlug,sessionId,event,inventoryItemId,serviceId,code:error.code,message:error.message,details:error.details,hint:error.hint,source:normalizeMarketingSource(body.attribution)});
  }
  if(!error||error.code==="23505")logStage("Booking funnel event insert completed",{stage:"event_insert",businessId,businessSlug,sessionId,event,inventoryItemId,serviceId,deduped:error?.code==="23505",source:normalizeMarketingSource(body.attribution),hasGclid:Boolean(body.attribution?.gclid||body.attribution?.gbraid||body.attribution?.wbraid),hasFbclid:Boolean(body.attribution?.fbclid)});
- return new NextResponse(null,{status:204});
+ if(error&&error.code!=="23505"){diagnosticRequest(body,businessSlug,"rejected",{reason:"event_insert_failed"});return diagnosticResponse("event_insert_failed");}
+ return diagnosticResponse(error?.code==="23505"?"deduped":"persisted");
 }
