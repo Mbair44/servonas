@@ -19,3 +19,16 @@ test("selected item availability errors name the rental without exposing reserva
  assert.match(source,/Your current cart conflicts with \$\{formatLongDate\(date\)\}/);
  assert.match(source,/setCalendarNotice\(`Choose an event date to check \$\{item\.name\} availability\.`\)/);
 });
+
+test("past rental dates use each business's configured timezone",async()=>{
+ const [client,booking,checkout,domainBooking,domainCheckout]=await Promise.all([
+  readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8"),
+  readFile(new URL("../app/book/[businessSlug]/page.tsx",import.meta.url),"utf8"),
+  readFile(new URL("../app/book/[businessSlug]/booking/page.tsx",import.meta.url),"utf8"),
+  readFile(new URL("../app/sites/domain/[domain]/booking/page.tsx",import.meta.url),"utf8"),
+  readFile(new URL("../app/sites/domain/[domain]/booking/checkout/page.tsx",import.meta.url),"utf8"),
+ ]);
+ assert.match(client,/import \{dateInTimeZone\} from "@\/lib\/bookingTime"/);
+ assert.match(client,/const todayIso=dateInTimeZone\(new Date\(\),timezone\)/);
+ for(const source of [booking,checkout,domainBooking,domainCheckout])assert.match(source,/timezone=\{settings\.timezone\?\?"America\/Phoenix"\}/);
+});
