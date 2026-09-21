@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {usePathname,useSearchParams} from "next/navigation";
 import {ANALYTICS_CONSENT_KEY} from "@/lib/publicAnalytics";
 import {createMetaEventId,type MetaStandardEvent} from "@/lib/metaEventId";
@@ -29,7 +29,13 @@ const sanitizeMetaParams=(value:Record<string,unknown>)=>Object.fromEntries(Obje
 const consentGranted=()=>typeof window!=="undefined"&&window.localStorage.getItem(CONSENT_KEY)==="granted";
 const activeMetaPixelId=()=>typeof window==="undefined"?null:validPixelId(window.__servonasMetaPixelId??"");
 const metaDebugEnabled=()=>process.env.NODE_ENV!=="production"||typeof window!=="undefined"&&new URLSearchParams(window.location.search).get("sv_debug_meta")==="1";
-const logMetaDebug=(event:string,eventId:string,source:"browser"|"server",suppressed:boolean,details:Record<string,unknown>={})=>{if(metaDebugEnabled())console.info("[Servonas Meta event]",{event,event_id:eventId,source,suppressed,...details});};
+const metaDiagnosticContext=()=>{
+ if(typeof window==="undefined")return {};
+ const params=new URLSearchParams(window.location.search);
+ const sessionPresent=Boolean(params.get("sv_at"))||Object.keys(window.localStorage).some(key=>key.startsWith("servonas.booking-attribution."));
+ return {pathname:window.location.pathname,sessionPresent,attributionPresent:Boolean(params.get("sv_at")||params.get("utm_source")||params.get("fbclid")),utm:{source:params.get("utm_source"),medium:params.get("utm_medium"),campaign:params.get("utm_campaign"),content:params.get("utm_content"),term:params.get("utm_term")},consent:window.localStorage.getItem(CONSENT_KEY)??"unset"};
+};
+const logMetaDebug=(event:string,eventId:string|null,source:"browser"|"server",suppressed:boolean,details:Record<string,unknown>={})=>{if(metaDebugEnabled())console.info("[Servonas Meta event]",{event,event_id:eventId,source,suppressed,...metaDiagnosticContext(),...details});};
 const rememberMetaEvent=(eventKey:string,storage:"memory"|"session"|"local"="memory")=>{
  if(typeof window==="undefined"||!eventKey)return false;
  const tracked=window.__servonasMetaPixelEventKeys??[];
@@ -103,11 +109,12 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
  const pathname=usePathname();
  const searchParams=useSearchParams();
  const [allowed,setAllowed]=useState(false);
+ const lastConsent=useRef<string|null>(null);
   const normalizedPixelId=validPixelId(pixelId);
   const pageKey=`${pathname}${searchParams?.toString()?`?${searchParams.toString()}`:""}`;
 
  useEffect(()=>{
-  const update=()=>setAllowed(localStorage.getItem(CONSENT_KEY)==="granted");
+  const update=()=>{const value=localStorage.getItem(CONSENT_KEY);if(value!==lastConsent.current){lastConsent.current=value;logMetaDebug("PageView",null,"browser",value!=="granted",{action:"consent_checked",reason:value==="granted"?"consent_granted":"consent_not_granted"});}setAllowed(value==="granted");};
   update();
   window.addEventListener("storage",update);
   const timer=window.setInterval(update,250);
@@ -115,7 +122,7 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
  },[]);
 
  useEffect(()=>{
-  if(!allowed||!normalizedPixelId||typeof window==="undefined")return;
+  if(!allowed||!normalizedPixelId||typeof window==="undefined"||pathBlocked(pathname??"")){if(allowed&&pathBlocked(pathname??""))logMetaDebug("PageView",null,"browser",true,{action:"pageview_suppressed",reason:"blocked_path"});return;}
   ensureMetaPixelScript();
   const fbq=ensureMetaPixelStub();
   if(typeof fbq!=="function")return;
@@ -126,13 +133,15 @@ export function TenantMetaPixel({pixelId}:{pixelId:string}){
    window.__servonasMetaPixelPageViews=[];
    window.__servonasMetaPixelEventKeys=[];
    window.__servonasMetaServerEventKeys=[];
+   logMetaDebug("PageView",null,"browser",false,{action:"pixel_initialized",pixelInitialized:true,pageViewAttempted:false});
   }
-  if(tracked.includes(pageKey))return;
+  if(tracked.includes(pageKey)){logMetaDebug("PageView",null,"browser",true,{action:"pageview_suppressed",reason:"page_deduped",pixelInitialized:true,pageViewAttempted:false});return;}
   fbq("track","PageView");
   window.__servonasMetaPixelPageViews=[...tracked,pageKey].slice(-25);
+  logMetaDebug("PageView",null,"browser",false,{action:"pageview_attempted",pixelInitialized:true,pageViewAttempted:true,capiSent:false});
  },[allowed,normalizedPixelId,pageKey]);
 
- if(!allowed||!normalizedPixelId)return null;
+ if(!allowed||!normalizedPixelId||pathBlocked(pathname??""))return null;
 
  return <noscript><img height="1" width="1" style={{display:"none"}} alt="" src={`https://www.facebook.com/tr?id=${normalizedPixelId}&ev=PageView&noscript=1`}/></noscript>;
 }
