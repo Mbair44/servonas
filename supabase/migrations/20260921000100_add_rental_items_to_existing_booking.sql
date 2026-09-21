@@ -13,7 +13,8 @@ create or replace function public.add_rental_items_to_booking(
   p_discount_cents integer,
   p_discount_snapshot jsonb,
   p_idempotency_key text,
-  p_change_source text default 'customer_manage_booking'
+  p_change_source text default 'customer_manage_booking',
+  p_amendment_id uuid default null
 ) returns jsonb
 language plpgsql security definer set search_path=public as $$
 declare
@@ -83,12 +84,21 @@ begin
         and b.status in ('pending_payment','paid','confirmed')
         and reservation.rental_starts_at<v_end+make_interval(mins=>v_buffer)
         and reservation.rental_ends_at+make_interval(mins=>v_buffer)>v_start;
+    select v_reserved+coalesce(sum(hold.quantity),0)::integer into v_reserved
+      from public.booking_amendment_inventory_holds hold
+      join public.booking_amendments amendment on amendment.id=hold.amendment_id
+      where hold.resource_inventory_item_id=v_resource.id and amendment.status in ('pending_payment','payment_processing')
+        and amendment.expires_at>now() and (p_amendment_id is null or amendment.id<>p_amendment_id)
+        and hold.rental_starts_at<v_end+make_interval(mins=>v_buffer) and hold.rental_ends_at+make_interval(mins=>v_buffer)>v_start;
     -- Reservations already on this booking also consume the shared physical pool.
     select v_reserved+coalesce(sum(quantity),0)::integer into v_reserved from public.booking_inventory_reservations
       where booking_id=p_booking_id and resource_inventory_item_id=v_resource.id
         and rental_starts_at<v_end+make_interval(mins=>v_buffer) and rental_ends_at+make_interval(mins=>v_buffer)>v_start;
     if v_reserved+v_resource.requested_quantity>v_resource.stock_quantity then raise exception '% is already reserved for that rental period.',v_resource.name; end if;
   end loop;
+  -- Once the same resource locks are owned, this amendment may replace its own hold
+  -- with permanent reservations without opening a competing-checkout window.
+  if p_amendment_id is not null then update public.booking_amendments set status='applying' where id=p_amendment_id and booking_id=p_booking_id and status in ('pending_payment','payment_processing'); end if;
 
   v_old:=jsonb_build_object('subtotal_cents',v_booking.subtotal_cents,'discount_cents',v_booking.discount_cents,'tax_cents',v_booking.tax_cents,'total_cents',v_booking.total_cents,'balance_due_cents',v_booking.balance_due_cents);
   for v_item in select i.*,r.quantity,r.selections,bs.allow_multi_day_rentals,bs.additional_day_pricing_type,bs.additional_day_discount_percent,bs.additional_day_flat_rate_cents,bs.max_rental_days,bs.standard_rental_hours
@@ -143,5 +153,5 @@ begin
 end;
 $$;
 
-revoke all on function public.add_rental_items_to_booking(uuid,uuid,jsonb,integer,jsonb,text,text) from public;
-grant execute on function public.add_rental_items_to_booking(uuid,uuid,jsonb,integer,jsonb,text,text) to service_role;
+revoke all on function public.add_rental_items_to_booking(uuid,uuid,jsonb,integer,jsonb,text,text,uuid) from public;
+grant execute on function public.add_rental_items_to_booking(uuid,uuid,jsonb,integer,jsonb,text,text,uuid) to service_role;

@@ -47,8 +47,14 @@ async function loadRelevantResourceReservations({db,businessId,resourceIds,windo
   .lt("rental_starts_at",windowEndsAt)
   .gt("rental_ends_at",windowStartsAt);
  if(resourceIds?.length)query=query.in("resource_inventory_item_id",resourceIds);
- const {data,error}=await query;
- return {rows:(data??[]) as ResourceReservationRow[],error};
+ let holds=db.from("booking_amendment_inventory_holds")
+  .select("resource_inventory_item_id,quantity,rental_starts_at,rental_ends_at,booking_amendments!inner(status,expires_at)")
+  .eq("business_id",businessId).in("booking_amendments.status",["pending_payment","payment_processing"])
+  .gt("booking_amendments.expires_at",new Date().toISOString())
+  .lt("rental_starts_at",windowEndsAt).gt("rental_ends_at",windowStartsAt);
+ if(resourceIds?.length)holds=holds.in("resource_inventory_item_id",resourceIds);
+ const [{data,error},{data:holdRows,error:holdError}]=await Promise.all([query,holds]);
+ return {rows:[...(data??[]),...(holdRows??[])] as ResourceReservationRow[],error:error??holdError};
 }
 
 async function loadCalendarAvailability({db,businessId,timezone,itemId,startDate,endDate,requestedQuantity,bufferMinutes,rentalDurationMinutes,bookingData}:{db:NonNullable<ReturnType<typeof getSupabaseAdmin>>;businessId:string;timezone:string;itemId:string;startDate:string;endDate:string;requestedQuantity:number;bufferMinutes:number;rentalDurationMinutes:number;bookingData:NonNullable<Awaited<ReturnType<typeof loadPublicBookingData>>>;}){
