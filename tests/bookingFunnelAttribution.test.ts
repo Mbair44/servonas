@@ -13,6 +13,10 @@ test("captures fbclid alongside other first-touch attribution fields",()=>{
  const values=attributionFromSearch(new URLSearchParams("fbclid=meta-click-1&utm_source=facebook&utm_campaign=fall"));
  assert.deepEqual(values,{fbclid:"meta-click-1",utm_source:"facebook",utm_campaign:"fall"});
 });
+test("captures a complete Meta landing query from the browser search params",()=>{
+ const values=attributionFromSearch(new URLSearchParams("utm_source=facebook&utm_medium=paid_social&utm_campaign=fall_party_special&utm_content=pumpkin_static&utm_term=ad_set&fbclid=meta-click"));
+ assert.deepEqual(values,{utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"fall_party_special",utm_content:"pumpkin_static",utm_term:"ad_set",fbclid:"meta-click"});
+});
 test("preserves Meta click attribution when an embedded booking URL only has it in the referrer",()=>{
  const values=attributionFromSearch(new URLSearchParams("embed=1&checkoutUrl=https%3A%2F%2Fcopperstatebounce.com%2Fbooking%2Fcheckout"),new URLSearchParams("fbclid=meta-click-2&utm_source=fb&utm_medium=paid&utm_campaign=fall"));
  assert.deepEqual(values,{fbclid:"meta-click-2",utm_source:"fb",utm_medium:"paid",utm_campaign:"fall"});
