@@ -91,6 +91,10 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  case "payment_started":
  case "lead_submitted":
  case "checkout_started":
+ case "checkout_addons_viewed":
+ case "checkout_addons_skipped":
+ case "checkout_addons_added":
+ case "reservation_details_viewed":
   parts.push(clean(body.path,1000),clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""));
   break;
  default:

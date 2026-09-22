@@ -297,7 +297,18 @@ test("groups idempotent checkout steps under their originating landing page",()=
   {attribution_session_id:"s1",booking_id:"b1",event_name:"customer_info_completed",event_key:"b1:customer",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
   {attribution_session_id:"s1",booking_id:"b1",event_name:"payment_succeeded",event_key:"b1:paid",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
  ],bookings:[]});
- assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,customer_info_completed:1,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:1,booking_confirmed:0});
+ assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,checkout_addons_viewed:0,checkout_addons_skipped:0,checkout_addons_added:0,reservation_details_viewed:0,customer_info_completed:1,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:1,booking_confirmed:0});
+});
+
+test("keeps add-on branch events attributed and session-deduped in the checkout funnel",()=>{
+ const report=buildLandingPageFunnelReport({sessions:[{id:"s1",first_landing_path:"/fall-party-special",utm_source:"facebook"}],events:[
+  {attribution_session_id:"s1",event_name:"checkout_started",event_key:"checkout",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"checkout_addons_viewed",event_key:"addons-view",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"checkout_addons_viewed",event_key:"addons-view",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"checkout_addons_added",event_key:"addons-added",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"reservation_details_viewed",event_key:"details",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+ ],bookings:[]});
+ assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,checkout_addons_viewed:1,checkout_addons_skipped:0,checkout_addons_added:1,reservation_details_viewed:1,customer_info_completed:0,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:0,booking_confirmed:0});
 });
 
 test("keeps checkout table and drill-down starts in parity across aliases, retries, and distinct attributed sessions",()=>{
