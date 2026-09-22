@@ -655,7 +655,7 @@ const eventSessionFor=(row:FunnelEventRow)=>Array.isArray(row.booking_attributio
 
 /** Groups existing first-touch sessions, funnel events, and authoritative bookings by landing page. */
 export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];spendByCampaign?:Record<string,number|null|undefined>}):LandingPageFunnelRow[]{
- const checkoutEventNames=["checkout_started","customer_info_completed","delivery_address_completed","terms_accepted","payment_cta_clicked","payment_started","payment_succeeded","booking_confirmed"];
+ const checkoutEventNames=["checkout_started","checkout_addons_viewed","checkout_addons_skipped","checkout_addons_added","reservation_details_viewed","customer_info_completed","delivery_address_completed","terms_accepted","payment_cta_clicked","payment_started","payment_succeeded","booking_confirmed"];
  const buckets=new Map<string,{sessions:Set<string>;ctaEvents:Set<string>;ctaSessions:Set<string>;bookingVisits:Set<string>;itemEvents:Set<string>;checkoutStarts:Set<string>;checkoutSteps:Map<string,Set<string>>;bookings:Set<string>;revenue:number;campaigns:Set<string>}>();
  const bucket=(path:string)=>{const normalized=landingPath(path);let value=buckets.get(normalized);if(!value){value={sessions:new Set(),ctaEvents:new Set(),ctaSessions:new Set(),bookingVisits:new Set(),itemEvents:new Set(),checkoutStarts:new Set(),checkoutSteps:new Map(checkoutEventNames.map(name=>[name,new Set()])),bookings:new Set(),revenue:0,campaigns:new Set()};buckets.set(normalized,value);}return value;};
  const sessionPaths=new Map<string,string>();

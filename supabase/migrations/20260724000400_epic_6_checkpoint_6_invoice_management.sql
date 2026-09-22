@@ -88,7 +88,7 @@ declare
   v_new_paid bigint;
   v_new_balance bigint;
 begin
-  if not public.has_business_role(p_business_id,array['owner','admin','manager']) then
+  if auth.role()<>'service_role' and not public.has_business_role(p_business_id,array['owner','admin','manager']) then
     raise exception 'Offline payment permission denied' using errcode='42501';
   end if;
   if p_amount_cents <= 0 then
