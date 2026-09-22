@@ -6,17 +6,19 @@ alter table public.invoices
   add column if not exists document_discount_type text not null default 'none',
   add column if not exists document_discount_value bigint not null default 0;
 
+alter table public.invoices drop constraint if exists invoices_document_discount_type_check;
 alter table public.invoices add constraint invoices_document_discount_type_check
   check (document_discount_type in ('none','fixed','percentage'));
+alter table public.invoices drop constraint if exists invoices_document_discount_value_check;
 alter table public.invoices add constraint invoices_document_discount_value_check
   check (
     document_discount_value >= 0 and
     (document_discount_type <> 'percentage' or document_discount_value <= 10000)
   );
-create unique index invoices_business_request_key_unique
+create unique index if not exists invoices_business_request_key_unique
   on public.invoices(business_id,request_key) where request_key is not null;
 
-create table public.invoice_fees (
+create table if not exists public.invoice_fees (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
   invoice_id uuid not null,
@@ -28,18 +30,22 @@ create table public.invoice_fees (
   constraint invoice_fees_invoice_fk foreign key (business_id,invoice_id)
     references public.invoices(business_id,id) on delete cascade
 );
-create index invoice_fees_invoice_idx
+create index if not exists invoice_fees_invoice_idx
   on public.invoice_fees(business_id,invoice_id,sort_order);
 
 alter table public.invoice_fees enable row level security;
+drop policy if exists "financial office reads invoice_fees" on public.invoice_fees;
 create policy "financial office reads invoice_fees" on public.invoice_fees
   for select to authenticated using (public.has_business_role(business_id,array['owner','admin','manager']));
+drop policy if exists "financial office creates invoice_fees" on public.invoice_fees;
 create policy "financial office creates invoice_fees" on public.invoice_fees
   for insert to authenticated with check (public.has_business_role(business_id,array['owner','admin','manager']));
+drop policy if exists "financial office updates invoice_fees" on public.invoice_fees;
 create policy "financial office updates invoice_fees" on public.invoice_fees
   for update to authenticated
   using (public.has_business_role(business_id,array['owner','admin','manager']))
   with check (public.has_business_role(business_id,array['owner','admin','manager']));
+drop policy if exists "financial office deletes draft invoice fees" on public.invoice_fees;
 create policy "financial office deletes draft invoice fees" on public.invoice_fees
   for delete to authenticated using (
     public.has_business_role(business_id,array['owner','admin','manager'])
@@ -50,6 +56,7 @@ create policy "financial office deletes draft invoice fees" on public.invoice_fe
         and invoices.status='draft'
     )
   );
+drop policy if exists "financial office deletes draft invoice lines" on public.invoice_line_items;
 create policy "financial office deletes draft invoice lines" on public.invoice_line_items
   for delete to authenticated using (
     public.has_business_role(business_id,array['owner','admin','manager'])
