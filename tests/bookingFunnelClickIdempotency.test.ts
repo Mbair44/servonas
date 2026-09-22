@@ -23,14 +23,26 @@ function declaration(source:string,name:string){
 function harness(){
  const requests:any[]=[];
  const storage=new Map<string,string>();
+ const sessionStorage=new Map<string,string>();
  const noop=()=>{};
- const context=vm.createContext({exports:{},crypto,Set,Map,Date,URLSearchParams,Element:class {},window:{navigator:{userAgent:""}},location:{pathname:"/book/test",search:"",href:"https://test/book/test"},document:{referrer:""},navigator:{userAgent:""},localStorage:{getItem:(k:string)=>storage.get(k),setItem:(k:string,v:string)=>storage.set(k,v)},publicBookingFunnelEnabled:()=>true,attributionFromSearch:()=>({}),fetch:(_url:string,options:any)=>{requests.push(JSON.parse(options.body));return Promise.resolve({ok:true,status:204});},businessSlug:"test",date:"2026-09-20",focusedItemId:null,availabilityItemId:null,flowSource:"date_first",initialPromotionCode:null,setAvailabilityItemId:noop,setFocusedItemId:noop,setFlowSource:noop,setDate:noop,setEndDate:noop,setCartConflictMessage:noop,hoursForDate:()=>null,setStartTime:noop,setEndTime:noop,trackMetaStandardEvent:noop});
+ const context=vm.createContext({exports:{},crypto,Set,Map,Date,URLSearchParams,Element:class {},window:{navigator:{userAgent:""},sessionStorage:{getItem:(k:string)=>sessionStorage.get(k)??null,setItem:(k:string,v:string)=>sessionStorage.set(k,v)},localStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)}},location:{pathname:"/book/test",search:"",href:"https://test/book/test"},document:{referrer:""},navigator:{userAgent:""},localStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)},publicBookingFunnelEnabled:()=>true,attributionFromSearch:()=>({}),fetch:(_url:string,options:any)=>{requests.push(JSON.parse(options.body));return Promise.resolve({ok:true,status:204});},businessSlug:"test",date:"2026-09-20",focusedItemId:null,availabilityItemId:null,flowSource:"date_first",initialPromotionCode:null,setAvailabilityItemId:noop,setFocusedItemId:noop,setFlowSource:noop,setDate:noop,setEndDate:noop,setCartConflictMessage:noop,hoursForDate:()=>null,setStartTime:noop,setEndTime:noop,trackMetaStandardEvent:noop});
  const trackerCore=tracker.slice(0,tracker.indexOf("type TenantBookingFunnelTrackerProps")).replace(/^import .*;\n/gm,"");
  vm.runInContext(compile(trackerCore),context);
  vm.runInContext(compile(["clean","safeMetadata","eventKeyFor"].map(name=>declaration(route,name)).join("\n")+ '\nconst validSessionId=(value:unknown)=>typeof value==="string"&&/^[0-9a-f-]{36}$/i.test(value);'),context);
  vm.runInContext(compile(["applyDate","noteInventoryInteraction"].map(name=>declaration(booking,name)).join("\n")),context);
  return {context,requests};
 }
+test("a fresh promotion tab captures Meta attribution without inheriting an old direct local-storage session",()=>{
+ const {context}=harness();
+ const legacy=JSON.stringify({sessionId:crypto.randomUUID(),attribution:{},landingUrl:"https://test/fall-party-special",referrer:""});
+ vm.runInContext(`localStorage.setItem("servonas.booking-attribution.test",${JSON.stringify(legacy)})`,context);
+ vm.runInContext('location.pathname="/fall-party-special";location.search="?utm_source=facebook&utm_medium=paid_social&utm_campaign=fall_party_special&utm_content=pumpkin_static&utm_term=ad_set&fbclid=meta-click";location.href="https://test/fall-party-special"+location.search;attributionFromSearch=params=>Object.fromEntries(["utm_source","utm_medium","utm_campaign","utm_content","utm_term","fbclid"].flatMap(key=>params.get(key)?[[key,params.get(key)]]:[]));',context);
+ const attribution=vm.runInContext('bookingAttributionValues("test")',context);
+ assert.deepEqual(JSON.parse(JSON.stringify(attribution)),{utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"fall_party_special",utm_content:"pumpkin_static",utm_term:"ad_set",fbclid:"meta-click"});
+ vm.runInContext('location.search="?utm_source=google&gclid=later-click"',context);
+ const unchanged=vm.runInContext('bookingAttributionValues("test")',context);
+ assert.deepEqual(JSON.parse(JSON.stringify(unchanged)),JSON.parse(JSON.stringify(attribution)));
+});
 for(const kind of ["item","date"]){
  test(`one ${kind} click persists once, replay dedupes, intentional repeat increments`,()=>{
   const {context,requests}=harness();

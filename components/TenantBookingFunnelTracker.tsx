@@ -18,11 +18,14 @@ const criticalEvents = new Set<BookingFunnelEvent>(["booking_started", "customer
 type Stored = { sessionId: string; attribution: AttributionValues; landingUrl: string; referrer: string; lastSessionSyncAt?: number };
 type TrackBookingFunnelOptions = { inventoryItemId?: string; serviceId?: string; metadata?: Record<string, unknown>; touchOnly?: boolean; beacon?: boolean };
 const formStartKey = (slug: string) => `servonas.booking-funnel-form-start.${slug}`;
+const inMemorySessions = new Map<string, Stored>();
+const readSession = (slug: string) => { try { return window.sessionStorage.getItem(key(slug)); } catch { return inMemorySessions.get(slug) ? JSON.stringify(inMemorySessions.get(slug)) : null; } };
+const writeSession = (slug: string, value: Stored) => { inMemorySessions.set(slug,value); try { window.sessionStorage.setItem(key(slug),JSON.stringify(value)); } catch { /* memory keeps this page's attribution when storage is blocked */ } };
 
 const stored = (slug: string): Stored => {
- const existing = localStorage.getItem(key(slug)); if (existing) { try { const value = JSON.parse(existing) as Stored; if (value.sessionId) return value; } catch { /* replace malformed storage */ } }
+ const existing = readSession(slug); if (existing) { try { const value = JSON.parse(existing) as Stored; if (value.sessionId) return value; } catch { /* replace malformed storage */ } }
  let referrerSearch: URLSearchParams | undefined; try { referrerSearch = document.referrer ? new URL(document.referrer).searchParams : undefined; } catch { /* malformed referrer */ }
- const value = { sessionId: crypto.randomUUID(), attribution: attributionFromSearch(new URLSearchParams(location.search), referrerSearch), landingUrl: location.href, referrer: document.referrer, lastSessionSyncAt: 0 }; localStorage.setItem(key(slug), JSON.stringify(value)); return value;
+ const value = { sessionId: crypto.randomUUID(), attribution: attributionFromSearch(new URLSearchParams(location.search), referrerSearch), landingUrl: location.href, referrer: document.referrer, lastSessionSyncAt: 0 }; writeSession(slug,value); return value;
 };
 const bookingPathFor = (slug: string) => `/book/${encodeURIComponent(slug)}`;
 const bookingCheckoutPathFor = (slug: string) => `${bookingPathFor(slug)}/booking`;
@@ -81,7 +84,7 @@ export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, opti
  if (!analyticsEnabled) { logDebug(slug, event, "dispatch_skipped", { reason: "funnel_disabled" }); return; }
  if (shouldSkipEvent(slug, event, options)) { logDebug(slug, event, "dispatch_skipped", { reason: "client_deduped" }); return; }
  const state = stored(slug), now = Date.now(), touchSession = event === "landing_page_view" || !state.lastSessionSyncAt || now - state.lastSessionSyncAt >= sessionTouchIntervalMs || Boolean(options.touchOnly);
- if (touchSession) localStorage.setItem(key(slug), JSON.stringify({ ...state, lastSessionSyncAt: now }));
+ if (touchSession) writeSession(slug,{ ...state, lastSessionSyncAt: now });
  const payload = payloadFor(slug, event, options, touchSession);
  logDebug(slug, event, "dispatch_attempted", { ...clientDiagnosticContext(state), touchSession, sendMethod: criticalEvents.has(event) || options.beacon ? "beacon_or_fetch" : "fetch" });
  if ((criticalEvents.has(event) || options.beacon) && postWithBeacon(slug, event, payload)) return;
@@ -107,7 +110,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
   if (!analyticsEnabled) return;
   if (initialSessionId && /^[0-9a-f-]{36}$/i.test(initialSessionId)) {
    const current = stored(businessSlug);
-   localStorage.setItem(key(businessSlug), JSON.stringify({ ...current, sessionId: initialSessionId }));
+   writeSession(businessSlug,{ ...current, sessionId: initialSessionId });
   }
   const current = stored(businessSlug);
   if (!sent.current) {
@@ -165,7 +168,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
   document.addEventListener("focusin", onFocusIn, true);
   document.addEventListener("change", onChange, true);
   document.addEventListener("submit", onSubmit, true);
-  localStorage.setItem(key(businessSlug), JSON.stringify({ ...current, lastSessionSyncAt: Date.now() }));
+  writeSession(businessSlug,{ ...current, lastSessionSyncAt: Date.now() });
   return () => {
    observer.disconnect();
    document.removeEventListener("click", onClick, true);
