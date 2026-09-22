@@ -661,12 +661,14 @@ export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionM
  const sessionPaths=new Map<string,string>();
  for(const session of input.sessions){const path=landingPath(session.first_landing_path);sessionPaths.set(session.id,path);const current=bucket(path);current.sessions.add(session.id);if(session.utm_campaign)current.campaigns.add(session.utm_campaign);}
  for(const event of input.events){
-  const session=eventSessionFor(event);const sessionId=event.attribution_session_id??null;const path=landingPath(session?.first_landing_path??(sessionId?sessionPaths.get(sessionId):null));const current=bucket(path);const name=String(event.event_name);const identity=event.event_key||`${sessionId??"anonymous"}:${name}:${event.booking_id??""}`;
+  const session=eventSessionFor(event);const sessionId=event.attribution_session_id??null;const path=landingPath(session?.first_landing_path??(sessionId?sessionPaths.get(sessionId):null));const current=bucket(path);const name=String(event.event_name);const canonical=canonicalEventName(name);const identity=event.event_key||`${sessionId??"anonymous"}:${name}:${event.booking_id??""}`;const funnelIdentity=sessionId||event.booking_id||identity;
   if(name==="booking_cta_click"||name==="promotion_primary_cta_clicked"){current.ctaEvents.add(identity);if(sessionId)current.ctaSessions.add(sessionId);}
   if(name==="booking_started"&&sessionId)current.bookingVisits.add(sessionId);
   if(["promotion_item_selected","inventory_item_clicked","item_added_to_cart","reserve_clicked"].includes(name))current.itemEvents.add(identity);
-  if(["checkout_started","initiate_checkout"].includes(name))current.checkoutStarts.add(event.booking_id||sessionId||identity);
-  if(checkoutEventNames.includes(name))current.checkoutSteps.get(name)?.add(event.booking_id||identity);
+  // `initiate_checkout` is the legacy client-side name for the same checkout
+  // start. Both views use the same first-touch session (or booking/event fallback).
+  if(canonical==="checkout_started"){current.checkoutStarts.add(funnelIdentity);current.checkoutSteps.get("checkout_started")?.add(funnelIdentity);}
+  else if(checkoutEventNames.includes(canonical))current.checkoutSteps.get(canonical)?.add(funnelIdentity);
  }
  for(const booking of input.bookings){
   if(!completedBookingStatuses.has(String(booking.status??"").toLowerCase()))continue;

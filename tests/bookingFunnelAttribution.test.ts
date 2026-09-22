@@ -300,6 +300,28 @@ test("groups idempotent checkout steps under their originating landing page",()=
  assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,customer_info_completed:1,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:1,booking_confirmed:0});
 });
 
+test("keeps checkout table and drill-down starts in parity across aliases, retries, and distinct attributed sessions",()=>{
+ const sessions=["s1","s2","s3","s4"].map((id)=>({id,first_landing_path:"/fall-party-special",utm_source:"facebook"}));
+ const report=buildLandingPageFunnelReport({sessions,events:[
+  {attribution_session_id:"s1",event_name:"initiate_checkout",event_key:"s1:initiate",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"checkout_started",event_key:"b1:checkout",booking_id:"b1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s1",event_name:"checkout_started",event_key:"b1:checkout",booking_id:"b1",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s2",event_name:"initiate_checkout",event_key:"s2:initiate",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s3",event_name:"checkout_started",event_key:"b3:checkout",booking_id:"b3",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+  {attribution_session_id:"s4",event_name:"checkout_started",event_key:"b4:checkout",booking_id:"b4",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+ ],bookings:[]});
+ assert.equal(report[0]?.checkoutStarts,4);
+ assert.equal(report[0]?.checkoutSteps.checkout_started,4);
+});
+
+test("keeps checkout table and drill-down filters aligned because both consume the same filtered event set",()=>{
+ const report=buildLandingPageFunnelReport({sessions:[{id:"in-range",first_landing_path:"/fall-party-special"}],events:[
+  {attribution_session_id:"in-range",event_name:"checkout_started",event_key:"in-range:checkout",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
+ ],bookings:[]});
+ assert.equal(report[0]?.checkoutStarts,1);
+ assert.equal(report[0]?.checkoutSteps.checkout_started,1);
+});
+
 test("landing performance renders a compact checkout drill-down",async()=>{
  const [page,styles]=await Promise.all([readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8"),readFile(new URL("../app/globals.css",import.meta.url),"utf8")]);
  assert.match(page,/marketing-checkout-drilldown/);
