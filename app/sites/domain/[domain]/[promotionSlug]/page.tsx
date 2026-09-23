@@ -10,21 +10,30 @@ import {LocationLanding} from "@/components/LocationLanding";
 import type {Metadata} from "next";
 import {tenantMetadata} from "@/lib/publicTenantSeo";
 import {TenantLandingSchema} from "@/components/TenantPublicSchema";
+import {categoryPageIsIndexable,indexableCategoryPages} from "@/lib/publicCategoryPages";
 
 export const dynamic="force-dynamic";
 
-export async function generateMetadata({params}:{params:Promise<{domain:string;promotionSlug:string}>}):Promise<Metadata>{const {domain,promotionSlug}=await params,db=getSupabaseAdmin();if(!db)return{};const normalized=domain.toLowerCase().replace(/^www\./,""),{data:website}=await db.from("business_website_settings").select("business_id,custom_domain,domain_status").or(`custom_domain.ilike.${normalized},custom_domain.ilike.www.${normalized}`).eq("status","published").maybeSingle();if(!website)return{};const [location,category,promotion]=await Promise.all([db.from("business_location_pages").select("page_title,meta_description,og_title,og_description,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),db.from("category_website_pages").select("title,intro,seo_title,meta_description,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),db.from("promotions").select("headline,subheadline,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","active").eq("landing_page_enabled",true).maybeSingle()]);const page=location.data;if(page)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${page.slug}`,title:page.page_title,description:page.meta_description,openGraphTitle:page.og_title,openGraphDescription:page.og_description});const categoryPage=category.data;if(categoryPage)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${categoryPage.slug}`,title:categoryPage.seo_title||categoryPage.title,description:categoryPage.meta_description||categoryPage.intro});const promotionPage=promotion.data;if(promotionPage)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${promotionPage.slug}`,title:promotionPage.headline,description:promotionPage.subheadline||`Check availability and book online.`});return{};}
+export async function generateMetadata({params}:{params:Promise<{domain:string;promotionSlug:string}>}):Promise<Metadata>{
+ const {domain,promotionSlug}=await params,db=getSupabaseAdmin();if(!db)return{};
+ const normalized=domain.toLowerCase().replace(/^www\./,""),{data:website}=await db.from("business_website_settings").select("business_id,custom_domain,domain_status").or(`custom_domain.ilike.${normalized},custom_domain.ilike.www.${normalized}`).eq("status","published").maybeSingle();if(!website)return{};
+ const [location,category,promotion]=await Promise.all([db.from("business_location_pages").select("page_title,meta_description,og_title,og_description,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),db.from("category_website_pages").select("category_id,title,intro,seo_title,meta_description,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),db.from("promotions").select("headline,subheadline,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","active").eq("landing_page_enabled",true).maybeSingle()]);
+ const page=location.data;if(page)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${page.slug}`,title:page.page_title,description:page.meta_description,openGraphTitle:page.og_title,openGraphDescription:page.og_description});
+ const categoryPage=category.data;if(categoryPage){const {data:items}=await db.from("inventory_items").select("category_id").eq("business_id",website.business_id).eq("active",true).eq("category_id",categoryPage.category_id).limit(1);return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${categoryPage.slug}`,title:categoryPage.seo_title||categoryPage.title,description:categoryPage.meta_description||categoryPage.intro,index:categoryPageIsIndexable(categoryPage.category_id,items??[])});}
+ const promotionPage=promotion.data;if(promotionPage)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${promotionPage.slug}`,title:promotionPage.headline,description:promotionPage.subheadline||`Check availability and book online.`});return{};
+}
 
 export default async function DomainLandingPage({params}:{params:Promise<{domain:string;promotionSlug:string}>}){
  const {domain,promotionSlug}=await params;
  const [record,db]=await Promise.all([loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]"),Promise.resolve(getSupabaseAdmin())]);
  if(!db||record.kind!=="ok")notFound();
  const site=record.site,businessId=record.settings.business_id;
- const [{data:promotion},{data:categoryPage},{data:locationPage},{data:nearbyPages},{data:items}]=await Promise.all([
+ const [{data:promotion},{data:categoryPage},{data:locationPage},{data:nearbyPages},{data:categoryPages},{data:items}]=await Promise.all([
   db.from("promotions").select("*,discounts(*)").eq("business_id",businessId).ilike("slug",promotionSlug).eq("landing_page_enabled",true).maybeSingle(),
   db.from("category_website_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("slug,city,state").eq("business_id",businessId).eq("status","published").neq("slug",promotionSlug).limit(6),
+  db.from("category_website_pages").select("category_id,slug,title").eq("business_id",businessId).eq("status","published"),
   db.from("inventory_items").select("id,name,description,daily_price_cents,image_url,category_id").eq("business_id",businessId).eq("active",true),
  ]);
  if(promotion){
@@ -33,5 +42,5 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
  }
  if(categoryPage)return <><TenantLandingSchema type="CollectionPage" name={categoryPage.title} url={`https://${domain}/${categoryPage.slug}`} homeUrl={`https://${domain}`}/>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="category" landingId={categoryPage.category_id} landingLabel={categoryPage.slug}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking" websiteUrl="/"/></>;
  if(!locationPage)notFound();
- return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="location" landingId={locationPage.id} landingLabel={locationPage.slug}/>}<LocationLanding page={locationPage} business={site} websiteUrl="/" ctaUrl={site.bookingEnabled?"/booking":"/#contact"} nearbyPages={nearbyPages??[]}/></>;
+ return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="location" landingId={locationPage.id} landingLabel={locationPage.slug}/>}<LocationLanding page={locationPage} business={site} websiteUrl="/" ctaUrl={site.bookingEnabled?"/booking":"/#contact"} nearbyPages={nearbyPages??[]} categoryPages={indexableCategoryPages(categoryPages??[],items??[])}/></>;
 }
