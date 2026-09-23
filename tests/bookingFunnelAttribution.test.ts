@@ -341,7 +341,7 @@ test("groups idempotent checkout steps under their originating landing page",()=
   {attribution_session_id:"s1",booking_id:"b1",event_name:"customer_info_completed",event_key:"b1:customer",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
   {attribution_session_id:"s1",booking_id:"b1",event_name:"payment_succeeded",event_key:"b1:paid",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
  ],bookings:[]});
- assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,checkout_addons_viewed:0,checkout_addons_skipped:0,checkout_addons_added:0,reservation_details_viewed:0,customer_info_completed:1,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:1,booking_confirmed:0});
+ assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,checkout_addons_viewed:0,checkout_addons_skipped:0,checkout_addons_added:0,reservation_details_viewed:0,customer_info_completed:1,delivery_address_completed:0,delivery_fee_presented:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:1,booking_confirmed:0});
 });
 
 test("keeps add-on branch events attributed and session-deduped in the checkout funnel",()=>{
@@ -352,7 +352,25 @@ test("keeps add-on branch events attributed and session-deduped in the checkout 
   {attribution_session_id:"s1",event_name:"checkout_addons_added",event_key:"addons-added",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
   {attribution_session_id:"s1",event_name:"reservation_details_viewed",event_key:"details",booking_attribution_sessions:{first_landing_path:"/fall-party-special"}},
  ],bookings:[]});
- assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,checkout_addons_viewed:1,checkout_addons_skipped:0,checkout_addons_added:1,reservation_details_viewed:1,customer_info_completed:0,delivery_address_completed:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:0,booking_confirmed:0});
+ assert.deepEqual(report[0]?.checkoutSteps,{checkout_started:1,checkout_addons_viewed:1,checkout_addons_skipped:0,checkout_addons_added:1,reservation_details_viewed:1,customer_info_completed:0,delivery_address_completed:0,delivery_fee_presented:0,terms_accepted:0,payment_cta_clicked:0,payment_started:0,payment_succeeded:0,booking_confirmed:0});
+});
+
+test("groups delivery fee presentations by the latest session pricing state without retaining address data",()=>{
+ const report=buildLandingPageFunnelReport({sessions:[{id:"free",first_landing_path:"/fall-party-special"},{id:"paid",first_landing_path:"/fall-party-special"}],events:[
+  {attribution_session_id:"free",event_name:"delivery_fee_presented",event_key:"free:0",metadata:{delivery_fee_cents:0,had_delivery_fee:false,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:20000}},
+  {attribution_session_id:"paid",event_name:"delivery_fee_presented",event_key:"paid:old",occurred_at:"2026-09-23T10:00:00Z",metadata:{delivery_fee_cents:2500,had_delivery_fee:true,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:22500}},
+  {attribution_session_id:"paid",event_name:"delivery_fee_presented",event_key:"paid:new",occurred_at:"2026-09-23T10:01:00Z",metadata:{delivery_fee_cents:5000,had_delivery_fee:true,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:25000}},
+  {attribution_session_id:"free",event_name:"terms_accepted"},
+ ],bookings:[]});
+ assert.deepEqual(report[0]?.deliveryFeeAnalysis,{zeroFeeSessions:1,paidFeeSessions:1,averagePaidFeeCents:5000,zeroFeeTermsAcceptedRate:1,paidFeeTermsAcceptedRate:0});
+ assert.equal(report[0]?.checkoutSteps.delivery_fee_presented,2);
+});
+
+test("delivery fee telemetry emits only pricing metadata and keys each presented price state",async()=>{
+ const [booking,route]=await Promise.all([readFile(new URL("../components/PartyRentalBookingClient.tsx",import.meta.url),"utf8"),readFile(new URL("../app/api/public-booking/[businessSlug]/funnel/route.ts",import.meta.url),"utf8")]);
+ assert.match(booking,/"delivery_fee_presented"/);assert.match(booking,/delivery_fee_cents:deliveryFee/);assert.match(booking,/final_total_cents:total/);
+ assert.doesNotMatch(booking,/delivery_fee_presented[^\n]{0,500}(street|address|postal|zip|placeId)/i);
+ assert.match(route,/case "delivery_fee_presented"/);assert.match(route,/metadata\.delivery_fee_cents/);assert.match(route,/metadata\.final_total_cents/);
 });
 
 test("keeps checkout table and drill-down starts in parity across aliases, retries, and distinct attributed sessions",()=>{
