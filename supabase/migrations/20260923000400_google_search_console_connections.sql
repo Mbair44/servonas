@@ -2,6 +2,7 @@ create table if not exists public.business_google_search_console_connections (
  business_id uuid primary key references public.businesses(id) on delete cascade,
  refresh_token text not null,
  property_url text,
+ available_properties jsonb not null default '[]'::jsonb,
  status text not null default 'connected' check (status in ('connected','property_selection_required','permission_denied','error','disconnected')),
  last_synced_at timestamptz,
  last_error_code text,
