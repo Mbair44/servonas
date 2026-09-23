@@ -115,8 +115,10 @@ export type AttributionBreakdownEntry={label:string;count:number;};
 export type SessionAttributionBreakdown={providerLabel:string;platformLabel:string|null;channelLabel:string|null;campaignName:string|null;campaignId:string|null;adSetName:string|null;adSetId:string|null;adName:string|null;adId:string|null;rawUtmSource:string|null;rawUtmMedium:string|null;rawUtmCampaign:string|null;rawUtmTerm:string|null;rawUtmContent:string|null;rawUtmId:string|null;fbclid:string|null;gclid:string|null;gbraid:string|null;wbraid:string|null;rawLandingUrl:string|null;};
 export type MetaPerformanceNameRow={campaign_id:string|null;campaign_name:string|null;adset_id:string|null;adset_name:string|null;ad_id:string|null;ad_name:string|null;};
 export type MetaAttributionName={name:string;rawId:string;level:"campaign"|"adset"|"ad";};
+export type GoogleCampaignNameRow={google_campaign_id:string|number|null;campaign_name:string|null;};
+export type CampaignPerformanceRow={source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;visits:number;itemViews:number;bookingStarts:number;bookings:number;revenueCents:number;};
 export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;verificationStatus:SessionVerificationStatus;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;attribution:SessionAttributionBreakdown;metaAttributionName:MetaAttributionName|null;};
-export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;verifiedSessions:number;unverifiedSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;source:string;count:number}>;verificationBreakdown:AttributionBreakdownEntry[];insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number;trafficSources:AttributionBreakdownEntry[];campaigns:AttributionBreakdownEntry[];devices:AttributionBreakdownEntry[];}>;primaryInsight:string|null;supportingObservation:string|null;};
+export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;verifiedSessions:number;unverifiedSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;isMetaId:boolean;source:string;count:number}>;verificationBreakdown:AttributionBreakdownEntry[];insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number;trafficSources:AttributionBreakdownEntry[];campaigns:AttributionBreakdownEntry[];devices:AttributionBreakdownEntry[];}>;primaryInsight:string|null;supportingObservation:string|null;};
 
 export const defaultSessionEngagementThresholdMs=10_000;
 const quickExitThresholdMs=5_000;
@@ -557,7 +559,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   const sourceCounts=new Map<SessionQualitySource,number>();
   const landingCounts=new Map<string,number>();
   const deviceCounts=new Map<string,number>();
-  const campaignCounts=new Map<string,{name:string;campaignId:string|null;source:string;count:number}>();
+  const campaignCounts=new Map<string,{name:string;campaignId:string|null;isMetaId:boolean;source:string;count:number}>();
   const verificationCounts=new Map<string,number>();
   for(const detail of bucketDetails){
    sourceCounts.set(detail.source,(sourceCounts.get(detail.source) ?? 0)+1);
@@ -566,8 +568,10 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   if(detail.campaignName || detail.campaignId){
     const name=detail.metaAttributionName?.name ?? detail.campaignName ?? detail.campaignId ?? "Unknown campaign";
     const campaignId=detail.metaAttributionName?.rawId ?? detail.campaignId;
-    const key=`${name}:${campaignId ?? ""}:${detail.sourceLabel}`;
-    const current=campaignCounts.get(key) ?? {name,campaignId,source:detail.sourceLabel,count:0};
+    const isMetaId=Boolean(detail.metaAttributionName || (detail.source==="meta_ads" && numericMetaId(detail.campaignName)));
+    const sourceLabel=isMetaId ? "Meta Ads" : detail.sourceLabel;
+    const key=`${name}:${campaignId ?? ""}:${sourceLabel}`;
+    const current=campaignCounts.get(key) ?? {name,campaignId,isMetaId,source:sourceLabel,count:0};
     current.count+=1;
     campaignCounts.set(key,current);
    }
@@ -823,4 +827,47 @@ export function attachSessionMetricsToSourceReport(report:ReturnType<typeof buil
   };
  }
  return report;
+}
+
+function campaignSource(source:MarketingSource):MarketingSource|"meta_ads"{
+ return source==="facebook"||source==="instagram" ? "meta_ads" : source;
+}
+
+function campaignIdentity(session:AttributionSessionLike|undefined|null,metaRows:MetaPerformanceNameRow[],googleRows:GoogleCampaignNameRow[]){
+ const source=campaignSource(normalizeMarketingSource(session));
+ const rawCampaign=cleanCampaignToken(session?.utm_campaign);
+ if(source==="meta_ads"){
+  const resolved=session ? resolveMetaAttributionName(session,metaRows) : null;
+  return {source,name:resolved?.name ?? rawCampaign ?? "Unattributed",rawId:resolved?.rawId ?? (numericMetaId(rawCampaign) ?? null),isMetaId:Boolean(resolved || numericMetaId(rawCampaign))};
+ }
+ if(source==="google_ads"){
+  const matched=rawCampaign ? googleRows.find((row)=>String(row.google_campaign_id ?? "").trim()===rawCampaign && cleanCampaignToken(row.campaign_name)) : null;
+  return {source,name:matched?.campaign_name?.trim() || rawCampaign || "Unattributed",rawId:matched ? String(matched.google_campaign_id) : null,isMetaId:false};
+ }
+ return {source,name:rawCampaign ?? "Unattributed",rawId:null,isMetaId:false};
+}
+
+/** Groups the same first-touch attribution used by source reporting into campaign rows. */
+export function buildCampaignPerformanceReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];metaPerformanceRows?:MetaPerformanceNameRow[];googleCampaignRows?:GoogleCampaignNameRow[]}):CampaignPerformanceRow[]{
+ const metaRows=input.metaPerformanceRows ?? [],googleRows=input.googleCampaignRows ?? [];
+ const rows=new Map<string,{source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;visits:Set<string>;itemViews:Set<string>;bookingStarts:Set<string>;bookings:Set<string>;revenueCents:number}>();
+ const sessionAttribution=new Map<string,AttributionSessionLike>();
+ const bucketFor=(session:AttributionSessionLike|undefined|null)=>{
+  const identity=campaignIdentity(session,metaRows,googleRows),key=`${identity.source}:${identity.name}:${identity.rawId ?? ""}`;
+  let bucket=rows.get(key);if(!bucket){bucket={...identity,visits:new Set(),itemViews:new Set(),bookingStarts:new Set(),bookings:new Set(),revenueCents:0};rows.set(key,bucket);}return bucket;
+ };
+ for(const session of input.sessions){sessionAttribution.set(session.id,session);bucketFor(session).visits.add(session.id);}
+ for(const event of input.events){
+  const session=eventSessionFor(event) ?? (event.attribution_session_id ? sessionAttribution.get(event.attribution_session_id) : null);
+  const bucket=bucketFor(session),identity=event.attribution_session_id ?? event.event_key ?? `anonymous:${event.event_name}`;
+  const canonical=canonicalEventName(String(event.event_name));
+  if(["service_view","inventory_view","booking_start","availability_check","date_selected","item_added","checkout_started","lead_submitted"].includes(canonical))bucket.itemViews.add(identity);
+  if(canonical==="booking_start")bucket.bookingStarts.add(identity);
+ }
+ for(const booking of input.bookings){
+  if(!bookingCountsForAnalytics(booking.status))continue;
+  const bucket=bucketFor(snapshotFor(booking));if(bucket.bookings.has(booking.booking_id))continue;
+  bucket.bookings.add(booking.booking_id);bucket.revenueCents+=Math.max(0,Number(booking.total_cents ?? 0));
+ }
+ return [...rows.values()].map((row)=>({source:row.source,name:row.name,rawId:row.rawId,isMetaId:row.isMetaId,visits:row.visits.size,itemViews:row.itemViews.size,bookingStarts:row.bookingStarts.size,bookings:row.bookings.size,revenueCents:row.revenueCents})).filter((row)=>row.visits||row.itemViews||row.bookingStarts||row.bookings||row.revenueCents).sort((left,right)=>left.source.localeCompare(right.source)||right.visits-left.visits||left.name.localeCompare(right.name));
 }

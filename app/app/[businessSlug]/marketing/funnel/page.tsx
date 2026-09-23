@@ -6,6 +6,7 @@ import { acquisitionDateRange } from "@/lib/acquisitionReporting";
 import { dateInTimeZone } from "@/lib/bookingTime";
 import {
   attachSessionMetricsToSourceReport,
+  buildCampaignPerformanceReport,
   buildSessionQualityReport,
   buildLandingPageFunnelReport,
   type AttributedBookingRow,
@@ -227,7 +228,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("estimates").select("id,status,created_at,updated_at").eq("business_id", business.id).eq("is_deleted", false).in("status", ["sent", "viewed"]).order("created_at", { ascending: true }).limit(20),
     supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
-    supabase.from("business_google_ads_campaigns").select("id,status,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
+    supabase.from("business_google_ads_campaigns").select("id,status,campaign_name,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
     supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
   ]);
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
@@ -275,6 +276,13 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   );
   const metaPerformanceRows = (campaignSpendResponse.data ?? []) as Array<{ campaign_id: string | null; campaign_name: string | null; adset_id: string | null; adset_name: string | null; ad_id: string | null; ad_name: string | null; spend_amount: number | string | null }>;
   const sessionQuality = buildSessionQualityReport(sessions, { includeAutomated, engagementThresholdMs: defaultSessionEngagementThresholdMs, metaPerformanceRows });
+  const campaignPerformance = buildCampaignPerformanceReport({
+    sessions,
+    events: [...events, ...sessionVisitRows],
+    bookings: attributedBookings,
+    metaPerformanceRows,
+    googleCampaignRows: ((googleCampaignsResponse.data ?? []) as Array<{ google_campaign_id: string | number | null; campaign_name: string | null }>),
+  });
   const spendByCampaign = metaPerformanceRows.reduce<Record<string, number>>((totals, row) => {
     const campaign = row.campaign_name?.trim().toLowerCase();
     if (campaign) totals[campaign] = (totals[campaign] ?? 0) + Math.max(0, Math.round(Number(row.spend_amount ?? 0) * 100));
@@ -313,6 +321,11 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {});
   const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
+  const metaSourceRows = report.summaries.filter((row) => row.source === "facebook" || row.source === "instagram");
+  const trafficSourceRows = [
+    ...report.summaries.filter((row) => row.source !== "facebook" && row.source !== "instagram").map((row) => ({ key: row.source, label: labelForSource(row.source), campaignSource: row.source, visits: row.visits, itemViews: row.engaged, bookingStarts: row.detailedCounts.booking_start ?? 0, bookings: row.detailedCounts.booking_completed ?? 0, revenueCents: row.revenueCents })),
+    ...(metaSourceRows.length ? [{ key: "meta_ads", label: "Meta Ads", campaignSource: "meta_ads", visits: metaSourceRows.reduce((sum, row) => sum + row.visits, 0), itemViews: metaSourceRows.reduce((sum, row) => sum + row.engaged, 0), bookingStarts: metaSourceRows.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0), bookings: metaSourceRows.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0), revenueCents: metaSourceRows.reduce((sum, row) => sum + row.revenueCents, 0) }] : []),
+  ];
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to, spendBySource.google_ads ?? null);
   const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: report.totals.revenueCents, roas: report.totals.roas });
   const aggregatedStepCounts = new Map<string, number>();
@@ -555,7 +568,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
               <article><h3>Source breakdown</h3><div className="marketing-conversion-list">{bucket.sourceBreakdown.length ? bucket.sourceBreakdown.map((entry) => <div key={entry.key}><dt>{entry.label}</dt><dd>{entry.count} · {Math.round(entry.percentage * 100)}%</dd></div>) : <div><dt>No attribution yet</dt><dd>These sessions do not have enough source data yet.</dd></div>}</div></article>
               <article><h3>Landing pages</h3><div className="marketing-conversion-list">{bucket.landingPages.length ? bucket.landingPages.map((entry) => <div key={entry.path}><dt>{entry.path}</dt><dd>{entry.count}</dd></div>) : <div><dt>No landing pages</dt><dd>Historical sessions are missing landing-page detail.</dd></div>}</div></article>
               <article><h3>Device mix</h3><div className="marketing-conversion-list">{bucket.deviceBreakdown.length ? bucket.deviceBreakdown.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.count} · {Math.round(entry.percentage * 100)}%</dd></div>) : <div><dt>Unknown</dt><dd>No device detail yet.</dd></div>}</div></article>
-              <article><h3>Campaigns</h3><div className="marketing-conversion-list">{bucket.campaignBreakdown.length ? bucket.campaignBreakdown.map((entry) => <div key={`${entry.name}-${entry.campaignId ?? "none"}-${entry.source}`}><dt title={entry.campaignId ? `Meta ID: ${entry.campaignId}` : undefined}>{entry.name}</dt><dd>{entry.source}{entry.campaignId ? ` · Meta ID: ${entry.campaignId}` : ""} · {entry.count}</dd></div>) : <div><dt>No campaign detail</dt><dd>Campaign values appear when UTM or click-id data is available.</dd></div>}</div></article>
+              <article><h3>Campaigns</h3><div className="marketing-conversion-list">{bucket.campaignBreakdown.length ? bucket.campaignBreakdown.map((entry) => <div key={`${entry.name}-${entry.campaignId ?? "none"}-${entry.source}`}><dt title={entry.isMetaId && entry.campaignId ? `Meta ID: ${entry.campaignId}` : undefined}>{entry.name}</dt><dd>{entry.source}{entry.isMetaId && entry.campaignId ? ` · Meta ID: ${entry.campaignId}` : ""} · {entry.count}</dd></div>) : <div><dt>No campaign detail</dt><dd>Campaign values appear when UTM or click-id data is available.</dd></div>}</div></article>
               <article><h3>Verification</h3><div className="marketing-conversion-list">{bucket.verificationBreakdown.length ? bucket.verificationBreakdown.map((entry) => <div key={entry.label}><dt>{entry.label}</dt><dd>{entry.count}</dd></div>) : <div><dt>No timing detail</dt><dd>Servonas has not observed client-side timing data yet.</dd></div>}</div></article>
             </div>
             {bucket.insight ? <div className="marketing-session-bucket-note"><strong>{bucket.insight}</strong>{bucket.observation ? <p>{bucket.observation}</p> : null}</div> : null}
@@ -577,7 +590,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="workspace-panel marketing-sources-panel">
       <header><div><h2>Traffic source performance</h2><p>Choose a traffic source above to update the funnel, requested rental dates, most-clicked rentals, bookings, revenue, and insights.</p></div></header>
-      <div className="marketing-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{report.summaries.map((row) => <div key={row.source}><span>{labelForSource(row.source)}</span><span>{row.visits}</span><span>{row.engaged}</span><span>{row.detailedCounts.booking_start ?? 0}</span><span>{row.detailedCounts.booking_completed ?? 0}</span><span>{money(row.revenueCents)}</span></div>)}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
+      <div className="marketing-sources-table marketing-traffic-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{trafficSourceRows.map((row) => {const campaigns=campaignPerformance.filter((campaign) => campaign.source === row.campaignSource);const canExpand=campaigns.length>0 && (row.campaignSource !== "direct" || campaigns.some((campaign) => campaign.name !== "Unattributed"));return canExpand ? <details className="marketing-traffic-source" key={row.key}><summary><span>{row.label}<i aria-hidden="true">⌄</i></span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span></summary><div className="marketing-campaign-drilldown"><div><b>Campaign</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{campaigns.map((campaign) => <div key={`${campaign.name}-${campaign.rawId ?? "none"}`}><span title={campaign.isMetaId && campaign.rawId ? `Meta ID: ${campaign.rawId}` : undefined}>{campaign.name}{campaign.isMetaId && campaign.rawId ? <small>Meta ID: {campaign.rawId}</small> : null}</span><span>{campaign.visits}</span><span>{campaign.itemViews}</span><span>{campaign.bookingStarts}</span><span>{campaign.bookings}</span><span>{money(campaign.revenueCents)}</span></div>)}</div></details> : <div key={row.key}><span>{row.label}</span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span></div>;})}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
     </section>
 
     <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">
