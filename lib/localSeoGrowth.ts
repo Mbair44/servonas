@@ -56,7 +56,8 @@ export function buildLocalGrowthPlan(input:{
    ?{id:"tracking",title:"Local visits and bookings are tracked",explanation:"Servonas uses the existing attribution funnel to connect this landing page with visits, checkout activity, and bookings where available.",status:"complete",actionLabel:null,actionHref:null}
    :{id:"tracking",title:"Track local traffic and bookings",explanation:"Finish the website setup so Servonas can measure visits and booking actions from this page.",status:"waiting",actionLabel:"Review website",actionHref:settingsPath},
  ];
- const order:LocalGrowthStepId[]=["google_business","google_discovery","google_ads","tracking"];
+ // Paid promotion remains available, but an organic local-page prerequisite should lead this plan.
+ const order:LocalGrowthStepId[]=["google_business","google_discovery","tracking","google_ads"];
  const primary=order.map(id=>steps.find(step=>step.id===id)!).find(step=>step.status!=="complete")??null;
  return{
   primary:input.serviceAreaSupported?primary:null,

@@ -29,7 +29,7 @@ const percent = (value: number | null) => value == null ? "—" : `${Math.round(
 const ms = (value: number | null, unavailableLabel = "Active time unavailable") => value == null ? unavailableLabel : value < 1000 ? `${Math.round(value)}ms` : `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sourceOptions = ["all", ...marketingSources] as const;
-const checkoutSteps:[string,string][]=[["checkout_started","Checkout started"],["checkout_addons_viewed","Add-ons viewed"],["checkout_addons_decision","Add-ons continued"],["reservation_details_viewed","Reservation details viewed"],["customer_info_completed","Customer info completed"],["delivery_address_completed","Delivery address completed"],["delivery_fee_presented","Delivery fee presented"],["terms_accepted","Terms accepted"],["payment_cta_clicked","Payment CTA clicked"],["payment_started","Payment started"],["payment_succeeded","Payment succeeded"],["booking_confirmed","Booking confirmed"]];
+const checkoutSteps:[string,string][]=[["checkout_started","Checkout started"],["checkout_addons_viewed","Add-ons viewed"],["checkout_addons_decision","Add-ons continued"],["reservation_details_viewed","Reservation details viewed"],["customer_info_completed","Customer info completed"],["delivery_address_completed","Delivery address completed"],["delivery_quote_requested","Quote requested"],["delivery_fee_presented","Delivery fee presented"],["terms_accepted","Terms accepted"],["payment_cta_clicked","Payment CTA clicked"],["payment_started","Payment started"],["payment_succeeded","Payment succeeded"],["booking_confirmed","Booking confirmed"]];
 const checkoutDropoff=(previous:number,current:number)=>previous>0?`${Math.max(0,Math.round((1-current/previous)*100))}% drop-off`:"—";
 type SourceFilter = typeof sourceOptions[number];
 type BookingItemRow = {
@@ -116,6 +116,7 @@ function CheckoutFunnelDrilldown({ funnel }: { funnel: CheckoutFunnelSummary }) 
       const previous = previousKey === "checkout_addons_decision" ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) : previousKey ? (funnel.checkoutSteps[previousKey] ?? 0) : 0;
       return <span key={key}><b>{label}</b><em>{count}</em>{key === "checkout_addons_decision" && <small>{funnel.checkoutSteps.checkout_addons_skipped ?? 0} skipped · {funnel.checkoutSteps.checkout_addons_added ?? 0} added</small>}<small>{index ? checkoutDropoff(previous, count) : ""}</small></span>;
     })}</div> : <p>No checkout-step data yet.</p>}
+    {(funnel.checkoutSteps.delivery_quote_failed ?? 0) || (funnel.checkoutSteps.delivery_address_ineligible ?? 0) ? <p className="marketing-checkout-reconciliation">Delivery quote outcomes: {funnel.checkoutSteps.delivery_quote_failed ?? 0} failed · {funnel.checkoutSteps.delivery_address_ineligible ?? 0} ineligible/outside service area</p> : null}
     {funnel.completedBookings !== funnel.observedBookingConfirmed ? <p className="marketing-checkout-reconciliation">Attributed completed bookings: {funnel.completedBookings} · Observed booking-confirmed events: {funnel.observedBookingConfirmed}{funnel.completedBookings > funnel.observedBookingConfirmed ? ". Some historical completed bookings do not have a booking-confirmed funnel event." : ""}</p> : null}
   </div>;
 }

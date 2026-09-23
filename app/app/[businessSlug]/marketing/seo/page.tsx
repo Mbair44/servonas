@@ -46,6 +46,7 @@ export default async function LocalSeoPage({
     { data: locationPages },
     { data: googleAdsConnection },
     { data: googleAdGroups },
+    { data: searchConsoleConnection },
   ] = await Promise.all([
     supabase.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,hero_heading,hero_subheading,about_text,photo_urls,google_reviews").eq("business_id", business.id).maybeSingle(),
     supabase.from("services").select("id,name,description,price_amount,price_label,active").eq("business_id", business.id).eq("is_deleted", false).order("name"),
@@ -59,6 +60,7 @@ export default async function LocalSeoPage({
     supabase.from("business_location_pages").select("id,source_location_key,city,state,slug,status,page_title,meta_description,published_at,updated_at").eq("business_id",business.id).neq("status","archived"),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id",business.id).maybeSingle(),
     supabase.from("business_google_ads_ad_groups").select("destination_url,status").eq("business_id",business.id).neq("status","archived"),
+    supabase.from("business_google_search_console_connections").select("status,property_url,last_synced_at,last_error_message").eq("business_id",business.id).maybeSingle(),
   ]);
 
   const profileReviews={reviews:(Array.isArray(website?.google_reviews)?website.google_reviews:[]).filter((review:any)=>review&&typeof review.text==="string").map((review:any,index:number)=>({reviewId:String(review.reviewId??`saved-review-${index}`),author:String(review.author??"Google user"),rating:Number(review.rating??0),text:String(review.text),publishedAt:typeof review.publishedAt==="string"?review.publishedAt:null,reply:typeof review.reply==="string"?review.reply:null})),reviewCount:Array.isArray(website?.google_reviews)?website.google_reviews.length:0};
@@ -155,6 +157,10 @@ export default async function LocalSeoPage({
         <article><strong>{unansweredReviews.length}</strong><span>Reviews awaiting reply</span></article>
         <article><strong>{serviceAreas.length}</strong><span>Configured service areas</span></article>
       </div>
+    </section>
+    <section className="workspace-panel">
+      <header><div><h2>Google Search Console</h2><p>See what people search for before they reach your website. Search performance is separate from Servonas booking attribution.</p></div></header>
+      {searchConsoleConnection?.status==="connected"&&searchConsoleConnection.property_url?<p><strong>Connected</strong> · {searchConsoleConnection.property_url}{searchConsoleConnection.last_synced_at?` · Last synced ${compactDate(searchConsoleConnection.last_synced_at)}`:" · Waiting for first sync"}</p>:<><p>{searchConsoleConnection?.status==="property_selection_required"?"Connected. Select a verified Search Console property to begin reporting.":searchConsoleConnection?.status==="permission_denied"?"Google denied access. Reconnect with access to a verified property.":searchConsoleConnection?.last_error_message||"Connect Search Console to see organic impressions, clicks, queries, and location-page opportunities."}</p><Link className="sv-button" href={`/api/google-search-console/connect/${encodeURIComponent(businessSlug)}`}>Connect Search Console</Link></>}
     </section>
 
     <section className="workspace-panel local-seo-location-opportunities">

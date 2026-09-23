@@ -86,6 +86,9 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  case "customer_info_entered":
  case "customer_info_completed":
  case "delivery_address_completed":
+ case "delivery_quote_requested":
+ case "delivery_quote_failed":
+ case "delivery_address_ineligible":
  case "delivery_fee_presented":
  case "terms_accepted":
  case "payment_cta_clicked":

@@ -228,7 +228,6 @@ export async function POST(request: Request) {
         snapshotBookingAttribution(supabase,{businessId:business.id,bookingId:booking.booking_id,sessionId}),
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"booking_started",bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null},bookingTotalCents:totalCents,currency:"USD"}),
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"checkout_started",bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length,source:"server_booking_created"},bookingTotalCents:totalCents,currency:"USD"}),
-        recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"customer_info_completed",eventKey:`${booking.booking_id}:customer_info_completed`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,metadata:{source:"checkout"},bookingTotalCents:totalCents,currency:"USD"}),
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"delivery_address_completed",eventKey:`${booking.booking_id}:delivery_address_completed`,bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,metadata:{source:"checkout"},bookingTotalCents:totalCents,currency:"USD"}),
       ]);
     }
