@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildCampaignPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -67,6 +67,28 @@ test("session-quality names are resolved only from the supplied tenant Meta rows
  assert.equal(report.buckets.find((bucket)=>bucket.key==="one_to_four_seconds")?.details[0]?.metaAttributionName?.name,"Tenant A campaign");
  const noTenantRows=buildSessionQualityReport(sessions,{metaPerformanceRows:[]});
  assert.equal(noTenantRows.buckets.find((bucket)=>bucket.key==="one_to_four_seconds")?.details[0]?.metaAttributionName,null);
+});
+
+test("campaign performance combines Meta placements, resolves IDs, and retains unattributed traffic",()=>{
+ const sessions=[
+  {id:"facebook",utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"120251788722360024"},
+  {id:"instagram",utm_source:"instagram",utm_medium:"paid_social",utm_campaign:"120251788722360024"},
+  {id:"unknown-meta",utm_source:"facebook",utm_medium:"paid_social"},
+  {id:"friendly",utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"link_in_bio"},
+ ];
+ const rows=buildCampaignPerformanceReport({sessions,events:[
+  {event_name:"landing_view",attribution_session_id:"facebook"},{event_name:"booking_started",attribution_session_id:"instagram"},
+ ],bookings:[{booking_id:"b1",status:"confirmed",total_cents:11250,booking_attribution_snapshots:{utm_source:"instagram",utm_medium:"paid_social",utm_campaign:"120251788722360024"}}],metaPerformanceRows:[{campaign_id:"120251788722360024",campaign_name:"Fall Discount",adset_id:null,adset_name:null,ad_id:null,ad_name:null}]});
+ const campaign=rows.find((row)=>row.name==="Fall Discount");
+ assert.equal(campaign?.source,"meta_ads");assert.equal(campaign?.visits,2);assert.equal(campaign?.bookingStarts,1);assert.equal(campaign?.bookings,1);assert.equal(campaign?.revenueCents,11250);
+ assert.equal(rows.find((row)=>row.name==="link_in_bio")?.isMetaId,false);
+ assert.equal(rows.find((row)=>row.name==="Unattributed")?.visits,1);
+});
+
+test("campaign performance uses a tenant's Google campaign name without cross-tenant fallback",()=>{
+ const rows=buildCampaignPerformanceReport({sessions:[{id:"google",utm_source:"google",utm_medium:"cpc",utm_campaign:"12345"}],events:[],bookings:[],googleCampaignRows:[{google_campaign_id:"12345",campaign_name:"Gilbert rentals"}]});
+ assert.equal(rows[0]?.name,"Gilbert rentals");
+ assert.equal(buildCampaignPerformanceReport({sessions:[{id:"other",utm_source:"google",utm_medium:"cpc",utm_campaign:"12345"}],events:[],bookings:[],googleCampaignRows:[]})[0]?.name,"12345");
 });
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{
