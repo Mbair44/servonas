@@ -32,7 +32,7 @@ function parseDateState(value:string|undefined){
 export async function generateMetadata({params}:{params:Promise<{businessSlug:string}>}):Promise<Metadata>{
   const {businessSlug}=await params,data=await loadPublicBookingData(businessSlug);
   if(!data)return {};
-  return {title:`Complete Reservation | ${data.businessName??"Business"}`,icons:data.bookingLogo?{icon:[{url:data.bookingLogo}],shortcut:data.bookingLogo,apple:data.bookingLogo}:undefined};
+  return {title:`Complete Reservation | ${data.businessName??"Business"}`,robots:{index:false,follow:true},icons:data.bookingLogo?{icon:[{url:data.bookingLogo}],shortcut:data.bookingLogo,apple:data.bookingLogo}:undefined};
 }
 
 export default async function PublicBookingCheckoutPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{embed?:string;promotion?:string;sv_at?:string;cartState?:string;dateState?:string}>}){

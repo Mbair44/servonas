@@ -10,6 +10,7 @@ import {TemporarySiteUnavailable} from "@/components/TemporarySiteUnavailable";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
 import {normalizeWebsiteDomain} from "@/lib/website";
 import {loadPublicBookingData} from "@/app/book/[businessSlug]/loadPublicBookingData";
+import {tenantMetadata} from "@/lib/publicTenantSeo";
 
 function parseCartState(value:string|undefined){
  if(!value)return undefined;
@@ -36,7 +37,7 @@ export async function generateMetadata({params}:{params:Promise<{domain:string}>
  if(!domain)return {};
  const record=await loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]/booking");
  if(record.kind!=="ok")return {};
- return {title:`Complete Reservation | ${record.site.name}`,description:record.site.heroSubheading,icons:record.site.logoUrl?{icon:[{url:record.site.logoUrl}],shortcut:record.site.logoUrl,apple:record.site.logoUrl}:undefined};
+ return {...tenantMetadata({settings:record.settings,fallbackBase:`https://${domain}`,path:"/booking/checkout",title:`Complete Reservation | ${record.site.name}`,description:record.site.heroSubheading,index:false}),icons:record.site.logoUrl?{icon:[{url:record.site.logoUrl}],shortcut:record.site.logoUrl,apple:record.site.logoUrl}:undefined};
 }
 
 export default async function CustomDomainBookingCheckoutPage({params,searchParams}:{params:Promise<{domain:string}>;searchParams:Promise<{embed?:string;promotion?:string;sv_at?:string;cartState?:string;dateState?:string;meta_event_id?:string}>}){
