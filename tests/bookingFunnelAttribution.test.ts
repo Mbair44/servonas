@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -45,6 +45,28 @@ test("normalizes Meta attribution into human-readable hierarchy fields",()=>{
  assert.equal(normalized.campaignId,"9911");
  assert.equal(normalized.adSetName,"Phoenix Ad Set");
  assert.equal(normalized.adName,"Carousel Ad");
+});
+
+test("resolves numeric Meta campaign IDs from tenant-synced performance rows",()=>{
+ const resolved=resolveMetaAttributionName({utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"120251788722360024"},[
+  {campaign_id:"120251788722360024",campaign_name:"CSB – Tiered Fall Discount – Sep 2026",adset_id:null,adset_name:null,ad_id:null,ad_name:null},
+ ]);
+ assert.deepEqual(resolved,{name:"CSB – Tiered Fall Discount – Sep 2026",rawId:"120251788722360024",level:"campaign"});
+});
+
+test("prefers campaign names, preserves friendly UTMs, and falls back when Meta data is unavailable",()=>{
+ const rows=[{campaign_id:"campaign-id",campaign_name:"Campaign",adset_id:"120251788722360025",adset_name:"East Valley parents",ad_id:"120251788722360026",ad_name:"Pumpkin static"}];
+ assert.deepEqual(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_term:"120251788722360025"},rows),{name:"East Valley parents",rawId:"120251788722360025",level:"adset"});
+ assert.equal(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_campaign:"pumpkin_static"},rows),null);
+ assert.equal(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_campaign:"120251788722360024"},[]),null);
+});
+
+test("session-quality names are resolved only from the supplied tenant Meta rows",()=>{
+ const sessions=[{id:"tenant-a",utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"120251788722360024",total_session_duration_milliseconds:1000}];
+ const report=buildSessionQualityReport(sessions,{metaPerformanceRows:[{campaign_id:"120251788722360024",campaign_name:"Tenant A campaign",adset_id:null,adset_name:null,ad_id:null,ad_name:null}]});
+ assert.equal(report.buckets.find((bucket)=>bucket.key==="one_to_four_seconds")?.details[0]?.metaAttributionName?.name,"Tenant A campaign");
+ const noTenantRows=buildSessionQualityReport(sessions,{metaPerformanceRows:[]});
+ assert.equal(noTenantRows.buckets.find((bucket)=>bucket.key==="one_to_four_seconds")?.details[0]?.metaAttributionName,null);
 });
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{
