@@ -23,10 +23,11 @@ test("auto-applied landing offer hides the promo entry and address selection pre
 });
 
 test("checkout funnel events are idempotent through the existing event ledger",async()=>{
- const [events,route,migration,webhook]=await Promise.all([
-  read("lib/bookingFunnel.ts"),read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("supabase/migrations/20260921000600_expand_checkout_funnel_events.sql"),read("app/api/stripe/webhook/route.ts"),
+ const [events,route,migration,addonMigration,webhook]=await Promise.all([
+  read("lib/bookingFunnel.ts"),read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("supabase/migrations/20260921000600_expand_checkout_funnel_events.sql"),read("supabase/migrations/20260922000200_add_checkout_addon_funnel_events.sql"),read("app/api/stripe/webhook/route.ts"),
  ]);
  for(const name of ["checkout_addons_viewed","checkout_addons_skipped","checkout_addons_added","reservation_details_viewed","customer_info_completed","delivery_address_completed","terms_accepted","payment_cta_clicked","payment_started","payment_succeeded","booking_confirmed"])assert.match(events,new RegExp(`"${name}"`));
+ for(const name of ["checkout_addons_viewed","checkout_addons_skipped","checkout_addons_added","reservation_details_viewed"])assert.match(addonMigration,new RegExp(`'${name}'`));
  assert.match(route,/case "payment_started"/);
  assert.match(migration,/payment_succeeded/);
  assert.match(webhook,/eventKey:`\$\{bookingId\}:payment_succeeded`/);

@@ -12,6 +12,7 @@ import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {normalizeWebsiteDomain} from "@/lib/website";
 import {submitPublicBooking} from "@/app/book/[businessSlug]/actions";
 import {loadPublicBookingData} from "@/app/book/[businessSlug]/loadPublicBookingData";
+import {tenantMetadata} from "@/lib/publicTenantSeo";
 
 export const dynamic="force-dynamic";
 
@@ -20,7 +21,7 @@ export async function generateMetadata({params}:{params:Promise<{domain:string}>
  if(!domain)return {};
  const record=await loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]/booking");
  if(record.kind!=="ok")return {};
- return {title:`Book Online | ${record.site.name}`,description:record.site.heroSubheading,icons:record.site.logoUrl?{icon:[{url:record.site.logoUrl}],shortcut:record.site.logoUrl,apple:record.site.logoUrl}:undefined};
+ return {...tenantMetadata({settings:record.settings,fallbackBase:`https://${domain}`,path:"/booking",title:`Book Online | ${record.site.name}`,description:record.site.heroSubheading,index:false}),icons:record.site.logoUrl?{icon:[{url:record.site.logoUrl}],shortcut:record.site.logoUrl,apple:record.site.logoUrl}:undefined};
 }
 
 export default async function CustomDomainBookingPage({params,searchParams}:{params:Promise<{domain:string}>;searchParams:Promise<{error?:string;embed?:string;item?:string;promotion?:string;promotionId?:string;returnTo?:string;sv_at?:string;checkout?:string;checkoutUrl?:string}>}){

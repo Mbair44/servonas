@@ -36,7 +36,7 @@ test("Meta CAPI keeps the canonical durable claim and logs resolvable PostgREST 
 
 test("funnel event writes guarantee their composite session parent and retain strict event validation",async()=>{
  const [route,schema,constraint]=await Promise.all([read("app/api/public-booking/[businessSlug]/funnel/route.ts"),read("supabase/migrations/20260817000100_booking_funnel_attribution.sql"),read("supabase/migrations/20260915000200_sync_current_booking_funnel_events.sql")]);
- const parent=route.indexOf('from("booking_attribution_sessions").insert(sessionSeed)');
+ const parent=route.indexOf('from("booking_attribution_sessions").upsert(sessionSeed');
  const event=route.indexOf('from("booking_funnel_events").insert(row)');
  assert.ok(parent>0&&event>parent);
  assert.match(schema,/foreign key \(business_id, attribution_session_id\) references public\.booking_attribution_sessions\(business_id,id\)/);
@@ -47,10 +47,11 @@ test("funnel event writes guarantee their composite session parent and retain st
  assert.match(route,/normalizeMarketingSource\(body\.attribution\)/);
 });
 
-test("concurrent initial heartbeats use an atomic id conflict and preserve first touch",async()=>{
+test("concurrent initial heartbeats use the composite conflict target and preserve first touch",async()=>{
  const route=await read("app/api/public-booking/[businessSlug]/funnel/route.ts");
- assert.match(route,/\.upsert\(sessionRow,\{onConflict:"id",ignoreDuplicates:true\}\)/);
+ assert.match(route,/\.upsert\(sessionRow,\{onConflict:"business_id,id",ignoreDuplicates:true\}\)/);
  assert.match(route,/existing\?db\.from\("booking_attribution_sessions"\)\.update\(sessionRow\)/);
+ assert.match(route,/stage:"session_race_update"/);
  assert.match(route,/first_landing_url:clean\(body\.landingUrl/);
 });
 
