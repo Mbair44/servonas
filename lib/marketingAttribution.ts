@@ -113,7 +113,9 @@ export type AutomatedTrafficClassification="human_likely"|"automated_likely"|"un
 export type SessionVerificationStatus="verified_activity"|"unverified_activity";
 export type AttributionBreakdownEntry={label:string;count:number;};
 export type SessionAttributionBreakdown={providerLabel:string;platformLabel:string|null;channelLabel:string|null;campaignName:string|null;campaignId:string|null;adSetName:string|null;adSetId:string|null;adName:string|null;adId:string|null;rawUtmSource:string|null;rawUtmMedium:string|null;rawUtmCampaign:string|null;rawUtmTerm:string|null;rawUtmContent:string|null;rawUtmId:string|null;fbclid:string|null;gclid:string|null;gbraid:string|null;wbraid:string|null;rawLandingUrl:string|null;};
-export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;verificationStatus:SessionVerificationStatus;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;attribution:SessionAttributionBreakdown;};
+export type MetaPerformanceNameRow={campaign_id:string|null;campaign_name:string|null;adset_id:string|null;adset_name:string|null;ad_id:string|null;ad_name:string|null;};
+export type MetaAttributionName={name:string;rawId:string;level:"campaign"|"adset"|"ad";};
+export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;verificationStatus:SessionVerificationStatus;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;attribution:SessionAttributionBreakdown;metaAttributionName:MetaAttributionName|null;};
 export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;verifiedSessions:number;unverifiedSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;source:string;count:number}>;verificationBreakdown:AttributionBreakdownEntry[];insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number;trafficSources:AttributionBreakdownEntry[];campaigns:AttributionBreakdownEntry[];devices:AttributionBreakdownEntry[];}>;primaryInsight:string|null;supportingObservation:string|null;};
 
 export const defaultSessionEngagementThresholdMs=10_000;
@@ -352,6 +354,32 @@ function splitMetaUtmContent(value:string|null|undefined){
  return {adSetId:tokens[0] ?? null,adId:tokens[1] ?? null};
 }
 
+function numericMetaId(value:string|null|undefined){
+ const trimmed=cleanCampaignToken(value);
+ return trimmed && /^\d{6,30}$/.test(trimmed) ? trimmed : null;
+}
+
+/** Resolves numeric Meta UTM identifiers from the tenant's already-synced reporting rows. */
+export function resolveMetaAttributionName(session:AttributionSessionLike&{utm_id?:string|null},rows:MetaPerformanceNameRow[]):MetaAttributionName|null{
+ if(normalizeSessionAttribution(session).providerLabel!=="Meta Ads")return null;
+ const ids=[session.utm_campaign,session.utm_term,session.utm_content,session.utm_id]
+  .map(numericMetaId).filter((id):id is string=>Boolean(id));
+ if(!ids.length)return null;
+ const levels:[MetaAttributionName["level"],keyof MetaPerformanceNameRow,keyof MetaPerformanceNameRow][]=[
+  ["campaign","campaign_id","campaign_name"],
+  ["adset","adset_id","adset_name"],
+  ["ad","ad_id","ad_name"],
+ ];
+ for(const [level,idField,nameField] of levels){
+  for(const id of ids){
+   const row=rows.find((candidate)=>String(candidate[idField] ?? "").trim()===id);
+   const name=row ? cleanCampaignToken(String(row[nameField] ?? "")) : null;
+   if(name)return {name,rawId:id,level};
+  }
+ }
+ return null;
+}
+
 export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_id?:string|null;first_landing_url?:string|null;}):SessionAttributionBreakdown{
  const utmSource=cleanValue(session.utm_source).toLowerCase();
  const utmMedium=cleanValue(session.utm_medium).toLowerCase();
@@ -492,7 +520,7 @@ function bucketObservation(details:SessionQualityDetail[]){
  return {insight:null,observation:null};
 }
 
-export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[],input:{includeAutomated?:boolean;engagementThresholdMs?:number}={}):SessionQualityReport{
+export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[],input:{includeAutomated?:boolean;engagementThresholdMs?:number;metaPerformanceRows?:MetaPerformanceNameRow[]}={}):SessionQualityReport{
  const includeAutomated=input.includeAutomated ?? true;
  const engagementThresholdMs=input.engagementThresholdMs ?? defaultSessionEngagementThresholdMs;
  const details=sessions.map((session):SessionQualityDetail=>{
@@ -520,6 +548,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
    engagementClassification:sessionEngagementClassification(session,engagementThresholdMs),
    automatedClassification,
    attribution,
+   metaAttributionName:resolveMetaAttributionName(session,input.metaPerformanceRows ?? []),
   };
  });
  const visibleDetails=includeAutomated?details:details.filter((detail)=>detail.automatedClassification!=="automated_likely");
@@ -533,10 +562,12 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   for(const detail of bucketDetails){
    sourceCounts.set(detail.source,(sourceCounts.get(detail.source) ?? 0)+1);
    landingCounts.set(detail.landingPage,(landingCounts.get(detail.landingPage) ?? 0)+1);
-   deviceCounts.set(detail.device,(deviceCounts.get(detail.device) ?? 0)+1);
-   if(detail.campaignName || detail.campaignId){
-    const key=`${detail.campaignName ?? "Unknown"}:${detail.campaignId ?? ""}:${detail.sourceLabel}`;
-    const current=campaignCounts.get(key) ?? {name:detail.campaignName ?? "Unknown campaign",campaignId:detail.campaignId,source:detail.sourceLabel,count:0};
+  deviceCounts.set(detail.device,(deviceCounts.get(detail.device) ?? 0)+1);
+  if(detail.campaignName || detail.campaignId){
+    const name=detail.metaAttributionName?.name ?? detail.campaignName ?? detail.campaignId ?? "Unknown campaign";
+    const campaignId=detail.metaAttributionName?.rawId ?? detail.campaignId;
+    const key=`${name}:${campaignId ?? ""}:${detail.sourceLabel}`;
+    const current=campaignCounts.get(key) ?? {name,campaignId,source:detail.sourceLabel,count:0};
     current.count+=1;
     campaignCounts.set(key,current);
    }
@@ -568,7 +599,8 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
   if(detail.sessionLengthMs != null){current.totalDurationMs+=detail.sessionLengthMs;current.durationCount+=1;}
   if(/booking_cta_click|phone_click|sms_click|email_click|button_click/i.test(detail.firstInteraction ?? ""))current.ctaCount+=1;
   current.trafficSources.set(detail.attribution.providerLabel,(current.trafficSources.get(detail.attribution.providerLabel) ?? 0)+1);
-  if(detail.attribution.campaignName)current.campaigns.set(detail.attribution.campaignName,(current.campaigns.get(detail.attribution.campaignName) ?? 0)+1);
+  const campaignName=detail.metaAttributionName?.name ?? detail.attribution.campaignName;
+  if(campaignName)current.campaigns.set(campaignName,(current.campaigns.get(campaignName) ?? 0)+1);
   current.devices.set(detail.device,(current.devices.get(detail.device) ?? 0)+1);
   map.set(detail.landingPage,current);
   return map;
@@ -582,8 +614,9 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
  }else{
   const leadingCampaign=new Map<string,number>();
   for(const detail of quickExitSessions){
-   if(!detail.campaignName)continue;
-   const key=`${detail.campaignName}:${detail.sourceLabel}`;
+   const campaignName=detail.metaAttributionName?.name ?? detail.campaignName;
+   if(!campaignName)continue;
+   const key=`${campaignName}:${detail.sourceLabel}`;
    leadingCampaign.set(key,(leadingCampaign.get(key) ?? 0)+1);
   }
   const topCampaign=[...leadingCampaign.entries()].sort((left,right)=>right[1]-left[1])[0];
