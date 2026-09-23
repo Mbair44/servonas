@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildCampaignPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildCampaignPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourceCheckoutFunnelReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -51,14 +51,22 @@ test("resolves numeric Meta campaign IDs from tenant-synced performance rows",()
  const resolved=resolveMetaAttributionName({utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"120251788722360024"},[
   {campaign_id:"120251788722360024",campaign_name:"CSB – Tiered Fall Discount – Sep 2026",adset_id:null,adset_name:null,ad_id:null,ad_name:null},
  ]);
- assert.deepEqual(resolved,{name:"CSB – Tiered Fall Discount – Sep 2026",rawId:"120251788722360024",level:"campaign"});
+ assert.deepEqual(resolved,{name:"CSB – Tiered Fall Discount – Sep 2026",rawId:"120251788722360024",level:"campaign",campaignName:"CSB – Tiered Fall Discount – Sep 2026",campaignId:"120251788722360024"});
 });
 
 test("prefers campaign names, preserves friendly UTMs, and falls back when Meta data is unavailable",()=>{
  const rows=[{campaign_id:"campaign-id",campaign_name:"Campaign",adset_id:"120251788722360025",adset_name:"East Valley parents",ad_id:"120251788722360026",ad_name:"Pumpkin static"}];
- assert.deepEqual(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_term:"120251788722360025"},rows),{name:"East Valley parents",rawId:"120251788722360025",level:"adset"});
+ assert.deepEqual(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_term:"120251788722360025"},rows),{name:"East Valley parents",rawId:"120251788722360025",level:"adset",campaignName:"Campaign",campaignId:"campaign-id"});
  assert.equal(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_campaign:"pumpkin_static"},rows),null);
  assert.equal(resolveMetaAttributionName({utm_source:"ig",utm_medium:"paid_social",utm_campaign:"120251788722360024"},[]),null);
+});
+
+test("resolves Meta UTM fields by their intended resource type before cross-level fallback",()=>{
+ const rows=[{campaign_id:"campaign-1",campaign_name:"Tiered Fall Discount",adset_id:"120251997988000024",adset_name:"Tiered Fall Discount",ad_id:"120251997988010024",ad_name:"Tiered Fall Discount"}];
+ assert.equal(resolveMetaAttributionName({utm_source:"facebook",utm_term:"120251997988000024"},rows)?.level,"adset");
+ assert.equal(resolveMetaAttributionName({utm_source:"facebook",utm_content:"120251997988010024"},rows)?.level,"ad");
+ assert.equal(resolveMetaAttributionName({utm_source:"facebook",utm_id:"campaign-1"},rows),null);
+ assert.equal(resolveMetaAttributionName({utm_source:"facebook",utm_campaign:"120251997988000024"},rows)?.level,"adset");
 });
 
 test("session-quality names are resolved only from the supplied tenant Meta rows",()=>{
@@ -402,4 +410,39 @@ test("landing performance renders a compact checkout drill-down",async()=>{
  assert.match(page,/checkoutDropoff/);
  assert.match(styles,/\.marketing-session-landing-table>details\{display:block;min-width:1480px\}/);
  assert.match(styles,/\.marketing-checkout-drilldown>div\{grid-template-columns:repeat\(8,minmax\(0,1fr\)\);overflow:visible\}/);
+});
+
+test("traffic source rows reuse the checkout funnel drill-down and allow one open source",async()=>{
+ const page=await readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8");
+ assert.match(page,/buildSourceCheckoutFunnelReport/);
+ assert.match(page,/name="traffic-source"/);
+ assert.match(page,/<CheckoutFunnelDrilldown funnel=\{funnel\}\/>/);
+ assert.match(page,/Observed booking-confirmed events/);
+});
+
+test("source checkout funnels preserve first-touch source filtering and distinguish observed confirmations",()=>{
+ const sessions=[
+  {id:"fb",first_landing_path:"/fall-party-special",utm_source:"facebook"},
+  {id:"ig",first_landing_path:"/fall-party-special",utm_source:"instagram"},
+  {id:"google",first_landing_path:"/fall-party-special",utm_source:"google",utm_medium:"cpc"},
+  {id:"direct",first_landing_path:"/fall-party-special"},
+ ];
+ const events=[
+  {event_name:"checkout_started",attribution_session_id:"fb",event_key:"fb-start",booking_attribution_sessions:sessions[0]},
+  {event_name:"booking_confirmed",attribution_session_id:"fb",event_key:"fb-confirmed",booking_attribution_sessions:sessions[0]},
+  {event_name:"checkout_started",attribution_session_id:"ig",event_key:"ig-start",booking_attribution_sessions:sessions[1]},
+  {event_name:"checkout_started",attribution_session_id:"google",event_key:"google-start",booking_attribution_sessions:sessions[2]},
+  {event_name:"checkout_started",attribution_session_id:"direct",event_key:"direct-start",booking_attribution_sessions:sessions[3]},
+ ];
+ const bookings=[
+  {booking_id:"fb-booking",status:"confirmed",total_cents:10000,booking_attribution_snapshots:sessions[0]},
+  {booking_id:"ig-booking",status:"confirmed",total_cents:12000,booking_attribution_snapshots:sessions[1]},
+  {booking_id:"google-booking",status:"confirmed",total_cents:9000,booking_attribution_snapshots:sessions[2]},
+ ];
+ const meta=buildSourceCheckoutFunnelReport({source:"meta_ads",sessions,events,bookings});
+ assert.equal(meta.checkoutStarts,2);
+ assert.equal(meta.observedBookingConfirmed,1);
+ assert.equal(meta.completedBookings,2);
+ assert.equal(buildSourceCheckoutFunnelReport({source:"google_ads",sessions,events,bookings}).checkoutStarts,1);
+ assert.equal(buildSourceCheckoutFunnelReport({source:"direct",sessions,events,bookings}).checkoutStarts,1);
 });
