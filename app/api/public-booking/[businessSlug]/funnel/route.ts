@@ -86,6 +86,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  case "customer_info_entered":
  case "customer_info_completed":
  case "delivery_address_completed":
+ case "delivery_fee_presented":
  case "terms_accepted":
  case "payment_cta_clicked":
  case "payment_started":
@@ -95,7 +96,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  case "checkout_addons_skipped":
  case "checkout_addons_added":
  case "reservation_details_viewed":
-  parts.push(clean(body.path,1000),clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""));
+  parts.push(clean(body.path,1000),clean(body.serviceId,100)||"none",String(metadata.date??""),String(metadata.source_flow??""),String(metadata.item_count??""),String(metadata.delivery_fee_cents??""),String(metadata.final_total_cents??""));
   break;
  default:
   return null;
