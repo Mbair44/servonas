@@ -5,7 +5,7 @@ import { canManageBusiness } from "@/lib/access";
 import { buildLocalSeoReport, type LocalSeoLocationInput } from "@/lib/localSeo";
 import {buildLocalGrowthPlan} from "@/lib/localSeoGrowth";
 import {addLocalSeoLocation,buildLocationPage,saveLocalSeoDraft,selectSearchConsoleProperty,updateLocalSeoRecommendationState} from "./actions";
-import {propertyMatchesDomain,syncSearchConsole} from "@/lib/googleSearchConsole";
+import {ensureSearchConsoleProperties,propertyMatchesDomain,syncSearchConsole} from "@/lib/googleSearchConsole";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {LocationPageSubmit} from "@/components/LocationPageSubmit";
 
@@ -67,7 +67,14 @@ export default async function LocalSeoPage({
   // OAuth credentials are deliberately RLS-private; expose only safe status and aggregates through this authorized server page.
   const searchConsoleDb=getSupabaseAdmin();
   const searchConsoleResult=searchConsoleDb?await searchConsoleDb.from("business_google_search_console_connections").select("status,property_url,available_properties,last_synced_at,last_error_message").eq("business_id",business.id).maybeSingle():{data:null,error:{message:"Search Console storage is unavailable."}};
-  const searchConsoleState=searchConsoleResult.data??searchConsoleConnection;
+  let searchConsoleState=searchConsoleResult.data??searchConsoleConnection;
+  if(searchConsoleState?.status==="property_selection_required"&&!Array.isArray(searchConsoleState.available_properties)){
+    const discovery=await ensureSearchConsoleProperties(business.id);
+    searchConsoleState={...searchConsoleState,available_properties:discovery.properties,status:discovery.status==="discovered"||discovery.status==="cached"?"property_selection_required":discovery.status==="empty"?"error":searchConsoleState.status,last_error_message:discovery.status==="empty"?"No Search Console properties found for this Google account.":searchConsoleState.last_error_message};
+  }else if(searchConsoleState?.status==="property_selection_required"&&Array.isArray(searchConsoleState.available_properties)&&searchConsoleState.available_properties.length===0){
+    const discovery=await ensureSearchConsoleProperties(business.id);
+    searchConsoleState={...searchConsoleState,available_properties:discovery.properties,status:discovery.status==="discovered"||discovery.status==="cached"?"property_selection_required":discovery.status==="empty"?"error":searchConsoleState.status,last_error_message:discovery.status==="empty"?"No Search Console properties found for this Google account.":searchConsoleState.last_error_message};
+  }
   if(searchConsoleState?.status==="connected"&&searchConsoleState.property_url)await syncSearchConsole({businessId:business.id});
   const {data:searchConsoleRows}=searchConsoleDb&&searchConsoleState?.property_url?await searchConsoleDb.from("business_google_search_console_rows").select("page_url,query,clicks,impressions,ctr,position,synced_at").eq("business_id",business.id).eq("property_url",searchConsoleState.property_url):{data:[]};
 
