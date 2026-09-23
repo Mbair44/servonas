@@ -9,6 +9,8 @@ import {
   buildCampaignPerformanceReport,
   buildSessionQualityReport,
   buildLandingPageFunnelReport,
+  buildSourceCheckoutFunnelReport,
+  type CheckoutFunnelSummary,
   type AttributedBookingRow,
   buildSourcePerformanceReport,
   defaultSessionEngagementThresholdMs,
@@ -100,6 +102,22 @@ function normalizeSourceForRow(row: FunnelEventRow) {
 
 function sourceMatches(row: FunnelEventRow, source: SourceFilter) {
   return source === "all" || normalizeSourceForRow(row) === source;
+}
+
+function CheckoutFunnelDrilldown({ funnel }: { funnel: CheckoutFunnelSummary }) {
+  const hasObservedSteps = checkoutSteps.some(([key]) => key === "checkout_addons_decision"
+    ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) > 0
+    : (funnel.checkoutSteps[key] ?? 0) > 0);
+  return <div className="marketing-checkout-drilldown">
+    <strong>Checkout funnel</strong>
+    {hasObservedSteps ? <div>{checkoutSteps.map(([key, label], index) => {
+      const count = key === "checkout_addons_decision" ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) : (funnel.checkoutSteps[key] ?? 0);
+      const previousKey = checkoutSteps[index - 1]?.[0];
+      const previous = previousKey === "checkout_addons_decision" ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) : previousKey ? (funnel.checkoutSteps[previousKey] ?? 0) : 0;
+      return <span key={key}><b>{label}</b><em>{count}</em>{key === "checkout_addons_decision" && <small>{funnel.checkoutSteps.checkout_addons_skipped ?? 0} skipped · {funnel.checkoutSteps.checkout_addons_added ?? 0} added</small>}<small>{index ? checkoutDropoff(previous, count) : ""}</small></span>;
+    })}</div> : <p>No checkout-step data yet.</p>}
+    {funnel.completedBookings !== funnel.observedBookingConfirmed ? <p className="marketing-checkout-reconciliation">Attributed completed bookings: {funnel.completedBookings} · Observed booking-confirmed events: {funnel.observedBookingConfirmed}{funnel.completedBookings > funnel.observedBookingConfirmed ? ". Some historical completed bookings do not have a booking-confirmed funnel event." : ""}</p> : null}
+  </div>;
 }
 
 function queryString(values: Record<string, string | undefined | null>) {
@@ -212,13 +230,13 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
   const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse] = await Promise.all([
-    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
+    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("business_ad_platform_daily_performance").select("campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend_amount").eq("business_id", business.id).eq("provider", "meta").gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
-    supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
+    supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
     supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
     supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
     supabase.from("business_website_settings").select("status,custom_domain,public_slug,request_service_enabled,booking_enabled").eq("business_id", business.id).maybeSingle(),
@@ -229,7 +247,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_google_ads_campaigns").select("id,status,campaign_name,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
-    supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
+    supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
   ]);
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
@@ -245,6 +263,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     utm_campaign?: string | null;
     utm_content?: string | null;
     utm_term?: string | null;
+    utm_id?: string | null;
     first_referrer?: string | null;
     first_landing_url?: string | null;
     first_landing_path?: string | null;
@@ -289,6 +308,10 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     return totals;
   }, {});
   const landingPageFunnel = buildLandingPageFunnelReport({ sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings, spendByCampaign });
+  const sourceCheckoutFunnels = new Map([
+    ["meta_ads", buildSourceCheckoutFunnelReport({ source: "meta_ads", sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings })],
+    ...marketingSources.map((trafficSource) => [trafficSource, buildSourceCheckoutFunnelReport({ source: trafficSource, sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings })] as const),
+  ]);
   const timedDurationSeconds = sessions.flatMap((session) => session.total_session_duration_milliseconds == null ? [] : [Math.max(0, Number(session.total_session_duration_milliseconds) / 1000)]).sort((left, right) => left - right);
   const timingDiagnostics = {
     available: timedDurationSeconds.length,
@@ -590,7 +613,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
 
     <section className="workspace-panel marketing-sources-panel">
       <header><div><h2>Traffic source performance</h2><p>Choose a traffic source above to update the funnel, requested rental dates, most-clicked rentals, bookings, revenue, and insights.</p></div></header>
-      <div className="marketing-sources-table marketing-traffic-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{trafficSourceRows.map((row) => {const campaigns=campaignPerformance.filter((campaign) => campaign.source === row.campaignSource);const canExpand=campaigns.length>0 && (row.campaignSource !== "direct" || campaigns.some((campaign) => campaign.name !== "Unattributed"));return canExpand ? <details className="marketing-traffic-source" key={row.key}><summary><span>{row.label}<i aria-hidden="true">⌄</i></span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span></summary><div className="marketing-campaign-drilldown"><div><b>Campaign</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{campaigns.map((campaign) => <div key={`${campaign.name}-${campaign.rawId ?? "none"}`}><span title={campaign.isMetaId && campaign.rawId ? `Meta ID: ${campaign.rawId}` : undefined}>{campaign.name}{campaign.isMetaId && campaign.rawId ? <small>Meta ID: {campaign.rawId}</small> : null}</span><span>{campaign.visits}</span><span>{campaign.itemViews}</span><span>{campaign.bookingStarts}</span><span>{campaign.bookings}</span><span>{money(campaign.revenueCents)}</span></div>)}</div></details> : <div key={row.key}><span>{row.label}</span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span></div>;})}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
+      <div className="marketing-sources-table marketing-traffic-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{trafficSourceRows.map((row) => {const campaigns=campaignPerformance.filter((campaign) => campaign.source === row.campaignSource);const sourceKey=row.campaignSource==="meta_ads"?"meta_ads":row.campaignSource;const funnel=sourceCheckoutFunnels.get(sourceKey);return <details className="marketing-traffic-source" key={row.key} name="traffic-source"><summary><span>{row.label}<i aria-hidden="true">⌄</i></span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span></summary>{funnel?<CheckoutFunnelDrilldown funnel={funnel}/>:null}{campaigns.length?<div className="marketing-campaign-drilldown"><div><b>Campaign / resource</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{campaigns.map((campaign) => {const level=campaign.resourceLevel===null?null:campaign.resourceLevel==="adset"?"Ad Set":campaign.resourceLevel[0].toUpperCase()+campaign.resourceLevel.slice(1),parent=campaign.resourceLevel&&campaign.resourceLevel!=="campaign"?(campaign.campaignName??"Campaign unavailable"):null;return <div key={`${campaign.resourceLevel??"utm"}-${campaign.name}-${campaign.rawId ?? "none"}`}><span title={campaign.isMetaId && campaign.rawId ? `Meta ID: ${campaign.rawId}` : undefined}>{parent?<><strong>{parent}</strong><small>{level}: {campaign.name}</small></>:campaign.name}{level&&<small>{level}{campaign.isMetaId&&campaign.rawId?` · Meta ID: ${campaign.rawId}`:""}</small>}</span><span>{campaign.visits}</span><span>{campaign.itemViews}</span><span>{campaign.bookingStarts}</span><span>{campaign.bookings}</span><span>{money(campaign.revenueCents)}</span></div>;})}</div>:null}</details>;})}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong></div></div>
     </section>
 
     <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">

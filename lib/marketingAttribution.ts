@@ -29,6 +29,7 @@ export type AttributionSessionLike={
  gbraid?:string|null;
  wbraid?:string|null;
  fbclid?:string|null;
+ utm_id?:string|null;
 };
 
 export type FunnelEventRow={
@@ -114,9 +115,9 @@ export type SessionVerificationStatus="verified_activity"|"unverified_activity";
 export type AttributionBreakdownEntry={label:string;count:number;};
 export type SessionAttributionBreakdown={providerLabel:string;platformLabel:string|null;channelLabel:string|null;campaignName:string|null;campaignId:string|null;adSetName:string|null;adSetId:string|null;adName:string|null;adId:string|null;rawUtmSource:string|null;rawUtmMedium:string|null;rawUtmCampaign:string|null;rawUtmTerm:string|null;rawUtmContent:string|null;rawUtmId:string|null;fbclid:string|null;gclid:string|null;gbraid:string|null;wbraid:string|null;rawLandingUrl:string|null;};
 export type MetaPerformanceNameRow={campaign_id:string|null;campaign_name:string|null;adset_id:string|null;adset_name:string|null;ad_id:string|null;ad_name:string|null;};
-export type MetaAttributionName={name:string;rawId:string;level:"campaign"|"adset"|"ad";};
+export type MetaAttributionName={name:string;rawId:string;level:"campaign"|"adset"|"ad";campaignName:string|null;campaignId:string|null;};
 export type GoogleCampaignNameRow={google_campaign_id:string|number|null;campaign_name:string|null;};
-export type CampaignPerformanceRow={source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;visits:number;itemViews:number;bookingStarts:number;bookings:number;revenueCents:number;};
+export type CampaignPerformanceRow={source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;resourceLevel:"campaign"|"adset"|"ad"|null;campaignName:string|null;campaignId:string|null;visits:number;itemViews:number;bookingStarts:number;bookings:number;revenueCents:number;};
 export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;verificationStatus:SessionVerificationStatus;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;attribution:SessionAttributionBreakdown;metaAttributionName:MetaAttributionName|null;};
 export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;verifiedSessions:number;unverifiedSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;isMetaId:boolean;source:string;count:number}>;verificationBreakdown:AttributionBreakdownEntry[];insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number;trafficSources:AttributionBreakdownEntry[];campaigns:AttributionBreakdownEntry[];devices:AttributionBreakdownEntry[];}>;primaryInsight:string|null;supportingObservation:string|null;};
 
@@ -364,21 +365,18 @@ function numericMetaId(value:string|null|undefined){
 /** Resolves numeric Meta UTM identifiers from the tenant's already-synced reporting rows. */
 export function resolveMetaAttributionName(session:AttributionSessionLike&{utm_id?:string|null},rows:MetaPerformanceNameRow[]):MetaAttributionName|null{
  if(normalizeSessionAttribution(session).providerLabel!=="Meta Ads")return null;
- const ids=[session.utm_campaign,session.utm_term,session.utm_content,session.utm_id]
-  .map(numericMetaId).filter((id):id is string=>Boolean(id));
- if(!ids.length)return null;
+ const candidates:[string|null,"campaign"|"adset"|"ad"][]=[[numericMetaId(session.utm_campaign),"campaign"],[numericMetaId(session.utm_term),"adset"],[numericMetaId(session.utm_content),"ad"],[numericMetaId(session.utm_id),"campaign"]];
  const levels:[MetaAttributionName["level"],keyof MetaPerformanceNameRow,keyof MetaPerformanceNameRow][]=[
   ["campaign","campaign_id","campaign_name"],
   ["adset","adset_id","adset_name"],
   ["ad","ad_id","ad_name"],
  ];
- for(const [level,idField,nameField] of levels){
-  for(const id of ids){
+ const find=(id:string,preferred?:MetaAttributionName["level"])=>{for(const [level,idField,nameField] of [...levels.filter(([level])=>level===preferred),...levels.filter(([level])=>level!==preferred)]){
    const row=rows.find((candidate)=>String(candidate[idField] ?? "").trim()===id);
    const name=row ? cleanCampaignToken(String(row[nameField] ?? "")) : null;
-   if(name)return {name,rawId:id,level};
-  }
- }
+   if(name)return {name,rawId:id,level,campaignName:cleanCampaignToken(String(row?.campaign_name??"")),campaignId:cleanCampaignToken(String(row?.campaign_id??""))};
+  }return null;};
+ for(const [id,preferred] of candidates)if(id){const resolved=find(id,preferred);if(resolved)return resolved;}
  return null;
 }
 
@@ -686,6 +684,13 @@ export type LandingPageFunnelRow={
  deliveryFeeAnalysis:{zeroFeeSessions:number;paidFeeSessions:number;averagePaidFeeCents:number|null;zeroFeeTermsAcceptedRate:number|null;paidFeeTermsAcceptedRate:number|null}|null;
 };
 
+export type CheckoutFunnelSummary={
+ checkoutStarts:number;
+ completedBookings:number;
+ observedBookingConfirmed:number;
+ checkoutSteps:Record<string,number>;
+};
+
 const completedBookingStatuses=new Set(["confirmed","paid","scheduled","dispatched","en_route","arrived","in_progress","completed"]);
 const landingPath=(value:string|null|undefined)=>normalizePathname(cleanValue(value)||"/");
 const snapshotFor=(row:AttributedBookingRow)=>Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
@@ -722,6 +727,32 @@ export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionM
   const fees=[...current.deliveryFees.entries()],zeroFeeSessions=fees.filter(([,fee])=>fee.feeCents===0).map(([sessionId])=>sessionId),paidFees=fees.filter(([,fee])=>fee.feeCents>0),paidFeeSessions=paidFees.map(([sessionId])=>sessionId),termsRate=(sessionIds:string[])=>sessionIds.length?sessionIds.filter((id)=>current.termsAccepted.has(id)).length/sessionIds.length:null;
   return {path,sessions:current.sessions.size,ctaClicks:current.ctaEvents.size,ctaRate:current.sessions.size?current.ctaSessions.size/current.sessions.size:0,bookingPageVisits:current.bookingVisits.size,itemSelections:current.itemEvents.size,checkoutStarts:current.checkoutStarts.size,completedBookings,bookingConversionRate:current.sessions.size?completedBookings/current.sessions.size:0,revenueCents:current.revenue,revenuePerSessionCents:current.sessions.size?Math.round(current.revenue/current.sessions.size):0,spendCents:spend,cacCents:spend!=null&&completedBookings?Math.round(spend/completedBookings):null,roas:spend!=null&&spend>0?current.revenue/spend:null,checkoutSteps:Object.fromEntries(checkoutEventNames.map(name=>[name,current.checkoutSteps.get(name)?.size??0])),deliveryFeeAnalysis:fees.length?{zeroFeeSessions:zeroFeeSessions.length,paidFeeSessions:paidFeeSessions.length,averagePaidFeeCents:paidFees.length?Math.round(paidFees.reduce((sum,[,fee])=>sum+fee.feeCents,0)/paidFees.length):null,zeroFeeTermsAcceptedRate:termsRate(zeroFeeSessions),paidFeeTermsAcceptedRate:termsRate(paidFeeSessions)}:null};
  }).sort((a,b)=>b.sessions-a.sessions||a.path.localeCompare(b.path));
+}
+
+/** Sums already-deduplicated landing-page funnels without introducing a second event definition. */
+export function summarizeCheckoutFunnels(rows:LandingPageFunnelRow[]):CheckoutFunnelSummary{
+ const checkoutSteps:Record<string,number>={};
+ let checkoutStarts=0,completedBookings=0;
+ for(const row of rows){
+  checkoutStarts+=row.checkoutStarts;
+  completedBookings+=row.completedBookings;
+  for(const [name,count] of Object.entries(row.checkoutSteps))checkoutSteps[name]=(checkoutSteps[name]??0)+count;
+ }
+ return {checkoutStarts,completedBookings,observedBookingConfirmed:checkoutSteps.booking_confirmed??0,checkoutSteps};
+}
+
+export type CheckoutFunnelSource="meta_ads"|MarketingSource;
+const checkoutSourceFor=(source:MarketingSource):CheckoutFunnelSource=>source==="facebook"||source==="instagram"?"meta_ads":source;
+
+/** Reuses the landing-page funnel for a first-touch source, including Meta's Facebook/Instagram roll-up. */
+export function buildSourceCheckoutFunnelReport(input:{source:CheckoutFunnelSource;sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[]}):CheckoutFunnelSummary{
+ const matches=(session:AttributionSessionLike|null|undefined)=>checkoutSourceFor(normalizeMarketingSource(session))===input.source;
+ const rows=buildLandingPageFunnelReport({
+  sessions:input.sessions.filter(matches),
+  events:input.events.filter(row=>matches(eventSessionFor(row))),
+  bookings:input.bookings.filter(row=>matches(snapshotFor(row))),
+ });
+ return summarizeCheckoutFunnels(rows);
 }
 
 export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
@@ -842,22 +873,22 @@ function campaignIdentity(session:AttributionSessionLike|undefined|null,metaRows
  const rawCampaign=cleanCampaignToken(session?.utm_campaign);
  if(source==="meta_ads"){
   const resolved=session ? resolveMetaAttributionName(session,metaRows) : null;
-  return {source,name:resolved?.name ?? rawCampaign ?? "Unattributed",rawId:resolved?.rawId ?? (numericMetaId(rawCampaign) ?? null),isMetaId:Boolean(resolved || numericMetaId(rawCampaign))};
+  return {source,name:resolved?.name ?? rawCampaign ?? "Unattributed",rawId:resolved?.rawId ?? (numericMetaId(rawCampaign) ?? null),isMetaId:Boolean(resolved || numericMetaId(rawCampaign)),resourceLevel:resolved?.level ?? null,campaignName:resolved?.campaignName ?? null,campaignId:resolved?.campaignId ?? null};
  }
  if(source==="google_ads"){
   const matched=rawCampaign ? googleRows.find((row)=>String(row.google_campaign_id ?? "").trim()===rawCampaign && cleanCampaignToken(row.campaign_name)) : null;
-  return {source,name:matched?.campaign_name?.trim() || rawCampaign || "Unattributed",rawId:matched ? String(matched.google_campaign_id) : null,isMetaId:false};
+  return {source,name:matched?.campaign_name?.trim() || rawCampaign || "Unattributed",rawId:matched ? String(matched.google_campaign_id) : null,isMetaId:false,resourceLevel:null,campaignName:null,campaignId:null};
  }
- return {source,name:rawCampaign ?? "Unattributed",rawId:null,isMetaId:false};
+ return {source,name:rawCampaign ?? "Unattributed",rawId:null,isMetaId:false,resourceLevel:null,campaignName:null,campaignId:null};
 }
 
 /** Groups the same first-touch attribution used by source reporting into campaign rows. */
 export function buildCampaignPerformanceReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];metaPerformanceRows?:MetaPerformanceNameRow[];googleCampaignRows?:GoogleCampaignNameRow[]}):CampaignPerformanceRow[]{
  const metaRows=input.metaPerformanceRows ?? [],googleRows=input.googleCampaignRows ?? [];
- const rows=new Map<string,{source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;visits:Set<string>;itemViews:Set<string>;bookingStarts:Set<string>;bookings:Set<string>;revenueCents:number}>();
+ const rows=new Map<string,{source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;resourceLevel:"campaign"|"adset"|"ad"|null;campaignName:string|null;campaignId:string|null;visits:Set<string>;itemViews:Set<string>;bookingStarts:Set<string>;bookings:Set<string>;revenueCents:number}>();
  const sessionAttribution=new Map<string,AttributionSessionLike>();
  const bucketFor=(session:AttributionSessionLike|undefined|null)=>{
-  const identity=campaignIdentity(session,metaRows,googleRows),key=`${identity.source}:${identity.name}:${identity.rawId ?? ""}`;
+  const identity=campaignIdentity(session,metaRows,googleRows),key=`${identity.source}:${identity.resourceLevel??"none"}:${identity.name}:${identity.rawId ?? ""}`;
   let bucket=rows.get(key);if(!bucket){bucket={...identity,visits:new Set(),itemViews:new Set(),bookingStarts:new Set(),bookings:new Set(),revenueCents:0};rows.set(key,bucket);}return bucket;
  };
  for(const session of input.sessions){sessionAttribution.set(session.id,session);bucketFor(session).visits.add(session.id);}
@@ -873,5 +904,5 @@ export function buildCampaignPerformanceReport(input:{sessions:AttributionSessio
   const bucket=bucketFor(snapshotFor(booking));if(bucket.bookings.has(booking.booking_id))continue;
   bucket.bookings.add(booking.booking_id);bucket.revenueCents+=Math.max(0,Number(booking.total_cents ?? 0));
  }
- return [...rows.values()].map((row)=>({source:row.source,name:row.name,rawId:row.rawId,isMetaId:row.isMetaId,visits:row.visits.size,itemViews:row.itemViews.size,bookingStarts:row.bookingStarts.size,bookings:row.bookings.size,revenueCents:row.revenueCents})).filter((row)=>row.visits||row.itemViews||row.bookingStarts||row.bookings||row.revenueCents).sort((left,right)=>left.source.localeCompare(right.source)||right.visits-left.visits||left.name.localeCompare(right.name));
+ return [...rows.values()].map((row)=>({source:row.source,name:row.name,rawId:row.rawId,isMetaId:row.isMetaId,resourceLevel:row.resourceLevel,campaignName:row.campaignName,campaignId:row.campaignId,visits:row.visits.size,itemViews:row.itemViews.size,bookingStarts:row.bookingStarts.size,bookings:row.bookings.size,revenueCents:row.revenueCents})).filter((row)=>row.visits||row.itemViews||row.bookingStarts||row.bookings||row.revenueCents).sort((left,right)=>left.source.localeCompare(right.source)||String(left.campaignName??left.name).localeCompare(String(right.campaignName??right.name))||right.visits-left.visits||left.name.localeCompare(right.name));
 }
