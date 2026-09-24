@@ -21,6 +21,7 @@ export type AdPlatformStatusSummary = {
   lastSyncAttemptAt: string | null;
   lastSyncError: string | null;
   spendCents: number;
+  spendAvailable?: boolean;
   impressions: number;
   reach: number;
   clicks: number;
@@ -125,7 +126,8 @@ export async function loadAdPlatformStatuses(db: SupabaseClient, businessId: str
 
   const metaStatus: AdPlatformStatusSummary = {
     provider: "meta",
-    state: metaState,
+    state: metaPerformanceResult.error||metaConnectionResult.error ? "sync_error" : metaState,
+    spendAvailable: !metaPerformanceResult.error&&!metaConnectionResult.error,
     accountId: metaConnection?.external_account_id ?? null,
     accountName: metaConnection?.external_account_name ?? null,
     connectedAt: metaConnection?.connected_at ?? null,
@@ -152,7 +154,8 @@ export async function loadAdPlatformStatuses(db: SupabaseClient, businessId: str
   const googleConnected = Boolean(googleConnectionResult.data?.status && googleConnectionResult.data?.status !== "disconnected");
   const googleStatus: AdPlatformStatusSummary = {
     provider: "google_ads",
-    state: googleConnected
+    spendAvailable: googleSpendCentsOverride!==null&&!googleConnectionResult.error,
+    state: googleConnectionResult.error||(googleConnected&&googleSpendCentsOverride===null) ? "sync_error" : googleConnected
       ? googleSpendCents > 0
         ? "connected_with_data"
         : "connected_synced_no_data"
