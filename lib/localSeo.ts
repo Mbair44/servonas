@@ -1,3 +1,5 @@
+import {normalizedLocationKey} from "./locationPageIdentity.ts";
+
 export type LocalSeoRecommendationType="missing_service_page"|"missing_location_page"|"unanswered_review"|"missing_business_profile_connection"|"missing_google_service";
 export type LocalSeoPriority="high"|"medium"|"healthy";
 export type LocalSeoStatus="open"|"dismissed"|"completed";
@@ -118,7 +120,7 @@ export function buildLocalSeoReport(input:{
  const publishedWebsite=input.websiteStatus==="published";
  const recommendations:LocalSeoRecommendation[]=[];
  const servicePageMappings=new Set(input.mappings.filter((row)=>row.target_type==="website_service_page" && ["draft","planned","published"].includes(row.status)).map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
- const locationPageMappings=new Set(input.mappings.filter((row)=>row.target_type==="website_location_page" && row.status==="published").map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
+ const locationPageMappings=new Set(input.mappings.filter((row)=>row.target_type==="website_location_page" && row.status==="published").map((row)=>`${row.source_entity_type}:${normalizedLocationKey(row.source_entity_id)}`));
  const googleServiceMappings=new Set(input.mappings.filter((row)=>row.target_type==="google_business_service" && ["draft","planned","published","synced"].includes(row.status)).map((row)=>`${row.source_entity_type}:${row.source_entity_id}`));
 
  for(const service of input.services.filter((item)=>item.active!==false)){
@@ -168,7 +170,7 @@ export function buildLocalSeoReport(input:{
  }
 
  for(const location of input.locations){
-  if(locationPageMappings.has(`location:${location.id}`))continue;
+  if(locationPageMappings.has(`location:${normalizedLocationKey(location.id)}`))continue;
   if(location.jobCount90d < 3 && location.customerCount < 3 && location.reviewCount < 2)continue;
   recommendations.push({
    dedupeKey:`local-seo:location-page:${location.id}`,

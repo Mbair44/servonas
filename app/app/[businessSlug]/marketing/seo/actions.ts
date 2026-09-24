@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManageBusiness } from "@/lib/access";
 import { requireWorkspace } from "@/lib/workspace";
+import {findLocationPage,normalizedLocationKey} from "@/lib/locationPageIdentity";
 import {generateLocationPage,locationSourceVersion,type LocationPageSource} from "@/lib/locationPages";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 
@@ -66,9 +67,11 @@ export async function buildLocationPage(slug:string,sourceLocationKey:string,ded
  if(!canManageBusiness(role))redirect(destination(slug,"error","Only owners and administrators can build location pages."));
  const telemetry:SeoTelemetry={actionName:"build_location_page",businessSlug:slug,operationId:`local-seo-${randomUUID()}`};
  console.info("local_seo_action_started",{...telemetry,businessId:business.id});
- const existingResult=await databaseOperation(telemetry,"preflight_location_page_storage","business_location_pages",true,supabase.from("business_location_pages").select("id").eq("business_id",business.id).eq("source_location_key",sourceLocationKey).maybeSingle());
+ const existingResult=await databaseOperation(telemetry,"preflight_location_page_storage","business_location_pages",true,supabase.from("business_location_pages").select("id,source_location_key,city,state,status").eq("business_id",business.id));
  if(existingResult.error){console.error("local_seo_action_failed",{...telemetry,businessId:business.id,stage:"storage_preflight",fatal:true,...safeDatabaseError(existingResult.error)});redirect(destination(slug,"error","We couldn't build this page yet. Please try again."));}
- const existing=existingResult.data;
+ const existing=findLocationPage(existingResult.data??[],sourceLocationKey);
+ const storageLocationKey=normalizedLocationKey(sourceLocationKey);
+ if(!storageLocationKey)redirect(destination(slug,"error","Choose a city before creating a page."));
  if(existing?.id)redirect(editorPath(slug,existing.id));
  let createdId:string|null=null,errorMessage:string|null=null;
  try{
@@ -78,12 +81,18 @@ export async function buildLocationPage(slug:string,sourceLocationKey:string,ded
   const generated=await generateLocationPage({source,existingPages:existingPagesResult.data??[],telemetry}),now=new Date().toISOString();
   const createStartedAt=Date.now();
   console.info("local_seo_downstream_started",{...telemetry,operationName:"persist_location_page_draft",endpoint:"/rest/v1/business_location_pages",method:"POST",fatal:true});
-  const {data:created,error,status}=await supabase.from("business_location_pages").insert({business_id:business.id,source_location_key:sourceLocationKey,city:source.location.city,state:source.location.state,slug:generated.page.slug,status:"draft",page_title:generated.page.pageTitle,meta_description:generated.page.metaDescription,og_title:generated.page.ogTitle,og_description:generated.page.ogDescription,h1:generated.page.h1,hero_copy:generated.page.heroCopy,cta_label:generated.page.ctaLabel,sections:generated.page.sections,faqs:generated.page.faqs,schema_json:schemaFor(source,generated.page),source_snapshot:source,source_version:locationSourceVersion(source),similarity_score:generated.similarityScore,generated_at:now,created_by:user.id,updated_by:user.id}).select("id").single();
+  const {data:created,error,status}=await supabase.from("business_location_pages").insert({business_id:business.id,source_location_key:storageLocationKey,city:source.location.city,state:source.location.state,slug:generated.page.slug,status:"draft",page_title:generated.page.pageTitle,meta_description:generated.page.metaDescription,og_title:generated.page.ogTitle,og_description:generated.page.ogDescription,h1:generated.page.h1,hero_copy:generated.page.heroCopy,cta_label:generated.page.ctaLabel,sections:generated.page.sections,faqs:generated.page.faqs,schema_json:schemaFor(source,generated.page),source_snapshot:source,source_version:locationSourceVersion(source),similarity_score:generated.similarityScore,generated_at:now,created_by:user.id,updated_by:user.id}).select("id").single();
+  if(error?.code==="23505"){
+   // Concurrent clicks share the canonical key and the existing database uniqueness constraint.
+   const {data:pages}=await supabase.from("business_location_pages").select("id,source_location_key,city,state").eq("business_id",business.id);
+   const winner=findLocationPage(pages??[],sourceLocationKey);
+   if(winner)redirect(editorPath(slug,winner.id));
+  }
   if(error||!created){console.error("local_seo_downstream_failed",{...telemetry,operationName:"persist_location_page_draft",endpoint:"/rest/v1/business_location_pages",method:"POST",httpStatus:status??databaseHttpStatus({error}),durationMs:Date.now()-createStartedAt,fatal:true,...safeDatabaseError(error)});throw new Error(error?.code==="23505"?"duplicate_location_page":"location_page_persistence_failed");}
   console.info("local_seo_downstream_completed",{...telemetry,operationName:"persist_location_page_draft",endpoint:"/rest/v1/business_location_pages",method:"POST",httpStatus:status??201,durationMs:Date.now()-createStartedAt,fatal:true,contentPersisted:true});
   createdId=created.id;
   const [mappingResult,stateResult]=await Promise.all([
-   databaseOperation(telemetry,"persist_location_page_mapping","business_seo_entity_mappings",false,supabase.from("business_seo_entity_mappings").upsert({business_id:business.id,source_entity_type:"location",source_entity_id:sourceLocationKey,target_type:"website_location_page",target_id:created.id,status:"draft",metadata:{slug:generated.page.slug,city:source.location.city,state:source.location.state},updated_at:now,updated_by:user.id},{onConflict:"business_id,source_entity_type,source_entity_id,target_type"}),"POST"),
+   databaseOperation(telemetry,"persist_location_page_mapping","business_seo_entity_mappings",false,supabase.from("business_seo_entity_mappings").upsert({business_id:business.id,source_entity_type:"location",source_entity_id:storageLocationKey,target_type:"website_location_page",target_id:created.id,status:"draft",metadata:{slug:generated.page.slug,city:source.location.city,state:source.location.state},updated_at:now,updated_by:user.id},{onConflict:"business_id,source_entity_type,source_entity_id,target_type"}),"POST"),
    databaseOperation(telemetry,"persist_recommendation_state","business_local_seo_recommendation_states",false,supabase.from("business_local_seo_recommendation_states").upsert({business_id:business.id,dedupe_key:dedupeKey,status:"open",completed_at:null,updated_at:now,updated_by:user.id},{onConflict:"business_id,dedupe_key"}),"POST"),
   ]);
   console.info("local_seo_action_completed",{...telemetry,businessId:business.id,createdPageId:created.id,mappingPersisted:!mappingResult.error,recommendationStatePersisted:!stateResult.error});
@@ -122,12 +131,12 @@ export async function addLocalSeoLocation(slug:string,formData:FormData){
  if(!canManageBusiness(role))redirect(destination(slug,"error","Only owners and administrators can add service-area locations."));
  const resolved=await resolveManualLocation(supabase,business.id,text(formData.get("location"),100));
  if(!resolved)redirect(destination(slug,"error","Enter a valid city and state, or a ZIP already associated with this business."));
- const [{data:existingByKey},{data:existingByCity},{data:territories}]=await Promise.all([
-  supabase.from("business_location_pages").select("id").eq("business_id",business.id).ilike("source_location_key",resolved.key).neq("status","archived").limit(1).maybeSingle(),
-  supabase.from("business_location_pages").select("id").eq("business_id",business.id).ilike("city",resolved.city).neq("status","archived").limit(1).maybeSingle(),
+ const [{data:existingByKey,error:existingError},{data:territories}]=await Promise.all([
+  supabase.from("business_location_pages").select("id,source_location_key,city,state").eq("business_id",business.id),
   supabase.from("workforce_territories").select("name,postal_codes,strategy_config").eq("business_id",business.id).eq("is_active",true),
  ]);
- const existingPage=existingByKey??existingByCity;
+ if(existingError)redirect(destination(slug,"error","We couldn't check existing location pages. Please try again."));
+ const existingPage=findLocationPage(existingByKey??[],resolved.key);
  if(existingPage?.id)redirect(editorPath(slug,existingPage.id));
  const inServiceArea=(territories??[]).some((area:any)=>String(area.name??"").toLowerCase().includes(resolved.city.toLowerCase())||(Array.isArray(area.strategy_config?.cities)&&area.strategy_config.cities.some((city:unknown)=>String(city).toLowerCase()===resolved.city.toLowerCase()))||(resolved.postalCode&&Array.isArray(area.postal_codes)&&area.postal_codes.includes(resolved.postalCode)));
  const addToServiceArea=formData.get("addToServiceArea")==="yes";
