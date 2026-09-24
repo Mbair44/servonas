@@ -441,7 +441,8 @@ test("landing performance renders a compact checkout drill-down",async()=>{
  const [page,styles]=await Promise.all([readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8"),readFile(new URL("../app/globals.css",import.meta.url),"utf8")]);
  assert.match(page,/marketing-checkout-drilldown/);
  assert.match(page,/No checkout-step data yet/);
- assert.match(page,/checkoutDropoff/);
+ assert.doesNotMatch(page,/checkoutDropoff/);
+ assert.match(page,/These are not sequential cohort drop-off counts/);
  assert.match(styles,/\.marketing-session-landing-table>details\{display:block;min-width:1480px\}/);
  assert.match(styles,/\.marketing-checkout-drilldown>div\{grid-template-columns:repeat\(8,minmax\(0,1fr\)\);overflow:visible\}/);
 });
@@ -479,4 +480,36 @@ test("source checkout funnels preserve first-touch source filtering and distingu
  assert.equal(meta.completedBookings,2);
  assert.equal(buildSourceCheckoutFunnelReport({source:"google_ads",sessions,events,bookings}).checkoutStarts,1);
  assert.equal(buildSourceCheckoutFunnelReport({source:"direct",sessions,events,bookings}).checkoutStarts,1);
+});
+
+
+test("checkout activity permits address-first sessions and deduplicates client/server completions",()=>{
+ const sessions=[{id:"address-first",utm_source:"instagram",first_landing_path:"/fall-party-special"},{id:"both",utm_source:"instagram",first_landing_path:"/fall-party-special"}];
+ const events=[
+  {event_name:"delivery_address_completed",attribution_session_id:"address-first",event_key:"address-client",booking_attribution_sessions:sessions[0]},
+  {event_name:"customer_info_completed",attribution_session_id:"both",event_key:"customer-client",booking_attribution_sessions:sessions[1]},
+  {event_name:"delivery_address_completed",attribution_session_id:"both",event_key:"both-client",booking_attribution_sessions:sessions[1]},
+  {event_name:"delivery_address_completed",attribution_session_id:"both",booking_id:"booking",event_key:"both-server",booking_attribution_sessions:sessions[1]},
+ ];
+ const source=buildSourceCheckoutFunnelReport({source:"meta_ads",sessions,events,bookings:[]});
+ const landing=buildLandingPageFunnelReport({sessions,events,bookings:[]})[0]!;
+ for(const report of [source,landing]){
+  assert.equal(report.checkoutSteps.customer_info_completed,1);
+  assert.equal(report.checkoutSteps.delivery_address_completed,2);
+ }
+});
+
+test("Meta resource rows assign a session to one resource bucket rather than parent rollups",()=>{
+ const resources=[{campaign_id:"120251997988010024",campaign_name:"Campaign",adset_id:"120251997988000024",adset_name:"Ad set",ad_id:"120251997987990024",ad_name:"Ad"}];
+ const sessions=[
+  {id:"campaign",utm_source:"instagram",utm_campaign:resources[0].campaign_id,utm_term:resources[0].adset_id,utm_content:resources[0].ad_id},
+  {id:"adset",utm_source:"instagram",utm_term:resources[0].adset_id,utm_content:resources[0].ad_id},
+  {id:"ad",utm_source:"instagram",utm_content:resources[0].ad_id},
+  {id:"bio",utm_source:"ig",utm_medium:"social",utm_content:"link_in_bio",fbclid:"present"},
+  {id:"referral",first_referrer:"http://m.facebook.com/"},
+ ];
+ const report=buildCampaignPerformanceReport({sessions,events:[],bookings:[],metaPerformanceRows:resources});
+ assert.equal(report.reduce((sum,row)=>sum+row.visits,0),5);
+ for(const level of ["campaign","adset","ad"])assert.equal(report.find(row=>row.resourceLevel===level)?.visits,1);
+ assert.equal(report.find(row=>row.name==="Unattributed")?.visits,2);
 });
