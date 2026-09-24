@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildCampaignPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourceCheckoutFunnelReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildCampaignPerformanceReport,buildOrganicProviderPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourceCheckoutFunnelReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,organicProviderFor,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
@@ -28,6 +28,40 @@ test("accepts only UUID anonymous attribution session identifiers",()=>{
 
 test("normalizes preserved first-touch Google Ads attribution",()=>{
  assert.equal(normalizeMarketingSource({gclid:"click-1",utm_source:"facebook",first_referrer:"https://facebook.com"}),"google_ads");
+});
+
+test("normalizes organic search into a channel with a report-time provider",()=>{
+ const cases:[Parameters<typeof organicProviderFor>[0],string][]=[
+  [{utm_source:"google",utm_medium:"organic"},"google"],
+  [{first_referrer:"https://www.google.com/search?q=bounce+house"},"google"],
+  [{utm_source:"bing",utm_medium:"organic"},"bing"],
+  [{first_referrer:"https://www.bing.com/search?q=bounce+house"},"bing"],
+  [{utm_source:"duckduckgo",utm_medium:"organic"},"duckduckgo"],
+  [{utm_source:"yahoo",utm_medium:"organic"},"yahoo"],
+ ];
+ for(const [session,provider] of cases){assert.equal(normalizeMarketingSource(session),"organic");assert.equal(organicProviderFor(session),provider);}
+ assert.equal(normalizeMarketingSource({gclid:"paid-click",utm_source:"google",utm_medium:"organic"}),"google_ads");
+ assert.equal(normalizeMarketingSource({utm_source:"google",utm_medium:"cpc"}),"google_ads");
+ assert.equal(normalizeMarketingSource({utm_source:"google"}),"google");
+ assert.equal(organicProviderFor({utm_source:"google"}),null);
+ assert.equal(normalizeMarketingSource({first_referrer:"https://example.com/article"}),"referral");
+ assert.equal(normalizeMarketingSource({}),"direct");
+});
+
+test("organic provider totals reconcile to the organic source and preserve source funnel filtering",()=>{
+ const events=[
+  {attribution_session_id:"google",event_name:"landing_view",booking_attribution_sessions:{utm_source:"google",utm_medium:"organic"}},
+  {attribution_session_id:"google",event_name:"checkout_started",booking_attribution_sessions:{utm_source:"google",utm_medium:"organic"}},
+  {attribution_session_id:"bing",event_name:"landing_view",booking_attribution_sessions:{first_referrer:"https://www.bing.com/search?q=rentals"}},
+  {attribution_session_id:"paid",event_name:"landing_view",booking_attribution_sessions:{gclid:"paid"}},
+ ] as any[];
+ const bookings=[{booking_id:"booking-google",status:"confirmed",total_cents:12500,booking_attribution_snapshots:{utm_source:"google",utm_medium:"organic"}}];
+ const organic=buildSourcePerformanceReport(events,bookings,{}).summaries.find(row=>row.source==="organic")!;
+ const providers=buildOrganicProviderPerformanceReport(events,bookings);
+ assert.equal(providers.reduce((sum,row)=>sum+row.summary.visits,0),organic.visits);
+ assert.equal(providers.reduce((sum,row)=>sum+row.summary.revenueCents,0),organic.revenueCents);
+ const funnel=buildSourceCheckoutFunnelReport({source:"organic",sessions:[{id:"google",utm_source:"google",utm_medium:"organic"},{id:"bing",first_referrer:"https://www.bing.com/search"},{id:"paid",gclid:"paid"}],events,bookings});
+ assert.equal(funnel.checkoutStarts,1);
 });
 
 test("normalizes fbclid-backed Meta visits even when referrer is missing",()=>{

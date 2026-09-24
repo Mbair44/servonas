@@ -2,6 +2,8 @@ import type {BookingFunnelEvent} from "./bookingFunnel.ts";
 
 export const marketingSources=["google","google_ads","facebook","instagram","direct","organic","referral","email","unknown"] as const;
 export type MarketingSource=(typeof marketingSources)[number];
+export const organicProviders=["google","bing","duckduckgo","yahoo","other"] as const;
+export type OrganicProvider=(typeof organicProviders)[number];
 
 export const commonFunnelStages=["visitor","engaged","conversion_started","lead_or_booking","customer","revenue"] as const;
 export type CommonFunnelStage=(typeof commonFunnelStages)[number];
@@ -188,7 +190,6 @@ export function normalizeMarketingSource(session:AttributionSessionLike|null|und
  const host=referrerHost(session?.first_referrer);
  if(clean(session?.gclid)||clean(session?.gbraid)||clean(session?.wbraid))return "google_ads";
  if(utmSource==="google"&&/(cpc|ppc|paid|display|search)/.test(utmMedium))return "google_ads";
- if(utmSource==="google")return "google";
  if(clean(session?.fbclid))return utmSource==="instagram"||/instagram\./.test(host)?"instagram":"facebook";
  if(utmSource==="fb"||utmSource==="facebook"||utmSource==="meta")return "facebook";
  if(utmSource==="instagram")return "instagram";
@@ -200,7 +201,26 @@ export function normalizeMarketingSource(session:AttributionSessionLike|null|und
  if(!utmSource&&/instagram\./.test(host))return "instagram";
  if(!utmSource&&host)return "referral";
  if(!utmSource&&!host)return "direct";
+ // A bare `utm_source=google` is a manually tagged visit with no reliable channel signal.
+ if(utmSource==="google")return "google";
  return marketingSources.includes(utmSource as MarketingSource)?utmSource as MarketingSource:"unknown";
+}
+
+function organicProviderFromValue(value:string){
+ const normalized=value.replace(/^www\./,"").toLowerCase();
+ if(normalized==="google"||/(^|\.)google\./.test(normalized))return "google" as const;
+ if(normalized==="bing"||/(^|\.)bing\./.test(normalized))return "bing" as const;
+ if(normalized==="duckduckgo"||/(^|\.)duckduckgo\./.test(normalized))return "duckduckgo" as const;
+ if(normalized==="yahoo"||/(^|\.)yahoo\./.test(normalized))return "yahoo" as const;
+ return "other" as const;
+}
+
+/** Derives a reporting-only search-engine provider from preserved first-touch data. */
+export function organicProviderFor(session:AttributionSessionLike|null|undefined):OrganicProvider|null{
+ if(normalizeMarketingSource(session)!=="organic")return null;
+ const medium=clean(session?.utm_medium),source=clean(session?.utm_source);
+ if(medium==="organic")return organicProviderFromValue(source);
+ return organicProviderFromValue(referrerHost(session?.first_referrer));
 }
 
 function canonicalEventName(value:string):string{
@@ -245,7 +265,7 @@ export function buildMarketingInsight(summary:Pick<MarketingSourceSummary,"sourc
 
 export function labelForSource(source:MarketingSource){
  return ({
-  google:"Google",
+  google:"Google (tagged)",
   google_ads:"Google Ads",
   facebook:"Facebook",
   instagram:"Instagram",
@@ -255,6 +275,10 @@ export function labelForSource(source:MarketingSource){
   email:"Email",
   unknown:"Unknown",
  } as Record<MarketingSource,string>)[source];
+}
+
+export function labelForOrganicProvider(provider:OrganicProvider){
+ return ({google:"Google",bing:"Bing",duckduckgo:"DuckDuckGo",yahoo:"Yahoo",other:"Other / unknown organic"} as Record<OrganicProvider,string>)[provider];
 }
 
 export interface MarketingSpendProvider{
@@ -837,6 +861,16 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
    roas:totals.spendCents>0?totals.revenueCents/totals.spendCents:null,
  },
  };
+}
+
+/** Reuses the canonical source report after narrowing organic traffic by its search engine. */
+export function buildOrganicProviderPerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[]){
+ return organicProviders.flatMap((provider)=>{
+  const providerEvents=events.filter((row)=>organicProviderFor(eventSessionFor(row))===provider);
+  const providerBookings=bookings.filter((row)=>organicProviderFor(snapshotFor(row))===provider);
+  const summary=buildSourcePerformanceReport(providerEvents,providerBookings,{}).summaries.find((row)=>row.source==="organic");
+  return summary?[{provider,summary}]:[];
+ });
 }
 
 export function attachSessionMetricsToSourceReport(report:ReturnType<typeof buildSourcePerformanceReport>,sessions:AttributionSessionMetricsRow[]){
