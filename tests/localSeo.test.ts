@@ -62,7 +62,7 @@ test("existing published mappings suppress duplicate service and location page r
 test("a location draft remains actionable until it is published",()=>{
  const base={businessName:"Example Co",phone:null,websiteBasePath:"https://example.com",serviceAreas:["Gilbert, AZ"],websiteStatus:"published" as const,googleBusinessConnected:true,googleBusinessLocationTitle:"Example Co",googleBusinessSupportsServices:false,services:[],locations:[{id:"Gilbert, AZ",name:"Gilbert, AZ",jobCount90d:8,customerCount:4,reviewCount:0}],unansweredReviews:[],states:[],reviewSnippets:[]};
  const draft=buildLocalSeoReport({...base,mappings:[{source_entity_type:"location",source_entity_id:"Gilbert, AZ",target_type:"website_location_page",status:"draft"}]});
- const published=buildLocalSeoReport({...base,mappings:[{source_entity_type:"location",source_entity_id:"Gilbert, AZ",target_type:"website_location_page",status:"published"}]});
+ const published=buildLocalSeoReport({...base,mappings:[{source_entity_type:"location",source_entity_id:" gilbert , az ",target_type:"website_location_page",status:"published"}]});
  assert.ok(draft.recommendations.some(item=>item.type==="missing_location_page"));
  assert.equal(published.recommendations.some(item=>item.type==="missing_location_page"),false);
 });
@@ -82,7 +82,7 @@ test("local seo page and navigation expose the new action center", async () => {
   assert.match(page, /<h1>Local SEO<\/h1>/);
   assert.match(page, /Servonas SEO Score/);
   assert.match(page, /Create page draft/);
-  assert.match(page, /Build \$\{city\} Page/);
+  assert.match(page, /label=\{opportunityAction.label\}/);
   assert.match(page, /notification center/);
   assert.match(nav, /label:"Local SEO",href:`\$\{base\}\/marketing\/seo`/);
   assert.match(migration, /create table if not exists public\.business_local_seo_recommendation_states/);

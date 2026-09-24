@@ -42,7 +42,7 @@ function offeringsHeading(business:Business,city:string){
 
 export function LocationLanding({page,business,websiteUrl,ctaUrl,nearbyPages=[],categoryPages=[]}:{page:Page;business:Business;websiteUrl:string;ctaUrl:string;nearbyPages:Array<{slug:string;city:string;state:string|null}>;categoryPages?:Array<{slug:string;title:string}>}){
  const rentals=business.rentalItems?.slice(0,9)??[],offerings=rentals.length?rentals.map(item=>({...item,image_url:item.imageUrl})):business.services?.slice(0,9)??[];
- const ctaLabel=conversionLabel(business,ctaUrl),heading=locationHeading(business,page.city,page.state),offering=primaryOffering(business);
+ const ctaLabel=page.cta_label?.trim()||conversionLabel(business,ctaUrl),heading=page.h1?.trim()||locationHeading(business,page.city,page.state),offering=primaryOffering(business);
  const heroImage=business.photoUrls?.find(Boolean)||rentals.find(item=>item.imageUrl)?.imageUrl||null;
  const reviews=(business.googleReviews??[]).filter(review=>review.text&&review.rating>=1&&review.rating<=5).slice(0,3);
  const rating=business.googleRating??(reviews.length?reviews.reduce((sum,review)=>sum+review.rating,0)/reviews.length:null);
