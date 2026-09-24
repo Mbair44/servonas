@@ -1,6 +1,6 @@
 import type {BookingFunnelEvent} from "./bookingFunnel.ts";
 
-export const marketingSources=["google","google_ads","facebook","instagram","direct","organic","referral","email","unknown"] as const;
+export const marketingSources=["google","google_ads","google_business_profile","facebook","instagram","direct","organic","referral","email","unknown"] as const;
 export type MarketingSource=(typeof marketingSources)[number];
 export const organicProviders=["google","bing","duckduckgo","yahoo","other"] as const;
 export type OrganicProvider=(typeof organicProviders)[number];
@@ -110,7 +110,7 @@ export type AttributionSessionMetricsRow=AttributionSessionLike&{
 };
 
 export type SessionDurationBucket={key:"timing_unavailable"|"under_1_second"|"one_to_four_seconds"|"five_to_nine_seconds"|"ten_or_more_seconds";label:string;count:number;};
-export type SessionQualitySource="meta_ads"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
+export type SessionQualitySource="google_business_profile"|"meta_ads"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
 export type SessionEngagementClassification="engaged"|"quick_exit"|"neutral";
 export type AutomatedTrafficClassification="human_likely"|"automated_likely"|"unknown";
 export type SessionVerificationStatus="verified_activity"|"unverified_activity";
@@ -190,13 +190,14 @@ export function normalizeMarketingSource(session:AttributionSessionLike|null|und
  const host=referrerHost(session?.first_referrer);
  if(clean(session?.gclid)||clean(session?.gbraid)||clean(session?.wbraid))return "google_ads";
  if(utmSource==="google"&&/(cpc|ppc|paid|display|search)/.test(utmMedium))return "google_ads";
+ if(clean(session?.utm_campaign)==="google_business_profile"||utmSource==="google_business_profile")return "google_business_profile";
  if(clean(session?.fbclid))return utmSource==="instagram"||/instagram\./.test(host)?"instagram":"facebook";
  if(utmSource==="fb"||utmSource==="facebook"||utmSource==="meta")return "facebook";
  if(utmSource==="instagram")return "instagram";
  if(utmSource==="email"||utmMedium==="email")return "email";
  if(utmMedium==="organic")return "organic";
  if(utmMedium==="referral")return "referral";
- if(!utmSource&&/(google|bing|yahoo)\./.test(host))return "organic";
+ if(!utmSource&&/(google|bing|duckduckgo|yahoo)\./.test(host))return "organic";
  if(!utmSource&&/(facebook|meta)\./.test(host))return "facebook";
  if(!utmSource&&/instagram\./.test(host))return "instagram";
  if(!utmSource&&host)return "referral";
@@ -267,6 +268,7 @@ export function labelForSource(source:MarketingSource){
  return ({
   google:"Google (tagged)",
   google_ads:"Google Ads",
+  google_business_profile:"Google Business Profile",
   facebook:"Facebook",
   instagram:"Instagram",
   direct:"Direct",
@@ -321,7 +323,8 @@ export function buildSessionDurationBuckets(sessions:AttributionSessionMetricsRo
 }
 
 function sourceLabelForQuality(source:SessionQualitySource){
- return ({meta_ads:"Meta Ads",google_ads:"Google Ads",organic_search:"Organic Search",direct:"Direct",referral:"Referral",email:"Email",sms:"SMS",unknown:"Unknown"} as Record<SessionQualitySource,string>)[source];
+ return ({meta_ads:"Meta Ads",google_ads:"Google Ads",
+  google_business_profile:"Google Business Profile",organic_search:"Organic Search",direct:"Direct",referral:"Referral",email:"Email",sms:"SMS",unknown:"Unknown"} as Record<SessionQualitySource,string>)[source];
 }
 
 function cleanValue(value:string|null|undefined){
@@ -491,6 +494,8 @@ export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_
 }
 
 export function classifySessionQualitySource(session:AttributionSessionLike&{utm_medium?:string|null}):SessionQualitySource{
+ const marketingSource=normalizeMarketingSource(session);
+ if(marketingSource==="google_ads"||marketingSource==="google_business_profile")return marketingSource;
  const utmSource=clean(session.utm_source);
  const utmMedium=clean(session.utm_medium);
  const host=referrerHost(session.first_referrer);
@@ -500,7 +505,7 @@ export function classifySessionQualitySource(session:AttributionSessionLike&{utm
  if(utmMedium==="email"||utmSource==="email")return "email";
  if(["fb","facebook","instagram","meta"].includes(utmSource)&&(utmMedium.includes("paid")||utmMedium.includes("social")||utmMedium.includes("cpc")))return "meta_ads";
  if(utmSource==="google"&&(utmMedium.includes("paid")||utmMedium.includes("cpc")||utmMedium.includes("ppc")))return "google_ads";
- if(utmMedium==="organic"||(!utmSource&&/(google|bing|yahoo)\./.test(host)))return "organic_search";
+ if(utmMedium==="organic"||(!utmSource&&/(google|bing|duckduckgo|yahoo)\./.test(host)))return "organic_search";
  if(utmMedium==="referral"||(!utmSource&&host))return "referral";
  if(!utmSource&&!host)return "direct";
  return "unknown";
@@ -939,4 +944,31 @@ export function buildCampaignPerformanceReport(input:{sessions:AttributionSessio
   bucket.bookings.add(booking.booking_id);bucket.revenueCents+=Math.max(0,Number(booking.total_cents ?? 0));
  }
  return [...rows.values()].map((row)=>({source:row.source,name:row.name,rawId:row.rawId,isMetaId:row.isMetaId,resourceLevel:row.resourceLevel,campaignName:row.campaignName,campaignId:row.campaignId,visits:row.visits.size,itemViews:row.itemViews.size,bookingStarts:row.bookingStarts.size,bookings:row.bookings.size,revenueCents:row.revenueCents})).filter((row)=>row.visits||row.itemViews||row.bookingStarts||row.bookings||row.revenueCents).sort((left,right)=>left.source.localeCompare(right.source)||String(left.campaignName??left.name).localeCompare(String(right.campaignName??right.name))||right.visits-left.visits||left.name.localeCompare(right.name));
+}
+
+export const googleBusinessProfileActions=["website","booking","other"] as const;
+export type GoogleBusinessProfileAction=(typeof googleBusinessProfileActions)[number];
+
+/** Only the explicit campaign convention establishes Website when content is absent. */
+export function googleBusinessProfileActionFor(session:AttributionSessionLike|null|undefined):GoogleBusinessProfileAction|null{
+ if(normalizeMarketingSource(session)!=="google_business_profile")return null;
+ const content=clean(session?.utm_content);
+ if(content==="booking")return "booking";
+ if(content==="website"||(!content&&clean(session?.utm_campaign)==="google_business_profile"))return "website";
+ return "other";
+}
+
+export function labelForGoogleBusinessProfileAction(action:GoogleBusinessProfileAction){
+ return {website:"Website",booking:"Booking",other:"Other / unspecified"}[action];
+}
+
+/** Report-time partition of preserved attribution; uses the parent's metric definitions. */
+export function buildGoogleBusinessProfileActionPerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[]){
+ return googleBusinessProfileActions.map((action)=>({
+  action,
+  summary:buildSourcePerformanceReport(
+   events.filter((row)=>googleBusinessProfileActionFor(eventSessionFor(row))===action),
+   bookings.filter((row)=>googleBusinessProfileActionFor(snapshotFor(row))===action),
+  ).summaries.find((row)=>row.source==="google_business_profile")??null,
+ }));
 }
