@@ -20,7 +20,7 @@ export function sourcePaidEconomics(source:string,revenueCents:number,bookings:n
 }
 /** A partial spend sum must not be presented as the total for both platforms. */
 export function totalPaidEconomics(rows:Array<{source:string;revenueCents:number;bookings:number}>,statuses:SpendStatus[]){
- const paid=rows.filter(row=>["google_ads","facebook","instagram","meta_ads"].includes(row.source));
+ const paid=rows.filter(row=>["google_ads","meta_ads"].includes(row.source));
  const spend=["google_ads","meta"].map(provider=>availablePaidSpend(statuses.find(status=>status.provider===provider)));
  const revenueCents=paid.reduce((sum,row)=>sum+row.revenueCents,0),bookings=paid.reduce((sum,row)=>sum+row.bookings,0);
  return {...paidEconomics(spend.every(value=>value!==null)?spend.reduce<number>((sum,value)=>sum+(value??0),0):null,revenueCents,bookings),revenueCents,bookings};

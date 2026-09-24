@@ -37,6 +37,6 @@ export class MultiPlatformSpendProvider implements MarketingSpendProvider{
     .lt("report_date",input.to.slice(0,10)),
   ]);
   const metaSpendCents=((meta.data??[]) as Array<{spend_amount:number|string|null}>).reduce((sum,row)=>sum+Math.max(0,Math.round(Number(row.spend_amount??0)*100)),0);
-  return metaSpendCents>0?{...google,facebook:metaSpendCents}:{...google};
+  return metaSpendCents>0?{...google,meta_ads:metaSpendCents}:{...google};
  }
 }
