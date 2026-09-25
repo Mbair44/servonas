@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {rentalCompletionBalance} from "../lib/financial/rentalCompletionBalance.ts";
+import {rentalCompletionBalance,authoritativeBookingBalance} from "../lib/financial/rentalCompletionBalance.ts";
 import {bookingBalanceAfterDeliveryChange,bookingBalanceForTotal} from "../lib/financial/bookingBalance.ts";
 
 test("job price increases recalculate the booking balance from total minus paid",()=>{
@@ -34,6 +34,12 @@ test("a standard 50 percent deposit leaves the other 50 percent to invoice",()=>
  assert.equal(balance.balanceDueCents,7500);
 });
 
+test("authoritative booking balance never exceeds either remaining total or stored balance",()=>{
+ assert.equal(authoritativeBookingBalance(11250,11250,6875),0);
+ assert.equal(authoritativeBookingBalance(11250,4375,6875),6875);
+ assert.equal(authoritativeBookingBalance(11250,10000,6875),1250);
+});
+
 test("completion billing uses the post-discount total only once and surfaces failures",async()=>{
  const [billing,jobs,tech,checkout,webhook,migration,bookingClient]=await Promise.all([
   readFile(new URL("../lib/financial/recurringBilling.ts",import.meta.url),"utf8"),
@@ -58,8 +64,26 @@ test("completion billing uses the post-discount total only once and surfaces fai
  assert.match(webhook,/final_payment_authorized_at/);
  assert.match(webhook,/payment_intent\.payment_method/);
  assert.match(billing,/rental_completion_autopay/);
- assert.match(billing,/off_session:true/);
+  assert.match(billing,/off_session:true/);
+  assert.match(billing,/Scheduled payment skipped: booking already paid/);
+  assert.match(billing,/authoritativeBookingBalance/);
  assert.match(migration,/stripe_payment_method_id text/);
  assert.match(bookingClient,/name="finalPaymentAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);
  assert.match(bookingClient,/Book & pay \$\{money\(deposit\)\}/);
+});
+
+test("payment ledger reconciliation clears a paid booking schedule",async()=>{
+ const migration=await readFile(new URL("../supabase/migrations/20260925000300_reconcile_booking_balance_after_payment.sql",import.meta.url),"utf8");
+ assert.match(migration,/after insert or update of status on public\.payments/);
+ assert.match(migration,/balance_charge_scheduled_for=case when v_balance<=0 then null/);
+ assert.match(migration,/coalesce\(new\.job_id, \(select i\.job_id/);
+});
+
+test("scheduled billing guards Stripe behind the authoritative balance check",async()=>{
+ const billing=await readFile(new URL("../lib/financial/recurringBilling.ts",import.meta.url),"utf8");
+ const guard=billing.indexOf('Scheduled payment skipped: booking already paid');
+ const stripeCall=billing.indexOf('stripeClient().paymentIntents.create');
+ assert.ok(guard>=0&&stripeCall>guard);
+ assert.match(billing,/if\(currentBalance<Number\(invoice\.balance_due_cents/);
+ assert.match(billing,/invoice\.balance_due_cents=currentBalance/);
 });

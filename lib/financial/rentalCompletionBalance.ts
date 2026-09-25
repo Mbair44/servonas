@@ -17,3 +17,11 @@ export function rentalCompletionBalance(input:RentalCompletionBalanceInput){
  const storedBalance=input.balanceDueCents==null?calculatedBalance:cents(input.balanceDueCents);
  return{subtotalCents,totalCents,discountCents,amountPaidCents,balanceDueCents:Math.min(calculatedBalance,storedBalance)};
 }
+
+/** The balance that may be collected from a booking at this instant. */
+export function authoritativeBookingBalance(totalCents:number|null,amountPaidCents:number|null,balanceDueCents:number|null){
+ const total=cents(totalCents);
+ const paid=cents(amountPaidCents);
+ const stored=cents(balanceDueCents);
+ return Math.max(0,Math.min(total-paid,stored));
+}
