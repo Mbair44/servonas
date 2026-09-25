@@ -1,3 +1,4 @@
+import {loadMetaAttributionResources} from "@/lib/metaAttributionResources";
 import {availablePaidSpend,sourcePaidEconomics,totalPaidEconomics,formatPaidRoas,paidEconomicsHelp} from "@/lib/paidSourceEconomics";
 import Link from "next/link";
 import { WorkspaceNav } from "../../WorkspaceNav";
@@ -25,6 +26,7 @@ import {
   normalizeMarketingSource,
   type FunnelEventRow,
   type MarketingSource,
+  type MetaPerformanceNameRow,
 } from "@/lib/marketingAttribution";
 import { MultiPlatformSpendProvider } from "@/lib/marketingSpend";
 import { buildRoasCardModel, loadAdPlatformStatuses } from "@/lib/adPlatform";
@@ -36,7 +38,7 @@ const ms = (value: number | null, unavailableLabel = "Active time unavailable") 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sourceOptions = ["all", ...marketingSources] as const;
 const checkoutSteps:[string,string][]=[["checkout_started","Checkout started"],["checkout_addons_viewed","Add-ons viewed"],["checkout_addons_decision","Add-ons continued"],["reservation_details_viewed","Reservation details viewed"],["customer_info_completed","Customer info completed"],["delivery_address_completed","Delivery address completed"],["delivery_quote_requested","Quote requested"],["delivery_fee_presented","Delivery fee presented"],["terms_accepted","Terms accepted"],["payment_cta_clicked","Payment CTA clicked"],["payment_started","Payment started"],["payment_succeeded","Payment succeeded"],["booking_confirmed","Booking confirmed"]];
-const checkoutDropoff=(previous:number,current:number)=>previous>0?`${Math.max(0,Math.round((1-current/previous)*100))}% drop-off`:"—";
+const checkoutActivityHelp="Each step counts sessions independently within the selected dates; steps can be skipped or completed out of order. These are not sequential cohort drop-off counts. Add-ons continued sums skipped and added counts; a session can appear in both.";
 type SourceFilter = typeof sourceOptions[number];
 type BookingItemRow = {
   booking_id: string | null;
@@ -101,13 +103,13 @@ function formatLongDate(value: string, timezone: string) {
   return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: timezone }).format(new Date(`${value}T12:00:00Z`));
 }
 
-function normalizeSourceForRow(row: FunnelEventRow) {
+function normalizeSourceForRow(row: FunnelEventRow, metaRows: MetaPerformanceNameRow[] = []) {
   const session = Array.isArray(row.booking_attribution_sessions) ? row.booking_attribution_sessions[0] : row.booking_attribution_sessions;
-  return normalizeMarketingSource(session);
+  return normalizeMarketingSource(session, metaRows);
 }
 
-function sourceMatches(row: FunnelEventRow, source: SourceFilter) {
-  return source === "all" || normalizeSourceForRow(row) === source;
+function sourceMatches(row: FunnelEventRow, source: SourceFilter, metaRows: MetaPerformanceNameRow[]) {
+  return source === "all" || normalizeSourceForRow(row, metaRows) === source;
 }
 
 function CheckoutFunnelDrilldown({ funnel }: { funnel: CheckoutFunnelSummary }) {
@@ -115,12 +117,10 @@ function CheckoutFunnelDrilldown({ funnel }: { funnel: CheckoutFunnelSummary }) 
     ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) > 0
     : (funnel.checkoutSteps[key] ?? 0) > 0);
   return <div className="marketing-checkout-drilldown">
-    <strong>Checkout funnel</strong>
-    {hasObservedSteps ? <div>{checkoutSteps.map(([key, label], index) => {
+    <strong>Checkout activity</strong><p className="marketing-checkout-reconciliation">{checkoutActivityHelp}</p>
+    {hasObservedSteps ? <div>{checkoutSteps.map(([key, label]) => {
       const count = key === "checkout_addons_decision" ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) : (funnel.checkoutSteps[key] ?? 0);
-      const previousKey = checkoutSteps[index - 1]?.[0];
-      const previous = previousKey === "checkout_addons_decision" ? (funnel.checkoutSteps.checkout_addons_skipped ?? 0) + (funnel.checkoutSteps.checkout_addons_added ?? 0) : previousKey ? (funnel.checkoutSteps[previousKey] ?? 0) : 0;
-      return <span key={key}><b>{label}</b><em>{count}</em>{key === "checkout_addons_decision" && <small>{funnel.checkoutSteps.checkout_addons_skipped ?? 0} skipped · {funnel.checkoutSteps.checkout_addons_added ?? 0} added</small>}<small>{index ? checkoutDropoff(previous, count) : ""}</small></span>;
+      return <span key={key}><b>{label}</b><em>{count}</em>{key === "checkout_addons_decision" && <small>{funnel.checkoutSteps.checkout_addons_skipped ?? 0} skipped · {funnel.checkoutSteps.checkout_addons_added ?? 0} added</small>}</span>;
     })}</div> : <p>No checkout-step data yet.</p>}
     {(funnel.checkoutSteps.delivery_quote_failed ?? 0) || (funnel.checkoutSteps.delivery_address_ineligible ?? 0) ? <p className="marketing-checkout-reconciliation">Delivery quote outcomes: {funnel.checkoutSteps.delivery_quote_failed ?? 0} failed · {funnel.checkoutSteps.delivery_address_ineligible ?? 0} ineligible/outside service area</p> : null}
     {funnel.completedBookings !== funnel.observedBookingConfirmed ? <p className="marketing-checkout-reconciliation">Attributed completed bookings: {funnel.completedBookings} · Observed booking-confirmed events: {funnel.observedBookingConfirmed}{funnel.completedBookings > funnel.observedBookingConfirmed ? ". Some historical completed bookings do not have a booking-confirmed funnel event." : ""}</p> : null}
@@ -135,7 +135,7 @@ function queryString(values: Record<string, string | undefined | null>) {
   return params.toString();
 }
 
-function buildRequestedDateAnalytics(events: FunnelEventRow[], itemNames: Map<string, string>) {
+function buildRequestedDateAnalytics(events: FunnelEventRow[], itemNames: Map<string, string>, metaRows: MetaPerformanceNameRow[]) {
   const totals = new Map<string, number>();
   const itemBreakdowns = new Map<string, Map<string, number>>();
   const sourceBreakdowns = new Map<string, Map<MarketingSource, number>>();
@@ -145,7 +145,7 @@ function buildRequestedDateAnalytics(events: FunnelEventRow[], itemNames: Map<st
     const requestedDate = dateKey(row);
     if (!requestedDate) continue;
     totals.set(requestedDate, (totals.get(requestedDate) ?? 0) + 1);
-    const source = normalizeSourceForRow(row);
+    const source = normalizeSourceForRow(row, metaRows);
     const sourceBucket = sourceBreakdowns.get(requestedDate) ?? new Map<MarketingSource, number>();
     sourceBucket.set(source, (sourceBucket.get(source) ?? 0) + 1);
     sourceBreakdowns.set(requestedDate, sourceBucket);
@@ -236,7 +236,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
-  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse] = await Promise.all([
+  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, metaResourceResult] = await Promise.all([
     supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("business_ad_platform_daily_performance").select("campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend_amount").eq("business_id", business.id).eq("provider", "meta").gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
@@ -244,8 +244,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
     supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
     supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
-    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
+    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
+    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
     supabase.from("business_website_settings").select("status,custom_domain,public_slug,request_service_enabled,booking_enabled").eq("business_id", business.id).maybeSingle(),
     supabase.from("booking_settings").select("enabled,public_slug").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_payment_accounts").select("onboarding_status,charges_enabled,payouts_enabled,details_submitted").eq("business_id", business.id).eq("provider", "stripe").maybeSingle(),
@@ -255,12 +255,14 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_google_ads_campaigns").select("id,status,campaign_name,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
     supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
+    loadMetaAttributionResources(supabase, business.id),
   ]);
+  const metaPerformanceRows = metaResourceResult.rows;
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
   }
-  const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source));
+  const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source, metaPerformanceRows));
   const rawEventCount = (eventsResponse.data ?? []).length;
   const latestEventAt = ((eventsResponse.data ?? []) as Array<{ occurred_at?: string | null }>).reduce<string | null>((latest, row) => row.occurred_at && (!latest || row.occurred_at > latest) ? row.occurred_at : latest, null);
   const sessions = ((sessionsResponse.data ?? []) as Array<{
@@ -286,7 +288,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     duration_final_flush_received?: boolean | null;
     page_count?: number | null;
     engaged_page_count?: number | null;
-  }>).filter((row) => source === "all" || normalizeMarketingSource(row) === source);
+  }>).filter((row) => source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source);
   const landingEventSessionIds = new Set(events.filter((row) => ["landing_page_view", "landing_view"].includes(String(row.event_name))).map((row) => row.attribution_session_id).filter(Boolean));
   // Sessions are authoritative visit records even if optional detail-event insertion failed.
   const sessionVisitRows: FunnelEventRow[] = sessions.filter((session) => !landingEventSessionIds.has(session.id)).map((session) => ({ attribution_session_id: session.id, event_name: "landing_page_view", booking_attribution_sessions: session }));
@@ -296,15 +298,15 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     total_cents: row.total_cents,
     booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
   }));
-  const attributedBookings=allAttributedBookings.filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots) === source);
+  const attributedBookings=allAttributedBookings.filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots, metaPerformanceRows) === source);
   const report = attachSessionMetricsToSourceReport(
-    buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>),
-    sessions,
+    buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>, metaPerformanceRows),
+    sessions, metaPerformanceRows,
   );
   const gbpActionRows=buildGoogleBusinessProfileActionPerformanceReport([...events,...sessionVisitRows],attributedBookings);
   const organicProviderPerformance=buildOrganicProviderPerformanceReport([...events,...sessionVisitRows],attributedBookings);
   const organicProviderRows=organicProviders.map((provider)=>({provider,summary:organicProviderPerformance.find((row)=>row.provider===provider)?.summary??null}));
-  const metaPerformanceRows = (campaignSpendResponse.data ?? []) as Array<{ campaign_id: string | null; campaign_name: string | null; adset_id: string | null; adset_name: string | null; ad_id: string | null; ad_name: string | null; spend_amount: number | string | null }>;
+  const metaSpendRows = (campaignSpendResponse.data ?? []) as Array<{ campaign_id: string | null; campaign_name: string | null; adset_id: string | null; adset_name: string | null; ad_id: string | null; ad_name: string | null; spend_amount: number | string | null }>;
   const sessionQuality = buildSessionQualityReport(sessions, { includeAutomated, engagementThresholdMs: defaultSessionEngagementThresholdMs, metaPerformanceRows });
   const campaignPerformance = buildCampaignPerformanceReport({
     sessions,
@@ -313,15 +315,14 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     metaPerformanceRows,
     googleCampaignRows: ((googleCampaignsResponse.data ?? []) as Array<{ google_campaign_id: string | number | null; campaign_name: string | null }>),
   });
-  const spendByCampaign = metaPerformanceRows.reduce<Record<string, number>>((totals, row) => {
+  const spendByCampaign = metaSpendRows.reduce<Record<string, number>>((totals, row) => {
     const campaign = row.campaign_name?.trim().toLowerCase();
     if (campaign) totals[campaign] = (totals[campaign] ?? 0) + Math.max(0, Math.round(Number(row.spend_amount ?? 0) * 100));
     return totals;
   }, {});
   const landingPageFunnel = buildLandingPageFunnelReport({ sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings, spendByCampaign });
   const sourceCheckoutFunnels = new Map([
-    ["meta_ads", buildSourceCheckoutFunnelReport({ source: "meta_ads", sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings })],
-    ...marketingSources.map((trafficSource) => [trafficSource, buildSourceCheckoutFunnelReport({ source: trafficSource, sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings })] as const),
+    ...marketingSources.map((trafficSource) => [trafficSource, buildSourceCheckoutFunnelReport({ source: trafficSource, sessions, events: [...events, ...sessionVisitRows], bookings: attributedBookings, metaPerformanceRows })] as const),
   ]);
   const timedDurationSeconds = sessions.flatMap((session) => session.total_session_duration_milliseconds == null ? [] : [Math.max(0, Number(session.total_session_duration_milliseconds) / 1000)]).sort((left, right) => left - right);
   const timingDiagnostics = {
@@ -336,36 +337,32 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const itemNames = new Map(((inventoryResponse.data ?? []) as Array<{ id: string; name: string | null }>).map((item) => [item.id, item.name?.trim() || "Rental item"]));
   const bookingSourceMap = new Map<string, MarketingSource>();
   for (const row of snapshotsResponse.data ?? []) {
-    const normalized = normalizeMarketingSource(row as any);
+    const normalized = normalizeMarketingSource(row as any, metaPerformanceRows);
     if (source === "all" || normalized === source) bookingSourceMap.set(String((row as { booking_id?: string | null }).booking_id ?? ""), normalized);
   }
   const bookingItems = ((bookingItemsResponse.data ?? []) as BookingItemRow[]).filter((row) => source === "all" || bookingSourceMap.has(String(row.booking_id ?? "")));
-  const requestedDates = buildRequestedDateAnalytics(events, itemNames);
+  const requestedDates = buildRequestedDateAnalytics(events, itemNames, metaPerformanceRows);
   const itemRows = buildRentalItemAnalytics(events, bookingItems, bookingSourceMap, itemNames);
   const selectedMonth = /^\d{4}-\d{2}$/.test(q.month ?? "") ? q.month! : (requestedDates.busiestDate?.slice(0, 7) ?? monthValue(new Date()));
   const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(q.date ?? "") ? q.date! : (requestedDates.busiestDate ?? `${selectedMonth}-01`);
   const dateDetail = requestedDates.detail(selectedDate);
-  const previousEvents = ((previousEventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source));
+  const previousEvents = ((previousEventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source, metaPerformanceRows));
   const previousAttributedBookings = ((previousBookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; booking_attribution_snapshots?: unknown }>).map((row) => ({
     booking_id: row.id,
     status: row.status,
     total_cents: row.total_cents,
     booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
-  })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots) === source);
-  const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {});
+  })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots, metaPerformanceRows) === source);
+  const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {}, metaPerformanceRows);
   const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
-  const metaSourceRows = report.summaries.filter((row) => row.source === "facebook" || row.source === "instagram");
-  const trafficSourceRows = [
-    ...report.summaries.filter((row) => row.source !== "facebook" && row.source !== "instagram").map((row) => ({ key: row.source, label: labelForSource(row.source), campaignSource: row.source, visits: row.visits, itemViews: row.engaged, bookingStarts: row.detailedCounts.booking_start ?? 0, bookings: row.detailedCounts.booking_completed ?? 0, revenueCents: row.revenueCents })),
-    ...(metaSourceRows.length ? [{ key: "meta_ads", label: "Meta Ads", campaignSource: "meta_ads", visits: metaSourceRows.reduce((sum, row) => sum + row.visits, 0), itemViews: metaSourceRows.reduce((sum, row) => sum + row.engaged, 0), bookingStarts: metaSourceRows.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0), bookings: metaSourceRows.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0), revenueCents: metaSourceRows.reduce((sum, row) => sum + row.revenueCents, 0) }] : []),
-  ];
+  const trafficSourceRows = report.summaries.map((row) => ({ key: row.source, label: labelForSource(row.source), campaignSource: row.source, visits: row.visits, itemViews: row.engaged, bookingStarts: row.detailedCounts.booking_start ?? 0, bookings: row.detailedCounts.booking_completed ?? 0, revenueCents: row.revenueCents }));
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to, spendBySource.google_ads ?? null);
-  const paidTotal=totalPaidEconomics(buildSourcePerformanceReport([],allAttributedBookings).summaries,adPlatformStatuses);
+  const paidTotal=totalPaidEconomics(buildSourcePerformanceReport([],allAttributedBookings,{},metaPerformanceRows).summaries,adPlatformStatuses);
   const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: paidTotal.revenueCents, roas: paidTotal.roas });
   // Keep paid platforms visible even when spend has no associated onsite activity.
   for(const [key,label] of [["google_ads","Google Ads"],["meta_ads","Meta Ads"]] as const){
-    const visible=source==="all"||source===key||(key==="meta_ads"&&(source==="facebook"||source==="instagram"));
+    const visible=source==="all"||source===key;
     if(visible&&!trafficSourceRows.some(row=>row.key===key))trafficSourceRows.push({key,label,campaignSource:key,visits:0,itemViews:0,bookingStarts:0,bookings:0,revenueCents:0});
   }
   const aggregatedStepCounts = new Map<string, number>();
@@ -624,7 +621,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       </div>
       <div className="marketing-session-landing-panel">
         <header><div><h3>Landing page performance</h3><p>Follow each first-touch landing page from session through completed booking revenue.</p></div></header>
-        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>CTA clicks</b><b>CTA rate</b><b>Booking visits</b><b>Item selections</b><b>Checkout starts</b><b>Bookings</b><b>Conversion</b><b>Revenue</b><b>Revenue / session</b><b>CAC</b><b>ROAS</b></div>{landingPageFunnel.map((row) => <details className="marketing-landing-checkout" key={row.path}><summary><span>{row.path}</span><span>{row.sessions}</span><span>{row.ctaClicks}</span><span>{percent(row.ctaRate)}</span><span>{row.bookingPageVisits}</span><span>{row.itemSelections}</span><span>{row.checkoutStarts>0?<><b>{row.checkoutStarts}</b><i aria-hidden="true">⌄</i></>:0}</span><span>{row.completedBookings}</span><span>{percent(row.bookingConversionRate)}</span><span>{money(row.revenueCents)}</span><span>{money(row.revenuePerSessionCents)}</span><span>{row.cacCents == null ? "—" : money(row.cacCents)}</span><span>{row.roas == null ? "—" : `${row.roas.toFixed(2)}×`}</span></summary>{row.checkoutStarts>0?<div className="marketing-checkout-drilldown"><strong>Checkout funnel</strong>{checkoutSteps.some(([key])=>key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0)>0:(row.checkoutSteps[key]??0)>0)?<div>{checkoutSteps.map(([key,label],index)=>{const count=key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0):(row.checkoutSteps[key]??0),previousKey=checkoutSteps[index-1]?.[0],previous=previousKey==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0):previousKey?(row.checkoutSteps[previousKey]??0):0;return <span key={key}><b>{label}</b><em>{count}</em>{key==="checkout_addons_decision"&&<small>{row.checkoutSteps.checkout_addons_skipped??0} skipped · {row.checkoutSteps.checkout_addons_added??0} added</small>}<small>{index?checkoutDropoff(previous,count):""}</small></span>;})}</div>:<p>No checkout-step data yet.</p>}{row.deliveryFeeAnalysis?<aside className="marketing-delivery-fee-analysis"><strong>Delivery fee analysis</strong><span>$0 delivery: {row.deliveryFeeAnalysis.zeroFeeSessions} · Terms accepted: {percent(row.deliveryFeeAnalysis.zeroFeeTermsAcceptedRate)}</span><span>Delivery fee: {row.deliveryFeeAnalysis.paidFeeSessions} · Avg. {money(row.deliveryFeeAnalysis.averagePaidFeeCents)} · Terms accepted: {percent(row.deliveryFeeAnalysis.paidFeeTermsAcceptedRate)}</span></aside>:null}</div>:null}</details>)}</div>
+        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>CTA clicks</b><b>CTA rate</b><b>Booking visits</b><b>Item selections</b><b>Checkout starts</b><b>Bookings</b><b>Conversion</b><b>Revenue</b><b>Revenue / session</b><b>CAC</b><b>ROAS</b></div>{landingPageFunnel.map((row) => <details className="marketing-landing-checkout" key={row.path}><summary><span>{row.path}</span><span>{row.sessions}</span><span>{row.ctaClicks}</span><span>{percent(row.ctaRate)}</span><span>{row.bookingPageVisits}</span><span>{row.itemSelections}</span><span>{row.checkoutStarts>0?<><b>{row.checkoutStarts}</b><i aria-hidden="true">⌄</i></>:0}</span><span>{row.completedBookings}</span><span>{percent(row.bookingConversionRate)}</span><span>{money(row.revenueCents)}</span><span>{money(row.revenuePerSessionCents)}</span><span>{row.cacCents == null ? "—" : money(row.cacCents)}</span><span>{row.roas == null ? "—" : `${row.roas.toFixed(2)}×`}</span></summary>{row.checkoutStarts>0?<div className="marketing-checkout-drilldown"><strong>Checkout activity</strong><p className="marketing-checkout-reconciliation">{checkoutActivityHelp}</p>{checkoutSteps.some(([key])=>key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0)>0:(row.checkoutSteps[key]??0)>0)?<div>{checkoutSteps.map(([key,label])=>{const count=key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0):(row.checkoutSteps[key]??0);return <span key={key}><b>{label}</b><em>{count}</em>{key==="checkout_addons_decision"&&<small>{row.checkoutSteps.checkout_addons_skipped??0} skipped · {row.checkoutSteps.checkout_addons_added??0} added</small>}</span>;})}</div>:<p>No checkout-step data yet.</p>}{row.deliveryFeeAnalysis?<aside className="marketing-delivery-fee-analysis"><strong>Delivery fee analysis</strong><span>$0 delivery: {row.deliveryFeeAnalysis.zeroFeeSessions} · Terms accepted: {percent(row.deliveryFeeAnalysis.zeroFeeTermsAcceptedRate)}</span><span>Delivery fee: {row.deliveryFeeAnalysis.paidFeeSessions} · Avg. {money(row.deliveryFeeAnalysis.averagePaidFeeCents)} · Terms accepted: {percent(row.deliveryFeeAnalysis.paidFeeTermsAcceptedRate)}</span></aside>:null}</div>:null}</details>)}</div>
       </div>
     </section>
 
@@ -632,8 +629,9 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <header><div><h2>Traffic source performance</h2><p>Choose a traffic source above to update the funnel, requested rental dates, most-clicked rentals, bookings, revenue, and insights.</p></div></header>
       <p className="muted">Google Business Profile uses explicit first-touch UTM tags to connect visits, onsite behavior, bookings, and revenue. Organic search attribution is separate from Search Console impressions, clicks, CTR, position, queries, and pages; a tagged page in Search Console does not connect a query to a specific session. Google Ads combines paid ad metrics with onsite attribution.</p>
       <p className="muted">Total revenue includes every displayed source. Total paid metrics cover Google Ads and Meta Ads for the selected dates, regardless of the traffic-source filter. Unavailable spend is not treated as zero.</p>
-      {source==="facebook"||source==="instagram"?<p className="muted">Meta row revenue and bookings follow the selected source; Meta spend covers the whole ad platform.</p>:null}
-      <div className="marketing-sources-table marketing-traffic-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b><b>Ad spend</b><b title={paidEconomicsHelp.roas} tabIndex={0}>ROAS ⓘ</b><b title={paidEconomicsHelp.costPerBooking} tabIndex={0}>Cost / booking ⓘ</b></div>{trafficSourceRows.map((row) => {const campaigns=(row.key==="organic"||row.key==="google_business_profile")?[]:campaignPerformance.filter((campaign) => campaign.source === row.campaignSource);const sourceKey=row.campaignSource==="meta_ads"?"meta_ads":row.campaignSource;const funnel=sourceCheckoutFunnels.get(sourceKey);const economics=sourcePaidEconomics(row.key,row.revenueCents,row.bookings,adPlatformStatuses);const paid=row.key==="google_ads"||row.key==="meta_ads";return <details className="marketing-traffic-source" key={row.key} name="traffic-source"><summary><span>{row.label}<i aria-hidden="true">⌄</i></span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span><span>{economics.spendCents===null?(paid?"Unavailable":"—"):money(economics.spendCents)}</span><span title={paidEconomicsHelp.roas}>{formatPaidRoas(economics.roas)}</span><span title={paidEconomicsHelp.costPerBooking}>{economics.costPerBookingCents===null?"—":money(economics.costPerBookingCents)}</span></summary>{funnel?<CheckoutFunnelDrilldown funnel={funnel}/>:null}{row.key==="organic"?<div className="marketing-campaign-drilldown"><div><b>Search engine</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{organicProviderRows.map(({provider,summary})=><div key={provider}><span>{labelForOrganicProvider(provider)}</span><span>{summary?.visits??0}</span><span>{summary?.engaged??0}</span><span>{summary?.detailedCounts.booking_start??0}</span><span>{summary?.detailedCounts.booking_completed??0}</span><span>{money(summary?.revenueCents??0)}</span></div>)}</div>:null}{row.key==="google_business_profile"?<div className="marketing-campaign-drilldown"><div><b>Link / action</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{gbpActionRows.map(({action,summary})=><div key={action}><span>{labelForGoogleBusinessProfileAction(action)}</span><span>{summary?.visits??0}</span><span>{summary?.engaged??0}</span><span>{summary?.detailedCounts.booking_start??0}</span><span>{summary?.bookings??0}</span><span>{money(summary?.revenueCents??0)}</span></div>)}</div>:null}{campaigns.length?<div className="marketing-campaign-drilldown"><div><b>Campaign / resource</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{campaigns.map((campaign) => {const level=campaign.resourceLevel===null?null:campaign.resourceLevel==="adset"?"Ad Set":campaign.resourceLevel[0].toUpperCase()+campaign.resourceLevel.slice(1),parent=campaign.resourceLevel&&campaign.resourceLevel!=="campaign"?(campaign.campaignName??"Campaign unavailable"):null;return <div key={`${campaign.resourceLevel??"utm"}-${campaign.name}-${campaign.rawId ?? "none"}`}><span title={campaign.isMetaId && campaign.rawId ? `Meta ID: ${campaign.rawId}` : undefined}>{parent?<><strong>{parent}</strong><small>{level}: {campaign.name}</small></>:campaign.name}{level&&<small>{level}{campaign.isMetaId&&campaign.rawId?` · Meta ID: ${campaign.rawId}`:""}</small>}</span><span>{campaign.visits}</span><span>{campaign.itemViews}</span><span>{campaign.bookingStarts}</span><span>{campaign.bookings}</span><span>{money(campaign.revenueCents)}</span></div>;})}</div>:null}</details>;})}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong><strong>{paidTotal.spendCents===null?"Unavailable":money(paidTotal.spendCents)}</strong><strong title={paidEconomicsHelp.totalRoas} tabIndex={0}><small>Paid ROAS</small>{formatPaidRoas(paidTotal.roas)}</strong><strong title={paidEconomicsHelp.totalCostPerBooking} tabIndex={0}><small>Paid cost / booking</small>{paidTotal.costPerBookingCents===null?"—":money(paidTotal.costPerBookingCents)}</strong></div></div>
+      <p className="muted">Meta Ads requires explicit paid tags or a matched Meta resource ID. Organic Social includes explicitly non-paid Facebook/Instagram traffic. Meta — unspecified has Meta origin evidence but no reliable paid or organic designation. Only Meta Ads receives Meta spend and contributes to paid ROAS. Campaign/resource rows are separate attribution buckets, not nested totals.</p>
+      {!metaResourceResult.available?<p className="muted">Meta resource lookup is unavailable. Only explicit paid tags can establish Meta Ads until the lookup succeeds.</p>:null}
+      <div className="marketing-sources-table marketing-traffic-sources-table"><div><b>Source</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b><b>Ad spend</b><b title={paidEconomicsHelp.roas} tabIndex={0}>ROAS ⓘ</b><b title={paidEconomicsHelp.costPerBooking} tabIndex={0}>Cost / booking ⓘ</b></div>{trafficSourceRows.map((row) => {const campaigns=(["organic","google_business_profile","organic_social","meta_unspecified"].includes(row.key))?[]:campaignPerformance.filter((campaign) => campaign.source === row.campaignSource && (row.key!=="meta_ads"||campaign.name!=="Unattributed"));const sourceKey=row.campaignSource==="meta_ads"?"meta_ads":row.campaignSource;const funnel=sourceCheckoutFunnels.get(sourceKey);const economics=sourcePaidEconomics(row.key,row.revenueCents,row.bookings,adPlatformStatuses);const paid=row.key==="google_ads"||row.key==="meta_ads";return <details className="marketing-traffic-source" key={row.key} name="traffic-source"><summary><span>{row.label}<i aria-hidden="true">⌄</i></span><span>{row.visits}</span><span>{row.itemViews}</span><span>{row.bookingStarts}</span><span>{row.bookings}</span><span>{money(row.revenueCents)}</span><span>{economics.spendCents===null?(paid?"Unavailable":"—"):money(economics.spendCents)}</span><span title={paidEconomicsHelp.roas}>{formatPaidRoas(economics.roas)}</span><span title={paidEconomicsHelp.costPerBooking}>{economics.costPerBookingCents===null?"—":money(economics.costPerBookingCents)}</span></summary>{funnel?<CheckoutFunnelDrilldown funnel={funnel}/>:null}{row.key==="organic"?<div className="marketing-campaign-drilldown"><div><b>Search engine</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{organicProviderRows.map(({provider,summary})=><div key={provider}><span>{labelForOrganicProvider(provider)}</span><span>{summary?.visits??0}</span><span>{summary?.engaged??0}</span><span>{summary?.detailedCounts.booking_start??0}</span><span>{summary?.detailedCounts.booking_completed??0}</span><span>{money(summary?.revenueCents??0)}</span></div>)}</div>:null}{row.key==="google_business_profile"?<div className="marketing-campaign-drilldown"><div><b>Link / action</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{gbpActionRows.map(({action,summary})=><div key={action}><span>{labelForGoogleBusinessProfileAction(action)}</span><span>{summary?.visits??0}</span><span>{summary?.engaged??0}</span><span>{summary?.detailedCounts.booking_start??0}</span><span>{summary?.bookings??0}</span><span>{money(summary?.revenueCents??0)}</span></div>)}</div>:null}{campaigns.length?<div className="marketing-campaign-drilldown"><div><b>Campaign / resource</b><b>Visits</b><b>Item views</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{campaigns.map((campaign) => {const level=campaign.resourceLevel===null?null:campaign.resourceLevel==="adset"?"Ad Set":campaign.resourceLevel[0].toUpperCase()+campaign.resourceLevel.slice(1),parent=campaign.resourceLevel&&campaign.resourceLevel!=="campaign"?(campaign.campaignName??"Campaign unavailable"):null;return <div key={`${campaign.resourceLevel??"utm"}-${campaign.name}-${campaign.rawId ?? "none"}`}><span title={campaign.isMetaId && campaign.rawId ? `Meta ID: ${campaign.rawId}` : undefined}>{parent?<><strong>{parent}</strong><small>{level}: {campaign.name}</small></>:campaign.name}{level&&<small>{level}{campaign.isMetaId&&campaign.rawId?` · Meta ID: ${campaign.rawId}`:""}</small>}</span><span>{campaign.visits}</span><span>{campaign.itemViews}</span><span>{campaign.bookingStarts}</span><span>{campaign.bookings}</span><span>{money(campaign.revenueCents)}</span></div>;})}</div>:null}</details>;})}<div><strong>Total</strong><strong>{report.totals.visits}</strong><strong>{report.totals.engaged}</strong><strong>{report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_start ?? 0), 0)}</strong><strong>{totalBookings}</strong><strong>{money(report.totals.revenueCents)}</strong><strong>{paidTotal.spendCents===null?"Unavailable":money(paidTotal.spendCents)}</strong><strong title={paidEconomicsHelp.totalRoas} tabIndex={0}><small>Paid ROAS</small>{formatPaidRoas(paidTotal.roas)}</strong><strong title={paidEconomicsHelp.totalCostPerBooking} tabIndex={0}><small>Paid cost / booking</small>{paidTotal.costPerBookingCents===null?"—":money(paidTotal.costPerBookingCents)}</strong></div></div>
     </section>
 
     <section className="marketing-kpi-grid" aria-label="Paid ad platform summary">

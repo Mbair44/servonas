@@ -1,6 +1,6 @@
 import type {BookingFunnelEvent} from "./bookingFunnel.ts";
 
-export const marketingSources=["google","google_ads","google_business_profile","facebook","instagram","direct","organic","referral","email","unknown"] as const;
+export const marketingSources=["google","google_ads","google_business_profile","meta_ads","organic_social","meta_unspecified","direct","organic","referral","email","unknown"] as const;
 export type MarketingSource=(typeof marketingSources)[number];
 export const organicProviders=["google","bing","duckduckgo","yahoo","other"] as const;
 export type OrganicProvider=(typeof organicProviders)[number];
@@ -110,7 +110,7 @@ export type AttributionSessionMetricsRow=AttributionSessionLike&{
 };
 
 export type SessionDurationBucket={key:"timing_unavailable"|"under_1_second"|"one_to_four_seconds"|"five_to_nine_seconds"|"ten_or_more_seconds";label:string;count:number;};
-export type SessionQualitySource="google_business_profile"|"meta_ads"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
+export type SessionQualitySource="google_business_profile"|"meta_ads"|"organic_social"|"meta_unspecified"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
 export type SessionEngagementClassification="engaged"|"quick_exit"|"neutral";
 export type AutomatedTrafficClassification="human_likely"|"automated_likely"|"unknown";
 export type SessionVerificationStatus="verified_activity"|"unverified_activity";
@@ -184,27 +184,36 @@ function referrerHost(value:string|null|undefined){
  try{return new URL(value).hostname.toLowerCase();}catch{return "";}
 }
 
-export function normalizeMarketingSource(session:AttributionSessionLike|null|undefined):MarketingSource{
+// Report-time evidence only: never write these classifications back to first touch.
+const metaPaidMedia=new Set(["paid_social","paid","cpc","ppc"]);
+const metaOrganicMedia=new Set(["social","organic","organic_social","social-organic"]);
+function hasMetaOrigin(session:AttributionSessionLike|null|undefined){
+ const host=referrerHost(session?.first_referrer);
+ return ["fb","facebook","ig","instagram","meta"].includes(clean(session?.utm_source)) || Boolean(clean(session?.fbclid)) || /(^|\.)(facebook|instagram|meta)\.com$/.test(host);
+}
+
+export function normalizeMarketingSource(session:AttributionSessionLike|null|undefined,metaRows:MetaPerformanceNameRow[]=[]):MarketingSource{
  const utmSource=clean(session?.utm_source);
  const utmMedium=clean(session?.utm_medium);
  const host=referrerHost(session?.first_referrer);
  if(clean(session?.gclid)||clean(session?.gbraid)||clean(session?.wbraid))return "google_ads";
  if(utmSource==="google"&&/(cpc|ppc|paid|display|search)/.test(utmMedium))return "google_ads";
  if(clean(session?.utm_campaign)==="google_business_profile"||utmSource==="google_business_profile")return "google_business_profile";
- if(clean(session?.fbclid))return utmSource==="instagram"||/instagram\./.test(host)?"instagram":"facebook";
- if(utmSource==="fb"||utmSource==="facebook"||utmSource==="meta")return "facebook";
- if(utmSource==="instagram")return "instagram";
  if(utmSource==="email"||utmMedium==="email")return "email";
- if(utmMedium==="organic")return "organic";
- if(utmMedium==="referral")return "referral";
+ // Explicit non-Meta channels retain precedence over incidental social referrers/click IDs.
+ const explicitMetaSource=["fb","facebook","ig","instagram","meta"].includes(utmSource);
+ if(utmMedium==="organic"&&!explicitMetaSource&&(utmSource||!hasMetaOrigin(session)))return "organic";
+ if(utmMedium==="referral"&&!explicitMetaSource)return "referral";
  if(!utmSource&&/(google|bing|duckduckgo|yahoo)\./.test(host))return "organic";
- if(!utmSource&&/(facebook|meta)\./.test(host))return "facebook";
- if(!utmSource&&/instagram\./.test(host))return "instagram";
+ if(hasMetaOrigin(session)){
+  if(metaPaidMedia.has(utmMedium)||(session&&resolveMetaAttributionName(session,metaRows)))return "meta_ads";
+  if(metaOrganicMedia.has(utmMedium))return "organic_social";
+  return "meta_unspecified";
+ }
  if(!utmSource&&host)return "referral";
  if(!utmSource&&!host)return "direct";
- // A bare `utm_source=google` is a manually tagged visit with no reliable channel signal.
  if(utmSource==="google")return "google";
- return marketingSources.includes(utmSource as MarketingSource)?utmSource as MarketingSource:"unknown";
+ return ["direct","organic","referral","email"].includes(utmSource)?utmSource as MarketingSource:"unknown";
 }
 
 function organicProviderFromValue(value:string){
@@ -269,8 +278,9 @@ export function labelForSource(source:MarketingSource){
   google:"Google (tagged)",
   google_ads:"Google Ads",
   google_business_profile:"Google Business Profile",
-  facebook:"Facebook",
-  instagram:"Instagram",
+  meta_ads:"Meta Ads",
+  organic_social:"Organic Social",
+  meta_unspecified:"Meta — unspecified",
   direct:"Direct",
   organic:"Organic",
   referral:"Referral",
@@ -323,7 +333,7 @@ export function buildSessionDurationBuckets(sessions:AttributionSessionMetricsRo
 }
 
 function sourceLabelForQuality(source:SessionQualitySource){
- return ({meta_ads:"Meta Ads",google_ads:"Google Ads",
+ return ({meta_ads:"Meta Ads",organic_social:"Organic Social",meta_unspecified:"Meta — unspecified",google_ads:"Google Ads",
   google_business_profile:"Google Business Profile",organic_search:"Organic Search",direct:"Direct",referral:"Referral",email:"Email",sms:"SMS",unknown:"Unknown"} as Record<SessionQualitySource,string>)[source];
 }
 
@@ -391,7 +401,7 @@ function numericMetaId(value:string|null|undefined){
 
 /** Resolves numeric Meta UTM identifiers from the tenant's already-synced reporting rows. */
 export function resolveMetaAttributionName(session:AttributionSessionLike&{utm_id?:string|null},rows:MetaPerformanceNameRow[]):MetaAttributionName|null{
- if(normalizeSessionAttribution(session).providerLabel!=="Meta Ads")return null;
+ if(!hasMetaOrigin(session))return null;
  const candidates:[string|null,"campaign"|"adset"|"ad"][]=[[numericMetaId(session.utm_campaign),"campaign"],[numericMetaId(session.utm_term),"adset"],[numericMetaId(session.utm_content),"ad"],[numericMetaId(session.utm_id),"campaign"]];
  const levels:[MetaAttributionName["level"],keyof MetaPerformanceNameRow,keyof MetaPerformanceNameRow][]=[
   ["campaign","campaign_id","campaign_name"],
@@ -401,13 +411,13 @@ export function resolveMetaAttributionName(session:AttributionSessionLike&{utm_i
  const find=(id:string,preferred?:MetaAttributionName["level"])=>{for(const [level,idField,nameField] of [...levels.filter(([level])=>level===preferred),...levels.filter(([level])=>level!==preferred)]){
    const row=rows.find((candidate)=>String(candidate[idField] ?? "").trim()===id);
    const name=row ? cleanCampaignToken(String(row[nameField] ?? "")) : null;
-   if(name)return {name,rawId:id,level,campaignName:cleanCampaignToken(String(row?.campaign_name??"")),campaignId:cleanCampaignToken(String(row?.campaign_id??""))};
+   if(row)return {name:name??id,rawId:id,level,campaignName:cleanCampaignToken(String(row?.campaign_name??"")),campaignId:cleanCampaignToken(String(row?.campaign_id??""))};
   }return null;};
  for(const [id,preferred] of candidates)if(id){const resolved=find(id,preferred);if(resolved)return resolved;}
  return null;
 }
 
-export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_id?:string|null;first_landing_url?:string|null;}):SessionAttributionBreakdown{
+export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_id?:string|null;first_landing_url?:string|null;},metaRows:MetaPerformanceNameRow[]=[]):SessionAttributionBreakdown{
  const utmSource=cleanValue(session.utm_source).toLowerCase();
  const utmMedium=cleanValue(session.utm_medium).toLowerCase();
  const referrer=referrerHost(session.first_referrer);
@@ -417,13 +427,14 @@ export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_
  const rawUtmTerm=cleanCampaignToken(session.utm_term);
  const rawUtmContent=cleanCampaignToken(session.utm_content);
  const rawUtmId=cleanCampaignToken((session as {utm_id?:string|null}).utm_id);
- const sourceLooksMeta=["fb","facebook","instagram","ig","meta"].includes(utmSource) || Boolean(cleanValue(session.fbclid)) || /facebook|instagram/.test(referrer);
+ const source=normalizeMarketingSource(session,metaRows);
+ const sourceLooksMeta=["meta_ads","organic_social","meta_unspecified"].includes(source);
  const sourceLooksGoogle=Boolean(cleanValue(session.gclid) || cleanValue(session.gbraid) || cleanValue(session.wbraid)) || (utmSource==="google" && /(paid|cpc|ppc|search|display)/.test(utmMedium));
  if(sourceLooksMeta){
   const termParts=splitMetaUtmTerm(rawUtmTerm);
   const contentParts=splitMetaUtmContent(rawUtmContent);
   return {
-   providerLabel:"Meta Ads",
+   providerLabel:labelForSource(source),
    platformLabel:utmSource==="instagram" || utmSource==="ig" || /instagram/.test(referrer) ? "Instagram" : "Facebook",
    channelLabel:utmMedium==="paid" || utmMedium==="paid_social" ? "Paid Social" : rawUtmMedium,
    campaignName:rawUtmCampaign,
@@ -493,22 +504,11 @@ export function normalizeSessionAttribution(session:AttributionSessionLike&{utm_
  };
 }
 
-export function classifySessionQualitySource(session:AttributionSessionLike&{utm_medium?:string|null}):SessionQualitySource{
- const marketingSource=normalizeMarketingSource(session);
- if(marketingSource==="google_ads"||marketingSource==="google_business_profile")return marketingSource;
- const utmSource=clean(session.utm_source);
- const utmMedium=clean(session.utm_medium);
- const host=referrerHost(session.first_referrer);
- if(clean(session.gclid)||clean(session.gbraid)||clean(session.wbraid))return "google_ads";
- if(clean(session.fbclid))return "meta_ads";
- if(utmMedium==="sms"||utmSource==="sms"||utmSource==="text")return "sms";
- if(utmMedium==="email"||utmSource==="email")return "email";
- if(["fb","facebook","instagram","meta"].includes(utmSource)&&(utmMedium.includes("paid")||utmMedium.includes("social")||utmMedium.includes("cpc")))return "meta_ads";
- if(utmSource==="google"&&(utmMedium.includes("paid")||utmMedium.includes("cpc")||utmMedium.includes("ppc")))return "google_ads";
- if(utmMedium==="organic"||(!utmSource&&/(google|bing|duckduckgo|yahoo)\./.test(host)))return "organic_search";
- if(utmMedium==="referral"||(!utmSource&&host))return "referral";
- if(!utmSource&&!host)return "direct";
- return "unknown";
+export function classifySessionQualitySource(session:AttributionSessionLike,metaRows:MetaPerformanceNameRow[]=[]):SessionQualitySource{
+ const source=normalizeMarketingSource(session,metaRows);
+ if(source==="organic")return "organic_search";
+ if(source==="unknown"&&(clean(session.utm_medium)==="sms"||["sms","text"].includes(clean(session.utm_source))))return "sms";
+ return source==="google"?"unknown":source;
 }
 
 export function automatedTrafficClassification(session:AttributionSessionMetricsRow):AutomatedTrafficClassification{
@@ -553,11 +553,11 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
  const includeAutomated=input.includeAutomated ?? true;
  const engagementThresholdMs=input.engagementThresholdMs ?? defaultSessionEngagementThresholdMs;
  const details=sessions.map((session):SessionQualityDetail=>{
-  const source=classifySessionQualitySource(session);
+  const source=classifySessionQualitySource(session,input.metaPerformanceRows);
   const automatedClassification=automatedTrafficClassification(session);
   const campaignName=cleanValue(session.utm_campaign) || null;
   const campaignId=cleanValue(session.utm_content) || null;
-  const attribution=normalizeSessionAttribution(session);
+  const attribution=normalizeSessionAttribution(session,input.metaPerformanceRows);
   return {
    id:session.id,
    startedAt:(session as {session_started_at?:string|null}).session_started_at ?? null,
@@ -577,7 +577,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
    engagementClassification:sessionEngagementClassification(session,engagementThresholdMs),
    automatedClassification,
    attribution,
-   metaAttributionName:resolveMetaAttributionName(session,input.metaPerformanceRows ?? []),
+   metaAttributionName:source==="meta_ads"?resolveMetaAttributionName(session,input.metaPerformanceRows ?? []):null,
   };
  });
  const visibleDetails=includeAutomated?details:details.filter((detail)=>detail.automatedClassification!=="automated_likely");
@@ -771,11 +771,10 @@ export function summarizeCheckoutFunnels(rows:LandingPageFunnelRow[]):CheckoutFu
 }
 
 export type CheckoutFunnelSource="meta_ads"|MarketingSource;
-const checkoutSourceFor=(source:MarketingSource):CheckoutFunnelSource=>source==="facebook"||source==="instagram"?"meta_ads":source;
 
-/** Reuses the landing-page funnel for a first-touch source, including Meta's Facebook/Instagram roll-up. */
-export function buildSourceCheckoutFunnelReport(input:{source:CheckoutFunnelSource;sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[]}):CheckoutFunnelSummary{
- const matches=(session:AttributionSessionLike|null|undefined)=>checkoutSourceFor(normalizeMarketingSource(session))===input.source;
+/** Reuses the landing-page funnel for a first-touch source, using the same paid/organic evidence as source reporting. */
+export function buildSourceCheckoutFunnelReport(input:{source:CheckoutFunnelSource;sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];metaPerformanceRows?:MetaPerformanceNameRow[]}):CheckoutFunnelSummary{
+ const matches=(session:AttributionSessionLike|null|undefined)=>normalizeMarketingSource(session,input.metaPerformanceRows)===input.source;
  const rows=buildLandingPageFunnelReport({
   sessions:input.sessions.filter(matches),
   events:input.events.filter(row=>matches(eventSessionFor(row))),
@@ -784,11 +783,11 @@ export function buildSourceCheckoutFunnelReport(input:{source:CheckoutFunnelSour
  return summarizeCheckoutFunnels(rows);
 }
 
-export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={}){
+export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={},metaRows:MetaPerformanceNameRow[]=[]){
  const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;booking:Set<string>;revenue:number;}>();
  for(const row of events){
   const session=Array.isArray(row.booking_attribution_sessions)?row.booking_attribution_sessions[0]:row.booking_attribution_sessions;
-  const source=normalizeMarketingSource(session);
+  const source=normalizeMarketingSource(session,metaRows);
   const sessionId=row.attribution_session_id||`${source}:anonymous`;
   const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
   const canonical=canonicalEventName(String(row.event_name));
@@ -801,7 +800,7 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
  for(const row of bookings){
   if(!bookingCountsForAnalytics(row.status))continue;
   const session=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
-  const source=normalizeMarketingSource(session);
+  const source=normalizeMarketingSource(session,metaRows);
   const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
   bucket.booking.add(row.booking_id);
   bucket.revenue+=Math.max(0,Number(row.total_cents??0));
@@ -878,10 +877,10 @@ export function buildOrganicProviderPerformanceReport(events:FunnelEventRow[],bo
  });
 }
 
-export function attachSessionMetricsToSourceReport(report:ReturnType<typeof buildSourcePerformanceReport>,sessions:AttributionSessionMetricsRow[]){
+export function attachSessionMetricsToSourceReport(report:ReturnType<typeof buildSourcePerformanceReport>,sessions:AttributionSessionMetricsRow[],metaRows:MetaPerformanceNameRow[]=[]){
  const bySource=new Map<MarketingSource,AttributionSessionMetricsRow[]>();
  for(const session of sessions){
-  const source=normalizeMarketingSource(session);
+  const source=normalizeMarketingSource(session,metaRows);
   const bucket=bySource.get(source)??[];
   bucket.push(session);
   bySource.set(source,bucket);
@@ -903,13 +902,9 @@ export function attachSessionMetricsToSourceReport(report:ReturnType<typeof buil
  return report;
 }
 
-function campaignSource(source:MarketingSource):MarketingSource|"meta_ads"{
- return source==="facebook"||source==="instagram" ? "meta_ads" : source;
-}
-
 function campaignIdentity(session:AttributionSessionLike|undefined|null,metaRows:MetaPerformanceNameRow[],googleRows:GoogleCampaignNameRow[]){
- const source=campaignSource(normalizeMarketingSource(session));
- const rawCampaign=cleanCampaignToken(session?.utm_campaign);
+ const source=normalizeMarketingSource(session,metaRows);
+ const rawCampaign=["organic_social","meta_unspecified"].includes(source)?null:cleanCampaignToken(session?.utm_campaign);
  if(source==="meta_ads"){
   const resolved=session ? resolveMetaAttributionName(session,metaRows) : null;
   return {source,name:resolved?.name ?? rawCampaign ?? "Unattributed",rawId:resolved?.rawId ?? (numericMetaId(rawCampaign) ?? null),isMetaId:Boolean(resolved || numericMetaId(rawCampaign)),resourceLevel:resolved?.level ?? null,campaignName:resolved?.campaignName ?? null,campaignId:resolved?.campaignId ?? null};
