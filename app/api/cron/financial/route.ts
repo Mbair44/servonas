@@ -8,6 +8,7 @@ export async function GET(request:Request){
  const expected=process.env.CRON_SECRET,provided=request.headers.get("authorization");
  if(!expected||provided!==`Bearer ${expected}`)return NextResponse.json({error:"Unauthorized"},{status:401});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
+ const {data:expiredPaymentRequests,error:expirationError}=await db.rpc("expire_due_assisted_payment_requests",{p_limit:100});if(expirationError)console.error("Assisted payment-request expiration failed",{code:expirationError.code});
  const today=new Date().toISOString().slice(0,10);
  const {data,error}=await db.from("invoices").select("id,business_id").lt("due_date",today).in("status",["sent","viewed","partially_paid"]).eq("is_deleted",false).limit(500);
  if(error){console.error("Overdue invoice scan failed",{code:error.code});return NextResponse.json({error:"Scan failed"},{status:500});}
@@ -29,5 +30,5 @@ export async function GET(request:Request){
  let twilioUsage:{reconciliation?:unknown;billingPeriods?:unknown;error?:string}={};try{twilioUsage.reconciliation=await reconcileTenantMessageUsage(100);twilioUsage.billingPeriods=await calculateClosedMessagingPeriods();}catch(error){twilioUsage={error:"Twilio usage maintenance failed"};console.error("Twilio usage maintenance failed",{errorName:error instanceof Error?error.name:"unknown"});}
  const websiteManagement={snapshots:0,error:undefined as string|undefined};
  try{const {data:managed,error:managedError}=await db.from("business_website_management").select("business_id,enabled,monthly_cost_cents");if(managedError)throw managedError;const rows=(managed??[]).map(row=>({business_id:row.business_id,billing_period_start:`${today.slice(0,7)}-01`,managed:row.enabled,cost_cents:row.enabled?row.monthly_cost_cents:0,updated_at:new Date().toISOString()}));if(rows.length){const {error:snapshotError}=await db.from("business_website_management_periods").upsert(rows,{onConflict:"business_id,billing_period_start"});if(snapshotError)throw snapshotError;}websiteManagement.snapshots=rows.length;}catch(error){websiteManagement.error="Website management snapshot failed";console.error("Website management snapshot failed",{errorName:error instanceof Error?error.name:"unknown"});}
- return NextResponse.json({ok:true,processed,scheduledBalancesProcessed,twilioUsage,websiteManagement});
+ return NextResponse.json({ok:true,processed,scheduledBalancesProcessed,expiredPaymentRequests:expirationError?0:Number(expiredPaymentRequests??0),twilioUsage,websiteManagement});
 }
