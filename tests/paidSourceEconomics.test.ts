@@ -13,10 +13,10 @@ test("Meta and Google paid rows calculate economics from existing platform spend
  assert.equal(google.spendCents,59509);assert.equal(formatPaidRoas(google.roas),"0.00x");assert.equal(google.costPerBookingCents,null);
 });
 test("non-paid sources never get paid economics even when they produce revenue",()=>{
- for(const source of ["google_business_profile","direct","organic","referral","email","unknown","google"]){assert.deepEqual(sourcePaidEconomics(source,20000,1,statuses),{spendCents:null,roas:null,costPerBookingCents:null});}
+ for(const source of ["organic_social","meta_unspecified","facebook","instagram","google_business_profile","direct","organic","referral","email","unknown","google"]){assert.deepEqual(sourcePaidEconomics(source,20000,1,statuses),{spendCents:null,roas:null,costPerBookingCents:null});}
 });
 test("combined paid metrics exclude all non-paid revenue and bookings",()=>{
- const rows=[{source:"google_ads",revenueCents:0,bookings:0},{source:"facebook",revenueCents:100000,bookings:5},{source:"instagram",revenueCents:3750,bookings:1},{source:"organic",revenueCents:20000,bookings:1},{source:"google_business_profile",revenueCents:27500,bookings:1},{source:"direct",revenueCents:22500,bookings:6}];
+ const rows=[{source:"google_ads",revenueCents:0,bookings:0},{source:"meta_ads",revenueCents:103750,bookings:6},{source:"organic_social",revenueCents:99000,bookings:3},{source:"meta_unspecified",revenueCents:81000,bookings:4},{source:"facebook",revenueCents:50000,bookings:2},{source:"organic",revenueCents:20000,bookings:1},{source:"google_business_profile",revenueCents:27500,bookings:1},{source:"direct",revenueCents:22500,bookings:6}];
  const total=totalPaidEconomics(rows,statuses);
  assert.equal(total.spendCents,137637);assert.equal(total.revenueCents,103750);assert.equal(total.bookings,6);
  assert.equal(formatPaidRoas(total.roas),"0.75x");assert.equal(currency(total.costPerBookingCents!),"$229.40");
@@ -54,7 +54,7 @@ test("table and cards share spend and selected window; total uses unfiltered pai
  const page=await readFile(new URL("../app/app/[businessSlug]/marketing/funnel/page.tsx",import.meta.url),"utf8");
  assert.match(page,/loadAdPlatformStatuses\(supabase, business.id, window.from, window.to, spendBySource.google_ads \?\? null\)/);
  assert.match(page,/gte\("created_at", window.from\).lt\("created_at", window.to\)/);
- assert.match(page,/totalPaidEconomics\(buildSourcePerformanceReport\(\[\],allAttributedBookings\).summaries,adPlatformStatuses\)/);
+ assert.match(page,/totalPaidEconomics\(buildSourcePerformanceReport\(\[\],allAttributedBookings,\{\},metaPerformanceRows\).summaries,adPlatformStatuses\)/);
  assert.match(page,/sourcePaidEconomics\(row.key,row.revenueCents,row.bookings,adPlatformStatuses\)/);
  assert.match(page,/availablePaidSpend\(status\)/);
  assert.match(page,/Paid ROAS<\/small>/);assert.match(page,/Paid cost \/ booking<\/small>/);

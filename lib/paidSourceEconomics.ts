@@ -3,7 +3,7 @@ import type {AdPlatformStatusSummary} from "./adPlatform.ts";
 export const paidEconomicsHelp={
  roas:"Attributed revenue divided by ad spend for the selected dates. A ROAS of 1.33x means $1.33 in attributed revenue for every $1.00 spent.",
  costPerBooking:"Ad spend divided by attributed bookings for the selected dates.",
- totalRoas:"Revenue attributed to paid advertising divided by total paid ad spend. Revenue from Direct, Organic, Google Business Profile, and Referral is not credited to paid ads.",
+ totalRoas:"Revenue attributed to paid advertising divided by total paid ad spend. Only Google Ads and Meta Ads revenue is included; Organic Social and Meta — unspecified revenue is excluded.",
  totalCostPerBooking:"Total paid ad spend divided by bookings attributed to Google Ads and Meta Ads for the selected dates.",
 };
 type SpendStatus=Pick<AdPlatformStatusSummary,"provider"|"state"|"spendCents"|"lastSyncError"|"spendAvailable">;

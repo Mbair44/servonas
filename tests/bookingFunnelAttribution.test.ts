@@ -65,9 +65,9 @@ test("organic provider totals reconcile to the organic source and preserve sourc
 });
 
 test("normalizes fbclid-backed Meta visits even when referrer is missing",()=>{
- assert.equal(normalizeMarketingSource({fbclid:"meta-click-1"}),"facebook");
- assert.equal(normalizeMarketingSource({fbclid:"meta-click-1",utm_source:"instagram"}),"instagram");
- assert.equal(normalizeMarketingSource({utm_source:"fb",utm_medium:"paid"}),"facebook");
+ assert.equal(normalizeMarketingSource({fbclid:"meta-click-1"}),"meta_unspecified");
+ assert.equal(normalizeMarketingSource({fbclid:"meta-click-1",utm_source:"instagram"}),"meta_unspecified");
+ assert.equal(normalizeMarketingSource({utm_source:"fb",utm_medium:"paid"}),"meta_ads");
 });
 
 test("normalizes Meta attribution into human-readable hierarchy fields",()=>{
@@ -135,15 +135,15 @@ test("campaign performance uses a tenant's Google campaign name without cross-te
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{
  const report=buildSourcePerformanceReport([
-  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook"}},
-  {attribution_session_id:"s1",event_name:"inventory_view",booking_attribution_sessions:{utm_source:"facebook"}},
-  {attribution_session_id:"s1",event_name:"availability_check",booking_attribution_sessions:{utm_source:"facebook"}},
-  {attribution_session_id:"s1",event_name:"checkout_started",booking_attribution_sessions:{utm_source:"facebook"}},
+  {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social"}},
+  {attribution_session_id:"s1",event_name:"inventory_view",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social"}},
+  {attribution_session_id:"s1",event_name:"availability_check",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social"}},
+  {attribution_session_id:"s1",event_name:"checkout_started",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social"}},
   {attribution_session_id:"s2",event_name:"landing_view",booking_attribution_sessions:{gclid:"click-2"}},
  ],[
-  {booking_id:"b1",status:"confirmed",total_cents:32500,booking_attribution_snapshots:{utm_source:"facebook"}},
- ],{facebook:1800,google_ads:8400});
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+  {booking_id:"b1",status:"confirmed",total_cents:32500,booking_attribution_snapshots:{utm_source:"facebook",utm_medium:"paid_social"}},
+ ],{meta_ads:1800,google_ads:8400});
+ const facebook=report.summaries.find((row)=>row.source==="meta_ads");
  const googleAds=report.summaries.find((row)=>row.source==="google_ads");
  assert.ok(facebook);
  assert.equal(facebook.visits,1);
@@ -177,7 +177,7 @@ test("does not count a Facebook browse-only visitor as a booking",()=>{
   {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook"}},
   {attribution_session_id:"s1",event_name:"inventory_view",booking_attribution_sessions:{utm_source:"facebook"}},
  ]);
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+ const facebook=report.summaries.find((row)=>row.source==="meta_unspecified");
  assert.ok(facebook);
  assert.equal(facebook.visits,1);
  assert.equal(facebook.bookings,0);
@@ -191,7 +191,7 @@ test("does not count abandoned checkout as a booking until the persisted booking
  ],[
   {booking_id:"b1",status:"pending_payment",total_cents:41000,booking_attribution_snapshots:{utm_source:"facebook"}},
  ]);
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+ const facebook=report.summaries.find((row)=>row.source==="meta_unspecified");
  assert.ok(facebook);
  assert.equal(facebook.bookings,0);
  assert.equal(facebook.revenueCents,0);
@@ -199,9 +199,9 @@ test("does not count abandoned checkout as a booking until the persisted booking
 
 test("keeps a paid booking in the funnel after it advances to scheduled operations",()=>{
  const report=buildSourcePerformanceReport([], [
-  {booking_id:"b1",status:"scheduled",total_cents:27500,booking_attribution_snapshots:{utm_source:"facebook"}},
- ],{facebook:5000});
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+  {booking_id:"b1",status:"scheduled",total_cents:27500,booking_attribution_snapshots:{utm_source:"facebook",utm_medium:"paid_social"}},
+ ],{meta_ads:5000});
+ const facebook=report.summaries.find((row)=>row.source==="meta_ads");
  assert.ok(facebook);
  assert.equal(facebook.bookings,1);
  assert.equal(facebook.revenueCents,27500);
@@ -214,7 +214,7 @@ test("facebook paid visitor who reaches /booking counts as a booking start befor
   {attribution_session_id:"s1",event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click"}},
   {attribution_session_id:"s1",event_name:"booking_started",booking_attribution_sessions:{utm_source:"facebook",utm_medium:"paid_social",fbclid:"meta-click"}},
  ]);
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+ const facebook=report.summaries.find((row)=>row.source==="meta_ads");
  assert.ok(facebook);
  assert.equal(facebook.visits,1);
  assert.equal(facebook.detailedCounts.booking_start,1);
@@ -227,7 +227,7 @@ test("Facebook attribution survives the booking route and counts one idempotent 
   {attribution_session_id:"91caf0a8-949d-4670-8833-47ea68a35e17",event_name:"booking_started",booking_attribution_sessions:{utm_source:"fb",utm_medium:"paid",utm_campaign:"copper-state",fbclid:"meta-click"}},
   {attribution_session_id:"91caf0a8-949d-4670-8833-47ea68a35e17",event_name:"booking_started",booking_attribution_sessions:{utm_source:"fb",utm_medium:"paid",utm_campaign:"copper-state",fbclid:"meta-click"}},
  ]);
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+ const facebook=report.summaries.find((row)=>row.source==="meta_ads");
  assert.equal(facebook?.visits,1);
  assert.equal(facebook?.detailedCounts.booking_start,1);
 });
@@ -337,7 +337,7 @@ test("replayed completion events do not double-count one persisted booking",()=>
 
 test("returns insufficient-data insight under the visit threshold",()=>{
  const report=buildSourcePerformanceReport(Array.from({length:24},(_,index)=>({attribution_session_id:`s${index}`,event_name:"landing_view",booking_attribution_sessions:{utm_source:"facebook"}})));
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+ const facebook=report.summaries.find((row)=>row.source==="meta_unspecified");
  assert.equal(facebook?.insight,"Not enough traffic yet to make a reliable recommendation.");
 });
 
@@ -345,7 +345,7 @@ test("classifies booking revenue from snapshot referrer-only attribution",()=>{
  const report=buildSourcePerformanceReport([],[
   {booking_id:"b1",status:"confirmed",total_cents:15000,booking_attribution_snapshots:{first_referrer:"https://m.facebook.com/"}},
  ]);
- const facebook=report.summaries.find((row)=>row.source==="facebook");
+ const facebook=report.summaries.find((row)=>row.source==="meta_unspecified");
  assert.equal(facebook?.bookings,1);
  assert.equal(facebook?.revenueCents,15000);
 });
@@ -457,8 +457,8 @@ test("traffic source rows reuse the checkout funnel drill-down and allow one ope
 
 test("source checkout funnels preserve first-touch source filtering and distinguish observed confirmations",()=>{
  const sessions=[
-  {id:"fb",first_landing_path:"/fall-party-special",utm_source:"facebook"},
-  {id:"ig",first_landing_path:"/fall-party-special",utm_source:"instagram"},
+  {id:"fb",first_landing_path:"/fall-party-special",utm_source:"facebook",utm_medium:"paid_social"},
+  {id:"ig",first_landing_path:"/fall-party-special",utm_source:"instagram",utm_medium:"paid_social"},
   {id:"google",first_landing_path:"/fall-party-special",utm_source:"google",utm_medium:"cpc"},
   {id:"direct",first_landing_path:"/fall-party-special"},
  ];
@@ -484,7 +484,7 @@ test("source checkout funnels preserve first-touch source filtering and distingu
 
 
 test("checkout activity permits address-first sessions and deduplicates client/server completions",()=>{
- const sessions=[{id:"address-first",utm_source:"instagram",first_landing_path:"/fall-party-special"},{id:"both",utm_source:"instagram",first_landing_path:"/fall-party-special"}];
+ const sessions=[{id:"address-first",utm_source:"instagram",utm_medium:"paid_social",first_landing_path:"/fall-party-special"},{id:"both",utm_source:"instagram",utm_medium:"paid_social",first_landing_path:"/fall-party-special"}];
  const events=[
   {event_name:"delivery_address_completed",attribution_session_id:"address-first",event_key:"address-client",booking_attribution_sessions:sessions[0]},
   {event_name:"customer_info_completed",attribution_session_id:"both",event_key:"customer-client",booking_attribution_sessions:sessions[1]},
@@ -511,5 +511,6 @@ test("Meta resource rows assign a session to one resource bucket rather than par
  const report=buildCampaignPerformanceReport({sessions,events:[],bookings:[],metaPerformanceRows:resources});
  assert.equal(report.reduce((sum,row)=>sum+row.visits,0),5);
  for(const level of ["campaign","adset","ad"])assert.equal(report.find(row=>row.resourceLevel===level)?.visits,1);
- assert.equal(report.find(row=>row.name==="Unattributed")?.visits,2);
+ assert.equal(report.find(row=>row.source==="organic_social")?.visits,1);
+ assert.equal(report.find(row=>row.source==="meta_unspecified")?.visits,1);
 });

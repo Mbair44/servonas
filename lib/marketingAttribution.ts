@@ -202,7 +202,7 @@ export function normalizeMarketingSource(session:AttributionSessionLike|null|und
  if(utmSource==="email"||utmMedium==="email")return "email";
  // Explicit non-Meta channels retain precedence over incidental social referrers/click IDs.
  const explicitMetaSource=["fb","facebook","ig","instagram","meta"].includes(utmSource);
- if(utmMedium==="organic"&&!explicitMetaSource)return "organic";
+ if(utmMedium==="organic"&&!explicitMetaSource&&(utmSource||!hasMetaOrigin(session)))return "organic";
  if(utmMedium==="referral"&&!explicitMetaSource)return "referral";
  if(!utmSource&&/(google|bing|duckduckgo|yahoo)\./.test(host))return "organic";
  if(hasMetaOrigin(session)){
@@ -213,7 +213,7 @@ export function normalizeMarketingSource(session:AttributionSessionLike|null|und
  if(!utmSource&&host)return "referral";
  if(!utmSource&&!host)return "direct";
  if(utmSource==="google")return "google";
- return "unknown";
+ return ["direct","organic","referral","email"].includes(utmSource)?utmSource as MarketingSource:"unknown";
 }
 
 function organicProviderFromValue(value:string){
@@ -411,7 +411,7 @@ export function resolveMetaAttributionName(session:AttributionSessionLike&{utm_i
  const find=(id:string,preferred?:MetaAttributionName["level"])=>{for(const [level,idField,nameField] of [...levels.filter(([level])=>level===preferred),...levels.filter(([level])=>level!==preferred)]){
    const row=rows.find((candidate)=>String(candidate[idField] ?? "").trim()===id);
    const name=row ? cleanCampaignToken(String(row[nameField] ?? "")) : null;
-   if(name)return {name,rawId:id,level,campaignName:cleanCampaignToken(String(row?.campaign_name??"")),campaignId:cleanCampaignToken(String(row?.campaign_id??""))};
+   if(row)return {name:name??id,rawId:id,level,campaignName:cleanCampaignToken(String(row?.campaign_name??"")),campaignId:cleanCampaignToken(String(row?.campaign_id??""))};
   }return null;};
  for(const [id,preferred] of candidates)if(id){const resolved=find(id,preferred);if(resolved)return resolved;}
  return null;
@@ -577,7 +577,7 @@ export function buildSessionQualityReport(sessions:AttributionSessionMetricsRow[
    engagementClassification:sessionEngagementClassification(session,engagementThresholdMs),
    automatedClassification,
    attribution,
-   metaAttributionName:resolveMetaAttributionName(session,input.metaPerformanceRows ?? []),
+   metaAttributionName:source==="meta_ads"?resolveMetaAttributionName(session,input.metaPerformanceRows ?? []):null,
   };
  });
  const visibleDetails=includeAutomated?details:details.filter((detail)=>detail.automatedClassification!=="automated_likely");
