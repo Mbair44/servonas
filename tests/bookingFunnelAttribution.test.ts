@@ -399,12 +399,15 @@ test("keeps add-on branch events attributed and session-deduped in the checkout 
 
 test("groups delivery fee presentations by the latest session pricing state without retaining address data",()=>{
  const report=buildLandingPageFunnelReport({sessions:[{id:"free",first_landing_path:"/fall-party-special"},{id:"paid",first_landing_path:"/fall-party-special"}],events:[
-  {attribution_session_id:"free",event_name:"delivery_fee_presented",event_key:"free:0",metadata:{delivery_fee_cents:0,had_delivery_fee:false,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:20000}},
+  {attribution_session_id:"free",event_name:"delivery_fee_presented",event_key:"free:0",occurred_at:"2026-09-23T10:00:00Z",metadata:{delivery_fee_cents:0,had_delivery_fee:false,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:20000}},
   {attribution_session_id:"paid",event_name:"delivery_fee_presented",event_key:"paid:old",occurred_at:"2026-09-23T10:00:00Z",metadata:{delivery_fee_cents:2500,had_delivery_fee:true,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:22500}},
   {attribution_session_id:"paid",event_name:"delivery_fee_presented",event_key:"paid:new",occurred_at:"2026-09-23T10:01:00Z",metadata:{delivery_fee_cents:5000,had_delivery_fee:true,subtotal_cents:20000,discount_cents:0,tax_cents:0,final_total_cents:25000}},
-  {attribution_session_id:"free",event_name:"terms_accepted"},
+  {attribution_session_id:"free",event_name:"terms_accepted",occurred_at:"2026-09-23T10:01:00Z"},
  ],bookings:[]});
- assert.deepEqual(report[0]?.deliveryFeeAnalysis,{zeroFeeSessions:1,paidFeeSessions:1,averagePaidFeeCents:5000,zeroFeeTermsAcceptedRate:1,paidFeeTermsAcceptedRate:0});
+ assert.equal(report[0]?.deliveryFeeAnalysis?.sessions,2);
+ assert.equal(report[0]?.deliveryFeeAnalysis?.buckets[0]?.outcomes.terms_accepted.rate,1);
+ assert.equal(report[0]?.deliveryFeeAnalysis?.buckets[2]?.sessions,1);
+ assert.equal(report[0]?.deliveryFeeAnalysis?.buckets[2]?.outcomes.terms_accepted.rate,0);
  assert.equal(report[0]?.checkoutSteps.delivery_fee_presented,2);
 });
 
