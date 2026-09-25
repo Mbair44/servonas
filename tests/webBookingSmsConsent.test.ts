@@ -32,6 +32,7 @@ test("checkout records both consent choices and affirmative consent in the exist
  assert.match(migration,/insert into public\.customer_sms_consents/);
  assert.match(migration,/'web_booking'/);
 });
+test("a phone change clears phone-specific consent until it is recorded again",async()=>{const migration=await read("supabase/migrations/20260925000500_sms_consent_phone_consistency.sql");assert.match(migration,/old\.phone_normalized is distinct from new\.phone_normalized/);assert.match(migration,/new\.sms_consent_status:='unknown'/);assert.match(migration,/record_staff_booking_sms_consent/);});
 
 test("custom-domain privacy and terms routes are public app routes",async()=>{
  const [privacy,terms,booking,legal,serviceForm]=await Promise.all([read("app/sites/domain/[domain]/privacy/page.tsx"),read("app/sites/domain/[domain]/terms/page.tsx"),read("app/sites/domain/[domain]/booking/page.tsx"),read("components/BookingLegalPage.tsx"),read("components/PublicBookingForm.tsx")]);
