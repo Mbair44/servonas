@@ -16,6 +16,8 @@ import {
   buildGoogleBusinessProfileActionPerformanceReport,
   labelForGoogleBusinessProfileAction,
   type CheckoutFunnelSummary,
+  type DeliveryFeeAnalysis,
+  deliveryFeeOutcomes,
   type AttributedBookingRow,
   buildSourcePerformanceReport,
   defaultSessionEngagementThresholdMs,
@@ -38,6 +40,23 @@ const ms = (value: number | null, unavailableLabel = "Active time unavailable") 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sourceOptions = ["all", ...marketingSources] as const;
 const checkoutSteps:[string,string][]=[["checkout_started","Checkout started"],["checkout_addons_viewed","Add-ons viewed"],["checkout_addons_decision","Add-ons continued"],["reservation_details_viewed","Reservation details viewed"],["customer_info_completed","Customer info completed"],["delivery_address_completed","Delivery address completed"],["delivery_quote_requested","Quote requested"],["delivery_fee_presented","Delivery fee presented"],["terms_accepted","Terms accepted"],["payment_cta_clicked","Payment CTA clicked"],["payment_started","Payment started"],["payment_succeeded","Payment succeeded"],["booking_confirmed","Booking confirmed"]];
+function DeliveryFeeTable({analysis}:{analysis:DeliveryFeeAnalysis}) {
+ return <aside className="marketing-delivery-fee-analysis">
+  <strong>Delivery fee analysis</strong>
+  <p>Each percentage uses the same fee-presented sessions. Outcomes are independent, after the selected fee; they do not establish why a customer stopped.</p>
+  <div className="marketing-delivery-fee-scroll" role="region" aria-label="Delivery fee conversion by session" tabIndex={0}>
+   <table><caption>Delivery fee cohorts within the selected dates</caption>
+    <thead><tr>{["Fee","Sessions","Terms","Payment CTA","Payment Started","Paid","Booked"].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead>
+    <tbody>{analysis.buckets.map(bucket=><tr key={bucket.label}>
+     <th scope="row">{bucket.label}</th><td>{bucket.sessions}</td>
+     {deliveryFeeOutcomes.map(name=>{const value=bucket.outcomes[name];return <td key={name}>{percent(value.rate)}{bucket.sessions>0&&<small> ({value.sessions}/{bucket.sessions})</small>}</td>;})}
+    </tr>)}</tbody>
+   </table>
+  </div>
+  <p>Ranges include cents: $1–$25 means more than $0 through $25. The final fee before the first subsequent payment action is used, or the latest fee if none follows.</p>
+  {analysis.sessions<20&&<p>Small sample — collect more checkout activity before drawing conclusions.</p>}
+ </aside>;
+}
 const checkoutActivityHelp="Each step counts sessions independently within the selected dates; steps can be skipped or completed out of order. These are not sequential cohort drop-off counts. Add-ons continued sums skipped and added counts; a session can appear in both.";
 type SourceFilter = typeof sourceOptions[number];
 type BookingItemRow = {
@@ -621,7 +640,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       </div>
       <div className="marketing-session-landing-panel">
         <header><div><h3>Landing page performance</h3><p>Follow each first-touch landing page from session through completed booking revenue.</p></div></header>
-        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>CTA clicks</b><b>CTA rate</b><b>Booking visits</b><b>Item selections</b><b>Checkout starts</b><b>Bookings</b><b>Conversion</b><b>Revenue</b><b>Revenue / session</b><b>CAC</b><b>ROAS</b></div>{landingPageFunnel.map((row) => <details className="marketing-landing-checkout" key={row.path}><summary><span>{row.path}</span><span>{row.sessions}</span><span>{row.ctaClicks}</span><span>{percent(row.ctaRate)}</span><span>{row.bookingPageVisits}</span><span>{row.itemSelections}</span><span>{row.checkoutStarts>0?<><b>{row.checkoutStarts}</b><i aria-hidden="true">⌄</i></>:0}</span><span>{row.completedBookings}</span><span>{percent(row.bookingConversionRate)}</span><span>{money(row.revenueCents)}</span><span>{money(row.revenuePerSessionCents)}</span><span>{row.cacCents == null ? "—" : money(row.cacCents)}</span><span>{row.roas == null ? "—" : `${row.roas.toFixed(2)}×`}</span></summary>{row.checkoutStarts>0?<div className="marketing-checkout-drilldown"><strong>Checkout activity</strong><p className="marketing-checkout-reconciliation">{checkoutActivityHelp}</p>{checkoutSteps.some(([key])=>key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0)>0:(row.checkoutSteps[key]??0)>0)?<div>{checkoutSteps.map(([key,label])=>{const count=key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0):(row.checkoutSteps[key]??0);return <span key={key}><b>{label}</b><em>{count}</em>{key==="checkout_addons_decision"&&<small>{row.checkoutSteps.checkout_addons_skipped??0} skipped · {row.checkoutSteps.checkout_addons_added??0} added</small>}</span>;})}</div>:<p>No checkout-step data yet.</p>}{row.deliveryFeeAnalysis?<aside className="marketing-delivery-fee-analysis"><strong>Delivery fee analysis</strong><span>$0 delivery: {row.deliveryFeeAnalysis.zeroFeeSessions} · Terms accepted: {percent(row.deliveryFeeAnalysis.zeroFeeTermsAcceptedRate)}</span><span>Delivery fee: {row.deliveryFeeAnalysis.paidFeeSessions} · Avg. {money(row.deliveryFeeAnalysis.averagePaidFeeCents)} · Terms accepted: {percent(row.deliveryFeeAnalysis.paidFeeTermsAcceptedRate)}</span></aside>:null}</div>:null}</details>)}</div>
+        <div className="marketing-sources-table marketing-session-landing-table"><div><b>Landing page</b><b>Sessions</b><b>CTA clicks</b><b>CTA rate</b><b>Booking visits</b><b>Item selections</b><b>Checkout starts</b><b>Bookings</b><b>Conversion</b><b>Revenue</b><b>Revenue / session</b><b>CAC</b><b>ROAS</b></div>{landingPageFunnel.map((row) => <details className="marketing-landing-checkout" key={row.path}><summary><span>{row.path}</span><span>{row.sessions}</span><span>{row.ctaClicks}</span><span>{percent(row.ctaRate)}</span><span>{row.bookingPageVisits}</span><span>{row.itemSelections}</span><span>{row.checkoutStarts>0?<><b>{row.checkoutStarts}</b><i aria-hidden="true">⌄</i></>:0}</span><span>{row.completedBookings}</span><span>{percent(row.bookingConversionRate)}</span><span>{money(row.revenueCents)}</span><span>{money(row.revenuePerSessionCents)}</span><span>{row.cacCents == null ? "—" : money(row.cacCents)}</span><span>{row.roas == null ? "—" : `${row.roas.toFixed(2)}×`}</span></summary>{row.checkoutStarts>0?<div className="marketing-checkout-drilldown"><strong>Checkout activity</strong><p className="marketing-checkout-reconciliation">{checkoutActivityHelp}</p>{checkoutSteps.some(([key])=>key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0)>0:(row.checkoutSteps[key]??0)>0)?<div>{checkoutSteps.map(([key,label])=>{const count=key==="checkout_addons_decision"?(row.checkoutSteps.checkout_addons_skipped??0)+(row.checkoutSteps.checkout_addons_added??0):(row.checkoutSteps[key]??0);return <span key={key}><b>{label}</b><em>{count}</em>{key==="checkout_addons_decision"&&<small>{row.checkoutSteps.checkout_addons_skipped??0} skipped · {row.checkoutSteps.checkout_addons_added??0} added</small>}</span>;})}</div>:<p>No checkout-step data yet.</p>}{row.deliveryFeeAnalysis?<DeliveryFeeTable analysis={row.deliveryFeeAnalysis}/>:null}</div>:null}</details>)}</div>
       </div>
     </section>
 
