@@ -405,8 +405,13 @@ export async function POST(request: Request) {
     }
     const bookingId = session.metadata?.booking_id;
     if (bookingId) {
-      await supabase.from("bookings").update({ status: "expired" }).eq("id", bookingId).eq("status", "pending_payment");
-      await supabase.from("booking_items").update({ status: "expired" }).eq("booking_id", bookingId).eq("status", "pending_payment");
+      const depositRequest=session.metadata?.payment_kind==="rental_deposit_request";
+      const {data:booking}=depositRequest?await supabase.from("bookings").select("status,payment_request_expires_at,stripe_checkout_session_id").eq("id",bookingId).maybeSingle():{data:null};
+      const deadlinePassed=Boolean(booking?.payment_request_expires_at&&new Date(booking.payment_request_expires_at)<=new Date());
+      if(!depositRequest||Boolean(booking&&booking.stripe_checkout_session_id===session.id&&deadlinePassed)){
+        await supabase.from("bookings").update({ status: "expired" }).eq("id", bookingId).eq("status", "pending_payment");
+        await supabase.from("booking_items").update({ status: "expired" }).eq("booking_id", bookingId).eq("status", "pending_payment");
+      }
       if(session.metadata?.business_id)await supabase.from("discount_redemptions").update({status:"voided"}).eq("business_id",session.metadata.business_id).eq("booking_id",bookingId).eq("status","pending");
     }
   }
