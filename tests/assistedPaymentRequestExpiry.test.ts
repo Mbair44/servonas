@@ -1,0 +1,5 @@
+import test from "node:test";import assert from "node:assert/strict";import {readFileSync} from "node:fs";
+const migration=readFileSync(new URL("../supabase/migrations/20260925000400_expire_assisted_payment_requests.sql",import.meta.url),"utf8");const cron=readFileSync(new URL("../app/api/cron/financial/route.ts",import.meta.url),"utf8");const webhook=readFileSync(new URL("../app/api/stripe/webhook/route.ts",import.meta.url),"utf8");
+test("deadline expiry is locked, guarded, and idempotent",()=>{assert.match(migration,/for update skip locked/);assert.match(migration,/status='pending_payment'/);assert.match(migration,/payment_request_expires_at<=now\(\)/);assert.match(migration,/booking_items set status='expired'/);});
+test("financial worker runs payment-request expiration",()=>assert.match(cron,/expire_due_assisted_payment_requests/));
+test("an old checkout session cannot release an active assisted hold",()=>{assert.match(webhook,/payment_kind===\"rental_deposit_request\"/);assert.match(webhook,/stripe_checkout_session_id===session.id/);assert.match(webhook,/deadlinePassed/);});
