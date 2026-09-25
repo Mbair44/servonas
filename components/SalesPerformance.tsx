@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {formatCents} from "@/lib/financial/priceBook";
-import {customerCategoryMetrics,monthlyAverage,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,type RevenuePoint,type SalesData,type SalesReceipt} from "@/lib/financial/salesPerformance";
+import {bookingValueMetrics,customerCategoryMetrics,monthlyAverage,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,type BookingValueDay,type RevenuePoint,type SalesData,type SalesReceipt} from "@/lib/financial/salesPerformance";
 import {SalesPerformanceFilters} from "./SalesPerformanceFilters";
 import styles from "./SalesPerformance.module.css";
 function Comparison({current,prior,label}:{current:number;prior:number|null;label:string}){
@@ -20,17 +20,20 @@ export async function SalesPerformance({db,businessId,businessSlug,today,query}:
  let options,rangeError:string|undefined;
  try{options=salesPerformanceOptions(query,today);}catch(error){rangeError=error instanceof Error?error.message:"Choose a valid date range.";options=salesPerformanceOptions({},today);}
  const {period,range,comparisons,trendWindow,trendRange,grouping,from}=options;
- const [{data,error},details]=await Promise.all([
+ const [{data,error},details,bookingValues]=await Promise.all([
   db.rpc("sales_performance_summary",{p_business_id:businessId,p_from:from,p_through:today}),
-  db.rpc("sales_performance_details",{p_business_id:businessId,p_from:from,p_through:today})
+  db.rpc("sales_performance_details",{p_business_id:businessId,p_from:from,p_through:today}),
+  db.rpc("sales_performance_booking_values",{p_business_id:businessId,p_from:from,p_through:today})
  ]);
  const action=`/app/${businessSlug}`;
  if(error||!data){console.error("Sales performance unavailable",{businessId,code:error?.code,message:error?.message,details:error?.details,hint:error?.hint});return <section id="sales-performance" className={`executive-card ${styles.section}`} aria-labelledby="sales-heading"><h2 id="sales-heading">Sales Performance</h2><p role="status">Sales performance is temporarily unavailable. Your bookings and payments are unaffected.</p></section>;}
  const sales=data as SalesData,daily=sales.daily??[],revenue=revenueInRange(daily,range),average=monthlyAverage(daily,sales.firstCollectedDate,today),points=revenueTrend(daily,trendRange,grouping,today);
  const receipts=(details.data??[]) as SalesReceipt[];
+ const bookingMetrics=bookingValueMetrics((bookingValues.data??[]) as BookingValueDay[],range),previousBookings=bookingValueMetrics((bookingValues.data??[]) as BookingValueDay[],comparisons.previous),lastYearBookings=bookingValueMetrics((bookingValues.data??[]) as BookingValueDay[],comparisons.lastYear);
  const customerMetrics=customerCategoryMetrics(receipts,range),previousCustomers=customerCategoryMetrics(receipts,comparisons.previous),lastYearCustomers=customerCategoryMetrics(receipts,comparisons.lastYear);
  const detailsAvailable=!details.error&&details.data!=null&&customerMetrics.revenueCents===revenue;
  if(details.error)console.error("Sales performance details unavailable",{code:details.error.code,message:details.error.message,details:details.error.details,hint:details.error.hint,businessId});
+ if(bookingValues.error)console.error("Sales performance booking values unavailable",{code:bookingValues.error.code,message:bookingValues.error.message,details:bookingValues.error.details,hint:bookingValues.error.hint,businessId});
  else if(details.data!=null&&customerMetrics.revenueCents!==revenue)console.error("Sales performance details do not reconcile",{businessId,summaryRevenueCents:revenue,detailRevenueCents:customerMetrics.revenueCents});
  const previousAvailable=previousCustomers.revenueCents===revenueInRange(daily,comparisons.previous);
  const lastYearAvailable=lastYearCustomers.revenueCents===revenueInRange(daily,comparisons.lastYear);
@@ -49,6 +52,10 @@ export async function SalesPerformance({db,businessId,businessSlug,today,query}:
    <article className="executive-card"><span className={styles.label}>Average Revenue per Customer</span><strong className={styles.amount}>{detailsAvailable&&customerMetrics.averageCents!=null?formatCents(Math.round(customerMetrics.averageCents)):"—"}</strong>
     <p className={styles.muted}>{!detailsAvailable?"Customer metrics are temporarily unavailable.":customerMetrics.unidentifiedCents?"Some payments have no customer information, so an accurate average is unavailable.":customerMetrics.customerCount?`Across ${customerMetrics.customerCount.toLocaleString("en-US")} unique paying customer${customerMetrics.customerCount===1?"":"s"}.`:"No paying customers in this period."}</p>
     {detailsAvailable&&customerMetrics.averageCents!=null&&<><Comparison current={customerMetrics.averageCents} prior={previousAvailable&&!previousCustomers.unidentifiedCents?previousCustomers.averageCents??0:null} label={previousLabel}/><Comparison current={customerMetrics.averageCents} prior={lastYearAvailable&&!lastYearCustomers.unidentifiedCents?lastYearCustomers.averageCents??0:null} label="vs the same period last year"/></>}
+   </article>
+   <article className="executive-card"><span className={styles.label}>Average Booking Value</span><strong className={styles.amount}>{bookingValues.error||bookingMetrics.averageCents==null?"—":formatCents(Math.round(bookingMetrics.averageCents))}</strong>
+    <p className={styles.muted}>{bookingValues.error?"Booking-value metrics are temporarily unavailable.":bookingMetrics.bookingCount?`Across ${bookingMetrics.bookingCount.toLocaleString("en-US")} booking${bookingMetrics.bookingCount===1?"":"s"}.`:"No qualifying bookings in this period."}</p>
+    {!bookingValues.error&&bookingMetrics.averageCents!=null&&<><Comparison current={bookingMetrics.averageCents} prior={previousBookings.averageCents} label={previousLabel}/><Comparison current={bookingMetrics.averageCents} prior={lastYearBookings.averageCents} label="vs the same period last year"/><p className={bookingMetrics.averageCents<20000?styles.decrease:bookingMetrics.averageCents<22500?styles.muted:styles.increase}>Target: $225 · {bookingMetrics.averageCents<20000?"Below target":bookingMetrics.averageCents<22500?"Approaching target":"At/above target"}</p></>}
    </article>
   </div>
   <article className={`executive-card ${styles.trend}`}><div className="section-heading compact"><div><h3>Revenue Trend</h3><p>{grouping==="month"?"Monthly":grouping==="week"?"Weekly":"Daily"} collected revenue · {dateLabel(trendRange.start)} – {dateLabel(trendRange.end)}</p></div><nav aria-label="Revenue trend period" className={styles.windows}>{[6,12,24].map(months=><Link key={months} href={trendLink(String(months))} aria-current={trendWindow===months?"true":undefined}>{months}M</Link>)}{period==="custom"&&<Link href={trendLink("range")} aria-current={!trendWindow?"true":undefined}>Selected range</Link>}</nav></div>

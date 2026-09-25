@@ -60,6 +60,7 @@ export function salesPerformanceOptions(query:Record<string,string|undefined>,to
 
 export type CategoryWeight={category:string;cents:number};
 export type SalesReceipt={date:string;cents:number;customerKey:string|null;weights:CategoryWeight[]};
+export type BookingValueDay={booking_date:string;booking_value_cents:number;booking_count:number};
 /** Allocate collected cents, never booked value. Largest remainders preserve every cent. */
 export function allocateCategoryRevenue(cents:number,weights:CategoryWeight[]):CategoryWeight[]{
  if(cents<=0)return [];
@@ -84,4 +85,14 @@ export function customerCategoryMetrics(receipts:SalesReceipt[],range:SalesRange
  return {revenueCents,customerCount:customers.size,unidentifiedCents,
   averageCents:customers.size&&!unidentifiedCents?revenueCents/customers.size:null,
   categories:Array.from(categories,([category,cents])=>({category,cents,percent:revenueCents?cents/revenueCents*100:0})).filter(row=>row.cents>0).sort((a,b)=>b.cents-a.cents||a.category.localeCompare(b.category))};
+}
+/** Average final stored booking total, independent of payment collection. */
+export function bookingValueMetrics(days:BookingValueDay[],range:SalesRange){
+ let bookingValueCents=0,bookingCount=0;
+ for(const day of days){
+  if(day.booking_date<range.start||day.booking_date>range.end)continue;
+  bookingValueCents+=Math.max(0,Number(day.booking_value_cents)||0);
+  bookingCount+=Math.max(0,Math.trunc(Number(day.booking_count)||0));
+ }
+ return {bookingValueCents,bookingCount,averageCents:bookingCount?bookingValueCents/bookingCount:null};
 }

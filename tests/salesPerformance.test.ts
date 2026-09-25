@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
-import {allocateCategoryRevenue,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
+import {allocateCategoryRevenue,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
 import {dateInTimeZone} from "../lib/bookingTime.ts";
 const today="2026-09-14";
 test("defaults are this month and rolling twelve monthly points",()=>{
@@ -101,6 +101,22 @@ test("customer metrics use the selected and comparison dates independently",()=>
  assert.equal(revenueChange(current.averageCents!,customerCategoryMetrics(rows,comparisons.previous).averageCents!),100);
  assert.equal(revenueChange(current.averageCents!,customerCategoryMetrics(rows,comparisons.lastYear).averageCents!),300);
  assert.equal(current.categories[0].cents,10000);
+});
+test("average booking value uses one final booking total, not deposits or additional payments",()=>{
+ const metrics=bookingValueMetrics([{booking_date:"2026-09-10",booking_value_cents:22500,booking_count:1}],selected);
+ assert.deepEqual(metrics,{bookingValueCents:22500,bookingCount:1,averageCents:22500});
+});
+test("average booking value uses the stored discounted final total and excludes dates outside the range",()=>{
+ const metrics=bookingValueMetrics([{booking_date:"2026-08-31",booking_value_cents:99999,booking_count:1},{booking_date:"2026-09-10",booking_value_cents:17500,booking_count:1}],selected);
+ assert.deepEqual(metrics,{bookingValueCents:17500,bookingCount:1,averageCents:17500});
+});
+test("booking-value comparison uses booking totals rather than collected cash",()=>{
+ const rows=[{booking_date:"2026-09-10",booking_value_cents:22500,booking_count:1},{booking_date:"2026-08-10",booking_value_cents:15000,booking_count:1}];
+ assert.equal(revenueChange(bookingValueMetrics(rows,selected).averageCents!,bookingValueMetrics(rows,{start:"2026-08-01",end:"2026-08-14"}).averageCents!),50);
+});
+test("booking-value RPC excludes canceled bookings and reads no payments or invoices",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20260925000600_sales_performance_booking_value.sql",import.meta.url),"utf8");
+ assert.match(sql,/sales_performance_booking_values/);assert.match(sql,/b\.status in \('confirmed','paid','completed'\)/);assert.doesNotMatch(sql,/status in \([^)]*cancelled/);assert.match(sql,/sum\(b\.total_cents\)/);assert.match(sql,/count\(\*\)/);assert.match(sql,/b\.created_at at time zone v_timezone/);assert.match(sql,/b\.business_id=p_business_id/);assert.doesNotMatch(sql,/public\.payments|public\.invoices/);
 });
 test("zero receipts and fully refunded customers have a clean empty state",()=>{
  const result=customerCategoryMetrics([receipt(0)],selected);
