@@ -2,7 +2,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {generatePublicDocumentToken,publicDocumentTokenHash} from "@/lib/publicDocumentToken";
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
 import {stripeClient,stripeProviderError} from "@/lib/stripeConnect";
-import {rentalCompletionBalance} from "@/lib/financial/rentalCompletionBalance";
+import {rentalCompletionBalance,authoritativeBookingBalance} from "@/lib/financial/rentalCompletionBalance";
 import {sendRentalLifecycleSms} from "@/lib/communications/rentalLifecycleSms";
 
 type CompletionResult={
@@ -121,6 +121,24 @@ export async function processCompletedJobBilling(jobId:string,options:{force?:bo
   return{ok:true,invoiceId,action:"paid"};
  }
 
+ // Re-read the booking immediately before any provider call. The booking is the
+ // authoritative source of the amount that may be collected; invoice snapshots
+ // can legitimately lag a payment recorded through another path.
+ if(rentalBooking){
+  const currentBalance=authoritativeBookingBalance(rentalBooking.total_cents,rentalBooking.amount_paid_cents,rentalBooking.balance_due_cents);
+  if(currentBalance<=0){
+   await db.from("bookings").update({balance_due_cents:0,balance_charge_scheduled_for:null}).eq("id",rentalBooking.id).eq("business_id",invoice.business_id);
+   await db.from("invoices").update({status:"paid",paid_at:new Date().toISOString(),balance_due_cents:0}).eq("id",invoiceId).in("status",["draft","ready","sent","viewed","partially_paid","overdue"]);
+   await db.from("payment_attempts").update({status:"canceled",completed_at:new Date().toISOString(),failure_code:"already_paid",failure_reason:"Booking already paid"}).eq("invoice_id",invoiceId).in("status",["pending","failed"]);
+   await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"voided",metadata:{reason:"Already paid",booking_id:rentalBooking.id,current_balance_cents:0}});
+   console.info("Scheduled payment skipped: booking already paid",{jobId,bookingId:rentalBooking.id,invoiceId,currentBalance:0});
+   return{ok:true,invoiceId,action:"paid"};
+  }
+  if(currentBalance<Number(invoice.balance_due_cents??0)){
+   await db.from("invoices").update({balance_due_cents:currentBalance}).eq("id",invoiceId).in("status",["draft","ready"]);
+   invoice.balance_due_cents=currentBalance;
+  }
+ }
  const [{data:profile},{data:account}]=await Promise.all([
   db.from("customer_billing_profiles").select("provider_customer_id,default_payment_method_id,autopay_enabled")
    .eq("business_id",invoice.business_id).eq("customer_id",invoice.customer_id).maybeSingle(),
