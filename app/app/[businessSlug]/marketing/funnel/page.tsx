@@ -54,7 +54,12 @@ function DeliveryFeeTable({analysis}:{analysis:DeliveryFeeAnalysis}) {
    </table>
   </div>
   <p>Ranges include cents: $1–$25 means more than $0 through $25. The final fee before the first subsequent payment action is used, or the latest fee if none follows.</p>
-  {analysis.sessions<20&&<p>Small sample — collect more checkout activity before drawing conclusions.</p>}
+ {analysis.sessions<20&&<p>Small sample — collect more checkout activity before drawing conclusions.</p>}
+ <div className="marketing-delivery-fee-scroll marketing-delivery-fee-economics" role="region" aria-label="Delivery fee economics" tabIndex={0}>
+  <strong>Delivery fee economics</strong>
+  <table><caption>Quoted checkout economics; averages use only sessions with that value.</caption><thead><tr>{["Fee","Sessions","Avg subtotal","Avg discount","Avg delivery","Avg total","Delivery %"].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead>
+  <tbody>{analysis.buckets.map(bucket=>{const e=bucket.economics;const moneyWithN=(value:{averageCents:number|null;sessions:number})=>value.averageCents==null?"—":`${money(value.averageCents)} (n=${value.sessions})`;return <tr key={bucket.label}><th scope="row">{bucket.label}</th><td>{bucket.sessions}</td><td>{moneyWithN(e.subtotal)}</td><td>{moneyWithN(e.discount)}</td><td>{moneyWithN(e.delivery)}</td><td>{moneyWithN(e.total)}</td><td>{e.deliveryPercent.average==null?"—":`${e.deliveryPercent.average.toFixed(1)}% (n=${e.deliveryPercent.sessions})`}</td></tr>;})}</tbody></table>
+ </div>
  </aside>;
 }
 const checkoutActivityHelp="Each step counts sessions independently within the selected dates; steps can be skipped or completed out of order. These are not sequential cohort drop-off counts. Add-ons continued sums skipped and added counts; a session can appear in both.";
