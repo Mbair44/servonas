@@ -5,7 +5,7 @@ import {buildLandingPageFunnelReport,deliveryFeeOutcomes,type FunnelEventRow} fr
 
 const time=(minute:number)=>`2026-09-25T08:${String(minute).padStart(2,"0")}:00Z`;
 const event=(id:string,name:string,minute=1,path="/fall-party-special"):FunnelEventRow=>({attribution_session_id:id,event_name:name,occurred_at:time(minute),booking_attribution_sessions:{first_landing_path:path}});
-const fee=(id:string,cents:unknown,minute=0,path="/fall-party-special"):FunnelEventRow=>({...event(id,"delivery_fee_presented",minute,path),metadata:{delivery_fee_cents:cents}});
+const fee=(id:string,cents:unknown,minute=0,path="/fall-party-special",financial:Record<string,unknown>={}):FunnelEventRow=>({...event(id,"delivery_fee_presented",minute,path),metadata:{delivery_fee_cents:cents,...financial}});
 const report=(events:FunnelEventRow[])=>buildLandingPageFunnelReport({sessions:[],events,bookings:[]});
 const analysis=(events:FunnelEventRow[])=>report(events)[0]?.deliveryFeeAnalysis;
 
@@ -24,6 +24,27 @@ test("deduplicates presentations and outcomes within the same cohort; unrelated 
  const bucket=analysis(events)!.buckets[1]!;
  assert.equal(bucket.sessions,2);
  for(const name of deliveryFeeOutcomes)assert.deepEqual(bucket.outcomes[name],{sessions:1,rate:0.5});
+});
+
+test("booking #63 shape joins client and server events by attribution session, never booking id",()=>{
+ const session="session-A";
+ const events=[
+  {...fee(session,2500,1),booking_id:null},
+  {...event(session,"terms_accepted",2),booking_id:null},
+  {...event(session,"payment_cta_clicked",3),booking_id:null},
+  {...event(session,"payment_started",4),booking_id:"booking-63"},
+  {...event(session,"payment_succeeded",5),booking_id:"booking-63"},
+  {...event(session,"booking_confirmed",6),booking_id:"booking-63"},
+  {...event("other-session","terms_accepted",2),booking_id:"other-booking"},
+  {...event("other-session","payment_started",4),booking_id:"booking-63"},
+ ];
+ const bucket=analysis(events)!.buckets[1]!;
+ assert.equal(bucket.sessions,1);
+ assert.equal(bucket.outcomes.terms_accepted.sessions,1);
+ assert.equal(bucket.outcomes.payment_cta_clicked.sessions,1);
+ assert.equal(bucket.outcomes.payment_started.sessions,1);
+ assert.equal(bucket.outcomes.payment_succeeded.sessions,1);
+ assert.equal(bucket.outcomes.booking_confirmed.sessions,1);
 });
 
 test("uses final fee before payment, ignoring later fees and input order",()=>{
@@ -70,6 +91,38 @@ test("landing rows isolate fee and conversion cohorts even when another path con
  const rows=report([fee("a",2500),fee("b",2500,0,"/other"),event("b","terms_accepted",1,"/other"),event("b","booking_confirmed",2,"/other")]);
  assert.equal(rows.find(row=>row.path==="/fall-party-special")!.deliveryFeeAnalysis!.buckets[1]!.outcomes.booking_confirmed.rate,0);
  assert.equal(rows.find(row=>row.path==="/other")!.deliveryFeeAnalysis!.buckets[1]!.outcomes.booking_confirmed.rate,1);
+});
+
+test("associates historical checkout economics with the selected fee presentation",()=>{
+ const result=analysis([
+  fee("discounted",2500,0,"/fall-party-special",{subtotal_cents:18500,discount_cents:5000,final_total_cents:16000}),
+  fee("undiscounted",5000,0,"/fall-party-special",{subtotal_cents:20000,discount_cents:0,final_total_cents:25000}),
+  fee("another-session",2500,2,"/fall-party-special",{subtotal_cents:19000,discount_cents:4000,final_total_cents:22000}),
+ ])!;
+ const first=result.buckets[1]!;
+ assert.equal(first.economics.subtotal.averageCents,18750);
+ assert.equal(first.economics.discount.averageCents,4500);
+ assert.equal(first.economics.delivery.averageCents,2500);
+ assert.equal(first.economics.total.averageCents,19000);
+ assert.equal(first.economics.deliveryPercent.average,((2500/18500*100)+(2500/19000*100))/2);
+ assert.equal(first.economics.subtotal.sessions,2);
+});
+
+test("financial averages use independent supported samples and never infer missing values",()=>{
+ const result=analysis([
+  fee("complete",2500,0,"/fall-party-special",{subtotal_cents:10000,discount_cents:0,final_total_cents:11000}),
+  fee("missing-discount",2500,0,"/fall-party-special",{subtotal_cents:20000,final_total_cents:22500}),
+  fee("zero-subtotal",2500,0,"/fall-party-special",{subtotal_cents:0,discount_cents:0,final_total_cents:2500}),
+ ])!;
+ const bucket=result.buckets[1]!;
+ assert.equal(bucket.sessions,3);
+ assert.equal(bucket.economics.subtotal.averageCents,10000);
+ assert.equal(bucket.economics.subtotal.sessions,3);
+ assert.equal(bucket.economics.discount.averageCents,0);
+ assert.equal(bucket.economics.discount.sessions,2);
+ assert.equal(bucket.economics.total.sessions,3);
+ assert.equal(bucket.economics.deliveryPercent.sessions,2);
+ assert.equal(bucket.economics.deliveryPercent.average,((2500/10000*100)+(2500/20000*100))/2);
 });
 
 test("delivery analysis consumes the existing tenant/date/source-scoped ledger without a second query",async()=>{

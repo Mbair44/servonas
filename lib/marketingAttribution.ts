@@ -700,16 +700,26 @@ export type DeliveryFeeBucket = {
  label: string;
  sessions: number;
  outcomes: Record<DeliveryFeeOutcome, {sessions:number;rate:number|null}>;
+ economics: {
+  subtotal: {averageCents:number|null;sessions:number};
+  discount: {averageCents:number|null;sessions:number};
+  delivery: {averageCents:number|null;sessions:number};
+  total: {averageCents:number|null;sessions:number};
+  deliveryPercent: {average:number|null;sessions:number};
+ };
 };
 export type DeliveryFeeAnalysis = {sessions:number;buckets:DeliveryFeeBucket[]};
 
 /** Uses only the caller's tenant/date/source-filtered ledger, never booking totals as fee evidence. */
 function buildDeliveryFeeAnalysis(events:FunnelEventRow[]):DeliveryFeeAnalysis|null {
- const cohorts = ["$0", "$1–$25", "$26–$50", "$51–$75", "$76+"].map(label => ({
+ type InternalBucket=Omit<DeliveryFeeBucket,"economics"> & {economics:{subtotal:number[];discount:number[];delivery:number[];total:number[];deliveryPercent:number[]}};
+ const cohorts:InternalBucket[] = ["$0", "$1–$25", "$26–$50", "$51–$75", "$76+"].map(label => ({
   label, sessions:0,
   outcomes:Object.fromEntries(deliveryFeeOutcomes.map(name => [name,{sessions:0,rate:null}])) as DeliveryFeeBucket["outcomes"],
+  economics:{subtotal:[],discount:[],delivery:[],total:[],deliveryPercent:[]},
  }));
- const sessions = new Map<string, {fees:{cents:number;time:number;key:string}[];outcomes:Map<DeliveryFeeOutcome,number[]>}>();
+ type Fee={cents:number;time:number;key:string;subtotal?:number;discount?:number;total?:number};
+ const sessions = new Map<string, {fees:Fee[];outcomes:Map<DeliveryFeeOutcome,number[]>}>();
  for(const event of events){
   const id=event.attribution_session_id, time=Date.parse(event.occurred_at??"");
   if(!id||!Number.isFinite(time))continue;
@@ -721,7 +731,8 @@ function buildDeliveryFeeAnalysis(events:FunnelEventRow[]):DeliveryFeeAnalysis|n
    const raw=event.metadata?.delivery_fee_cents;
    // Missing, null, negative, malformed and fractional-cent values are not free delivery.
    if(typeof raw!=="number"||!Number.isSafeInteger(raw)||raw<0)continue;
-   session.fees.push({cents:raw,time,key:event.event_key??""});
+   const numberMetadata=(key:string)=>typeof event.metadata?.[key]==="number"&&Number.isSafeInteger(event.metadata[key] as number)&&Number(event.metadata[key])>=0?Number(event.metadata[key]):undefined;
+   session.fees.push({cents:raw,time,key:event.event_key??"",subtotal:numberMetadata("subtotal_cents"),discount:numberMetadata("discount_cents"),total:numberMetadata("final_total_cents")});
   }else{
    const outcome=name as DeliveryFeeOutcome;
    session.outcomes.set(outcome,[...(session.outcomes.get(outcome)??[]),time]);
@@ -737,6 +748,11 @@ function buildDeliveryFeeAnalysis(events:FunnelEventRow[]):DeliveryFeeAnalysis|n
   if(!fee)continue;
   const bucket=cohorts[fee.cents===0?0:fee.cents<=2500?1:fee.cents<=5000?2:fee.cents<=7500?3:4]!;
   bucket.sessions++;
+  bucket.economics.delivery.push(fee.cents);
+  if(fee.subtotal!==undefined)bucket.economics.subtotal.push(fee.subtotal);
+  if(fee.discount!==undefined)bucket.economics.discount.push(fee.discount);
+  if(fee.total!==undefined)bucket.economics.total.push(fee.total);
+  if(fee.subtotal!==undefined&&fee.subtotal>0)bucket.economics.deliveryPercent.push(fee.cents/fee.subtotal*100);
   for(const name of deliveryFeeOutcomes){
    if(session.outcomes.get(name)?.some(time=>time>=fee.time))bucket.outcomes[name].sessions++;
   }
@@ -744,8 +760,10 @@ function buildDeliveryFeeAnalysis(events:FunnelEventRow[]):DeliveryFeeAnalysis|n
  for(const bucket of cohorts)for(const name of deliveryFeeOutcomes){
   bucket.outcomes[name].rate=percent(bucket.outcomes[name].sessions,bucket.sessions);
  }
- const total=cohorts.reduce((sum,bucket)=>sum+bucket.sessions,0);
- return total?{sessions:total,buckets:cohorts}:null;
+ const average=(values:number[])=>({averageCents:values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length):null,sessions:values.length});
+ const finalizedBuckets:DeliveryFeeBucket[]=cohorts.map(bucket=>({...bucket,economics:{subtotal:average(bucket.economics.subtotal),discount:average(bucket.economics.discount),delivery:average(bucket.economics.delivery),total:average(bucket.economics.total),deliveryPercent:{average:bucket.economics.deliveryPercent.length?bucket.economics.deliveryPercent.reduce((sum,value)=>sum+value,0)/bucket.economics.deliveryPercent.length:null,sessions:bucket.economics.deliveryPercent.length}}}));
+ const total=finalizedBuckets.reduce((sum,bucket)=>sum+bucket.sessions,0);
+ return total?{sessions:total,buckets:finalizedBuckets}:null;
 }
 
 export type LandingPageFunnelRow={
@@ -795,7 +813,10 @@ export function buildLandingPageFunnelReport(input:{sessions:AttributionSessionM
   // start. Both views use the same first-touch session (or booking/event fallback).
   if(canonical==="checkout_started"){current.checkoutStarts.add(funnelIdentity);current.checkoutSteps.get("checkout_started")?.add(funnelIdentity);}
   else if(checkoutEventNames.includes(canonical))current.checkoutSteps.get(canonical)?.add(funnelIdentity);
-  if(canonical==="delivery_fee_presented"||deliveryFeeOutcomes.includes(canonical as DeliveryFeeOutcome))current.deliveryEvents.push(event);
+  // Delivery-fee cohorts are keyed exclusively by the first-party session. A
+  // booking id is often absent on client events and must never become the
+  // fallback identity for this analysis.
+  if(sessionId&&(canonical==="delivery_fee_presented"||deliveryFeeOutcomes.includes(canonical as DeliveryFeeOutcome)))current.deliveryEvents.push(event);
  }
  for(const booking of input.bookings){
   if(!completedBookingStatuses.has(String(booking.status??"").toLowerCase()))continue;
