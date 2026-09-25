@@ -8,6 +8,7 @@ import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransiti
 import {MissedCallTranscript} from "@/components/MissedCallTranscript";
 import {CustomerActionIcon} from "@/components/CustomerActionIcon";
 import {ManageBookingLinkControls} from "@/components/ManageBookingLinkControls";
+import {resolveCurrentSmsConsent} from "@/lib/smsConsent";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const money = (value: number | null) => `$${Number(value ?? 0).toFixed(2)}`;
@@ -41,7 +42,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
   const canEdit = canManageCustomers(role);
   const statusTransitions = availableJobTransitions(job.status as JobStatus);
   const dateTime = (value: string | null) => value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: business.timezone }).format(new Date(value)) : "Not set";
-  const textUpdates=customer?.sms_consent_status==="opted_out"||phoneConsent?.status==="opted_out"?"Opted out":customer?.sms_consent_status==="express"||phoneConsent?.status==="express"?"Opted in":"Not opted in";
+  const textUpdates=resolveCurrentSmsConsent({phone:customer?.phone_normalized,customerStatus:customer?.sms_consent_status,ledgerStatus:phoneConsent?.status}).display;
   const bookingConsent=deliveryBooking?.sms_consent?"Opted in":"Not opted in";
   const photos = await Promise.all((photoRows ?? []).map(async (photo) => {
     const { data } = await supabase.storage.from("job-photos").createSignedUrl(photo.storage_path, 3600);
