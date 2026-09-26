@@ -10,8 +10,8 @@ export function reconcileBooking(input:ReconciliationBooking):ReconciliationResu
  const useBookingSnapshot=!payments.length, collectedCents=useBookingSnapshot?Math.max(0,input.amountPaidCents-refundedCents):ledgerNet;
  const stripeCollectedCents=(useBookingSnapshot&&input.stripePaymentIntentId?collectedCents:0)+payments.filter(p=>p.provider==="stripe").reduce((sum,p)=>sum+p.amountCents-p.refundedCents,0);
  const manualCollectedCents=payments.filter(p=>p.provider==="offline").reduce((sum,p)=>sum+p.amountCents-p.refundedCents,0);
- const outstandingCents=Math.max(0,input.balanceDueCents),differenceCents=input.totalCents-collectedCents-outstandingCents,issues:ReconciliationIssue[]=[];
- if(canceled(input.status)&&outstandingCents>0)issues.push({code:"canceled_balance",message:"Canceled booking still has a collectible balance."});
+ const isCanceled=canceled(input.status),storedOutstandingCents=Math.max(0,input.balanceDueCents),outstandingCents=isCanceled?0:storedOutstandingCents,expectedCents=isCanceled?collectedCents:input.totalCents,differenceCents=expectedCents-collectedCents-outstandingCents,issues:ReconciliationIssue[]=[];
+ if(isCanceled&&storedOutstandingCents>0)issues.push({code:"canceled_balance",message:"Canceled booking still has a collectible balance."});
  if(payments.length&&input.amountPaidCents!==ledgerNet)issues.push({code:"ledger_mismatch",message:"Booking amount paid does not agree with its payment ledger."});
  if(payments.some(p=>p.provider==="stripe"&&!p.stripeReference))issues.push({code:"stripe_reference_missing",message:"Stripe payment is missing a stored Stripe reference."});
  if(payments.some(p=>p.refundLedgerCents!=null&&p.refundLedgerCents!==p.refundedCents))issues.push({code:"refund_mismatch",message:"Payment refund total does not agree with its refund records."});
@@ -21,6 +21,6 @@ export function reconcileBooking(input:ReconciliationBooking):ReconciliationResu
  if(input.jobStatus==="completed"&&outstandingCents>0)issues.push({code:"completed_unpaid",message:"Completed rental still has an unpaid balance."});
  if(differenceCents!==0)issues.push({code:differenceCents<0?"overpayment":"booking_math",message:differenceCents<0?"Collected amount exceeds the booking total.":"Booking total does not equal collected plus outstanding."});
  const status=issues.some(i=>i.code==="overpayment")?"overpaid":issues.some(i=>i.code.startsWith("stripe_" )||i.code==="duplicate_stripe")?"stripe_mismatch":issues.some(i=>i.code==="refund_mismatch")?"refund_mismatch":issues.length?"needs_review":outstandingCents>0?"outstanding_expected":"reconciled";
- return {expectedCents:input.totalCents,collectedCents,stripeCollectedCents,manualCollectedCents,refundedCents,outstandingCents,differenceCents,status,issues};
+ return {expectedCents,collectedCents,stripeCollectedCents,manualCollectedCents,refundedCents,outstandingCents,differenceCents,status,issues};
 }
 export function reconciliationSummary(rows:ReconciliationResult[]){return rows.reduce((total,row)=>({expectedCents:total.expectedCents+row.expectedCents,collectedCents:total.collectedCents+row.collectedCents,refundedCents:total.refundedCents+row.refundedCents,outstandingCents:total.outstandingCents+row.outstandingCents,differenceCents:total.differenceCents+row.differenceCents,issues:total.issues+(row.issues.length?1:0)}),{expectedCents:0,collectedCents:0,refundedCents:0,outstandingCents:0,differenceCents:0,issues:0});}
