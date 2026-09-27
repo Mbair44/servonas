@@ -368,6 +368,18 @@ export async function overrideBookingDeliveryFee(slug:string,jobId:string,formDa
  revalidatePath(`/app/${slug}/jobs/${jobId}`);redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Delivery fee updated.")}`);
 }
 
+
+export async function chargeCompletedJobCardOnFile(slug:string,jobId:string){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"invoices");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const {data:job}=await supabase.from("jobs").select("id,status").eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+ if(!job||job.status!=="completed")redirect(`/app/${slug}/jobs/${jobId}?error=Only+completed+jobs+can+be+charged`);
+ const result=await processCompletedJobBilling(jobId,{force:true,forceAutoCharge:true});
+ if(!result.ok||result.action!=="paid")redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(result.error??"The card could not be charged. Confirm that the customer has an active card on file.")}`);
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);revalidatePath(`/app/${slug}/financials/scheduled-payments`);
+ redirect(`/app/${slug}/jobs/${jobId}?success=Card+on+file+charged+successfully`);
+}
+
 export async function cancelJob(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
