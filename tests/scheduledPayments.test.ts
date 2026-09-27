@@ -27,3 +27,5 @@ test("ledger success synchronizes an attempt idempotently and clears stale failu
 });
 
 test("retry is blocked when the linked Stripe ledger payment already succeeded",async()=>{const action=await read("app/app/[businessSlug]/financials/scheduled-payments/actions.ts");assert.match(action,/provider_payment_intent_id,paid_at/);assert.match(action,/eq\("status","succeeded"\)/);assert.match(action,/Stripe already captured this payment/);});
+
+test("scheduled payments join invoice-only ledger records back to a booking through job",async()=>{const page=await read("app/app/[businessSlug]/financials/scheduled-payments/page.tsx");assert.match(page,/bookingByJob/);assert.match(page,/booking_id\?\?bookingByJob\.get\(row\.job_id\)/);assert.match(page,/bookingByJob\.get\(invoice\?\.job_id\)/);});
