@@ -24,3 +24,8 @@ test("receivables excludes balances attached to canceled or deleted jobs",async(
  assert.match(page,/job\?\.is_deleted\|\|job\?\.status===\"canceled\"/);
  assert.match(page,/\["cancelled","canceled","expired","refunded","pending_payment"\]/);
 });
+
+test("the default open receivables view includes failed unpaid payments",async()=>{
+ const page=await readFile(new URL("../app/app/[businessSlug]/invoices/receivables/page.tsx",import.meta.url),"utf8");
+ assert.match(page,/\["scheduled","due","processing","failed"\]\.includes\(row\.status\)/);
+});
