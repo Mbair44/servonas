@@ -14,7 +14,7 @@ test("scheduled payments page exposes safe status filters and retry confirmation
 test("manual retry re-reads booking state and enters the shared billing function",async()=>{
  const [action,billing]=await Promise.all([read("app/app/[businessSlug]/financials/scheduled-payments/actions.ts"),read("lib/financial/recurringBilling.ts")]);
  assert.match(action,/balance_due_cents/);assert.match(action,/cancelled.*canceled.*expired.*refunded/);assert.match(action,/processCompletedJobBilling\(String\(booking\.job_id\),\{force:true\}\)/);
- assert.match(billing,/options:\{force\?:boolean\}/);assert.match(billing,/!options\.force/);assert.match(billing,/idempotencyKey:attemptKey/);assert.match(billing,/existingAttempt\?\.status==="succeeded"/);
+ assert.match(billing,/options:\{force\?:boolean;forceAutoCharge\?:boolean\}/);assert.match(billing,/!options\.force/);assert.match(billing,/idempotencyKey:attemptKey/);assert.match(billing,/existingAttempt\?\.status==="succeeded"/);
 });
 
 test("successful ledger payment takes precedence over a stale failed attempt and exposes its completion time",async()=>{

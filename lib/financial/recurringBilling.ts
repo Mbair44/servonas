@@ -12,7 +12,7 @@ type CompletionResult={
   error?:string;
 };
 
-export async function processCompletedJobBilling(jobId:string,options:{force?:boolean}={}):Promise<CompletionResult>{
+export async function processCompletedJobBilling(jobId:string,options:{force?:boolean;forceAutoCharge?:boolean}={}):Promise<CompletionResult>{
  const db=getSupabaseAdmin();
  if(!db)return{ok:false,error:"Supabase is unavailable."};
  const {data:scheduledBooking}=await db.from("bookings").select("id,balance_charge_scheduled_for,final_payment_authorized_at,balance_due_cents").eq("job_id",jobId).maybeSingle();
@@ -67,6 +67,7 @@ export async function processCompletedJobBilling(jobId:string,options:{force?:bo
   autoSend=!rentalAutopayAuthorized;
   await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoiceId,event_type:"updated",metadata:{automatic:true,source:"rental_job_completion",booking_id:rentalBooking.id,deposit_applied_cents:rentalBalance.amountPaidCents,remaining_balance_cents:rentalBalance.balanceDueCents}});
  }
+ if(options.forceAutoCharge){billingMethod="auto_charge_after_completion";autoSend=false;}
  if(invoice.billing_method_snapshot!==billingMethod){
   await db.from("invoices").update({billing_method_snapshot:billingMethod}).eq("id",invoiceId);
  }
@@ -148,7 +149,7 @@ export async function processCompletedJobBilling(jobId:string,options:{force?:bo
  const {data:method}=profile?.default_payment_method_id?await db.from("customer_payment_methods")
   .select("id,provider_payment_method_id").eq("business_id",invoice.business_id)
   .eq("id",profile.default_payment_method_id).eq("status","active").maybeSingle():{data:null};
- const autopayEnabled=rentalBooking?Boolean(rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id):Boolean(profile?.autopay_enabled);
+ const autopayEnabled=rentalBooking?Boolean(rentalBooking.final_payment_authorized_at&&rentalBooking.stripe_customer_id&&rentalBooking.stripe_payment_method_id):options.forceAutoCharge?Boolean(profile?.provider_customer_id&&method?.provider_payment_method_id):Boolean(profile?.autopay_enabled);
  const providerCustomerId=rentalBooking?.stripe_customer_id??profile?.provider_customer_id??null;
  const providerPaymentMethodId=rentalBooking?.stripe_payment_method_id??method?.provider_payment_method_id??null;
  const {data:attemptRows}=await db.from("payment_attempts").select("id,status,payment_id,attempt_number")
