@@ -371,7 +371,7 @@ export async function POST(request: Request) {
           saveFinalPaymentAuthorization:async()=>{
             if(session.metadata?.final_payment_authorized!=="true")return;
             if(!providerCustomerId||!paymentMethod?.id)throw new PaidRentalWebhookError("Stripe did not return the authorized customer payment method.","save_final_payment_authorization","bookings",422,null);
-            const result=await supabase.from("bookings").update({final_payment_authorized_at:new Date(event.created*1000).toISOString(),stripe_customer_id:providerCustomerId,stripe_payment_method_id:paymentMethod.id}).eq("id",bookingId);
+            const result=await supabase.from("bookings").update({final_payment_authorized_at:new Date(event.created*1000).toISOString(),final_payment_authorization_version:session.metadata?.final_payment_authorization_version??"checkout_v1",final_payment_authorization_source:"customer_checkout",stripe_customer_id:providerCustomerId,stripe_payment_method_id:paymentMethod.id}).eq("id",bookingId);
             requireDatabaseSuccess(result.error,"save_final_payment_authorization","bookings");
           },
         });
