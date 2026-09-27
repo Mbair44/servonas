@@ -49,6 +49,8 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
  const technicianName=(id:string|null)=>technicians?.find(item=>item.id===id)?.preferred_name??"";
  const customerName=(job:NonNullable<typeof jobs>[number])=>{const customer=relation(job.customers);return customer?.company_name||[customer?.first_name,customer?.last_name].filter(Boolean).join(" ")||"No customer";};
  const rows=[...(jobs??[])].sort((left,right)=>{
+  const completedComparison=Number(left.status==="completed")-Number(right.status==="completed");
+  if(completedComparison)return completedComparison;
   const value=(job:typeof left):string|number=>{
    if(sort==="customer")return customerName(job);
    if(sort==="status")return job.status;
