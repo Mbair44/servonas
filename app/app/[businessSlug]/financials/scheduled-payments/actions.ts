@@ -16,6 +16,9 @@ export async function retryScheduledPayment(slug:string,bookingId:string){
  const status=String(booking.status??"").toLowerCase();
  if(["cancelled","canceled","expired","refunded"].includes(status))redirect(destination(slug,"error","This booking cannot accept another payment."));
  if(Number(booking.balance_due_cents??0)<=0)redirect(destination(slug,"success","This booking is already paid."));
+ const {data:invoice}=await supabase.from("invoices").select("id").eq("business_id",business.id).eq("job_id",booking.job_id).eq("is_deleted",false).maybeSingle();
+ const {data:captured}=await supabase.from("payments").select("id,provider_payment_intent_id,paid_at").eq("business_id",business.id).eq("invoice_id",invoice?.id??"").eq("provider","stripe").eq("status","succeeded").limit(1).maybeSingle();
+ if(captured)redirect(destination(slug,"success","Stripe already captured this payment. The scheduled payment has been reconciled."));
  const {data:job}=await supabase.from("jobs").select("status").eq("id",booking.job_id).eq("business_id",business.id).maybeSingle();
  if(job?.status!=="completed")redirect(destination(slug,"error","Automatic balance payment is available after the job is completed."));
  const result=await processCompletedJobBilling(String(booking.job_id),{force:true});
