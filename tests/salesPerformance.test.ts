@@ -88,6 +88,13 @@ test("outstanding invoices do not count a booking twice or reopen refunded debt"
  assert.match(sql,/b\.status in\('cancelled','canceled','expired','refunded'\)/);assert.match(sql,/i\.job_id=b\.job_id and not i\.is_deleted and i\.status<>'void'/);assert.match(sql,/j\.is_deleted or j\.status='canceled'/);
 });
 
+test("open ready invoices contribute to the dashboard outstanding balance",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20260927000400_include_ready_invoices_in_sales_outstanding.sql",import.meta.url),"utf8");
+ assert.match(sql,/i\.status in\('ready','sent','viewed','partially_paid','overdue'\)/);
+ assert.match(sql,/i\.balance_due_cents/);
+ assert.match(sql,/j\.is_deleted or j\.status='canceled'/);
+});
+
 
 const selected={start:"2026-09-01",end:"2026-09-14"};
 const receipt=(cents:number,customerKey:string|null="customer:1",date="2026-09-10",weights=[{category:"Tenant category",cents:100}]):SalesReceipt=>({date,cents,customerKey,weights});
