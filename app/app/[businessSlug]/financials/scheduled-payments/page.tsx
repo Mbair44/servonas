@@ -27,9 +27,10 @@ export default async function ScheduledPaymentsPage({params,searchParams}:{param
   supabase.from("customer_payment_methods").select("provider_payment_method_id,brand,last_four,method_type,status").eq("business_id",business.id).eq("status","active").limit(3000),
  ]);
  const customers=new Map((customersResult.data??[]).map((row:any)=>[row.id,row.company_name||`${row.first_name??""} ${row.last_name??""}`.trim()||"Customer"]));
- const bookingInvoices=new Map((invoiceResult.data??[]).filter((row:any)=>row.booking_id).map((row:any)=>[row.booking_id,row.id]));
+ const bookingByJob=new Map((bookingsResult.data??[]).filter((row:any)=>row.job_id).map((row:any)=>[row.job_id,row.id]));
+ const bookingInvoices=new Map<string,string>((invoiceResult.data??[]).flatMap((row:any)=>{const bookingId=row.booking_id??bookingByJob.get(row.job_id);return bookingId?[[String(bookingId),String(row.id)] as [string,string]]:[];}));
  const latestAttempt=new Map<string,any>();for(const row of attemptResult.data??[])if(!latestAttempt.has(row.invoice_id))latestAttempt.set(row.invoice_id,row);
- const latestPayment=new Map<string,any>();for(const row of paymentResult.data??[]){const key=row.booking_id||((invoiceResult.data??[]).find((invoice:any)=>invoice.id===row.invoice_id)?.booking_id);if(key&&!latestPayment.has(key))latestPayment.set(key,row);}
+ const latestPayment=new Map<string,any>();for(const row of paymentResult.data??[]){const invoice:any=(invoiceResult.data??[]).find((candidate:any)=>candidate.id===row.invoice_id),key=row.booking_id??(invoice?.booking_id??bookingByJob.get(invoice?.job_id));if(key&&!latestPayment.has(key))latestPayment.set(key,row);}
  const methods=new Map((methodsResult.data??[]).map((row:any)=>[row.provider_payment_method_id,row.last_four?`${row.brand??row.method_type} •••• ${row.last_four}`:row.method_type]));
  const rows=(bookingsResult.data??[]).map((booking:any)=>{const invoiceId=bookingInvoices.get(booking.id),attempt=invoiceId?latestAttempt.get(invoiceId):null,payment=latestPayment.get(booking.id);return {...booking,customer:customers.get(booking.customer_id)??"Customer",attempt,payment,statusLabel:statusFor(booking,attempt,payment),paymentMethod:methods.get(booking.stripe_payment_method_id)??(booking.stripe_payment_method_id?"Card on file":payment?.payment_method_type??null),failureReason:attempt?.failure_reason??payment?.failure_message??null};});
  const filter=["upcoming","failed","paid","all"].includes(q.status??"")?q.status!:"upcoming";
