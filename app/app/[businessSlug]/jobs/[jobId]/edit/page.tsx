@@ -42,6 +42,6 @@ export default async function EditJob({ params }: { params: Promise<{ businessSl
   for(const item of rentalBookingItems)if(!rentalInventoryChoices.some(choice=>choice.id===item.inventory_item_id))rentalInventoryChoices.push({id:item.inventory_item_id,name:`${item.name} (current)`});
   return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content">
     <header className="epic3-header"><div><small>Job #{job.job_number}</small><h1>Edit {job.title}</h1><p>All scheduling times are shown in {business.timezone}.</p></div><Link href={`/app/${businessSlug}/jobs/${jobId}`}>Back to job</Link></header>
-    <section className="workspace-panel"><JobForm action={updateJob.bind(null, businessSlug, jobId)} customers={customers ?? []} locations={locations ?? []} services={services ?? []} technicians={technicians ?? []} priorJobs={priorJobs??[]} rentalBookingItems={rentalBookingItems} rentalInventory={rentalInventoryChoices} job={formJob} submitLabel="Save job"/></section>
+    <section className="workspace-panel"><JobForm action={updateJob.bind(null, businessSlug, jobId)} customers={customers ?? []} locations={locations ?? []} services={services ?? []} technicians={technicians ?? []} priorJobs={priorJobs??[]} rentalBookingItems={rentalBookingItems} rentalInventory={rentalInventoryChoices} job={formJob} submitLabel="Save job" rentalDatePricing={rentalBooking?{slug:businessSlug,bookingId:rentalBooking.id}:undefined}/></section>
   </section></main>;
 }
