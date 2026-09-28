@@ -65,7 +65,8 @@ test("latest booking RPC prices inclusive calendar days instead of elapsed deliv
 
 test("checkout prices before promotions and deposits",async()=>{
  const source=await readFile(new URL("../app/api/checkout/route.ts",import.meta.url),"utf8");
- assert.ok(source.indexOf("calculateRentalUnitPrice(item.daily_price_cents")<source.indexOf("await validateRentalPromo"));
+ const datePriceIndex=source.indexOf("price=applyRentalDatePrice(await resolveRentalDatePrice");
+ assert.ok(datePriceIndex>=0&&datePriceIndex<source.indexOf("await validateRentalPromo"));
  assert.ok(source.indexOf("discountCents=promo")<source.indexOf("depositCents = Math.round"));
  assert.match(source,/p_rental_end_date/);
  assert.match(source,/calculateRentalCalendarDays\(body\.rentalDate!,body\.rentalEndDate!\)/);

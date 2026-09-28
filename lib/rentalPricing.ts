@@ -71,3 +71,13 @@ export function rentalPricingMessage(rules:RentalPricingRules){
 export type RentalDurationRules={standardRentalHours:number;allowExtendedRental:boolean;additionalHourPriceCents:number;overnightAvailable:boolean;overnightPriceCents:number};
 export function resolveRentalDurationRules(business:RentalDurationRules,item:{standard_rental_hours_override?:number|null;allow_extended_rental_override?:boolean|null;additional_hour_price_cents_override?:number|null;overnight_available_override?:boolean|null;overnight_price_cents_override?:number|null}):RentalDurationRules{return {standardRentalHours:positiveNumber(item.standard_rental_hours_override??business.standardRentalHours,24),allowExtendedRental:item.allow_extended_rental_override??business.allowExtendedRental,additionalHourPriceCents:nonNegativeNumber(item.additional_hour_price_cents_override??business.additionalHourPriceCents,0),overnightAvailable:item.overnight_available_override??business.overnightAvailable,overnightPriceCents:nonNegativeNumber(item.overnight_price_cents_override??business.overnightPriceCents,0)};}
 export function rentalDurationAdjustment(rules:RentalDurationRules,additionalHours:number,overnight:boolean){const hours=Math.max(0,Math.floor(additionalHours));if(hours&&!rules.allowExtendedRental)throw new Error("Extended rental time is not available for this item.");if(overnight&&!rules.overnightAvailable)throw new Error("Overnight rental is not available for this item.");return {additionalHours:hours,overnight,durationAdjustmentCents:hours*rules.additionalHourPriceCents+(overnight?rules.overnightPriceCents:0)};}
+
+export type RentalDatePrice = {
+ originalBasePriceCents:number;dateAdjustedBasePriceCents:number;
+ appliedDateRuleId:string|null;appliedDateRuleType:"day_of_week"|"date_range"|"specific_date"|null;
+ appliedDateRuleName:string|null;rentalDate:string;version:number;
+};
+/** Start-date selection happens once. Existing extra-day rules use that adjusted base. */
+export function applyRentalDatePrice(datePrice:RentalDatePrice,days:number,rules:RentalPricingRules){
+ return {...calculateRentalUnitPrice(datePrice.dateAdjustedBasePriceCents,days,rules),...datePrice,datePricingSnapshot:{...datePrice}};
+}

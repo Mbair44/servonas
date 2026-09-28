@@ -41,7 +41,8 @@ test("all financial snapshots are recalculated after line insertion without char
 });
 test("the service accepts selectors only and recalculates an existing promotion before the RPC",()=>{
  assert.match(service,/validateRentalPromo/);
- assert.match(service,/calculateRentalUnitPrice/);
+ assert.match(service,/applyRentalDatePrice/);
+ assert.match(service,/resolveRentalDatePrice/);
  assert.match(service,/p_discount_snapshot:discountSnapshot/);
  assert.match(service,/p_items:input\.items/);
  assert.doesNotMatch(service,/priceCents:/);
