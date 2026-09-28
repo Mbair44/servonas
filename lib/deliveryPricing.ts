@@ -1,7 +1,9 @@
 export type DeliveryTier={upToMiles:number;feeCents:number};
-export type DeliveryPricingMethod="distance_tiers"|"per_mile";
+export type DeliveryTimeTier={upToMinutes:number;feeCents:number};
+export type DeliveryPricingMethod="distance_tiers"|"per_mile"|"time_tiers";
 export type OutsideAreaAction="block"|"request_quote"|"long_distance_fee";
 export type DeliveryPricingSettings={
+ timeTiers?:DeliveryTimeTier[];maximumDriveMinutes?:number|null;
  enabled:boolean;pricingMethod:DeliveryPricingMethod;freeRadiusMiles:number;tiers:DeliveryTier[];
  perMileRateCents:number;minimumFeeCents:number;maximumDistanceMiles:number|null;
  outsideAreaAction:OutsideAreaAction;longDistanceFeeCents:number;
@@ -11,6 +13,17 @@ export type DeliveryPrice={eligible:boolean;requiresQuote:boolean;insideServiceA
 const positive=(value:number)=>Number.isFinite(value)&&value>=0;
 
 export function validateDeliverySettings(settings:DeliveryPricingSettings):string|null{
+ if(settings.pricingMethod==="time_tiers"){
+  const maximum=settings.maximumDriveMinutes??null;
+  if(maximum!==null&&(!positive(maximum)||maximum===0))return "Maximum drive time must be greater than zero.";
+  if(!settings.timeTiers?.length)return "Add at least one drive-time tier.";
+  let previous=0;
+  for(const tier of settings.timeTiers){
+   if(!positive(tier.upToMinutes)||tier.upToMinutes<=previous||!Number.isSafeInteger(tier.feeCents)||tier.feeCents<0)return "Drive-time tiers need increasing minute limits and nonnegative fees.";
+   previous=tier.upToMinutes;
+  }
+  if(maximum!==null&&previous>maximum)return "Maximum drive time cannot be smaller than a drive-time tier.";
+ }
  if(!positive(settings.freeRadiusMiles))return "Free delivery radius cannot be negative.";
  if(settings.maximumDistanceMiles!==null&&(!positive(settings.maximumDistanceMiles)||settings.maximumDistanceMiles<settings.freeRadiusMiles))return "Maximum service distance must be at least the free delivery radius.";
  if(!positive(settings.perMileRateCents)||!positive(settings.minimumFeeCents)||!positive(settings.longDistanceFeeCents))return "Delivery prices cannot be negative.";
@@ -25,9 +38,21 @@ export function validateDeliverySettings(settings:DeliveryPricingSettings):strin
  return null;
 }
 
-export function calculateDeliveryPrice(distanceMiles:number,settings:DeliveryPricingSettings):DeliveryPrice{
+export function calculateDeliveryPrice(distanceMiles:number,settings:DeliveryPricingSettings,durationSeconds?:number|null):DeliveryPrice{
  if(!settings.enabled)return{eligible:true,requiresQuote:false,insideServiceArea:true,feeCents:0,ruleLabel:"Delivery pricing disabled",ruleSnapshot:{type:"disabled"}};
  if(!positive(distanceMiles))throw new Error("Driving distance must be zero or greater.");
+ if(settings.pricingMethod==="time_tiers"){
+  if(durationSeconds==null||!positive(durationSeconds))throw new Error("Driving time is unavailable.");
+  const minutes=durationSeconds/60,maximum=settings.maximumDriveMinutes??null;
+  if(maximum!==null&&minutes>maximum){
+   const allowed=settings.outsideAreaAction==="long_distance_fee";
+   return{eligible:allowed,requiresQuote:settings.outsideAreaAction==="request_quote",insideServiceArea:false,feeCents:allowed?settings.longDistanceFeeCents:0,ruleLabel:`Over ${maximum} minutes`,ruleSnapshot:{type:settings.outsideAreaAction,maximumDriveMinutes:maximum,durationSeconds,feeCents:allowed?settings.longDistanceFeeCents:0}};
+  }
+  const sorted=[...(settings.timeTiers??[])].sort((a,b)=>a.upToMinutes-b.upToMinutes),tier=sorted.find(item=>minutes<=item.upToMinutes);
+  if(!tier)return{eligible:false,requiresQuote:true,insideServiceArea:false,feeCents:0,ruleLabel:"No drive-time tier covers this address",ruleSnapshot:{type:"uncovered_time",durationSeconds}};
+  const prior=sorted[sorted.indexOf(tier)-1]?.upToMinutes??0;
+  return{eligible:true,requiresQuote:false,insideServiceArea:true,feeCents:tier.feeCents,ruleLabel:prior?`Over ${prior} to ${tier.upToMinutes} minutes`:`Up to ${tier.upToMinutes} minutes`,ruleSnapshot:{type:"time_tier",overMinutes:prior,upToMinutes:tier.upToMinutes,durationSeconds,feeCents:tier.feeCents}};
+ }
  const outside=settings.maximumDistanceMiles!==null&&distanceMiles>settings.maximumDistanceMiles;
  if(outside){
   if(settings.outsideAreaAction==="long_distance_fee")return{eligible:true,requiresQuote:false,insideServiceArea:false,feeCents:settings.longDistanceFeeCents,ruleLabel:`Over ${settings.maximumDistanceMiles} miles`,ruleSnapshot:{type:"long_distance_fee",maximumDistanceMiles:settings.maximumDistanceMiles,feeCents:settings.longDistanceFeeCents}};
