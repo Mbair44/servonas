@@ -29,5 +29,5 @@ export async function resolveRentalItemPrice(db:SupabaseClient,input:{businessId
  const price=applyRentalDatePrice(datePrice,calculateRentalCalendarDays(rentalDate,endDate),rules);
  const hours=input.additionalHours??0;if(!Number.isInteger(hours)||hours<0||hours>168)throw new Error("Choose valid additional rental hours.");
  const duration=rentalDurationAdjustment(resolveRentalDurationRules({standardRentalHours:rules.standardRentalHours,allowExtendedRental:Boolean(settings.allow_extended_rental),additionalHourPriceCents:Number(settings.additional_hour_price_cents??0),overnightAvailable:Boolean(settings.overnight_available),overnightPriceCents:Number(settings.overnight_price_cents??0)},item),hours,input.overnight===true);
- return {...price,...duration,rules,finalRentalPriceCents:price.totalUnitPriceCents+duration.durationAdjustmentCents};
+ return {...price,...duration,rules,multiDayAdjustmentCents:price.totalUnitPriceCents-price.dateAdjustedBasePriceCents,finalRentalPriceCents:price.totalUnitPriceCents+duration.durationAdjustmentCents};
 }
