@@ -1,0 +1,5 @@
+import test from "node:test";import assert from "node:assert/strict";import {calculateBuyGetPromotion} from "../lib/promotions.ts";
+const rule:any={type:"buy_get",qualifyingItemIds:["castle"],minimumQualifyingQuantity:1,rewardItemIds:["chair"],rewardQuantity:10,rewardDiscountType:"percentage",rewardDiscountValue:100};
+test("buy get discounts only configured reward quantity",()=>{const r=calculateBuyGetPromotion(rule,[{id:"castle",quantity:1,unitPriceCents:18500},{id:"chair",quantity:15,unitPriceCents:300}]);assert.equal(r.ok,true);assert.equal(r.discountCents,3000);assert.equal(r.rewardQuantity,10);});
+test("without qualifier reward remains full price",()=>{const r=calculateBuyGetPromotion(rule,[{id:"chair",quantity:10,unitPriceCents:300}]);assert.equal(r.ok,false);assert.equal(r.discountCents,0);});
+test("boundaries and fixed reward discounts",()=>{const r=calculateBuyGetPromotion({...rule,rewardDiscountType:"fixed",rewardDiscountValue:1200},[{id:"castle",quantity:1,unitPriceCents:18500},{id:"chair",quantity:15,unitPriceCents:300}]);assert.equal(r.ok,true);assert.equal(r.discountCents,1200);});
