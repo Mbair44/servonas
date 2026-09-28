@@ -3,7 +3,7 @@ import {requireWorkspace} from "@/lib/workspace";
 import {syncGoogleBusinessReviewNotifications} from "@/lib/businessNotifications";
 
 export async function GET(_:Request,{params}:{params:Promise<{businessSlug:string}>}){
- const {businessSlug}=await params;const {supabase,business}=await requireWorkspace(businessSlug);
+ const {businessSlug}=await params;const {supabase,business}=await requireWorkspace(businessSlug,{suppressPlatformAdminAudit:true});
  await syncGoogleBusinessReviewNotifications({businessId:business.id,businessSlug}).catch(error=>console.warn("Notification review sync skipped",{businessId:business.id,message:error instanceof Error?error.message:"unknown"}));
  const [{data:notifications},{count}]=await Promise.all([
   supabase.from("business_notifications").select("id,type,category,title,body,status,priority,action_label,action_url,metadata,created_at").eq("business_id",business.id).not("status","in","(resolved,dismissed)").order("created_at",{ascending:false}).limit(5),

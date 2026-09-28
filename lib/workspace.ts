@@ -6,7 +6,7 @@ import { assertCanAccess, getEntitlementSummary } from "./entitlements/service";
 import type { CapabilityCode } from "./entitlements/catalog";
 import { EntitlementAccessError, entitlementAccessMessage } from "./entitlements/errors";
 import { cache } from "react";
-export const requireWorkspace = cache(async function requireWorkspace(slug: string) {
+export const requireWorkspace = cache(async function requireWorkspace(slug: string, options: { suppressPlatformAdminAudit?: boolean } = {}) {
   const sessionSupabase = await createSupabaseServerClient();
   const { data: { user } } = await sessionSupabase.auth.getUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(`/app/${slug}`)}`);
@@ -17,7 +17,7 @@ export const requireWorkspace = cache(async function requireWorkspace(slug: stri
   if (error) throw new Error(`Unable to load workspace: ${error.message}`);
   if (!business) notFound();
   if (isPlatformAdmin) {
-    console.info("Servonas platform administrator accessed business workspace", {
+    if (!options.suppressPlatformAdminAudit) console.info("Servonas platform administrator accessed business workspace", {
       actorUserId: user.id,
       businessId: business.id,
       businessSlug: slug,
