@@ -1,3 +1,6 @@
+import {calculateBookingTax} from "@/lib/bookingTax";
+import {bookingTaxProvider} from "@/lib/bookingTaxProvider";
+import type {BusinessTaxSettings} from "@/lib/financial/tax";
 import {resolveRentalDatePrice} from "@/lib/rentalDatePricing";
 import {cancellationPolicyError} from "@/lib/cancellationPolicy";
 import {DEFAULT_WEATHER_POLICY,DEFAULT_RENTAL_WAIVER_POLICY} from "@/lib/rentalPolicies";
@@ -27,6 +30,8 @@ type CheckoutBody = {
   weatherPolicyText?:string;
   rentalWaiverPolicyText?:string;
   businessSlug?: string;
+  acceptedTotalCents?: number;
+  acceptedDepositCents?: number;
   items?: RequestedItem[];
   rentalDate?: string;
   rentalEndDate?: string;
@@ -102,7 +107,7 @@ export async function POST(request: Request) {
     const {data: business}=publicBooking
       ? await supabase.from("businesses").select("id,slug,name").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
-    if(hasText(body.businessSlug)&&!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
+    if(!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
     const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text").eq("business_id",business.id).maybeSingle():{data:null,error:null};
     if(policyLoadError)return NextResponse.json({error:"The cancellation policy could not be verified. Please try again."},{status:503});
     const policyError=cancellationPolicyError(cancellationPolicy,body.cancellationPolicyAccepted,body.cancellationPolicyText);
@@ -112,7 +117,8 @@ export async function POST(request: Request) {
     const policyAcknowledged=Boolean(cancellationPolicy?.cancellation_policy_enabled&&(body.cancellationPolicyAccepted===true||body.cancellationPolicyAccepted==="true"));
     let deliveryQuote:DeliveryQuote|null=null;
     if(business){
-      const {data:deliveryConfig}=await supabase.from("delivery_fee_settings").select("enabled").eq("business_id",business.id).maybeSingle();
+      const {data:deliveryConfig,error:deliveryConfigError}=await supabase.from("delivery_fee_settings").select("enabled").eq("business_id",business.id).maybeSingle();
+      if(deliveryConfigError)return NextResponse.json({error:"Delivery settings could not be verified. Please try again."},{status:503});
       if(deliveryConfig?.enabled){
         if(!verifiedDestination)return NextResponse.json({error:"Choose a verified delivery address so we can calculate delivery before payment."},{status:400});
         try{deliveryQuote=await quoteBusinessDelivery(supabase,business.id,verifiedDestination);}catch(error){console.error("Checkout delivery calculation failed",{businessId:business.id,operation:"authoritative_delivery_quote",errorCode:error instanceof Error?error.message:"unknown"});return NextResponse.json({error:deliveryQuoteMessage(error),code:"delivery_quote_unavailable"},{status:503});}
@@ -144,7 +150,7 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("business_id,id,name,daily_price_cents,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
+      .select("business_id,id,name,daily_price_cents,is_taxable,tax_code,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
@@ -176,6 +182,32 @@ export async function POST(request: Request) {
     const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
+    const [{data:billing,error:billingError},{data:taxCustomer,error:customerTaxError},{data:deliverySettings,error:deliverySettingsError}]=await Promise.all([
+      supabase.from("business_billing_settings").select("tax_enabled,tax_calculation_method,tax_display_mode,default_tax_rate_basis_points,default_invoice_item_taxable").eq("business_id",business.id).maybeSingle(),
+      supabase.from("customers").select("id,tax_exempt").eq("business_id",business.id).eq("is_deleted",false).ilike("email",body.email!.trim().replace(/[\\%_]/g,character=>"\\"+character)).maybeSingle(),
+      supabase.from("delivery_fee_settings").select("delivery_taxable").eq("business_id",business.id).maybeSingle(),
+    ]);
+    if(billingError||customerTaxError||deliverySettingsError)return NextResponse.json({error:"Tax settings could not be verified. Please try again."},{status:503});
+    const taxSettings:BusinessTaxSettings={taxEnabled:Boolean(billing?.tax_enabled),calculationMethod:billing?.tax_calculation_method==="automatic"?"automatic":"manual",displayMode:billing?.tax_display_mode==="inclusive"?"inclusive":"exclusive",manualTaxRateBasisPoints:Number(billing?.default_tax_rate_basis_points??0),defaultInvoiceItemTaxable:billing?.default_invoice_item_taxable??true};
+    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0);
+    let taxCalculation;
+    try{
+      taxCalculation=await calculateBookingTax({
+        lines:pricedItems.map(item=>({id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:item.tax_code})),
+        discountCents:promo?.ok?promo.discountCents:0,
+        delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
+        settings:taxSettings,exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
+      },bookingTaxProvider(paymentAccount?.provider_account_id,{line1:verifiedDestination?.streetAddress??body.address!,city:verifiedDestination?.city??body.city!,state:verifiedDestination?.state??"",postal_code:verifiedDestination?.postalCode??body.zipCode!,country:verifiedDestination?.country??"US"},taxSettings.displayMode));
+    }catch{
+      return NextResponse.json({error:"Sales tax could not be calculated. Please verify your delivery address or contact the business.",code:"tax_unavailable"},{status:503});
+    }
+    const {subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents}=taxCalculation;
+    if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
+    if(onlinePaymentsReady&&depositCents>0&&depositCents<totalCents&&body.finalPaymentAccepted!=="true"&&body.finalPaymentAccepted!==true)return NextResponse.json({error:"Please authorize the remaining balance to be charged after the job is completed."},{status:400});
+    const deliveryTaxLine=taxCalculation.snapshot.lines.find(line=>line.id==="delivery")!;
+    const deliveryRuleSnapshot=deliveryQuote?{...deliveryQuote.snapshot.rule,taxable:deliveryTaxLine.taxable,taxCents:deliveryTaxLine.taxCents,taxRateBasisPoints:taxSettings.calculationMethod==="manual"?(taxSettings.taxEnabled&&!taxCustomer?.tax_exempt&&deliveryTaxLine.taxable?taxSettings.manualTaxRateBasisPoints:0):null,taxCalculationId:taxCalculation.snapshot.calculationId}:null;
+    // Never create a reservation or payment until the customer has reviewed the authoritative amount.
+    if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
     const { data, error: bookingError } = await supabase.rpc("create_public_booking_quantities_timed", {
       p_items: requestedItems,
       p_rental_date: body.rentalDate,
@@ -208,20 +240,15 @@ export async function POST(request: Request) {
     const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id,unit_price_cents,date_pricing_snapshot").eq("booking_id",booking.booking_id);
     if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length||bookingItems.some(line=>{const price=pricedItems.find(item=>item.id===line.inventory_item_id);return !price||line.unit_price_cents!==price.totalUnitPriceCents||line.date_pricing_snapshot?.dateAdjustedBasePriceCents!==price.dateAdjustedBasePriceCents||line.date_pricing_snapshot?.originalBasePriceCents!==price.originalBasePriceCents||line.date_pricing_snapshot?.appliedDateRuleId!==price.appliedDateRuleId;})){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
-    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents,standard_rental_hours_snapshot:resolveRentalDurationRules(durationBusinessRules,item).standardRentalHours,additional_hours:item.additionalHours,overnight_selected:item.overnight,duration_adjustment_cents:item.durationAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
+    const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({tax_snapshot:taxCalculation.snapshot.lines.find(line=>line.id===item.id),operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents,standard_rental_hours_snapshot:resolveRentalDurationRules(durationBusinessRules,item).standardRentalHours,additional_hours:item.additionalHours,overnight_selected:item.overnight,duration_adjustment_cents:item.durationAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
     if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
-    const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0),subtotalCents=pricedItems.reduce((sum, item) => sum + (item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents) * item.quantity, 0)+operatorTotalCents;
-    const discountCents=promo?.ok?promo.discountCents:0,deliveryFeeCents=deliveryQuote?.feeCents??0,deliveryTaxCents=deliveryQuote?.taxCents??0,totalCents=Math.max(0,subtotalCents-discountCents)+deliveryFeeCents+deliveryTaxCents;
-    const depositCents = Math.round(totalCents * depositPercent / 100);
-    if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
-    if(onlinePaymentsReady&&depositCents>0&&depositCents<totalCents&&body.finalPaymentAccepted!=="true"&&body.finalPaymentAccepted!==true)return NextResponse.json({error:"Please authorize the remaining balance to be charged after the job is completed."},{status:400});
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
     if(business){
       const {error:consentError}=await supabase.rpc("record_web_booking_sms_consent",{p_booking_id:booking.booking_id,p_granted:smsConsent,p_disclosure:disclosure,p_disclosure_version:WEB_BOOKING_SMS_CONSENT_VERSION});
       if(consentError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation consent record could not be saved. Please try again."},{status:500});}
     }
     if(promo?.ok&&business){const {error:reserveError}=await supabase.rpc("reserve_discount_redemption",{p_business_id:business.id,p_discount_id:promo.discountId,p_customer_id:createdBooking?.customer_id??null,p_booking_id:booking.booking_id,p_amount:discountCents});if(reserveError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/usage_limit|customer_limit/.test(reserveError.message)?"This promo code has reached its usage limit.":"This promo code could not be reserved. Please try again."},{status:409});}}
-    const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,weather_policy_text_snapshot:weatherPolicy,rental_waiver_policy_text_snapshot:waiverPolicy,rental_terms_acknowledged_at:new Date().toISOString(),subtotal_cents:subtotalCents,tax_cents:deliveryTaxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,discount_snapshot:promo?.ok?promo.snapshot:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryQuote?.snapshot.rule??null,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
+    const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,weather_policy_text_snapshot:weatherPolicy,rental_waiver_policy_text_snapshot:waiverPolicy,rental_terms_acknowledged_at:new Date().toISOString(),tax_snapshot:taxCalculation.snapshot,taxable_subtotal_cents:taxCalculation.taxableSubtotalCents,deposit_cents:depositCents,balance_due_cents:taxCalculation.remainingBalanceCents,subtotal_cents:subtotalCents,tax_cents:taxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,discount_snapshot:promo?.ok?promo.snapshot:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryRuleSnapshot,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
     if(pricingSnapshotError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation pricing could not be finalized. Please try again."},{status:500});}
     if(business){
       const sessionId=validSessionId(body.attributionSessionId)?body.attributionSessionId:null;
@@ -283,7 +310,7 @@ export async function POST(request: Request) {
           rental_date: String(body.rentalDate),
           inventory_item_ids: ids.join(","),
           item_count: String(orderedItems.reduce((sum, item) => sum + item.quantity, 0)),
-          subtotal_cents:String(subtotalCents),tax_cents:String(deliveryTaxCents),total_cents:String(totalCents),discount_cents:String(discountCents),delivery_fee_cents:String(deliveryFeeCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name,...(promo.snapshot.tier?{discount_tier_id:promo.snapshot.tier.id}:{})}:{}),
+          subtotal_cents:String(subtotalCents),tax_cents:String(taxCents),total_cents:String(totalCents),discount_cents:String(discountCents),delivery_fee_cents:String(deliveryFeeCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name,...(promo.snapshot.tier?{discount_tier_id:promo.snapshot.tier.id}:{})}:{}),
           deposit_cents: String(depositCents),
           final_payment_authorized:String(depositCents<totalCents),
           ...(validSessionId(body.attributionSessionId)?{attribution_session_id:body.attributionSessionId}:{}),
