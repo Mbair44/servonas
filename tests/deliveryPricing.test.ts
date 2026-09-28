@@ -16,3 +16,31 @@ test("checkout calculates delivery server-side and excludes it from discount inp
 test("bookings retain immutable delivery snapshots and override audit fields",async()=>{const migration=await readFile(new URL("../supabase/migrations/20260908000200_delivery_fees_service_area.sql",import.meta.url),"utf8");for(const column of ["delivery_origin_snapshot","delivery_destination_snapshot","delivery_rule_snapshot","delivery_fee_original_cents","delivery_fee_overridden_by","delivery_fee_override_reason"])assert.match(migration,new RegExp(column));});
 test("origin changes invalidate cached origin coordinates",async()=>{const action=await readFile(new URL("../app/app/[businessSlug]/booking/actions.ts",import.meta.url),"utf8");assert.match(action,/addressChanged\?\{origin_place_id:null,origin_latitude:null,origin_longitude:null\}/);});
 test("manual override preserves original fee and records an analytics event",async()=>{const action=await readFile(new URL("../app/app/[businessSlug]/jobs/actions.ts",import.meta.url),"utf8");assert.match(action,/delivery_fee_cents:feeCents/);assert.doesNotMatch(action,/delivery_fee_original_cents:feeCents/);assert.match(action,/event_name:"delivery_fee_overridden"/);});
+
+const time:DeliveryPricingSettings={...tiers,pricingMethod:"time_tiers",timeTiers:[{upToMinutes:20,feeCents:0},{upToMinutes:30,feeCents:2500}],maximumDriveMinutes:30};
+test("time tiers use exact drive seconds and include upper boundaries",()=>{
+ for(const [seconds,fee] of [[0,0],[1199,0],[1200,0],[1201,2500],[1800,2500]])assert.equal(calculateDeliveryPrice(100,time,seconds).feeCents,fee);
+ assert.equal(calculateDeliveryPrice(1,time,1801).requiresQuote,true);
+});
+test("time pricing ignores saved mileage limits and free radius",()=>{
+ assert.equal(calculateDeliveryPrice(1,time,1500).feeCents,2500);
+ assert.equal(calculateDeliveryPrice(100,time,600).feeCents,0);
+ assert.equal(calculateDeliveryPrice(30,{...time,pricingMethod:"distance_tiers"},600).feeCents,2500);
+});
+test("missing or invalid duration never becomes free delivery",()=>{
+ for(const seconds of [undefined,null,NaN,Infinity,-1])assert.throws(()=>calculateDeliveryPrice(1,time,seconds),/Driving time is unavailable/);
+});
+test("time service limit supports blocking and fixed outside-area fees",()=>{
+ assert.equal(calculateDeliveryPrice(1,{...time,outsideAreaAction:"block"},1801).eligible,false);
+ const result=calculateDeliveryPrice(1,{...time,outsideAreaAction:"long_distance_fee",longDistanceFeeCents:9000},1801);
+ assert.equal(result.eligible,true);assert.equal(result.insideServiceArea,false);assert.equal(result.feeCents,9000);
+ assert.equal(calculateDeliveryPrice(1,{...time,maximumDriveMinutes:null},1801).requiresQuote,true);
+});
+test("time tier validation rejects duplicate limits, missing tiers, invalid fees and too-small maximums",()=>{
+ assert.equal(validateDeliverySettings(time),null);
+ for(const change of [{timeTiers:[]},{timeTiers:[{upToMinutes:20,feeCents:0},{upToMinutes:20,feeCents:2500}]},{timeTiers:[{upToMinutes:20,feeCents:-1}]},{maximumDriveMinutes:25},{maximumDriveMinutes:NaN}])assert.ok(validateDeliverySettings({...time,...change}));
+});
+test("time quotes retain the applied tier and authoritative duration",()=>{
+ const result=calculateDeliveryPrice(12,time,1501);
+ assert.deepEqual(result.ruleSnapshot,{type:"time_tier",overMinutes:20,upToMinutes:30,durationSeconds:1501,feeCents:2500});
+});
