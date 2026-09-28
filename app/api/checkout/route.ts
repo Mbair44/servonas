@@ -198,8 +198,28 @@ export async function POST(request: Request) {
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
         settings:taxSettings,exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
       },bookingTaxProvider(paymentAccount?.provider_account_id,{line1:verifiedDestination?.streetAddress??body.address!,city:verifiedDestination?.city??body.city!,state:verifiedDestination?.state??"",postal_code:verifiedDestination?.postalCode??body.zipCode!,country:verifiedDestination?.country??"US"},taxSettings.displayMode));
-    }catch{
-      return NextResponse.json({error:"Sales tax could not be calculated. Please verify your delivery address or contact the business.",code:"tax_unavailable"},{status:503});
+    }catch(error){
+      // Keep the customer-facing message safe, but retain the provider reason so
+      // address/registration/account failures are diagnosable in Vercel logs.
+      console.error("Checkout automatic tax calculation failed",{
+        businessId:business.id,
+        operation:"automatic_booking_tax",
+        accountId:paymentAccount?.provider_account_id??null,
+        address:{city:body.city,state:verifiedDestination?.state??null,postalCode:body.zipCode,country:verifiedDestination?.country??"US"},
+        errorCode:(error as {code?:unknown})?.code??null,
+        errorType:(error as {type?:unknown})?.type??null,
+        errorMessage:error instanceof Error?error.message:String(error),
+      });
+      // Automatic tax is advisory for booking completion. Re-run the same
+      // canonical calculation with tax disabled so no manual-rate fallback can
+      // occur, while preserving an immutable audit marker in the snapshot.
+      taxCalculation=await calculateBookingTax({
+        lines:pricedItems.map(item=>({id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:item.tax_code})),
+        discountCents:promo?.ok?promo.discountCents:0,
+        delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
+        settings:{...taxSettings,taxEnabled:false},exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
+      },async()=>({calculationId:"automatic_failed",lines:[]}));
+      taxCalculation.snapshot={...taxCalculation.snapshot,taxCalculationStatus:"automatic_failed",automaticTaxError:{code:(error as {code?:unknown})?.code??null,type:(error as {type?:unknown})?.type??null,message:error instanceof Error?error.message:String(error)}} as typeof taxCalculation.snapshot;
     }
     const {subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents}=taxCalculation;
     if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
