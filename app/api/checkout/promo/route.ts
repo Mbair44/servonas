@@ -1,8 +1,9 @@
+import {resolveRentalDatePrice} from "@/lib/rentalDatePricing";
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {validateRentalPromo} from "@/lib/discounts";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
-import {calculateRentalCalendarDays,calculateRentalUnitPrice,resolveRentalPricingRules,type AdditionalDayPricingType} from "@/lib/rentalPricing";
+import {calculateRentalCalendarDays,applyRentalDatePrice,resolveRentalPricingRules,type AdditionalDayPricingType} from "@/lib/rentalPricing";
 import {operatorCharge} from "@/lib/rentalOperators";
 
 export async function POST(request:Request){
@@ -16,7 +17,7 @@ export async function POST(request:Request){
   const byId=new Map(items.map(item=>[item.id,item]));
   const requestedOperators=new Map<string,boolean>((Array.isArray(body.operators)?body.operators:[]).map((entry:any):[string,boolean]=>[String(entry.inventoryItemId??""),entry.selected===true]));
   const rentalDays=calculateRentalCalendarDays(String(body.rentalDate),String(body.rentalEndDate));
-  const priced=requested.map((entry:any)=>{const item=byId.get(String(entry.inventoryItemId)),quantity=Number(entry.quantity);if(!item||!Number.isInteger(quantity)||quantity<1)throw new Error("Review the selected quantities.");const rules=resolveRentalPricingRules(businessRules,item),rental=calculateRentalUnitPrice(item.daily_price_cents,rentalDays,rules),operator=operatorCharge(item,start,end,quantity,requestedOperators.get(item.id));return{id:item.id,quantity,rentalUnitPriceCents:rental.totalUnitPriceCents,unitPriceCents:rental.totalUnitPriceCents+(operator.chargeCents/quantity)};});
+  const priced=await Promise.all(requested.map(async (entry:any)=>{const item=byId.get(String(entry.inventoryItemId)),quantity=Number(entry.quantity);if(!item||!Number.isInteger(quantity)||quantity<1)throw new Error("Review the selected quantities.");const rules=resolveRentalPricingRules(businessRules,item),rental=applyRentalDatePrice(await resolveRentalDatePrice(db,{businessId:settings.business_id,rentalItemId:item.id,rentalDate:String(body.rentalDate),timeZone:settings.timezone??"America/Phoenix"}),rentalDays,rules),operator=operatorCharge(item,start,end,quantity,requestedOperators.get(item.id));return{id:item.id,quantity,rentalUnitPriceCents:rental.totalUnitPriceCents,unitPriceCents:rental.totalUnitPriceCents+(operator.chargeCents/quantity)};}));
   const result=await validateRentalPromo(db,{businessId:settings.business_id,code:String(body.code??""),email:String(body.email??""),items:priced});return NextResponse.json(result,{status:result.ok?200:400});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Promo code could not be checked."},{status:400});}
 }

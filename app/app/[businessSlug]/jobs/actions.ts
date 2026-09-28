@@ -1,4 +1,5 @@
 "use server";
+import {previewRentalDateChange} from "@/lib/bookingManage/datePricePreview";
 
 import {jobAssignmentErrorMessage} from "@/lib/jobAssignmentErrors";
 import {validateRentalPromo,type DiscountSnapshot} from "@/lib/discounts";
@@ -214,6 +215,20 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
   const prepared = await prepareJob(formData, context, jobId);
   if (!("payload" in prepared)) return { error: prepared.error, fieldErrors: prepared.errors, values: prepared.values, technicianIds: prepared.technicianIds };
   const payload = prepared.payload!;
+  if(payload.starts_at!==owned.starts_at||payload.ends_at!==owned.ends_at){
+    const {data:linked,error:linkedError}=await supabase.from("bookings").select("id,booking_items(inventory_item_id,date_pricing_snapshot)").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
+    if(linkedError)return {error:"Booking pricing could not be verified. Please retry.",values};
+    const rentalIds=(linked?.booking_items??[]).map(item=>item.inventory_item_id);
+    const {count:dateRuleCount,error:dateRuleError}=rentalIds.length?await supabase.from("rental_item_pricing_rules").select("id",{count:"exact",head:true}).eq("business_id",business.id).in("rental_item_id",rentalIds).eq("active",true):{count:0,error:null};
+    if(dateRuleError)return {error:"Rental date pricing could not be verified. Please retry.",values};
+    if(linked&&((dateRuleCount??0)>0||linked.booking_items.some(item=>item.date_pricing_snapshot?.appliedDateRuleId))){
+      if(!payload.starts_at||!payload.ends_at)return {error:"Linked rental bookings require a rental start and end date.",values};
+      try{
+        const impact=await previewRentalDateChange(supabase,{businessId:business.id,bookingId:linked.id,rentalDate:new Date(payload.starts_at),rentalEndDate:new Date(payload.ends_at)});
+        if(impact.requiresConfirmation&&impact.items.some(item=>item.hasDatePricing))return {error:`This date change affects rental pricing by ${new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(impact.differenceCents/100)}. A confirmed pricing amendment is required. The booking and its prices have not changed.`,values};
+      }catch(error){return {error:error instanceof Error?error.message:"Unable to preview rental pricing.",values};}
+    }
+  }
   const { error } = await supabase.from("jobs").update({ ...payload, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id);
   if (error) {
     console.error("Office job update failed", { code: error.code, businessId: business.id, jobId });
