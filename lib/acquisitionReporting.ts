@@ -513,6 +513,7 @@ export function acquisitionDateRange(range: string | undefined, from: string | u
   let startDate = localToday;
   if (range === "today") startDate = localToday;
   else if (range === "last_30_days") startDate = addDays(localToday, -29);
+  else if (range === "last_90_days") startDate = addDays(localToday, -89);
   else startDate = addDays(localToday, -6);
   return {
     from: zonedDateTimeToUtc(startDate, "00:00", timeZone).toISOString(),
