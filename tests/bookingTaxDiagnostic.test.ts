@@ -20,8 +20,20 @@ test('diagnostic retrieves connected settings read-only and logs only approved f
  assert.deepEqual(logs,[["Checkout Stripe Tax settings diagnostic",{
   operation:'automatic_booking_tax_settings_diagnostic',businessId,accountId,
   status:settings.status,status_details:settings.status_details,head_office:null,
+  missingFields:['head_office'],
   defaults:{tax_code:'txcd_10000000'},livemode:true,
  }]]);
+});
+
+test('diagnostic logs an empty missingFields array when settings are active',async(t)=>{
+ const logs:unknown[][]=[];
+ t.mock.method(console,'info',(...args:unknown[])=>logs.push(args));
+ await logInactiveBookingTaxSettings(businessId,accountId,()=>({tax:{settings:{retrieve:async()=>({
+  status:'active',status_details:{active:{}},head_office:null,
+  defaults:{tax_code:'txcd_10000000'},livemode:true,
+ })}}}) as never);
+ assert.equal(logs.length,1);
+ assert.deepEqual((logs[0][1] as {missingFields:unknown}).missingFields,[]);
 });
 
 test('diagnostic failure cannot escape or log SDK error secrets',async(t)=>{
