@@ -1,5 +1,5 @@
 import {calculateBookingTax} from "@/lib/bookingTax";
-import {bookingTaxProvider} from "@/lib/bookingTaxProvider";
+import {bookingTaxProvider,logInactiveBookingTaxSettings} from "@/lib/bookingTaxProvider";
 import type {BusinessTaxSettings} from "@/lib/financial/tax";
 import {resolveRentalDatePrice} from "@/lib/rentalDatePricing";
 import {cancellationPolicyError} from "@/lib/cancellationPolicy";
@@ -199,6 +199,9 @@ export async function POST(request: Request) {
         settings:taxSettings,exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
       },bookingTaxProvider(paymentAccount?.provider_account_id,{line1:verifiedDestination?.streetAddress??body.address!,city:verifiedDestination?.city??body.city!,state:verifiedDestination?.state??"",postal_code:verifiedDestination?.postalCode??body.zipCode!,country:verifiedDestination?.country??"US"},taxSettings.displayMode));
     }catch(error){
+      if((error as {code?:unknown})?.code==="stripe_tax_inactive"){
+        await logInactiveBookingTaxSettings(business.id,paymentAccount?.provider_account_id);
+      }
       // Keep the customer-facing message safe, but retain the provider reason so
       // address/registration/account failures are diagnosable in Vercel logs.
       console.error("Checkout automatic tax calculation failed",{
