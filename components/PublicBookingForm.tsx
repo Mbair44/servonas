@@ -41,7 +41,7 @@ const initialState: BookingActionState = {};
 
 function serviceLabel(service: Service) {
   const amount = Number(service.price_amount ?? 0);
-  if (amount <= 0 || service.price_label === "quote") return service.name;
+  if (!Number.isFinite(amount) || amount <= 0 || service.price_label === "quote") return service.name;
   return `${service.name} · ${service.price_label === "starting_at" ? "Starting at " : ""}${money.format(amount)}`;
 }
 function selectedService(services:Service[],serviceId:string){
@@ -52,6 +52,7 @@ function isoDate(year: number, month: number, day: number) {
 }
 function timeLabel(value: string) {
   const [hour, minute] = value.split(":").map(Number);
+  if(!Number.isInteger(hour)||!Number.isInteger(minute)||hour<0||hour>23||minute<0||minute>59)return "Time unavailable";
   return `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour >= 12 ? "PM" : "AM"}`;
 }
 
