@@ -15,6 +15,7 @@ export async function logInactiveBookingTaxSettings(
    businessId,accountId,
    status:settings.status,
    status_details:settings.status_details,
+   missingFields:settings.status_details?.pending?.missing_fields??[],
    head_office:settings.head_office,
    defaults:{tax_code:settings.defaults.tax_code},
    livemode:settings.livemode,
