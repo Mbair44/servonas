@@ -6,7 +6,7 @@ const first = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? 
 
 export function rentalBookingConfirmationSmsBody(businessName: string, rentalItemNames: string[], rentalDate: string | null, manageBookingUrl?:string|null) {
  const date = rentalDate ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${rentalDate}T12:00:00Z`)) : "your scheduled rental date";
- const names = new Intl.ListFormat("en-US", { style: "long", type: "conjunction" }).format(rentalItemNames);
+ const names = rentalItemNames.length>1 ? `${rentalItemNames[0]} + ${rentalItemNames.length-1} more item${rentalItemNames.length>2?"s":""}` : rentalItemNames[0]??"";
  return `${businessName}: 🎉 You’re booked! Your ${names ? `${names} rental` : "rental"} is confirmed for ${date}. We’ll text you again as your event gets closer.${manageBookingUrl?` Need to make a change or payment? Manage your booking here: ${manageBookingUrl}`:""} Questions? Just reply here. Reply STOP to opt out.`;
 }
 
@@ -14,7 +14,7 @@ export async function sendRentalBookingConfirmationSms(bookingId: string, jobId:
  const db = getSupabaseAdmin();
  if (!db) return { ok: false, error: "Supabase is unavailable." };
  const { data: booking, error: bookingError } = await db.from("bookings")
-  .select("business_id,status,sms_consent,businesses(name),customers(phone_normalized,sms_consent_status),booking_items(rental_date,inventory_items(name))")
+  .select("business_id,status,sms_consent,businesses(name),customers(phone_normalized,sms_consent_status),booking_items(rental_date,item_name_snapshot,inventory_items(name))")
   .eq("id", bookingId).maybeSingle();
  if (bookingError || !booking) return { ok: false, error: "Booking details are unavailable." };
  if (booking.status !== "confirmed") return { ok: true, skipped: true, reason: "booking_not_confirmed" };
@@ -23,7 +23,7 @@ export async function sendRentalBookingConfirmationSms(bookingId: string, jobId:
  if (!booking.business_id || !customer?.phone_normalized) return { ok: true, skipped: true, reason: "customer_phone_missing" };
  if (customer.sms_consent_status === "opted_out") return { ok: true, skipped: true, reason: "sms_opted_out" };
  const rentalItemNames = (booking.booking_items ?? []).flatMap(row => {
-  const name = first(row.inventory_items)?.name?.trim();
+  const name = (row.item_name_snapshot??first(row.inventory_items)?.name)?.trim();
   return name ? [name] : [];
  });
  let manageBookingUrl:string|null=null;
