@@ -1,4 +1,5 @@
 "use client";
+import {publicMoney} from "@/lib/publicBookingNumbers";
 
 import { useMemo, useState } from "react";
 
@@ -19,9 +20,7 @@ function isoDate(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function money(cents: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
-}
+const money=publicMoney;
 
 export default function BookingClient({
   inventory,

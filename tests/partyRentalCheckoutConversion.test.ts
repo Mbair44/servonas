@@ -9,11 +9,10 @@ test("rental checkout makes today's charge, remaining balance, and timing clear"
  assert.match(source,/Due today/);
  assert.match(source,/Remaining balance/);
  assert.match(source,/Automatically charged after your rental is completed/);
- assert.match(source,/Your final deposit, sales tax, and remaining balance will be shown before payment/);
- assert.match(source,/Review final total/);
- const review=await read("components/BookingTaxReview.tsx");
- assert.match(review,/Reserve for \$\{money\(quote.depositCents\)\}/);
- assert.match(review,/quote.remainingBalanceCents/);
+ assert.match(source,/Your deposit is shown above/);
+ assert.match(source,/Reserve for \$\{money\(deposit\)\}/);
+ assert.doesNotMatch(source,/BookingTaxReview|setTaxReview|Review your final booking total/);
+ assert.match(source,/acceptedTotalCents:total,acceptedDepositCents:onlinePaymentsReady\?deposit:0/);
  assert.match(source,/authorize the scheduled remaining-balance payment/);
 });
 

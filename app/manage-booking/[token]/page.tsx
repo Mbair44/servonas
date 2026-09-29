@@ -1,3 +1,4 @@
+import {publicMoney} from "@/lib/publicBookingNumbers";
 import { notFound } from "next/navigation";
 import { resolveBookingManageToken } from "@/lib/bookingManage/tokens";
 import { ManageBookingCardUpdate } from "@/components/ManageBookingCardUpdate";
@@ -5,7 +6,7 @@ import { ManageBookingAddRental } from "@/components/ManageBookingAddRental";
 import { ManageBookingPayNow } from "@/components/ManageBookingPayNow";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
-const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0) / 100);
+const money=publicMoney;
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const time = (value: string | null) => { const [hour = "0", minute = "00"] = String(value ?? "").split(":"); const h = Number(hour); return `${h % 12 || 12}:${minute} ${h >= 12 ? "PM" : "AM"}`; };
 export default async function ManageBookingPage({ params }: { params: Promise<{ token: string }> }) {
