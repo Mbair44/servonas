@@ -1,6 +1,32 @@
 import {stripeClient} from './stripeConnect.ts';
 import type {BookingTaxProvider} from './bookingTax.ts';
 
+/** Temporary CSB diagnostic. Read-only and deliberately independent of checkout success. */
+export async function logInactiveBookingTaxSettings(
+ businessId:string,
+ accountId:string|null|undefined,
+ getClient:typeof stripeClient=stripeClient,
+){
+ if(businessId!=="cb25acc0-3623-4c06-9041-89a88f4ad6ed"||!accountId)return;
+ try{
+  const settings=await getClient().tax.settings.retrieve({}, {stripeAccount:accountId,timeout:5000,maxNetworkRetries:0});
+  console.info("Checkout Stripe Tax settings diagnostic",{
+   operation:"automatic_booking_tax_settings_diagnostic",
+   businessId,accountId,
+   status:settings.status,
+   status_details:settings.status_details,
+   head_office:settings.head_office,
+   defaults:{tax_code:settings.defaults.tax_code},
+   livemode:settings.livemode,
+  });
+ }catch{
+  // Never serialize the SDK error: it can contain request data or credentials.
+  console.warn("Checkout Stripe Tax settings diagnostic unavailable",{
+   operation:"automatic_booking_tax_settings_diagnostic",businessId,accountId,
+  });
+ }
+}
+
 /** Same connected Stripe Tax provider as invoices, with already-discounted amounts. */
 export function bookingTaxProvider(accountId:string|null|undefined,address:{line1:string;city:string;state:string;postal_code:string;country:string},displayMode:'exclusive'|'inclusive',getClient:typeof stripeClient=stripeClient):BookingTaxProvider{
  return async lines=>{
