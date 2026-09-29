@@ -34,6 +34,7 @@ async function sendConfirmation(names: string[], overrides: Record<string, unkno
   ...overrides,
  };
  const db = { from(table: string) {
+  if(table === "booking_manage_tokens") return {select:()=>({eq:()=>({eq:()=>({is:()=>({maybeSingle:async()=>({data:{id:"existing-token"}})})})})})};
   if (table === "bookings") return { select(query: string) {
    queries.push(query);
    return { eq: () => ({ maybeSingle: async () => ({ data: booking }) }) };
@@ -45,6 +46,7 @@ async function sendConfirmation(names: string[], overrides: Record<string, unkno
   };
  } };
  const context = vm.createContext({ exports: {}, console, require(id: string) {
+  if (id === "@/lib/bookingManage/tokens") return {createBookingManageToken:async()=>"token"};
   if (id === "@/lib/supabaseAdmin") return { getSupabaseAdmin: () => db };
   if (id === "@/lib/twilio/messageUsage") return { sendTenantTwilioMessage: async (message: typeof messages[number]) => {
    messages.push(message);
@@ -55,7 +57,7 @@ async function sendConfirmation(names: string[], overrides: Record<string, unkno
  vm.runInContext(ts.transpileModule(helper, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context);
  await context.exports.sendRentalBookingConfirmationSms("booking-1", "job-1");
  assert.equal(queries.length, 1);
- assert.match(queries[0], /booking_items\(rental_date,inventory_items\(name\)\)/);
+ assert.match(queries[0], /booking_items\(rental_date,item_name_snapshot,inventory_items\(name\)\)/);
  return messages;
 }
 
@@ -66,10 +68,10 @@ test("confirmation sends the actual single rental name and requested copy", asyn
  assert.equal(messages[0].body, "Copper State Bounce: 🎉 You’re booked! Your Rainbow Bounce House rental is confirmed for Sep 19, 2026. We’ll text you again as your event gets closer. Questions? Just reply here. Reply STOP to opt out.");
 });
 
-test("confirmation naturally lists two or more rentals without charges or add-ons", async () => {
+test("confirmation summarizes multiple rentals without charges or add-ons", async () => {
  for (const [names, expected] of [
-  [["Rainbow Bounce House", "Water Slide"], "Rainbow Bounce House and Water Slide"],
-  [["Rainbow Bounce House", "Water Slide", "Obstacle Course"], "Rainbow Bounce House, Water Slide, and Obstacle Course"],
+  [["Rainbow Bounce House", "Water Slide"], "Rainbow Bounce House + 1 more item"],
+  [["Rainbow Bounce House", "Water Slide", "Obstacle Course"], "Rainbow Bounce House + 2 more items"],
  ] as const) {
   const messages = await sendConfirmation([...names], { businesses: [{ name: "Another Rental Business" }] });
   assert.equal(messages.length, 1);
