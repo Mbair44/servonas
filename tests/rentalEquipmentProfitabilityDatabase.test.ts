@@ -16,7 +16,9 @@ test('equipment allocation snapshots and tenant profitability in PostgreSQL',{sk
  insert into businesses values('${biz}'),('${other}');
  insert into inventory_items(id,business_id,name,daily_price_cents,stock_quantity,purchase_cost_cents) values('${a}','${biz}','Bounce',22500,1,300000),('${b}','${biz}','Obstacle',18500,2,900000);`);
  await db.exec(await readFile(new URL('../supabase/migrations/20260930000100_rental_equipment_profitability.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20260930000200_repair_rental_equipment_profitability.sql',import.meta.url),'utf8'));
  await db.exec(`update inventory_items set profitability_tracking_enabled=true,expected_lifetime_rentals=100`);
+ await db.exec(`insert into business_rental_profitability_settings(business_id,labor_method,labor_fixed_cents,delivery_method,delivery_fixed_cents,processing_percent_basis_points,processing_fixed_cents,other_fixed_cents) values('${biz}','fixed',5000,'fixed',2000,0,1000,2000)`);
  let serial=10;
  const create=async(options:{status?:string;paid?:number;test?:boolean;quantities?:number[]}={})=>{
   const id=`00000000-0000-4000-8000-${String(serial++).padStart(12,'0')}`;
@@ -34,7 +36,8 @@ test('equipment allocation snapshots and tenant profitability in PostgreSQL',{sk
  const cost={labor:5000,delivery:2000,processingFees:1000,other:2000};
  let id:string;
  await t.test('multi-item allocation is $75 and cent-exact revenue shares reconcile',async()=>{
-  id=await create();await complete(id);const s=await snapshot(id);assert.equal(s.equipment_allocation_cents,7500);assert.equal(s.revenue_cents,41000);assert.equal(s.contribution_profit_cents,null);
+ id=await create();await complete(id);const s=await snapshot(id);assert.equal(s.equipment_allocation_cents,7500);assert.equal(s.revenue_cents,41000);assert.equal(s.contribution_profit_cents,null);
+  assert.equal(s.estimated_operating_cost_cents,10000);assert.equal(s.estimated_contribution_profit_cents,31000);assert.equal(s.estimated_costs_complete,true);
   const rows=(await db.query('select * from booking_equipment_allocations where booking_id=$1',[id])).rows;assert.equal(rows.length,2);assert.equal(rows.reduce((sum:number,row:any)=>sum+row.revenue_cents,0),41000);
  });
  await t.test('reviewed contribution and fully loaded profit preserve existing margin math',async()=>{
@@ -42,7 +45,21 @@ test('equipment allocation snapshots and tenant profitability in PostgreSQL',{sk
   assert.equal((await snapshot(id)).contribution_profit_cents,31000);
   const rows=(await db.query('select * from rental_inventory_profitability($1)',[biz])).rows;
   assert.equal(rows.reduce((sum:number,row:any)=>sum+row.contribution_cents,0),31000);assert.equal(rows.reduce((sum:number,row:any)=>sum+row.fully_loaded_cents,0),23500);
-  await assert.rejects(db.query('select finalize_booking_profitability($1,$2,$3::jsonb)',[biz,id,JSON.stringify(cost)]),/already finalized/);
+  await db.query('select finalize_booking_profitability($1,$2,$3::jsonb,$4)',[biz,id,JSON.stringify({...cost,other:3000}),'Corrected late cost']);
+  assert.equal((await snapshot(id)).operating_cost_cents,11000);
+ assert.equal((await db.query('select * from booking_profitability_cost_audits where booking_id=$1',[id])).rows.length,2);
+ });
+ await t.test('partial and full refunds preserve the original snapshot but current reporting uses current revenue',async()=>{
+  await db.query('update bookings set refunded_cents=22000 where id=$1',[id]);
+  const partial=(await db.query('select * from rental_inventory_profitability($1)',[biz])).rows;
+  assert.equal(partial.reduce((sum:number,row:any)=>sum+Number(row.contribution_cents??0),0),9500);
+  assert.equal((await snapshot(id)).revenue_cents,41000);
+  const refunded=await create();await complete(refunded);await db.query('update bookings set refunded_cents=44000,status=$2 where id=$1',[refunded,'refunded']);
+  const rows=(await db.query('select * from rental_inventory_profitability($1)',[biz])).rows;
+ assert.ok(rows.reduce((sum:number,row:any)=>sum+Number(row.refund_review_units??0),0)>=2);
+ });
+ await t.test('captured inventory cannot be silently amended',async()=>{
+  await assert.rejects(db.query("insert into booking_items(booking_id,inventory_item_id,quantity,unit_price_cents,status) values($1,$2,1,1,'confirmed')",[id,a]),/Captured rental inventory/);
  });
  await t.test('later assumption changes cannot reprice a completed snapshot',async()=>{
   await db.exec(`update inventory_items set expected_lifetime_rentals=150 where id='${a}'`);
@@ -52,7 +69,7 @@ test('equipment allocation snapshots and tenant profitability in PostgreSQL',{sk
  await t.test('quantity consumes physical units; canceled, unpaid and test bookings are excluded',async()=>{
   const quantity=await create({quantities:[1,2]});await complete(quantity);assert.equal((await snapshot(quantity)).equipment_allocation_cents,11000);
   for(const options of [{status:'cancelled'},{status:'canceled'},{status:'pending_payment'},{status:'refunded'},{paid:0},{test:true}]){const excluded=await create(options);await complete(excluded);assert.equal(await snapshot(excluded),undefined);}
-  const rows=(await db.query('select * from rental_inventory_profitability($1)',[biz])).rows;assert.equal(rows.find((r:any)=>r.inventory_item_id===b).completed_units,4);
+  const rows=(await db.query('select * from rental_inventory_profitability($1)',[biz])).rows;assert.equal(rows.find((r:any)=>r.inventory_item_id===b).completed_units,6);
  });
  await t.test('missing assumptions never masquerade as zero loaded cost',async()=>{
   await db.exec(`update inventory_items set expected_lifetime_rentals=null where id='${a}'`);const missing=await create();await complete(missing);assert.equal((await snapshot(missing)).equipment_complete,false);

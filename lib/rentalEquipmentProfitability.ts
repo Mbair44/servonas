@@ -1,5 +1,5 @@
 export type EquipmentAssumptions={purchase_cost_cents:number|null;expected_lifetime_rentals:number|null;salvage_value_cents:number;profitability_tracking_enabled:boolean;stock_quantity:number};
-export type EquipmentProfitabilityRow={completed_units:number|string;tracked_units:number|string;reviewed_units:number|string;revenue_cents:number|string|null;contribution_cents:number|string|null;equipment_cents:number|string|null;fully_loaded_cents:number|string|null};
+export type EquipmentProfitabilityRow={completed_units:number|string;tracked_units:number|string;reviewed_units:number|string;revenue_cents:number|string|null;contribution_cents:number|string|null;equipment_cents:number|string|null;fully_loaded_cents:number|string|null;estimated_contribution_cents?:number|string|null;estimated_fully_loaded_cents?:number|string|null;excluded_equipment_items?:number|string;refund_review_units?:number|string};
 export function equipmentCostPerRental(item:EquipmentAssumptions){
  if(!item.profitability_tracking_enabled)return 0;
  const {purchase_cost_cents:cost,expected_lifetime_rentals:life,salvage_value_cents:salvage,stock_quantity:stock}=item;
