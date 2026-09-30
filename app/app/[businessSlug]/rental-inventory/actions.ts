@@ -1,6 +1,7 @@
 "use server";
 
 import {profitabilityAssumptionsFromForm} from "@/lib/rentalEquipmentProfitability";
+import {parseCurrencyToCents} from "@/lib/financial/priceBook";
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {canManageBusiness} from "@/lib/access";
@@ -14,6 +15,16 @@ const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/re
 const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,70);
 const uploadRules={image:{bucket:"inventory-images",max:8*1024*1024,types:new Set(["image/jpeg","image/png","image/webp"])},receipt:{bucket:"rental-purchase-receipts",max:10*1024*1024,types:new Set(["application/pdf","image/jpeg","image/png","image/webp"])}} as const;
 const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+
+export async function updateRentalProfitabilitySettings(slug:string,data:FormData){
+ const {supabase,business,user}=await context(slug),laborMethod=text(data,"laborMethod"),deliveryMethod=text(data,"deliveryMethod");
+ const money=(key:string,required=false)=>{const raw=text(data,key);if(!raw)return required?undefined:null;return parseCurrencyToCents(raw);};
+ const laborFixed=money("laborFixed",laborMethod==="fixed"),laborHourly=money("laborHourly",laborMethod==="hourly"),deliveryFixed=money("deliveryFixed",deliveryMethod==="fixed"),deliveryPerMile=money("deliveryPerMile",deliveryMethod==="per_mile"),deliveryPerDriveHour=money("deliveryPerDriveHour",deliveryMethod==="per_drive_hour"),processingFixed=money("processingFixed"),otherFixed=money("otherFixed"),percentRaw=text(data,"processingPercent"),percent=percentRaw===""?null:Math.round(Number(percentRaw)*100);
+ if(!["","fixed","hourly"].includes(laborMethod)||!["","fixed","per_mile","per_drive_hour"].includes(deliveryMethod)||[laborFixed,laborHourly,deliveryFixed,deliveryPerMile,deliveryPerDriveHour,processingFixed,otherFixed].some(value=>value===undefined||value!==null&&(!Number.isSafeInteger(value)||value<0||value>2147483647))||!Number.isSafeInteger(percent??0)||percent!==null&&(percent<0||percent>10000)||((percent===null)!==(processingFixed===null)))redirect(path(slug,"error","Enter complete, valid operating-cost assumptions or leave that category blank."));
+ const {error}=await supabase.from("business_rental_profitability_settings").upsert({business_id:business.id,labor_method:laborMethod||null,labor_fixed_cents:laborMethod==="fixed"?laborFixed:null,labor_hourly_cents:laborMethod==="hourly"?laborHourly:null,delivery_method:deliveryMethod||null,delivery_fixed_cents:deliveryMethod==="fixed"?deliveryFixed:null,delivery_per_mile_cents:deliveryMethod==="per_mile"?deliveryPerMile:null,delivery_per_drive_hour_cents:deliveryMethod==="per_drive_hour"?deliveryPerDriveHour:null,processing_percent_basis_points:percent,processing_fixed_cents:processingFixed,other_fixed_cents:otherFixed,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
+ if(error)redirect(path(slug,"error","Operating-cost assumptions could not be saved. Apply the equipment profitability migration first."));
+ revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Operating-cost assumptions saved for future completed rentals."));
+}
 
 function eachDate(startDate:string,endDate:string){
  const dates:string[]=[];
