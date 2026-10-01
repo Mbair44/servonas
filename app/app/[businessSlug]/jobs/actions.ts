@@ -235,15 +235,15 @@ export async function updateJob(slug: string, jobId: string, _state: JobActionSt
     return { error: "The job could not be saved.", values };
   }
   const previousTotalCents=jobFinancialTotalCents({subtotal:Number(owned.subtotal),taxAmount:Number(owned.tax_amount),discountAmount:Number(owned.discount_amount)}),updatedTotalCents=jobFinancialTotalCents({subtotal:Number(payload.subtotal),taxAmount:Number(payload.tax_amount),discountAmount:Number(payload.discount_amount)});
-  const {data:booking,error:bookingLookupError}=await supabase.from("bookings").select("id,total_cents,amount_paid_cents,balance_due_cents").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
+  const {data:booking,error:bookingLookupError}=await supabase.from("bookings").select("id,total_cents,discount_cents,amount_paid_cents,balance_due_cents,balance_charge_scheduled_for").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
   if(bookingLookupError){
     console.error("Linked booking balance lookup failed",{code:bookingLookupError.code,businessId:business.id,jobId});
     return{error:"The job was saved, but its booking balance could not be verified.",values};
   }
   if(booking){
-    const balance=bookingBalanceForTotal(updatedTotalCents,booking.amount_paid_cents),financialTotalChanged=previousTotalCents!==updatedTotalCents,bookingBalanceIsStale=Number(booking.total_cents)!==balance.totalCents||Number(booking.balance_due_cents)!==balance.balanceDueCents;
+    const balance=bookingBalanceForTotal(updatedTotalCents,booking.amount_paid_cents),discountCents=Math.round(Number(payload.discount_amount)*100),financialTotalChanged=previousTotalCents!==updatedTotalCents,bookingBalanceIsStale=Number(booking.total_cents)!==balance.totalCents||Number(booking.balance_due_cents)!==balance.balanceDueCents||Number(booking.discount_cents)!==discountCents;
     if(financialTotalChanged||bookingBalanceIsStale){
-      const {error:bookingUpdateError}=await supabase.from("bookings").update({total_cents:balance.totalCents,balance_due_cents:balance.balanceDueCents}).eq("id",booking.id).eq("business_id",business.id);
+      const {error:bookingUpdateError}=await supabase.from("bookings").update({total_cents:balance.totalCents,discount_cents:discountCents,balance_due_cents:balance.balanceDueCents,balance_charge_scheduled_for:balance.balanceDueCents>0?booking.balance_charge_scheduled_for:null}).eq("id",booking.id).eq("business_id",business.id);
       if(bookingUpdateError){
         console.error("Linked booking balance update failed",{code:bookingUpdateError.code,businessId:business.id,jobId,bookingId:booking.id});
         return{error:"The job was saved, but its booking balance could not be updated.",values};

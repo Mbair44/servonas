@@ -12,6 +12,19 @@ test("job price decreases recalculate the booking balance from total minus paid"
  assert.deepEqual(bookingBalanceForTotal(8000,5000),{totalCents:8000,balanceDueCents:3000});
 });
 
+test("a staff discount updates the linked booking total and remaining balance",async()=>{
+ assert.deepEqual(bookingBalanceForTotal(37500,22500),{totalCents:37500,balanceDueCents:15000});
+ const jobs=await readFile(new URL("../app/app/[businessSlug]/jobs/actions.ts",import.meta.url),"utf8");
+ assert.match(jobs,/discount_cents:discountCents/);
+ assert.match(jobs,/balance_charge_scheduled_for:balance\.balanceDueCents>0\?booking\.balance_charge_scheduled_for:null/);
+});
+
+test("a fully paid updated booking clears its scheduled balance charge",async()=>{
+ assert.deepEqual(bookingBalanceForTotal(22500,22500),{totalCents:22500,balanceDueCents:0});
+ const jobs=await readFile(new URL("../app/app/[businessSlug]/jobs/actions.ts",import.meta.url),"utf8");
+ assert.match(jobs,/balance_charge_scheduled_for:balance\.balanceDueCents>0\?booking\.balance_charge_scheduled_for:null/);
+});
+
 test("a price below the amount already paid never creates a negative balance",()=>{
  assert.deepEqual(bookingBalanceForTotal(4000,5000),{totalCents:4000,balanceDueCents:0});
 });
