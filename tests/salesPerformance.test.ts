@@ -7,6 +7,7 @@ const today="2026-09-14";
 test("normalizes nested JSONB weights returned as arrays or JSON text",()=>{
  const receipts=normalizeSalesReceipts([{date:"2026-09-05",cents:"7500",customerKey:null,weights:JSON.stringify([{category:"Bounce House",cents:"7500"}])}]);
  assert.deepEqual(receipts[0],{date:"2026-09-05",cents:7500,customerKey:null,weights:[{category:"Bounce House",cents:7500}]});
+ assert.equal(normalizeSalesReceipts([{sales_performance_details:[{date:"2026-09-05",cents:7500,weights:[{category:"Bounce House",cents:7500}]}]}])[0].weights[0].category,"Bounce House");
 });
 test("defaults are this month and rolling twelve monthly points",()=>{
  const result=salesPerformanceOptions({},today);
