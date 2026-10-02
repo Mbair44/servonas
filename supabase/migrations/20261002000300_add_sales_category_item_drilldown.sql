@@ -42,8 +42,8 @@ begin
    union all select 'Uncategorized','Uncategorized charge',greatest(coalesce(b.total_cents,i.grand_total_cents,r.amount_cents)-(select coalesce(sum(weight),0) from known),0)
   )
   select
-   (select coalesce(jsonb_agg(jsonb_build_object('category',category,'cents',cents) order by category),'[]'::jsonb) from (select category,sum(weight) cents from reconciled where weight>0 group by category) category_weights),
-   (select coalesce(jsonb_agg(jsonb_build_object('category',category,'item',item_name,'cents',cents) order by category,item_name),'[]'::jsonb) from (select category,item_name,sum(weight) cents from reconciled where weight>0 group by category,item_name) item_weights)
+   (select coalesce(jsonb_agg(jsonb_build_object('category',category,'cents',cents) order by category),'[]'::jsonb) from (select category,sum(weight) cents from reconciled where weight>0 group by category) category_weights) as weights,
+   (select coalesce(jsonb_agg(jsonb_build_object('category',category,'item',item_name,'cents',cents) order by category,item_name),'[]'::jsonb) from (select category,item_name,sum(weight) cents from reconciled where weight>0 group by category,item_name) item_weights) as item_weights
  ) w on true
  where r.collected_at>=(p_from::timestamp at time zone v_timezone) and r.collected_at<((p_through+1)::timestamp at time zone v_timezone);
  return v_result;
