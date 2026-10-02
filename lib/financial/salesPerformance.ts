@@ -59,13 +59,14 @@ export function salesPerformanceOptions(query:Record<string,string|undefined>,to
 }
 
 export type CategoryWeight={category:string;cents:number};
-export type SalesReceipt={date:string;cents:number;customerKey:string|null;weights:CategoryWeight[]};
+export type ItemWeight={category:string;item:string;cents:number};
+export type SalesReceipt={date:string;cents:number;customerKey:string|null;weights:CategoryWeight[];itemWeights?:ItemWeight[]};
 export type BookingValueDay={booking_date:string;booking_value_cents:number;booking_count:number};
 export function normalizeSalesReceipts(value:unknown):SalesReceipt[]{
  if(value&&typeof value==='object'&&!Array.isArray(value)&&'sales_performance_details' in value)value=(value as {sales_performance_details?:unknown}).sales_performance_details;
  if(Array.isArray(value)&&value.length===1&&value[0]&&typeof value[0]==='object'&&'sales_performance_details' in value[0])value=(value[0] as {sales_performance_details?:unknown}).sales_performance_details;
  if(!Array.isArray(value))return [];
- return value.map(raw=>{const receipt=raw&&typeof raw==='object'?raw as Record<string,unknown>:{};let weights:unknown=receipt.weights;if(typeof weights==='string'){try{weights=JSON.parse(weights);}catch{weights=[];}}return {date:String(receipt.date??''),cents:Number(receipt.cents??0),customerKey:receipt.customerKey==null?null:String(receipt.customerKey),weights:Array.isArray(weights)?weights.map(rawWeight=>{const weight=rawWeight&&typeof rawWeight==='object'?rawWeight as Record<string,unknown>:{};return {category:String(weight.category??'Uncategorized'),cents:Number(weight.cents??0)};}):[]};});
+ return value.map(raw=>{const receipt=raw&&typeof raw==='object'?raw as Record<string,unknown>:{};const decode=(value:unknown)=>{if(typeof value!=='string')return value;try{return JSON.parse(value);}catch{return [];}};const weights=decode(receipt.weights),itemWeights=decode(receipt.itemWeights);return {date:String(receipt.date??''),cents:Number(receipt.cents??0),customerKey:receipt.customerKey==null?null:String(receipt.customerKey),weights:Array.isArray(weights)?weights.map(rawWeight=>{const weight=rawWeight&&typeof rawWeight==='object'?rawWeight as Record<string,unknown>:{};return {category:String(weight.category??'Uncategorized'),cents:Number(weight.cents??0)};}):[],itemWeights:Array.isArray(itemWeights)?itemWeights.map(rawWeight=>{const weight=rawWeight&&typeof rawWeight==='object'?rawWeight as Record<string,unknown>:{};return {category:String(weight.category??'Uncategorized'),item:String(weight.item??'Uncategorized item'),cents:Number(weight.cents??0)};}):[]};});
 }
 /** Allocate collected cents, never booked value. Largest remainders preserve every cent. */
 export function allocateCategoryRevenue(cents:number,weights:CategoryWeight[]):CategoryWeight[]{
@@ -81,16 +82,27 @@ export function allocateCategoryRevenue(cents:number,weights:CategoryWeight[]):C
  return shares.map(({category,cents})=>({category,cents}));
 }
 export function customerCategoryMetrics(receipts:SalesReceipt[],range:SalesRange){
- const customers=new Set<string>(),categories=new Map<string,number>();let revenueCents=0,unidentifiedCents=0;
+ const customers=new Set<string>(),categories=new Map<string,number>(),items=new Map<string,Map<string,number>>();let revenueCents=0,unidentifiedCents=0;
  for(const receipt of receipts){
   if(receipt.date<range.start||receipt.date>range.end||Number(receipt.cents)<=0)continue;
   const cents=Number(receipt.cents);revenueCents+=cents;
   if(receipt.customerKey)customers.add(receipt.customerKey);else unidentifiedCents+=cents;
   for(const share of allocateCategoryRevenue(cents,receipt.weights??[]))categories.set(share.category,(categories.get(share.category)??0)+share.cents);
+  for(const share of allocateItemRevenue(cents,receipt.itemWeights??[])){const categoryItems=items.get(share.category)??new Map<string,number>();categoryItems.set(share.item,(categoryItems.get(share.item)??0)+share.cents);items.set(share.category,categoryItems);}
  }
  return {revenueCents,customerCount:customers.size,unidentifiedCents,
   averageCents:customers.size&&!unidentifiedCents?revenueCents/customers.size:null,
-  categories:Array.from(categories,([category,cents])=>({category,cents,percent:revenueCents?cents/revenueCents*100:0})).filter(row=>row.cents>0).sort((a,b)=>b.cents-a.cents||a.category.localeCompare(b.category))};
+  categories:Array.from(categories,([category,cents])=>({category,cents,percent:revenueCents?cents/revenueCents*100:0,items:Array.from(items.get(category)??[],([item,itemCents])=>({item,cents:itemCents})).filter(row=>row.cents>0).sort((a,b)=>b.cents-a.cents||a.item.localeCompare(b.item))})).filter(row=>row.cents>0).sort((a,b)=>b.cents-a.cents||a.category.localeCompare(b.category))};
+}
+export function allocateItemRevenue(cents:number,weights:ItemWeight[]):ItemWeight[]{
+ if(cents<=0)return [];
+ const merged=new Map<string,ItemWeight>();
+ for(const weight of weights){const value=Number(weight.cents),key=`${weight.category}\u0000${weight.item}`;if(value>0&&Number.isFinite(value)){const current=merged.get(key);merged.set(key,{category:weight.category,item:weight.item,cents:(current?.cents??0)+value});}}
+ if(!merged.size)return [];
+ const total=Array.from(merged.values()).reduce((sum,value)=>sum+value.cents,0),shares=Array.from(merged.values(),weight=>{const exact=cents*weight.cents/total;return {...weight,cents:Math.floor(exact),remainder:exact-Math.floor(exact)};});
+ shares.sort((a,b)=>b.remainder-a.remainder||a.category.localeCompare(b.category)||a.item.localeCompare(b.item));
+ const remainder=cents-shares.reduce((sum,share)=>sum+share.cents,0);for(let index=0;index<remainder;index++)shares[index%shares.length].cents++;
+ return shares.map(({category,item,cents})=>({category,item,cents}));
 }
 /** Average final stored booking total, independent of payment collection. */
 export function bookingValueMetrics(days:BookingValueDay[],range:SalesRange){
