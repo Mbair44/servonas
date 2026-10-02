@@ -5,7 +5,7 @@ import { defaultEmployeeNumbering } from "@/lib/employeeNumbering";
 import { stripePaymentsReady } from "@/lib/stripeConnect";
 import { stripeAutomaticTaxReadiness } from "@/lib/financial/stripeTax";
 import { SettingsDashboard } from "@/components/SettingsDashboard";
-import { connectStripe, deleteWorkspace, disconnectStripe, refreshStripeStatus, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy, updateTaxSettings } from "./actions";
+import { connectStripe, deleteWorkspace, disconnectStripe, refreshStripeStatus, syncStripeTaxSettings, updateBusinessSettings, updateEmployeeNumbering, updateInboundSmsSettings, updateInvoicePaymentOptions, updateMissedCallRecoverySettings, updatePoolServiceSettings, updateRouteEndpoints, updateRoutingPolicy, updateTaxSettings } from "./actions";
 import {MissedCallRecoverySettings} from "@/components/MissedCallRecoverySettings";
 import {PoolServiceSettings} from "@/components/PoolServiceSettings";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
@@ -60,6 +60,7 @@ export async function SettingsContent({businessSlug,q,section}:{businessSlug:str
    numberingAction={updateEmployeeNumbering.bind(null,businessSlug)}
    connectStripeAction={connectStripe.bind(null,businessSlug)}
    refreshStripeAction={refreshStripeStatus.bind(null,businessSlug)}
+   syncStripeTaxSettingsAction={syncStripeTaxSettings.bind(null,businessSlug)}
    disconnectStripeAction={disconnectStripe.bind(null,businessSlug)}
    invoicePaymentOptionsAction={updateInvoicePaymentOptions.bind(null,businessSlug)}
    taxSettingsAction={updateTaxSettings.bind(null,businessSlug)}
