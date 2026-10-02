@@ -6,7 +6,7 @@ import {dateInTimeZone} from "../lib/bookingTime.ts";
 const today="2026-09-14";
 test("normalizes nested JSONB weights returned as arrays or JSON text",()=>{
  const receipts=normalizeSalesReceipts([{date:"2026-09-05",cents:"7500",customerKey:null,weights:JSON.stringify([{category:"Bounce House",cents:"7500"}])}]);
- assert.deepEqual(receipts[0],{date:"2026-09-05",cents:7500,customerKey:null,weights:[{category:"Bounce House",cents:7500}]});
+ assert.deepEqual(receipts[0],{date:"2026-09-05",cents:7500,customerKey:null,weights:[{category:"Bounce House",cents:7500}],itemWeights:[]});
  assert.equal(normalizeSalesReceipts([{sales_performance_details:[{date:"2026-09-05",cents:7500,weights:[{category:"Bounce House",cents:7500}]}]}])[0].weights[0].category,"Bounce House");
 });
 test("defaults are this month and rolling twelve monthly points",()=>{
@@ -147,6 +147,15 @@ test("partial payments allocate discounted item amounts, fees and tax",()=>{
   {category:"Category A",cents:7500},{category:"Category B",cents:3750},{category:"Delivery / Fees",cents:1250},{category:"Tax",cents:500}
  ]);
  assert.ok(Math.abs(result.categories.reduce((sum,row)=>sum+row.percent,0)-100)<1e-10);
+});
+test("category metrics retain proportional revenue by item for drilldown",()=>{
+ const result=customerCategoryMetrics([{date:"2026-09-10",cents:15000,customerKey:"customer:1",weights:[{category:"Bounce House",cents:10000},{category:"Obstacle Course",cents:5000}],itemWeights:[{category:"Bounce House",item:"Castle",cents:6000},{category:"Bounce House",item:"Combo",cents:4000},{category:"Obstacle Course",item:"40 ft Course",cents:5000}]}],selected);
+ assert.deepEqual(result.categories.find(row=>row.category==="Bounce House")?.items,[{item:"Castle",cents:6000},{item:"Combo",cents:4000}]);
+ assert.deepEqual(result.categories.find(row=>row.category==="Obstacle Course")?.items,[{item:"40 ft Course",cents:5000}]);
+});
+test("item drilldown migration returns tenant-scoped item weights",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20261002000300_add_sales_category_item_drilldown.sql",import.meta.url),"utf8");
+ assert.match(sql,/security definer/);assert.match(sql,/'itemWeights'/);assert.match(sql,/item_name_snapshot/);assert.match(sql,/name_snapshot/);assert.match(sql,/grant execute.*authenticated,service_role/);
 });
 test("net refunded receipts reduce every category proportionally",()=>{
  const weights=[{category:"A",cents:30000},{category:"B",cents:10000}];
