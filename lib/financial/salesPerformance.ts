@@ -62,6 +62,8 @@ export type CategoryWeight={category:string;cents:number};
 export type SalesReceipt={date:string;cents:number;customerKey:string|null;weights:CategoryWeight[]};
 export type BookingValueDay={booking_date:string;booking_value_cents:number;booking_count:number};
 export function normalizeSalesReceipts(value:unknown):SalesReceipt[]{
+ if(value&&typeof value==='object'&&!Array.isArray(value)&&'sales_performance_details' in value)value=(value as {sales_performance_details?:unknown}).sales_performance_details;
+ if(Array.isArray(value)&&value.length===1&&value[0]&&typeof value[0]==='object'&&'sales_performance_details' in value[0])value=(value[0] as {sales_performance_details?:unknown}).sales_performance_details;
  if(!Array.isArray(value))return [];
  return value.map(raw=>{const receipt=raw&&typeof raw==='object'?raw as Record<string,unknown>:{};let weights:unknown=receipt.weights;if(typeof weights==='string'){try{weights=JSON.parse(weights);}catch{weights=[];}}return {date:String(receipt.date??''),cents:Number(receipt.cents??0),customerKey:receipt.customerKey==null?null:String(receipt.customerKey),weights:Array.isArray(weights)?weights.map(rawWeight=>{const weight=rawWeight&&typeof rawWeight==='object'?rawWeight as Record<string,unknown>:{};return {category:String(weight.category??'Uncategorized'),cents:Number(weight.cents??0)};}):[]};});
 }
