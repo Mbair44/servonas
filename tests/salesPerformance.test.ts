@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
-import {allocateCategoryRevenue,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
+import {allocateCategoryRevenue,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,normalizeSalesReceipts,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
 import {dateInTimeZone} from "../lib/bookingTime.ts";
 const today="2026-09-14";
+test("normalizes nested JSONB weights returned as arrays or JSON text",()=>{
+ const receipts=normalizeSalesReceipts([{date:"2026-09-05",cents:"7500",customerKey:null,weights:JSON.stringify([{category:"Bounce House",cents:"7500"}])}]);
+ assert.deepEqual(receipts[0],{date:"2026-09-05",cents:7500,customerKey:null,weights:[{category:"Bounce House",cents:7500}]});
+});
 test("defaults are this month and rolling twelve monthly points",()=>{
  const result=salesPerformanceOptions({},today);
  assert.deepEqual(result.range,{start:"2026-09-01",end:today});assert.equal(result.trendWindow,12);assert.equal(result.grouping,"month");

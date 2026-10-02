@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {formatCents} from "@/lib/financial/priceBook";
-import {bookingValueMetrics,customerCategoryMetrics,monthlyAverage,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,type BookingValueDay,type RevenuePoint,type SalesData,type SalesReceipt} from "@/lib/financial/salesPerformance";
+import {bookingValueMetrics,customerCategoryMetrics,monthlyAverage,normalizeSalesReceipts,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,type BookingValueDay,type RevenuePoint,type SalesData} from "@/lib/financial/salesPerformance";
 import {SalesPerformanceFilters} from "./SalesPerformanceFilters";
 import styles from "./SalesPerformance.module.css";
 function Comparison({current,prior,label}:{current:number;prior:number|null;label:string}){
@@ -28,7 +28,7 @@ export async function SalesPerformance({db,businessId,businessSlug,today,query}:
  const action=`/app/${businessSlug}`;
  if(error||!data){console.error("Sales performance unavailable",{businessId,code:error?.code,message:error?.message,details:error?.details,hint:error?.hint});return <section id="sales-performance" className={`executive-card ${styles.section}`} aria-labelledby="sales-heading"><h2 id="sales-heading">Sales Performance</h2><p role="status">Sales performance is temporarily unavailable. Your bookings and payments are unaffected.</p></section>;}
  const sales=data as SalesData,daily=sales.daily??[],revenue=revenueInRange(daily,range),average=monthlyAverage(daily,sales.firstCollectedDate,today),points=revenueTrend(daily,trendRange,grouping,today);
- const receipts=(details.data??[]) as SalesReceipt[];
+ const receipts=normalizeSalesReceipts(details.data);
  const bookingMetrics=bookingValueMetrics((bookingValues.data??[]) as BookingValueDay[],range),previousBookings=bookingValueMetrics((bookingValues.data??[]) as BookingValueDay[],comparisons.previous),lastYearBookings=bookingValueMetrics((bookingValues.data??[]) as BookingValueDay[],comparisons.lastYear);
  const customerMetrics=customerCategoryMetrics(receipts,range),previousCustomers=customerCategoryMetrics(receipts,comparisons.previous),lastYearCustomers=customerCategoryMetrics(receipts,comparisons.lastYear);
  const detailsAvailable=!details.error&&details.data!=null&&customerMetrics.revenueCents===revenue;
