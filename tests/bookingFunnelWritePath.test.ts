@@ -19,6 +19,7 @@ test("booking funnel route persists service_id and structured diagnostics",async
  assert.match(route,/const diagnosticResponse=/);
  assert.match(route,/reason:"business_slug_unresolved"/);
  assert.match(route,/reason:"event_insert_failed"/);
+ assert.match(route,/rpc\("upsert_booking_attribution_session"/);
 });
 
 test("promotion landing views use the lifecycle-safe sender and first-party diagnostics remain consent-independent",async()=>{
@@ -125,6 +126,7 @@ test("booking funnel route updates session metrics without inflating event count
  assert.match(route,/first_interaction_type/);
  assert.match(route,/meaningful_interaction_count/);
  assert.match(route,/automated_classification/);
+ assert.match(route,/duration_increment_milliseconds:metricUpdate\.incrementMilliseconds/);
  assert.match(route,/automationClassification/);
  assert.match(timingMigration,/total_session_duration_milliseconds bigint/);
  assert.match(timingMigration,/duration_final_flush_received boolean not null default false/);
