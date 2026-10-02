@@ -61,6 +61,10 @@ export function salesPerformanceOptions(query:Record<string,string|undefined>,to
 export type CategoryWeight={category:string;cents:number};
 export type SalesReceipt={date:string;cents:number;customerKey:string|null;weights:CategoryWeight[]};
 export type BookingValueDay={booking_date:string;booking_value_cents:number;booking_count:number};
+export function normalizeSalesReceipts(value:unknown):SalesReceipt[]{
+ if(!Array.isArray(value))return [];
+ return value.map(raw=>{const receipt=raw&&typeof raw==='object'?raw as Record<string,unknown>:{};let weights:unknown=receipt.weights;if(typeof weights==='string'){try{weights=JSON.parse(weights);}catch{weights=[];}}return {date:String(receipt.date??''),cents:Number(receipt.cents??0),customerKey:receipt.customerKey==null?null:String(receipt.customerKey),weights:Array.isArray(weights)?weights.map(rawWeight=>{const weight=rawWeight&&typeof rawWeight==='object'?rawWeight as Record<string,unknown>:{};return {category:String(weight.category??'Uncategorized'),cents:Number(weight.cents??0)};}):[]};});
+}
 /** Allocate collected cents, never booked value. Largest remainders preserve every cent. */
 export function allocateCategoryRevenue(cents:number,weights:CategoryWeight[]):CategoryWeight[]{
  if(cents<=0)return [];
