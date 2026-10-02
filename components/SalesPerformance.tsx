@@ -23,8 +23,9 @@ export async function SalesPerformance({db,businessId,businessSlug,today,query}:
  const [{data,error},details,bookingValues]=await Promise.all([
   db.rpc("sales_performance_summary",{p_business_id:businessId,p_from:from,p_through:today}),
   db.rpc("sales_performance_details",{p_business_id:businessId,p_from:from,p_through:today}),
-  db.rpc("sales_performance_booking_values",{p_business_id:businessId,p_from:from,p_through:today})
+ db.rpc("sales_performance_booking_values",{p_business_id:businessId,p_from:from,p_through:today})
  ]);
+ console.log("sales-performance-details-debug",{businessId,detailsError:details.error?.message??null,dataType:typeof details.data,isArray:Array.isArray(details.data),topLevelKeys:details.data&&typeof details.data==='object'?Object.keys(details.data):[],firstReceipt:Array.isArray(details.data)?details.data[0]:null,firstWeights:Array.isArray(details.data)?details.data[0]?.weights??null:null});
  const action=`/app/${businessSlug}`;
  if(error||!data){console.error("Sales performance unavailable",{businessId,code:error?.code,message:error?.message,details:error?.details,hint:error?.hint});return <section id="sales-performance" className={`executive-card ${styles.section}`} aria-labelledby="sales-heading"><h2 id="sales-heading">Sales Performance</h2><p role="status">Sales performance is temporarily unavailable. Your bookings and payments are unaffected.</p></section>;}
  const sales=data as SalesData,daily=sales.daily??[],revenue=revenueInRange(daily,range),average=monthlyAverage(daily,sales.firstCollectedDate,today),points=revenueTrend(daily,trendRange,grouping,today);
