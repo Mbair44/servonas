@@ -1,6 +1,7 @@
 import {calculateBookingTax} from "@/lib/bookingTax";
 import {bookingTaxProvider,logInactiveBookingTaxSettings} from "@/lib/bookingTaxProvider";
 import {resolveRentalStripeTaxCode} from "@/lib/stripeTaxCodes";
+import {bookingTaxLineDiagnostics} from "@/lib/bookingTaxDiagnostics";
 import type {BusinessTaxSettings} from "@/lib/financial/tax";
 import {resolveRentalDatePrice} from "@/lib/rentalDatePricing";
 import {cancellationPolicyError} from "@/lib/cancellationPolicy";
@@ -191,7 +192,7 @@ export async function POST(request: Request) {
     if(billingError||customerTaxError||deliverySettingsError)return NextResponse.json({error:"Tax settings could not be verified. Please try again."},{status:503});
     const taxSettings:BusinessTaxSettings={taxEnabled:Boolean(billing?.tax_enabled),calculationMethod:billing?.tax_calculation_method==="automatic"?"automatic":"manual",displayMode:billing?.tax_display_mode==="inclusive"?"inclusive":"exclusive",manualTaxRateBasisPoints:Number(billing?.default_tax_rate_basis_points??0),defaultInvoiceItemTaxable:billing?.default_invoice_item_taxable??true};
     const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0);
-    const rentalTaxLines=pricedItems.map(item=>({id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code}).taxCode}));
+    const rentalTaxLines=pricedItems.map(item=>{const resolved=resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code});return {id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolved.taxCode,taxCodeSource:resolved.source};});
     let taxCalculation;
     try{
       taxCalculation=await calculateBookingTax({
@@ -226,6 +227,7 @@ export async function POST(request: Request) {
       },async()=>({calculationId:"automatic_failed",lines:[]}));
       taxCalculation.snapshot={...taxCalculation.snapshot,taxCalculationStatus:"automatic_failed",automaticTaxError:{code:(error as {code?:unknown})?.code??null,type:(error as {type?:unknown})?.type??null,message:error instanceof Error?error.message:String(error)}} as typeof taxCalculation.snapshot;
     }
+    if(taxSettings.taxEnabled&&taxSettings.calculationMethod==="automatic"&&!taxCustomer?.tax_exempt&&(taxCalculation.snapshot as {taxCalculationStatus?:string}).taxCalculationStatus!=="automatic_failed")console.info("Checkout Stripe Tax line diagnostics",{businessId:business.id,operation:"automatic_booking_tax",accountId:paymentAccount?.provider_account_id??null,lines:bookingTaxLineDiagnostics({items:pricedItems,lines:rentalTaxLines.filter(line=>line.taxable&&line.amountCents>0),snapshots:taxCalculation.snapshot.lines})});
     const {subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents}=taxCalculation;
     if(!cancellationPolicy?.cancellation_policy_enabled&&onlinePaymentsReady&&depositCents>0&&body.depositAccepted!=="true"&&body.depositAccepted!==true)return NextResponse.json({error:"Please acknowledge the non-refundable deposit policy."},{status:400});
     if(onlinePaymentsReady&&depositCents>0&&depositCents<totalCents&&body.finalPaymentAccepted!=="true"&&body.finalPaymentAccepted!==true)return NextResponse.json({error:"Please authorize the remaining balance to be charged after the job is completed."},{status:400});
