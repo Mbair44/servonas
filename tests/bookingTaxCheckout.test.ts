@@ -16,6 +16,7 @@ function checkoutFixture({payLater=false,providerFailure=false,inactiveTax=false
   'next/server':{NextResponse:{json:(value:unknown,init?:ResponseInit)=>Response.json(value,init)}},
   stripe:class{checkout={sessions:{create:async(body:unknown,options:unknown)=>{payments.push({body,options});return {id:'cs_test',url:'https://checkout.stripe.com/test'};}}};},
   '@/lib/bookingTax':{calculateBookingTax},
+  '@/lib/stripeTaxCodes':{resolveRentalStripeTaxCode:({itemTaxCode,categoryTaxCode,businessDefaultTaxCode}:any)=>({taxCode:itemTaxCode??categoryTaxCode??businessDefaultTaxCode??null,source:null})},
   '@/lib/bookingTaxProvider':{logInactiveBookingTaxSettings:async(...args:unknown[])=>{diagnosticCalls.push(args);},bookingTaxProvider:()=>async(lines:any[])=>{providerLines.push(lines);if(providerFailure)throw Object.assign(Error('offline'),{code:inactiveTax?'stripe_tax_inactive':'other'});return {calculationId:'calc_test',lines:lines.map(line=>({id:line.id,taxCents:Math.round(line.amountCents*.08)}))};}},
   '@/lib/supabaseAdmin':{getSupabaseAdmin:()=>db},
   '@/lib/stripeConnect':{stripePaymentsReady:()=>!payLater},

@@ -6,6 +6,7 @@ import { requireWorkspace,requireWorkspaceCapability } from "@/lib/workspace";
 import { createStripeOnboardingLink,stripeClient,stripeConnectState,stripeProviderError,syncStripeConnectAccount } from "@/lib/stripeConnect";
 import { stripeAutomaticTaxReadiness } from "@/lib/financial/stripeTax";
 import {StripeTaxSettingsSyncError,syncConnectedStripeTaxSettings,type StripeTaxSettingsDiagnostic} from "@/lib/stripeTaxSettings";
+import {validStripeTaxCode} from "@/lib/stripeTaxCodes";
 import {validateEmployeeNumbering} from "@/lib/employeeNumbering";
 import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {poolChemistryFields} from "@/lib/poolService";
@@ -225,7 +226,9 @@ export async function updateTaxSettings(slug:string,formData:FormData){
  const defaultTaxRate=text(formData,"defaultTaxRate");
  const defaultTaxRateBasisPoints=Math.round(Number(defaultTaxRate||0)*100);
  const taxCalculationMethod=text(formData,"taxCalculationMethod")==="automatic"?"automatic":"manual";
+ const defaultStripeTaxCode=text(formData,"defaultStripeTaxCode")||null;
  if(!Number.isFinite(defaultTaxRateBasisPoints)||defaultTaxRateBasisPoints<0||defaultTaxRateBasisPoints>10000)redirect(taxResult(slug,"error","Enter a valid manual tax rate between 0% and 100%."));
+ if(!validStripeTaxCode(defaultStripeTaxCode))redirect(taxResult(slug,"error","Choose a valid Stripe Tax code beginning with txcd_."));
  if(taxCalculationMethod==="automatic"){
   const {data:paymentAccount}=await supabase.from("business_payment_accounts").select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled,disabled_reason,last_provider_error,capabilities").eq("business_id",business.id).eq("provider","stripe").maybeSingle();
   const readiness=stripeAutomaticTaxReadiness(paymentAccount??null);
@@ -238,6 +241,7 @@ export async function updateTaxSettings(slug:string,formData:FormData){
   default_tax_rate_basis_points:defaultTaxRateBasisPoints,
   tax_display_mode:text(formData,"taxDisplayMode")==="inclusive"?"inclusive":"exclusive",
   default_invoice_item_taxable:text(formData,"defaultInvoiceItemTaxable")!=="false",
+  default_stripe_tax_code:defaultStripeTaxCode,
   updated_at:new Date().toISOString(),
  },{onConflict:"business_id"});
  if(error){
