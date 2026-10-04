@@ -9,6 +9,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {requireWorkspace} from "@/lib/workspace";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
+import {validStripeTaxCode} from "@/lib/stripeTaxCodes";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const path=(slug:string,kind:"success"|"error",message:string)=>`/app/${slug}/rental-inventory?${kind}=${encodeURIComponent(message)}`;
@@ -84,7 +85,7 @@ async function values(supabase:SupabaseClient,businessId:string,data:FormData){
  if(purchaseCost!==null&&(!Number.isFinite(purchaseCost)||purchaseCost<0||purchaseCost>10000000))throw new Error("Enter a valid purchase cost.");
  if(!Number.isInteger(stock)||stock<1||stock>10000)throw new Error("Stock quantity must be between 1 and 10,000.");
  if(!["inherit","taxable","nontaxable"].includes(taxableSetting))throw new Error("Choose a valid tax treatment.");
- if(taxCode&&(!/^txcd_[A-Za-z0-9_]+$/.test(taxCode)||taxCode.length>100))throw new Error("Enter a valid Stripe Tax code beginning with txcd_.");
+ if(!validStripeTaxCode(taxCode)||taxCode&&taxCode.length>100)throw new Error("Enter a valid Stripe Tax code beginning with txcd_.");
  if(!["none","optional","required"].includes(operatorMode))throw new Error("Choose a valid operator option.");
  if(operatorMode!=="none"&&(!Number.isFinite(operatorRate)||operatorRate===null||operatorRate<0||operatorRate>1000000))throw new Error("Enter a valid operator hourly rate.");
  const {data:category}=categoryId?await supabase.from("rental_inventory_categories").select("id,name").eq("id",categoryId).eq("business_id",businessId).maybeSingle():{data:null};
@@ -196,9 +197,10 @@ export async function saveRentalItemUpsells(slug:string,itemId:string,data:FormD
 }
 
 export async function createRentalCategory(slug:string,data:FormData){
- const {supabase,business}=await context(slug);const name=text(data,"name"),sortOrder=Number(text(data,"sortOrder")||0);
+ const {supabase,business}=await context(slug);const name=text(data,"name"),sortOrder=Number(text(data,"sortOrder")||0),taxCode=text(data,"taxCode")||null;
  if(!name||name.length>80)redirect(path(slug,"error","Enter a category name up to 80 characters."));
- const {error}=await supabase.from("rental_inventory_categories").insert({business_id:business.id,name,sort_order:Number.isInteger(sortOrder)?sortOrder:0});
+ if(!validStripeTaxCode(taxCode))redirect(path(slug,"error","Enter a valid Stripe Tax code beginning with txcd_."));
+ const {error}=await supabase.from("rental_inventory_categories").insert({business_id:business.id,name,tax_code:taxCode,sort_order:Number.isInteger(sortOrder)?sortOrder:0});
  if(error)redirect(path(slug,"error",error.code==="23505"?"That category already exists.":"The category could not be created. Apply the latest rental category migration."));
  revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Rental category created."));
 }
@@ -218,12 +220,39 @@ export async function updateCategoryWebsitePage(slug:string,pageId:string,data:F
 }
 
 export async function updateRentalCategory(slug:string,categoryId:string,data:FormData){
- const {supabase,business}=await context(slug);const name=text(data,"name"),sortOrder=Number(text(data,"sortOrder")||0);
+ const {supabase,business}=await context(slug);const name=text(data,"name"),sortOrder=Number(text(data,"sortOrder")||0),taxCode=text(data,"taxCode")||null;
  if(!name||name.length>80)redirect(path(slug,"error","Enter a category name up to 80 characters."));
- const {error}=await supabase.from("rental_inventory_categories").update({name,sort_order:Number.isInteger(sortOrder)?sortOrder:0,updated_at:new Date().toISOString()}).eq("id",categoryId).eq("business_id",business.id);
+ if(!validStripeTaxCode(taxCode))redirect(path(slug,"error","Enter a valid Stripe Tax code beginning with txcd_."));
+ const {error}=await supabase.from("rental_inventory_categories").update({name,tax_code:taxCode,sort_order:Number.isInteger(sortOrder)?sortOrder:0,updated_at:new Date().toISOString()}).eq("id",categoryId).eq("business_id",business.id);
  if(error)redirect(path(slug,"error",error.code==="23505"?"That category already exists.":"The category could not be updated."));
  await supabase.from("inventory_items").update({category:name}).eq("business_id",business.id).eq("category_id",categoryId);
  revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Rental category updated."));
+}
+
+export async function bulkSetRentalTaxCode(slug:string,data:FormData){
+ const {supabase,business}=await context(slug),scope=text(data,"scope"),taxCode=text(data,"taxCode")||null,categoryId=text(data,"categoryId");
+ if(!validStripeTaxCode(taxCode))redirect(path(slug,"error","Enter a valid Stripe Tax code beginning with txcd_."));
+ let query=supabase.from("inventory_items").update({tax_code:taxCode}).eq("business_id",business.id);
+ if(scope==="category"){
+  if(!categoryId)redirect(path(slug,"error","Choose a category for the bulk update."));
+  query=query.eq("category_id",categoryId);
+ }else if(scope==="selected"){
+  const ids=[...new Set(data.getAll("itemIds").map(String).filter(Boolean))];
+  if(!ids.length)redirect(path(slug,"error","Choose at least one rental item."));
+  query=query.in("id",ids);
+ }else if(scope!=="all")redirect(path(slug,"error","Choose a valid bulk-update scope."));
+ const {error}=await query;
+ if(error)redirect(path(slug,"error","Rental tax codes could not be updated."));
+ revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Rental tax-code overrides updated."));
+}
+
+export async function setRentalCategoryTaxCode(slug:string,data:FormData){
+ const {supabase,business}=await context(slug),categoryId=text(data,"categoryId"),taxCode=text(data,"taxCode")||null;
+ if(!categoryId)redirect(path(slug,"error","Choose a rental category."));
+ if(!validStripeTaxCode(taxCode))redirect(path(slug,"error","Enter a valid Stripe Tax code beginning with txcd_."));
+ const {error}=await supabase.from("rental_inventory_categories").update({tax_code:taxCode,updated_at:new Date().toISOString()}).eq("id",categoryId).eq("business_id",business.id);
+ if(error)redirect(path(slug,"error","The category tax-code override could not be saved."));
+ revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Category tax-code override saved."));
 }
 
 export async function deleteRentalCategory(slug:string,categoryId:string,data:FormData){

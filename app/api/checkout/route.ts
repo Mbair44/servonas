@@ -1,5 +1,6 @@
 import {calculateBookingTax} from "@/lib/bookingTax";
 import {bookingTaxProvider,logInactiveBookingTaxSettings} from "@/lib/bookingTaxProvider";
+import {resolveRentalStripeTaxCode} from "@/lib/stripeTaxCodes";
 import type {BusinessTaxSettings} from "@/lib/financial/tax";
 import {resolveRentalDatePrice} from "@/lib/rentalDatePricing";
 import {cancellationPolicyError} from "@/lib/cancellationPolicy";
@@ -150,7 +151,7 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("business_id,id,name,daily_price_cents,is_taxable,tax_code,active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
+      .select("business_id,id,name,daily_price_cents,is_taxable,tax_code,category_id,rental_inventory_categories(tax_code),active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
@@ -183,17 +184,18 @@ export async function POST(request: Request) {
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
     const [{data:billing,error:billingError},{data:taxCustomer,error:customerTaxError},{data:deliverySettings,error:deliverySettingsError}]=await Promise.all([
-      supabase.from("business_billing_settings").select("tax_enabled,tax_calculation_method,tax_display_mode,default_tax_rate_basis_points,default_invoice_item_taxable").eq("business_id",business.id).maybeSingle(),
+      supabase.from("business_billing_settings").select("tax_enabled,tax_calculation_method,tax_display_mode,default_tax_rate_basis_points,default_invoice_item_taxable,default_stripe_tax_code").eq("business_id",business.id).maybeSingle(),
       supabase.from("customers").select("id,tax_exempt").eq("business_id",business.id).eq("is_deleted",false).ilike("email",body.email!.trim().replace(/[\\%_]/g,character=>"\\"+character)).maybeSingle(),
       supabase.from("delivery_fee_settings").select("delivery_taxable").eq("business_id",business.id).maybeSingle(),
     ]);
     if(billingError||customerTaxError||deliverySettingsError)return NextResponse.json({error:"Tax settings could not be verified. Please try again."},{status:503});
     const taxSettings:BusinessTaxSettings={taxEnabled:Boolean(billing?.tax_enabled),calculationMethod:billing?.tax_calculation_method==="automatic"?"automatic":"manual",displayMode:billing?.tax_display_mode==="inclusive"?"inclusive":"exclusive",manualTaxRateBasisPoints:Number(billing?.default_tax_rate_basis_points??0),defaultInvoiceItemTaxable:billing?.default_invoice_item_taxable??true};
     const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0);
+    const rentalTaxLines=pricedItems.map(item=>({id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code}).taxCode}));
     let taxCalculation;
     try{
       taxCalculation=await calculateBookingTax({
-        lines:pricedItems.map(item=>({id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:item.tax_code})),
+        lines:rentalTaxLines,
         discountCents:promo?.ok?promo.discountCents:0,
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
         settings:taxSettings,exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
@@ -217,7 +219,7 @@ export async function POST(request: Request) {
       // canonical calculation with tax disabled so no manual-rate fallback can
       // occur, while preserving an immutable audit marker in the snapshot.
       taxCalculation=await calculateBookingTax({
-        lines:pricedItems.map(item=>({id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:item.tax_code})),
+        lines:rentalTaxLines,
         discountCents:promo?.ok?promo.discountCents:0,
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
         settings:{...taxSettings,taxEnabled:false},exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
