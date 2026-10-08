@@ -95,6 +95,22 @@ export async function updateMissedCallRecoverySettings(slug:string,formData:Form
  revalidatePath(`/app/${slug}/settings/communications`);redirect(`/app/${slug}/settings/communications?success=${encodeURIComponent("Missed-call recovery settings saved.")}#missed-call-recovery`);
 }
 
+export async function updateVoiceSettings(slug:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"customer_management"),target=`/app/${slug}/settings/communications#voice`;
+ if(!canManageBusiness(role))redirect(`${target}?error=${encodeURIComponent("Only owners and admins can change calling settings.")}`);
+ const routingMode=text(formData,"routingMode"),recordingMode=text(formData,"recordingMode"),onCall=text(formData,"onCallEmployeeId")||null,fallback=text(formData,"fallbackEmployeeId")||null,timeout=Number(formData.get("ringTimeout"));
+ if(!["ring_all","on_call"].includes(routingMode)||!["off","incoming","outgoing","all"].includes(recordingMode)||!Number.isInteger(timeout)||timeout<10||timeout>30||!text(formData,"missedSmsBody"))redirect(`${target}?error=${encodeURIComponent("Enter valid calling settings.")}`);
+ const {error}=await supabase.from("business_voice_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",routing_mode:routingMode,on_call_employee_id:onCall,fallback_employee_id:fallback,ring_timeout_seconds:timeout,missed_call_sms_enabled:formData.get("missedSmsEnabled")==="on",missed_call_sms_body:text(formData,"missedSmsBody"),recording_mode:recordingMode,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
+ if(error){console.error("Voice settings update failed",{businessId:business.id,code:error.code});redirect(`${target}?error=${encodeURIComponent("Calling settings could not be saved. Apply the latest migration first.")}`)}
+ const selected=[...new Set(formData.getAll("voiceStaff").map(String).filter(Boolean))];
+ await supabase.from("voice_call_staff").update({enabled:false}).eq("business_id",business.id);
+ const {data:employees}=selected.length?await supabase.from("employees").select("id,phone").eq("business_id",business.id).in("id",selected).eq("is_active",true):{data:[]};
+ const normalize=(phone:string)=>{const digits=phone.replace(/\D/g,"");return digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:phone.startsWith("+")?phone:null};
+ const rows=(employees??[]).map(employee=>({business_id:business.id,employee_id:employee.id,phone_e164:employee.phone?normalize(employee.phone):null,enabled:true})).filter((row):row is {business_id:string;employee_id:string;phone_e164:string;enabled:boolean}=>Boolean(row.phone_e164));
+ if(rows.length){const {error:staffError}=await supabase.from("voice_call_staff").upsert(rows,{onConflict:"business_id,employee_id"});if(staffError)redirect(`${target}?error=${encodeURIComponent("Calling settings saved, but staff phones could not be updated.")}`)}
+ revalidatePath(`/app/${slug}/settings/communications`);redirect(`${target}?success=${encodeURIComponent("Calling settings saved.")}`);
+}
+
 export async function updatePoolServiceSettings(slug:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspace(slug);
  if(!canManageBusiness(role)||!hasIndustryCapability(business.industry_profile,"poolChemistryTracking"))redirect(`/app/${slug}/settings?error=${encodeURIComponent("Pool Service settings are available only to Pool Service owners and admins.")}#pool-service-settings`);

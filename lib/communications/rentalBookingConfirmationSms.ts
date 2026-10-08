@@ -30,7 +30,7 @@ export async function sendRentalBookingConfirmationSms(bookingId: string, jobId:
  const {data:activeToken}=await db.from("booking_manage_tokens").select("id").eq("booking_id",bookingId).eq("business_id",booking.business_id).is("revoked_at",null).maybeSingle();
  if(!activeToken){try{const token=await createBookingManageToken(bookingId,booking.business_id);manageBookingUrl=`${(process.env.NEXT_PUBLIC_SITE_URL||"http://localhost:3000").replace(/\/$/,"")}/manage-booking/${token}`;}catch{console.error("Manage booking link generation failed",{bookingId,businessId:booking.business_id});}}
  const body = rentalBookingConfirmationSmsBody(business?.name ?? "Your rental business", rentalItemNames, item?.rental_date ?? null,manageBookingUrl);
- const event = await db.from("job_communication_events").insert({ job_id: jobId, channel: "sms", template_key: "booking_confirmation", status: "queued" }).select("id").single();
+ const event = await db.from("job_communication_events").insert({ job_id: jobId, channel: "sms", template_key: "booking_confirmation", status: "queued", message_body: body }).select("id").single();
  if (event.error?.code === "23505") return { ok: true, duplicate: true };
  if (event.error || !event.data) return { ok: false, error: "SMS event could not be claimed." };
  try {
