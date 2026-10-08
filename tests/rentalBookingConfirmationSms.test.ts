@@ -14,6 +14,7 @@ test("confirmation SMS is consent-gated, tenant-scoped, and atomically claimed",
  assert.match(helper, /sendTenantTwilioMessage\(\{ businessId: booking\.business_id/);
  assert.match(helper, /sourceType: "booking_confirmation"/);
  assert.match(helper, /event\.error\?\.code === "23505"/);
+ assert.match(helper, /message_body: body/);
  assert.match(helper, /Reply STOP to opt out/);
  assert.doesNotMatch(helper, /booking_number|Your booking #/);
 });

@@ -19,6 +19,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
   {id:"customers",label:"Customers",children:[
    {id:"customer-list",label:"Customers",href:`${base}/customers`},
+   {id:"calls",label:"Calls",href:`${base}/calls`},
    {id:"customer-campaigns",label:"Campaigns",href:`${base}/customers/campaigns`},
   ]},
   {id:"operations",label:"Operations",children:[
