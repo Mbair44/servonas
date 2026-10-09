@@ -12,3 +12,9 @@ test("voice webhooks validate signatures and missed SMS claim is atomic",async()
  const source=await Promise.all([readFile("app/api/twilio/voice/inbound/route.ts","utf8"),readFile("app/api/twilio/voice/status/route.ts","utf8"),readFile("app/api/twilio/voice/outbound/route.ts","utf8")]);
  assert.match(source[0],/validTwilioSignature/);assert.match(source[1],/is\("missed_call_sms_sent_at",null\)/);assert.match(source[1],/validTwilioSignature/);assert.match(source[2],/validTwilioSignature/);
 });
+test("inbound 403 diagnostic distinguishes security resolution from signature validity",async()=>{
+ const source=await readFile("app/api/twilio/voice/inbound/route.ts","utf8");
+ for(const field of["voiceWebhookSecurityResolved","securityMode","businessId","accountSid","normalizedTo","configuredWebhookUrl","requestUrl","signaturePresent","signatureValid"])assert.match(source,new RegExp(field));
+ assert.match(source,/signatureValid=Boolean\(security&&validTwilioSignature/);
+ assert.doesNotMatch(source,/console\.info\([^\n]*security\.token/);
+});

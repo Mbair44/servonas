@@ -1,5 +1,10 @@
 begin;
 
+-- bookings.id is globally unique, but the tenant-scoped foreign key below
+-- intentionally also verifies business_id. PostgreSQL requires the exact
+-- referenced column pair to be backed by a unique index.
+create unique index if not exists bookings_business_id_id_unique on public.bookings(business_id,id);
+
 create table if not exists public.business_voice_settings(
  business_id uuid primary key references public.businesses(id) on delete cascade,
  enabled boolean not null default false,

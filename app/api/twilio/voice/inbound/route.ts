@@ -9,7 +9,12 @@ const origin=(request:Request)=>(process.env.NEXT_PUBLIC_SITE_URL||new URL(reque
 export async function POST(request:Request){
  const params=new URLSearchParams(await request.text()),accountSid=params.get("AccountSid")??"",to=normalizeVoicePhone(params.get("To")??""),from=normalizeVoicePhone(params.get("From")??""),sid=params.get("CallSid")??"";
  const security=to?await resolveConfiguredInboundWebhookSecurity(accountSid,to):null;
- if(!security||!validTwilioSignature(twilioWebhookUrl(request,"TWILIO_VOICE_INBOUND_WEBHOOK_URL"),params,request.headers.get("x-twilio-signature")??"",security.token))return NextResponse.json({error:"Invalid signature"},{status:403});
+ const configuredWebhookUrl=twilioWebhookUrl(request,"TWILIO_VOICE_INBOUND_WEBHOOK_URL"),signature=request.headers.get("x-twilio-signature")??"",signatureValid=Boolean(security&&validTwilioSignature(configuredWebhookUrl,params,signature,security.token));
+ if(!security||!signatureValid){
+  // Temporary production diagnostic. Never log the signature, request body, caller, or Auth Token.
+  console.info("Twilio voice inbound webhook security diagnostic",{voiceWebhookSecurityResolved:Boolean(security),securityMode:security?.mode??null,businessId:security?.businessId??null,accountSid,normalizedTo:to,configuredWebhookUrl,requestUrl:request.url,signaturePresent:Boolean(signature),signatureValid});
+  return NextResponse.json({error:"Invalid signature"},{status:403});
+ }
  if(security.mode!=="tenant"||!security.businessId||!from||!to||!sid)return NextResponse.json({error:"Voice number is not configured"},{status:404});
  const businessId=security.businessId;
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
