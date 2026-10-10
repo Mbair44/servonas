@@ -1,10 +1,15 @@
-import {createHmac,timingSafeEqual} from "node:crypto";
+import twilio from "twilio";
+
+/** Converts form data without losing repeated keys; the Twilio SDK sorts array
+ * values exactly as its webhook-signing implementation requires. */
+export function twilioPostParams(params:URLSearchParams):Record<string,string|string[]>{
+ const result:Record<string,string|string[]>={};
+ for(const [key,value] of params){const prior=result[key];result[key]=prior===undefined?value:Array.isArray(prior)?[...prior,value]:[prior,value];}
+ return result;
+}
 
 export function validTwilioSignature(url:string,params:URLSearchParams,signature:string,token:string){
- const payload=url+[...params.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([key,value])=>key+value).join("");
- const expected=createHmac("sha1",token).update(payload).digest("base64");
- const left=Buffer.from(expected),right=Buffer.from(signature);
- return left.length===right.length&&timingSafeEqual(left,right);
+ return twilio.validateRequest(token,signature,url,twilioPostParams(params));
 }
 
 export function twilioWebhookUrl(request:Request,environmentName:string){return process.env[environmentName]?.trim()||request.url;}
