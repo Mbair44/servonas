@@ -181,7 +181,7 @@ export async function POST(request: Request) {
     const requestedOperators=new Map((Array.isArray(body.operators)?body.operators:[]).filter(row=>hasText(row.inventoryItemId)).map(row=>[row.inventoryItemId!.trim(),row.selected===true]));
     let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=await Promise.all(orderedItems.map(async item=>{const rules=resolveRentalPricingRules(businessRules,item),price=applyRentalDatePrice(await resolveRentalDatePrice(supabase,{businessId:business!.id,rentalItemId:item.id,rentalDate:body.rentalDate!,timeZone:publicBooking?.timezone??"America/Phoenix"}),rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));const duration= rentalDurationAdjustment(resolveRentalDurationRules(durationBusinessRules,item),requestedAdditionalHours,requestedOvernight),optionSelections=optionSnapshotsByItem.get(item.id)??[],optionAdjustmentCents=optionSelections.reduce((sum,selection)=>sum+selection.price_adjustment_cents,0);return {...item,...price,operator,...duration,optionSelections,optionAdjustmentCents};}));}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
     const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,rentalUnitPriceCents:item.totalUnitPriceCents,unitPriceCents:item.totalUnitPriceCents+(item.operator.chargeCents/item.quantity)}));
-    const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems}):null;
+    const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems,deliveryFeeCents:deliveryQuote?.feeCents??0}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
     const [{data:billing,error:billingError},{data:taxCustomer,error:customerTaxError},{data:deliverySettings,error:deliverySettingsError}]=await Promise.all([
@@ -198,6 +198,7 @@ export async function POST(request: Request) {
       taxCalculation=await calculateBookingTax({
         lines:rentalTaxLines,
         discountCents:promo?.ok?promo.discountCents:0,
+        discountIncludesDelivery:promo?.ok&&promo.snapshot.appliesTo==="order",
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
         settings:taxSettings,exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
       },bookingTaxProvider(paymentAccount?.provider_account_id,{line1:verifiedDestination?.streetAddress??body.address!,city:verifiedDestination?.city??body.city!,state:verifiedDestination?.state??"",postal_code:verifiedDestination?.postalCode??body.zipCode!,country:verifiedDestination?.country??"US"},taxSettings.displayMode));
@@ -222,6 +223,7 @@ export async function POST(request: Request) {
       taxCalculation=await calculateBookingTax({
         lines:rentalTaxLines,
         discountCents:promo?.ok?promo.discountCents:0,
+        discountIncludesDelivery:promo?.ok&&promo.snapshot.appliesTo==="order",
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
         settings:{...taxSettings,taxEnabled:false},exempt:Boolean(taxCustomer?.tax_exempt),depositPercent:onlinePaymentsReady?depositPercent:0,
       },async()=>({calculationId:"automatic_failed",lines:[]}));
