@@ -1,13 +1,12 @@
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getSubaccountWebhookSecretResolver} from "@/lib/twilio/subaccountWebhookSecrets";
-import {missedInboundVoiceTwiml} from "@/lib/twilio/voice";
+import {dialCompletionAction,missedInboundVoiceTwiml} from "@/lib/twilio/voice";
 import {validTwilioSignature} from "@/lib/twilioWebhook";
 import {sendTenantTwilioMessage} from "@/lib/twilio/messageUsage";
 
 export const runtime="nodejs";
 const xml=(body:string)=>new Response(body,{status:200,headers:{"Content-Type":"text/xml; charset=utf-8"}});
 const empty=()=>xml('<?xml version="1.0" encoding="UTF-8"?><Response/>');
-const missedStatuses=new Set(["no_answer","busy","failed","canceled"]);
 const normalizeStatus=(value:string|null)=>(value??"").replace(/-/g,"_").toLowerCase();
 
 async function sendMissedCallSms(input:{call:{id:string;business_id:string;from_number:string;missed_call_sms_sent_at:string|null;missed_call_sms_claimed_at:string|null};settings:{missed_call_sms_enabled?:boolean|null;missed_call_sms_body?:string|null}|null;businessName:string|null}){
@@ -25,16 +24,16 @@ export async function POST(request:Request){
  const params=new URLSearchParams(await request.text()),url=new URL(request.url),parent=url.searchParams.get("parent")??params.get("CallSid")??"",businessId=url.searchParams.get("business")??"",accountSid=params.get("AccountSid")??"",dialCallSid=params.get("DialCallSid")??null,dialCallStatus=normalizeStatus(params.get("DialCallStatus")),fallback=url.searchParams.get("fallback")==="1",db=getSupabaseAdmin();
  if(!db)return empty();
  try{
-  const {data:call,error:callError}=await db.from("voice_calls").select("id,business_id,from_number,human_answered,was_missed,missed_call_sms_sent_at,missed_call_sms_claimed_at").eq("twilio_call_sid",parent).eq("business_id",businessId).maybeSingle();
+  const {data:call,error:callError}=await db.from("voice_calls").select("id,business_id,from_number,human_answered,answered_at,answered_by_employee_id,was_missed,missed_call_sms_sent_at,missed_call_sms_claimed_at").eq("twilio_call_sid",parent).eq("business_id",businessId).maybeSingle();
   if(callError||!call){console.error("Twilio Dial completed unresolved",{parentCallSid:parent,dialCallSid,dialCallStatus,businessId,reason:callError?.message??"call_not_found"});return empty();}
   const {data:account}=await db.from("business_twilio_accounts").select("twilio_subaccount_sid").eq("business_id",call.business_id).eq("twilio_subaccount_sid",accountSid).maybeSingle();
   const token=account?.twilio_subaccount_sid?await getSubaccountWebhookSecretResolver().getSubaccountAuthToken({businessId:call.business_id,subaccountSid:account.twilio_subaccount_sid}):null;
   if(!token||!validTwilioSignature(request.url,params,request.headers.get("x-twilio-signature")??"",token)){console.error("Twilio Dial completed signature rejected",{businessId:call.business_id,parentCallSid:parent,dialCallSid,dialCallStatus,requestUrl:request.url});return empty();}
-  const shouldVoicemail=fallback||(!call.human_answered&&missedStatuses.has(dialCallStatus));
-  if(!shouldVoicemail){console.info("Twilio Dial completed",{businessId:call.business_id,parentCallSid:parent,dialCallSid,dialCallStatus,action:"complete"});return empty();}
+  const action=dialCompletionAction({humanAccepted:call.human_answered,dialCallStatus,fallback});
+  if(action==="complete"){console.info("Twilio Dial completed",{businessId:call.business_id,parentCallSid:parent,dialCallSid,dialCallStatus,humanAccepted:true,answeredByEmployeeId:call.answered_by_employee_id,action});return empty();}
   const twiml=missedInboundVoiceTwiml({callId:parent,businessId:call.business_id,origin:`${url.protocol}//${url.host}`});
   // The parent call gets TwiML even if the optional audit/SMS work fails.
-  console.info("Twilio Dial completed",{businessId:call.business_id,parentCallSid:parent,dialCallSid,dialCallStatus,action:"voicemail",httpStatus:200,contentType:"text/xml; charset=utf-8",twiml});
+  console.info("Twilio Dial completed",{businessId:call.business_id,parentCallSid:parent,dialCallSid,dialCallStatus,humanAccepted:false,answeredByEmployeeId:call.answered_by_employee_id,action,httpStatus:200,contentType:"text/xml; charset=utf-8",twiml});
   try{
    const now=new Date().toISOString(),{data:marked,error:markError}=await db.from("voice_calls").update({status:"no_answer",was_missed:true,ended_at:now,duration_seconds:Number(params.get("DialCallDuration")||0)||null,updated_at:now}).eq("id",call.id).eq("human_answered",false).select("id,business_id,from_number,missed_call_sms_sent_at,missed_call_sms_claimed_at").maybeSingle();
    if(markError)console.error("Twilio Dial completed persistence failed",{businessId:call.business_id,parentCallSid:parent,error:markError.message});
