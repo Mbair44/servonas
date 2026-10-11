@@ -1057,8 +1057,14 @@ function campaignIdentity(session:AttributionSessionLike|undefined|null,metaRows
   return {source,name:resolved?.name ?? rawCampaign ?? "Unattributed",rawId:resolved?.rawId ?? (numericMetaId(rawCampaign) ?? null),isMetaId:Boolean(resolved || numericMetaId(rawCampaign)),resourceLevel:resolved?.level ?? null,campaignName:resolved?.campaignName ?? null,campaignId:resolved?.campaignId ?? null};
  }
  if(source==="google_ads"){
-  const matched=rawCampaign ? googleRows.find((row)=>String(row.google_campaign_id ?? "").trim()===rawCampaign && cleanCampaignToken(row.campaign_name)) : null;
-  return {source,name:matched?.campaign_name?.trim() || rawCampaign || "Unattributed",rawId:matched ? String(matched.google_campaign_id) : null,isMetaId:false,resourceLevel:null,campaignName:null,campaignId:null};
+  // `gad_campaignid` is supplied by Google auto-tagging. Older sessions
+  // recorded the full landing URL but predate persistence into `utm_id`, so
+  // read it as a report-only fallback without rewriting historical data.
+  const landingCampaignId=(()=>{try{return cleanCampaignToken(new URL(session?.first_landing_url??"").searchParams.get("gad_campaignid"));}catch{return null;}})();
+  const campaignId=cleanCampaignToken(session?.utm_id) || landingCampaignId || (rawCampaign&&/^\d+$/.test(rawCampaign)?rawCampaign:null);
+  const matched=campaignId ? googleRows.find((row)=>String(row.google_campaign_id ?? "").trim()===campaignId && cleanCampaignToken(row.campaign_name)) : null;
+  const name=matched?.campaign_name?.trim() || rawCampaign || (campaignId?`Google Ads campaign ${campaignId}`:cleanCampaignToken(session?.gclid)||cleanCampaignToken(session?.gbraid)||cleanCampaignToken(session?.wbraid)?"Google Ads campaign unavailable":"Unattributed");
+  return {source,name,rawId:campaignId,isMetaId:false,resourceLevel:null,campaignName:matched?.campaign_name?.trim() || rawCampaign || null,campaignId};
  }
  return {source,name:rawCampaign ?? "Unattributed",rawId:null,isMetaId:false,resourceLevel:null,campaignName:null,campaignId:null};
 }

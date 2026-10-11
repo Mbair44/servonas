@@ -2,7 +2,7 @@ import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
-import {inboundVoiceTwiml,normalizeVoicePhone} from "@/lib/twilio/voice";
+import {inboundVoiceTwiml,normalizeVoicePhone,voiceXml} from "@/lib/twilio/voice";
 
 export const runtime="nodejs";
 const origin=(request:Request)=>(process.env.NEXT_PUBLIC_SITE_URL||new URL(request.url).origin).replace(/\/$/,"");
@@ -30,6 +30,11 @@ export async function POST(request:Request){
  await db.from("voice_calls").upsert({business_id:businessId,customer_id:customer?.id??null,booking_id:booking?.id??null,job_id:booking?.job_id??null,twilio_call_sid:sid,direction:"inbound",status:"ringing",from_number:from,to_number:to,routing_mode:settings.routing_mode,ringing_at:new Date().toISOString()},{onConflict:"twilio_call_sid"});
  const targets=(staff??[]).map(item=>({employeeId:item.employee_id,phone:item.phone_e164}));
  console.info("Twilio voice inbound routing",{businessId,callSid:sid,knownCustomer:Boolean(customer),mode:settings.routing_mode,targetCount:targets.length});
- if(!targets.length)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>",{headers:{"Content-Type":"text/xml"}});
+ if(!targets.length){
+  // Use the same terminal routing callback so a misconfigured/no-staff number
+  // becomes a recoverable missed call instead of silently ending.
+  const statusUrl=`${origin(request)}/api/twilio/voice/status?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}`;
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${voiceXml(statusUrl)}</Redirect></Response>`,{headers:{"Content-Type":"text/xml"}});
+ }
  return new Response(inboundVoiceTwiml({callId:sid,businessId,targets,timeout:settings.ring_timeout_seconds,record:["incoming","all"].includes(settings.recording_mode),origin:origin(request)}),{headers:{"Content-Type":"text/xml"}});
 }

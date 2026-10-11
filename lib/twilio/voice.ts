@@ -2,19 +2,28 @@ import {getSupabaseAdmin} from "../supabaseAdmin.ts";
 import {resolveTenantOutboundSender} from "./tenantOutboundSender.ts";
 
 export const normalizeVoicePhone=(value:string)=>{const digits=value.replace(/\D/g,"");return digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:/^\+[1-9]\d{7,14}$/.test(value)?value:null;};
-const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&apos;"}[char]!));
+export const voiceXml=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&apos;"}[char]!));
 export type VoiceTarget={employeeId:string;phone:string};
+export type VoiceAnswerType="human"|"machine"|"fax"|"unknown";
+export const voiceAnswerType=(value:string|null|undefined):VoiceAnswerType=>{
+ const normalized=(value??"").trim().toLowerCase();
+ if(normalized==="human")return "human";
+ if(normalized.includes("machine"))return "machine";
+ if(normalized==="fax")return "fax";
+ return "unknown";
+};
 
 /**
- * answerOnBridge keeps the caller in ordinary ringback until a staff leg is
- * connected. Twilio Number AMD rejects detected machines before bridge; AMD is
- * heuristic, so a short timeout is deliberately preferred over carrier voicemail.
+ * `Number.url` is a synchronous screening step: it only returns empty TwiML
+ * for an AMD-confirmed human. Machine, fax, and unknown answers are hung up
+ * before the Dial can bridge them to the customer. `answerOnBridge` preserves
+ * ordinary ringback while Twilio attempts the staff legs.
  */
 export function inboundVoiceTwiml(input:{callId:string;businessId:string;targets:VoiceTarget[];timeout:number;record:boolean;origin:string}){
  const callback=`${input.origin}/api/twilio/voice/status`;
  const action=`${callback}?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
- const numbers=input.targets.map(target=>`<Number statusCallback="${xml(callback)}" statusCallbackEvent="initiated ringing answered completed" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${xml(callback)}" url="${xml(`${callback}?parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`)}">${xml(target.phone)}</Number>`).join("");
- return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${xml(action)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${xml(`${callback}?recording=1&parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
+ const numbers=input.targets.map(target=>{const query=`parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`,legCallback=`${callback}?${query}`,screen=`${input.origin}/api/twilio/voice/staff-answer?${query}`;return `<Number statusCallback="${voiceXml(legCallback)}" statusCallbackEvent="initiated ringing answered completed" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${voiceXml(legCallback)}" url="${voiceXml(screen)}" method="POST">${voiceXml(target.phone)}</Number>`;}).join("");
+ return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(action)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${callback}?recording=1&parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
 }
 
 export async function createOutboundVoiceCall(input:{businessId:string;customerId:string;to:string;employeeId:string;origin:string}){

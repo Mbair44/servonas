@@ -61,4 +61,17 @@ export async function snapshotBookingAttribution(db:SupabaseClient,input:{busine
  if(result.error&&result.error.code!=="23505")console.error("Booking attribution snapshot save failed",{businessId:input.businessId,bookingId:input.bookingId,code:result.error.code});
 }
 
-export function attributionFromSearch(search:URLSearchParams,fallback?:URLSearchParams):AttributionValues { return Object.fromEntries(attributionKeys.map(key=>[key,clean(search.get(key))||clean(fallback?.get(key))]).filter(([,value])=>Boolean(value))) as AttributionValues; }
+/**
+ * Google Ads can append `gad_campaignid` alongside a click ID when auto-tagging
+ * is enabled.  Store it in the existing canonical campaign-ID field rather
+ * than requiring every advertiser to add duplicate UTM parameters.
+ */
+export function attributionFromSearch(search:URLSearchParams,fallback?:URLSearchParams):AttributionValues {
+ const valueFor=(key:string)=>clean(search.get(key))||clean(fallback?.get(key));
+ const attribution=Object.fromEntries(attributionKeys.map(key=>[key,valueFor(key)]).filter(([,value])=>Boolean(value))) as AttributionValues;
+ if(!attribution.utm_id){
+  const googleCampaignId=valueFor("gad_campaignid");
+  if(googleCampaignId)attribution.utm_id=googleCampaignId;
+ }
+ return attribution;
+}
