@@ -35,6 +35,14 @@ test("google ads settings page reads its redacted connection summary server-side
  assert.doesNotMatch(service.match(/export async function loadGoogleAdsConnectionSummary[\s\S]*?\n}\n\nexport async function loadTenantGoogleAdsAccess/)?.[0] ?? "", /refresh_token/);
 });
 
+test("marketing notification persistence cannot fail a Google Ads health check", async () => {
+ const file = await read("../lib/marketingIssues.ts");
+ assert.match(file, /Marketing issue notification could not be saved/);
+ assert.match(file, /errorCode: notificationError\.code \?\? null/);
+ assert.match(file, /errorDetails: notificationError\.details \?\? null/);
+ assert.doesNotMatch(file, /if \(notificationError\) throw new Error\("Marketing issue notification could not be saved\."\)/);
+});
+
 test("google ads campaign health defaults migration adds bidding columns for existing installs", async () => {
  const migration = await read("../supabase/migrations/20260901000100_google_ads_campaign_health_defaults.sql");
  assert.match(migration, /add column if not exists bidding_strategy text not null default 'MAXIMIZE_CLICKS'/);
