@@ -24,6 +24,12 @@ test("voice webhooks validate signatures, require human acceptance, and claim mi
  const source=await Promise.all([readFile("app/api/twilio/voice/inbound/route.ts","utf8"),readFile("app/api/twilio/voice/status/route.ts","utf8"),readFile("app/api/twilio/voice/outbound/route.ts","utf8"),readFile("app/api/twilio/voice/staff-answer/route.ts","utf8"),readFile("supabase/migrations/20261010000300_voice_human_answer_guard.sql","utf8")]);
  assert.match(source[0],/validTwilioSignature/);assert.match(source[1],/is\("missed_call_sms_sent_at",null\)/);assert.match(source[1],/is\("missed_call_sms_claimed_at",null\)/);assert.match(source[1],/void sendMissedCallSms/);assert.match(source[1],/missedInboundVoiceTwiml/);assert.match(source[1],/call\.human_answered/);assert.match(source[2],/validTwilioSignature/);assert.match(source[3],/answerType!=="human"/);assert.match(source[3],/human_answered:true/);assert.match(source[4],/human_answered boolean/);assert.match(source[4],/answer_type/);
 });
+test("Dial action trace captures the actual callback URL, signature context, and voicemail TwiML",async()=>{
+ const source=await Promise.all([readFile("app/api/twilio/voice/inbound/route.ts","utf8"),readFile("app/api/twilio/voice/status/route.ts","utf8")]);
+ assert.match(source[0],/Twilio voice Dial action constructed/);assert.match(source[0],/actionUrl:/);assert.match(source[0],/method:"POST"/);
+ for(const field of["isDialAction","dialCallStatus","requestUrl","signatureUrl","signaturePresent","signatureValid","Twilio voice Dial action voicemail response","contentType:\"text\/xml; charset=utf-8\"","twiml"]){assert.match(source[1],new RegExp(field));}
+ assert.match(source[1],/Twilio voice Dial action returned empty TwiML/);
+});
 test("inbound 403 diagnostic distinguishes security resolution from signature validity",async()=>{
  const source=await readFile("app/api/twilio/voice/inbound/route.ts","utf8");
  for(const field of["voiceWebhookSecurityResolved","securityMode","businessId","accountSid","normalizedTo","configuredWebhookUrl","requestUrl","signaturePresent","signatureValid"])assert.match(source,new RegExp(field));
