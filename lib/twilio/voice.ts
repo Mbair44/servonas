@@ -23,14 +23,14 @@ export function dialCompletionAction(input:{humanAccepted:boolean;dialCallStatus
 }
 
 /**
- * `Number.url` is a synchronous screening step: it only returns empty TwiML
- * for an AMD-confirmed human. Machine, fax, and unknown answers are hung up
- * before the Dial can bridge them to the customer. `answerOnBridge` preserves
- * ordinary ringback while Twilio attempts the staff legs.
+ * `Number.url` runs on the staff child leg after it answers. It deliberately
+ * screens for a keypad acceptance instead of trusting AMD: carrier voicemail
+ * can answer a child leg, but it cannot press 1. `answerOnBridge` keeps the
+ * original caller on normal ringback until a screened staff member is bridged.
  */
 export function inboundVoiceTwiml(input:{callId:string;businessId:string;targets:VoiceTarget[];timeout:number;record:boolean;origin:string}){
  const root=`${input.origin}/api/twilio/voice`,dialComplete=`${root}/dial-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
- const numbers=input.targets.map(target=>{const query=`parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`,legCallback=`${root}/leg-status?${query}`,screen=`${root}/staff-answer?${query}`;return `<Number statusCallback="${voiceXml(legCallback)}" statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${voiceXml(legCallback)}" url="${voiceXml(screen)}" method="POST">${voiceXml(target.phone)}</Number>`;}).join("");
+ const numbers=input.targets.map(target=>{const query=`parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`,legCallback=`${root}/leg-status?${query}`,screen=`${root}/staff-screen?${query}`;return `<Number statusCallback="${voiceXml(legCallback)}" statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${voiceXml(legCallback)}" url="${voiceXml(screen)}" method="POST">${voiceXml(target.phone)}</Number>`;}).join("");
  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(dialComplete)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${root}/voicemail-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
 }
 
