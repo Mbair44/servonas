@@ -41,7 +41,7 @@ test("first-party booking funnel has an independent operational feature flag",as
 });
 
 test("database event constraint includes every event accepted by the application",async()=>{
- const [eventsSource,migration]=await Promise.all([read("lib/bookingFunnel.ts"),read("supabase/migrations/20260915000200_sync_current_booking_funnel_events.sql")]);
+ const [eventsSource,migration]=await Promise.all([read("lib/bookingFunnel.ts"),read("supabase/migrations/20261010000100_booking_funnel_abandonment_events.sql")]);
  const declaration=eventsSource.match(/bookingFunnelEvents=\[(.*?)\] as const/s)?.[1]??"";
  const events=[...declaration.matchAll(/"([a-z_]+)"/g)].map(match=>match[1]);
  const constraint=migration.match(/check \(event_name in \((.*?)\)\);/s)?.[1]??"";
@@ -49,7 +49,7 @@ test("database event constraint includes every event accepted by the application
  assert.ok(events.includes("button_click"));
  assert.deepEqual(new Set(allowed),new Set(events));
  assert.equal(allowed.length,events.length,"the constraint must neither omit events nor admit unknown events");
- for(const event of ["booking_date_selection_started","initiate_checkout","promotion_inventory_viewed"])assert.ok(allowed.includes(event));
+ for(const event of ["booking_date_selection_started","initiate_checkout","promotion_inventory_viewed","customer_info_started","final_price_presented"])assert.ok(allowed.includes(event));
  assert.match(migration,/drop constraint if exists booking_funnel_events_event_name_check/);
 });
 
@@ -75,6 +75,8 @@ test("booking tracker payload can carry service identifiers for service funnels"
  assert.match(tracker,/pageTypeForPath\(location\.pathname\) === "booking" && !isEmbeddedBooking\(\)/);
  assert.match(bookingForm,/if\(!props\.embedded\)trackBookingFunnel\(props\.publicSlug,"booking_started",\{metadata:\{surface:"public_booking_form",entry:"booking_page"\}\}\)/);
  assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"availability_check",\{serviceId/);
+ assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"customer_info_started",\{serviceId/);
+ assert.match(bookingForm,/trackBookingFunnel\(props\.publicSlug,"delivery_address_entered",\{serviceId/);
  assert.match(requestForm,/trackBookingFunnel\(businessSlug,"service_view",\{serviceId:event\.target\.value/);
 });
 

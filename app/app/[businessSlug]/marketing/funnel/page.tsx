@@ -9,6 +9,7 @@ import { dateInTimeZone } from "@/lib/bookingTime";
 import {
   attachSessionMetricsToSourceReport,
   buildCampaignPerformanceReport,
+  buildBookingJourneyFunnel,
   buildSessionQualityReport,
   buildLandingPageFunnelReport,
   buildSourceCheckoutFunnelReport,
@@ -241,12 +242,7 @@ function sourceLabel(source: SourceFilter) {
   return source === "all" ? "All traffic" : labelForSource(source);
 }
 
-function breakdownSummary(items: Array<{ label: string; count: number }>, empty: string) {
-  if (!items.length) return empty;
-  return items.slice(0, 3).map((item) => `${item.label} - ${item.count}`).join(" • ");
-}
-
-export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; month?: string; date?: string; includeAutomated?: string }> }) {
+export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; campaign?: string; device?: string; month?: string; date?: string; includeAutomated?: string }> }) {
   const { businessSlug } = await params;
   const q = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
@@ -258,17 +254,19 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const reportToDate = /^\d{4}-\d{2}-\d{2}$/.test(q.to ?? "") ? q.to! : dateInTimeZone(new Date(), business.timezone);
   const includeAutomated = q.includeAutomated !== "0";
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
+  const campaign = (q.campaign ?? "").trim().slice(0, 200);
+  const device = ["all", "mobile", "tablet", "desktop", "other"].includes(q.device ?? "all") ? q.device ?? "all" : "all";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
   const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, metaResourceResult] = await Promise.all([
-    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
+    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,device_type)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("business_ad_platform_daily_performance").select("campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend_amount").eq("business_id", business.id).eq("provider", "meta").gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
     supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
     supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
-    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
+    supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,device_type)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
     supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
     supabase.from("business_website_settings").select("status,custom_domain,public_slug,request_service_enabled,booking_enabled").eq("business_id", business.id).maybeSingle(),
     supabase.from("booking_settings").select("enabled,public_slug").eq("business_id", business.id).maybeSingle(),
@@ -286,33 +284,22 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   if (eventsResponse.error) {
     return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page marketing-funnel-page"><header className="marketing-analytics-header"><div><span className="sv-kicker">Marketing analytics</span><h1>Website analytics</h1><p>See what customers are trying to rent, which dates they want, and which marketing sources are converting.</p><small>{business.name}</small></div></header><nav className="marketing-subnav" aria-label="Marketing sections"><Link href={`/app/${businessSlug}/marketing/funnel`} aria-current="page">Funnel</Link><Link href={`/app/${businessSlug}/marketing/discounts`}>Discounts</Link><Link href={`/app/${businessSlug}/marketing/google-ads`}>Google Ads</Link></nav><div className="workspace-notice error">Apply the marketing attribution funnel migration to view this report.</div></section></main>;
   }
-  const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => sourceMatches(row, source, metaPerformanceRows));
+  const rawSessions = (sessionsResponse.data ?? []) as Array<{
+    id: string; utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null; utm_content?: string | null; utm_term?: string | null; utm_id?: string | null; first_referrer?: string | null; first_landing_url?: string | null; first_landing_path?: string | null; gclid?: string | null; gbraid?: string | null; wbraid?: string | null; fbclid?: string | null; device_type?: string | null; total_session_duration_seconds?: number | null; engaged_duration_seconds?: number | null; total_session_duration_milliseconds?: number | null; engaged_duration_milliseconds?: number | null; duration_source?: "heartbeat" | "final_flush" | "inferred" | null; duration_final_flush_received?: boolean | null; page_count?: number | null; engaged_page_count?: number | null;
+  }>;
+  const matchesAudience = (row: { utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null; first_referrer?: string | null; gclid?: string | null; gbraid?: string | null; wbraid?: string | null; fbclid?: string | null; device_type?: string | null }) =>
+    (source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source) &&
+    (!campaign || (row.utm_campaign ?? "").trim() === campaign) &&
+    (device === "all" || (row.device_type ?? "other") === device);
+  const campaignOptions = [...new Set(rawSessions.filter((row) => source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source).map((row) => row.utm_campaign?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right));
+  const sessionById = new Map(rawSessions.map((row) => [row.id, row]));
+  const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => {
+    const joined = Array.isArray(row.booking_attribution_sessions) ? row.booking_attribution_sessions[0] : row.booking_attribution_sessions;
+    return joined ? matchesAudience(joined) : !campaign && device === "all" && sourceMatches(row, source, metaPerformanceRows);
+  });
   const rawEventCount = (eventsResponse.data ?? []).length;
   const latestEventAt = ((eventsResponse.data ?? []) as Array<{ occurred_at?: string | null }>).reduce<string | null>((latest, row) => row.occurred_at && (!latest || row.occurred_at > latest) ? row.occurred_at : latest, null);
-  const sessions = ((sessionsResponse.data ?? []) as Array<{
-    id: string;
-    utm_source?: string | null;
-    utm_medium?: string | null;
-    utm_campaign?: string | null;
-    utm_content?: string | null;
-    utm_term?: string | null;
-    utm_id?: string | null;
-    first_referrer?: string | null;
-    first_landing_url?: string | null;
-    first_landing_path?: string | null;
-    gclid?: string | null;
-    gbraid?: string | null;
-    wbraid?: string | null;
-    fbclid?: string | null;
-    total_session_duration_seconds?: number | null;
-    engaged_duration_seconds?: number | null;
-    total_session_duration_milliseconds?: number | null;
-    engaged_duration_milliseconds?: number | null;
-    duration_source?: "heartbeat" | "final_flush" | "inferred" | null;
-    duration_final_flush_received?: boolean | null;
-    page_count?: number | null;
-    engaged_page_count?: number | null;
-  }>).filter((row) => source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source);
+  const sessions = rawSessions.filter(matchesAudience);
   const landingEventSessionIds = new Set(events.filter((row) => ["landing_page_view", "landing_view"].includes(String(row.event_name))).map((row) => row.attribution_session_id).filter(Boolean));
   // Sessions are authoritative visit records even if optional detail-event insertion failed.
   const sessionVisitRows: FunnelEventRow[] = sessions.filter((session) => !landingEventSessionIds.has(session.id)).map((session) => ({ attribution_session_id: session.id, event_name: "landing_page_view", booking_attribution_sessions: session }));
@@ -322,7 +309,11 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     total_cents: row.total_cents,
     booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
   }));
-  const attributedBookings=allAttributedBookings.filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots, metaPerformanceRows) === source);
+  const attributedBookings=allAttributedBookings.filter((row) => {
+    const snapshot = Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots;
+    const session = snapshot?.attribution_session_id ? sessionById.get(snapshot.attribution_session_id) : null;
+    return session ? matchesAudience(session) : !campaign && device === "all" && (source === "all" || normalizeMarketingSource(snapshot, metaPerformanceRows) === source);
+  });
   const report = attachSessionMetricsToSourceReport(
     buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>, metaPerformanceRows),
     sessions, metaPerformanceRows,
@@ -395,24 +386,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       aggregatedStepCounts.set(step.key, (aggregatedStepCounts.get(step.key) ?? 0) + step.count);
     }
   }
-  const journeySteps = [
-    ["landing_view", "Visits"],
-    ["engaged", "Item / service views"],
-    ["booking_start", "Booking starts"],
-    ["availability_check", "Availability checks"],
-    ["date_selected", "Date selections"],
-    ["item_added", "Items added"],
-    ["checkout_started", "Checkout starts"],
-    ["booking_completed", "Bookings"],
-  ] as const;
-  const journeyStepLookup = new Map(journeySteps.map(([key, label], index) => {
-    const count = aggregatedStepCounts.get(key) ?? 0;
-    const previousKey = index > 0 ? journeySteps[index - 1]?.[0] ?? null : null;
-    const previousCount = previousKey ? (aggregatedStepCounts.get(previousKey) ?? 0) : 0;
-    const progressFromPrevious = index === 0 ? null : (previousCount > 0 ? count / previousCount : null);
-    const dropOffRate = index === 0 ? null : (previousCount > 0 ? Math.max(0, 1 - count / previousCount) : null);
-    return [key, { key, label, count, progressFromPrevious, dropOffRate }] as const;
-  }));
+  const bookingJourney = buildBookingJourneyFunnel([...events, ...sessionVisitRows], attributedBookings);
   const cells = buildRequestedDateCells(selectedMonth, requestedDates.totals);
 
   const googleCampaignSnapshots = ((googleCampaignsResponse.data ?? []) as Array<{
@@ -502,6 +476,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         <label>From<input type="date" name="from" defaultValue={reportFromDate} /></label>
         <label>To<input type="date" name="to" defaultValue={reportToDate} /></label>
         <label>Traffic source<select name="source" defaultValue={source}><option value="all">All traffic</option>{marketingSources.map((value) => <option key={value} value={value}>{labelForSource(value)}</option>)}</select></label>
+        <label>Campaign<select name="campaign" defaultValue={campaign}><option value="">All campaigns</option>{campaignOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label>Device<select name="device" defaultValue={device}><option value="all">All devices</option><option value="mobile">Mobile</option><option value="tablet">Tablet</option><option value="desktop">Desktop</option><option value="other">Other / unknown</option></select></label>
         <input type="hidden" name="month" value={selectedMonth} />
         <input type="hidden" name="date" value={selectedDate} />
         <button className="sv-button">Update report</button>
@@ -578,15 +554,15 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     </section>
 
     <section className="workspace-panel">
-      <header><div><h2>Customer journey</h2><p>Track how visitors move from visit to booking and revenue.</p></div></header>
+      <header><div><h2>Booking funnel</h2><p>Unique anonymous sessions reaching each stage. A session is counted once per stage, even when it repeats an interaction.</p></div></header>
       <div className="marketing-sources-table">
-        <div><b>Step</b><b>Count</b><b>Progress</b><b>Drop-off</b></div>
-        {journeySteps.map(([key, label], index) => {
-          const step = journeyStepLookup.get(key) ?? { count: 0, progressFromPrevious: index === 0 ? null : null, dropOffRate: index === 0 ? null : null };
-          return <div key={key}><span>{label}</span><span>{step.count}</span><span>{percent(step.progressFromPrevious)}</span><span>{percent(step.dropOffRate)}</span></div>;
+        <div><b>Stage</b><b>Sessions</b><b>From prior stage</b><b>Drop-off</b></div>
+        {bookingJourney.stages.map((step) => {
+          return <div key={step.key}><span>{step.label}</span><span>{step.count}</span><span>{percent(step.conversionRate)}</span><span>{step.dropOffRate == null ? "—" : `${percent(step.dropOffRate)}${step.dropOffSessions ? ` (${step.dropOffSessions})` : ""}`}</span></div>;
         })}
-        <div><span>Revenue</span><span>{money(report.totals.revenueCents)}</span><span>—</span><span>—</span></div>
+        <div><span>Visit-to-booking conversion</span><span>{percent(bookingJourney.overallConversionRate)}</span><span>—</span><span>—</span></div>
       </div>
+      {bookingJourney.largestDropOff ? <aside className="marketing-session-insight-card"><div><span className="sv-kicker">Largest abandonment</span><strong>{bookingJourney.largestDropOff.dropOffSessions} session{bookingJourney.largestDropOff.dropOffSessions === 1 ? "" : "s"} did not continue after {bookingJourney.stages[Math.max(0, bookingJourney.stages.findIndex((stage) => stage.key === bookingJourney.largestDropOff?.key) - 1)]?.label.toLowerCase() ?? "the prior stage"}.</strong><p>{bookingJourney.largestDropOff.label}: {bookingJourney.largestDropOff.count} session{bookingJourney.largestDropOff.count === 1 ? "" : "s"} reached this stage, a {percent(bookingJourney.largestDropOff.dropOffRate)} drop from the prior observed stage.</p></div></aside> : <p className="marketing-checkout-reconciliation">No abandonment pattern is available yet. Servonas will show it after sessions advance through more than one funnel stage.</p>}
     </section>
 
     <section className="workspace-panel">
