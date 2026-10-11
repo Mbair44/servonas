@@ -1,7 +1,7 @@
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getSubaccountWebhookSecretResolver} from "@/lib/twilio/subaccountWebhookSecrets";
-import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
+import {validTwilioSignature} from "@/lib/twilioWebhook";
 import {normalizeVoicePhone,voiceAnswerType} from "@/lib/twilio/voice";
 
 export const runtime="nodejs";
@@ -19,7 +19,9 @@ export async function POST(request:Request){
  const {data:call}=await db.from("voice_calls").select("id,business_id,was_missed").eq("twilio_call_sid",parent).eq("business_id",businessId).maybeSingle();
  const {data:account}=call?await db.from("business_twilio_accounts").select("twilio_subaccount_sid").eq("business_id",call.business_id).eq("twilio_subaccount_sid",accountSid).maybeSingle():{data:null};
  const token=account?.twilio_subaccount_sid&&call?await getSubaccountWebhookSecretResolver().getSubaccountAuthToken({businessId:call.business_id,subaccountSid:account.twilio_subaccount_sid}):null;
- if(!call||!token||!validTwilioSignature(twilioWebhookUrl(request,"TWILIO_VOICE_STAFF_ANSWER_WEBHOOK_URL"),params,request.headers.get("x-twilio-signature")??"",token))return NextResponse.json({error:"Invalid signature"},{status:403});
+ // This callback has per-call query parameters. Twilio signs its exact public
+ // URL, so a configured static base URL cannot validate it correctly.
+ if(!call||!token||!validTwilioSignature(request.url,params,request.headers.get("x-twilio-signature")??"",token))return NextResponse.json({error:"Invalid signature"},{status:403});
  const now=new Date().toISOString(),answerType=voiceAnswerType(params.get("AnsweredBy"));
  if(!sid||!employeeId||!phone)return hangup();
  const leg={business_id:call.business_id,call_id:call.id,twilio_call_sid:sid,employee_id:employeeId,phone_e164:phone,status:answerType==="human"?"in_progress":"completed",answer_type:answerType,answered_at:answerType==="human"?now:null,machine_detected_at:answerType==="machine"?now:null,updated_at:now};

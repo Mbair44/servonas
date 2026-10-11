@@ -20,15 +20,14 @@ export const voiceAnswerType=(value:string|null|undefined):VoiceAnswerType=>{
  * ordinary ringback while Twilio attempts the staff legs.
  */
 export function inboundVoiceTwiml(input:{callId:string;businessId:string;targets:VoiceTarget[];timeout:number;record:boolean;origin:string}){
- const callback=`${input.origin}/api/twilio/voice/status`;
- const action=`${callback}?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
- const numbers=input.targets.map(target=>{const query=`parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`,legCallback=`${callback}?${query}`,screen=`${input.origin}/api/twilio/voice/staff-answer?${query}`;return `<Number statusCallback="${voiceXml(legCallback)}" statusCallbackEvent="initiated ringing answered completed" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${voiceXml(legCallback)}" url="${voiceXml(screen)}" method="POST">${voiceXml(target.phone)}</Number>`;}).join("");
- return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(action)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${callback}?recording=1&parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
+ const root=`${input.origin}/api/twilio/voice`,dialComplete=`${root}/dial-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
+ const numbers=input.targets.map(target=>{const query=`parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`,legCallback=`${root}/leg-status?${query}`,screen=`${root}/staff-answer?${query}`;return `<Number statusCallback="${voiceXml(legCallback)}" statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${voiceXml(legCallback)}" url="${voiceXml(screen)}" method="POST">${voiceXml(target.phone)}</Number>`;}).join("");
+ return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(dialComplete)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${root}/voicemail-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
 }
 
 /** The Dial action must always receive valid TwiML; notification work is separate. */
 export function missedInboundVoiceTwiml(input:{callId:string;businessId:string;origin:string}){
- const callback=`${input.origin}/api/twilio/voice/status?recording=1&parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
+ const callback=`${input.origin}/api/twilio/voice/voicemail-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry we missed your call. Please leave a message after the beep.</Say><Record playBeep="true" maxLength="120" action="${voiceXml(callback)}" method="POST" recordingStatusCallback="${voiceXml(callback)}" recordingStatusCallbackMethod="POST"/><Hangup/></Response>`;
 }
 

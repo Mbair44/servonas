@@ -33,10 +33,10 @@ export async function POST(request:Request){
  if(!targets.length){
   // Use the same terminal routing callback so a misconfigured/no-staff number
   // becomes a recoverable missed call instead of silently ending.
-  const statusUrl=`${origin(request)}/api/twilio/voice/status?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}`;
+  const statusUrl=`${origin(request)}/api/twilio/voice/dial-complete?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}&fallback=1`;
   return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${voiceXml(statusUrl)}</Redirect></Response>`,{headers:{"Content-Type":"text/xml"}});
  }
  const publicOrigin=origin(request),twiml=inboundVoiceTwiml({callId:sid,businessId,targets,timeout:settings.ring_timeout_seconds,record:["incoming","all"].includes(settings.recording_mode),origin:publicOrigin});
- console.info("Twilio voice Dial action constructed",{businessId,callSid:sid,actionUrl:`${publicOrigin}/api/twilio/voice/status?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}`,method:"POST",targetCount:targets.length});
+ console.info("Twilio voice Dial action constructed",{businessId,callSid:sid,actionUrl:`${publicOrigin}/api/twilio/voice/dial-complete?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}`,method:"POST",targetCount:targets.length});
  return new Response(twiml,{headers:{"Content-Type":"text/xml"}});
 }
