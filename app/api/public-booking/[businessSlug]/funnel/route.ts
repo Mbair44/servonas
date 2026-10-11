@@ -83,6 +83,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
   parts.push(clean(body.inventoryItemId,100)||"none",String(metadata.date??""),String(metadata.range_end??""),String(metadata.source_flow??""),String(metadata.available_count??""));
   break;
  case "booking_started":
+ case "customer_info_started":
  case "customer_info_entered":
  case "customer_info_completed":
  case "delivery_address_completed":
@@ -90,6 +91,7 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  case "delivery_quote_failed":
  case "delivery_address_ineligible":
  case "delivery_fee_presented":
+ case "final_price_presented":
  case "terms_accepted":
  case "payment_cta_clicked":
  case "payment_started":

@@ -151,6 +151,7 @@ export default function PublicBookingForm(props: Props) {
             postalCode: parsed.postalCode,
             countryCode: parsed.country,
           });
+          trackBookingFunnel(props.publicSlug,"delivery_address_entered",{serviceId,metadata:{service_id:serviceId,surface:"public_booking_form"}});
         }
       });
     };
@@ -167,7 +168,7 @@ export default function PublicBookingForm(props: Props) {
       script.removeEventListener("load", initialize);
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [props.collectAddress, props.googleMapsApiKey]);
+  }, [props.collectAddress, props.googleMapsApiKey, props.publicSlug, serviceId]);
 
   const calendarDays = useMemo(() => {
     const year = month.getFullYear(), monthIndex = month.getMonth();
@@ -234,7 +235,7 @@ export default function PublicBookingForm(props: Props) {
       </fieldset>
 
       <div className="booking-hours wide"><b>Business hours</b><span>{Object.entries(props.schedule).map(([day, hours]) => `${weekdays[Number(day)]} ${hours.start}–${hours.end}`).join(" · ")}</span></div>
-      <label><span className="booking-field-title">First name <span className="booking-required" aria-hidden="true">*</span></span><input name="firstName" required autoComplete="given-name" defaultValue={state.values?.firstName} />{fieldError("firstName")}</label>
+      <label><span className="booking-field-title">First name <span className="booking-required" aria-hidden="true">*</span></span><input name="firstName" required autoComplete="given-name" defaultValue={state.values?.firstName} onFocus={() => trackBookingFunnel(props.publicSlug,"customer_info_started",{serviceId,metadata:{service_id:serviceId,surface:"public_booking_form"}})} />{fieldError("firstName")}</label>
       <label><span className="booking-field-title">Last name <small>Optional</small></span><input name="lastName" autoComplete="family-name" defaultValue={state.values?.lastName} /></label>
       <label><span className="booking-field-title">Email <span className="booking-required" aria-hidden="true">*</span></span><input name="email" type="email" autoComplete="email" required defaultValue={state.values?.email} />{fieldError("email")}</label>
       <label><span className="booking-field-title">Phone <span className="booking-required" aria-hidden="true">*</span></span><input name="phone" type="tel" autoComplete="tel" required defaultValue={state.values?.phone} />{fieldError("phone")}</label>

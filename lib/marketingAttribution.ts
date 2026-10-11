@@ -55,8 +55,11 @@ export type AttributedBookingRow={
  booking_id:string;
  status:string|null;
  total_cents:number|null;
- booking_attribution_snapshots?:AttributionSessionLike|AttributionSessionLike[]|null;
+ booking_attribution_snapshots?:(AttributionSessionLike&{attribution_session_id?:string|null})|(AttributionSessionLike&{attribution_session_id?:string|null})[]|null;
 };
+
+export type BookingJourneyStage={key:"visit"|"item_viewed"|"booking_flow_opened"|"date_selected"|"item_selected"|"availability_checked"|"customer_information_started"|"delivery_address_entered"|"final_price_displayed"|"checkout_payment_started"|"booking_completed";label:string;count:number;conversionRate:number|null;dropOffRate:number|null;dropOffSessions:number;};
+export type BookingJourneyFunnel={stages:BookingJourneyStage[];overallConversionRate:number|null;largestDropOff:BookingJourneyStage|null;};
 
 export type MarketingSourceSummary={
  source:MarketingSource;
@@ -264,6 +267,47 @@ export function organicProviderFor(session:AttributionSessionLike|null|undefined
 
 function canonicalEventName(value:string):string{
  return canonicalEventMap[value]??value;
+}
+
+/** A session-deduplicated booking journey. Persisted booking state, rather than
+ * a browser event, is authoritative for the final completed-booking stage. */
+export function buildBookingJourneyFunnel(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[]):BookingJourneyFunnel{
+ const definitions:Array<{key:BookingJourneyStage["key"];label:string;events:string[];optional?:boolean}>=[
+  {key:"visit",label:"Website visits",events:["landing_view"]},
+  {key:"item_viewed",label:"Item / service viewed",events:["inventory_view","service_view"]},
+  {key:"booking_flow_opened",label:"Booking flow opened",events:["booking_start"]},
+  {key:"date_selected",label:"Date selected",events:["date_selected"]},
+  {key:"item_selected",label:"Item / service selected",events:["item_added","product_service_selection","promotion_item_selected"]},
+  {key:"availability_checked",label:"Availability checked",events:["availability_check"]},
+  {key:"customer_information_started",label:"Customer information started",events:["customer_info_started"]},
+  {key:"delivery_address_entered",label:"Delivery / service address entered",events:["delivery_address_entered","delivery_address_completed"],optional:true},
+  {key:"final_price_displayed",label:"Final price displayed",events:["final_price_presented","delivery_fee_presented"],optional:true},
+  {key:"checkout_payment_started",label:"Checkout / payment started",events:["checkout_started","payment_cta_clicked","payment_started"]},
+  {key:"booking_completed",label:"Booking completed",events:[]},
+ ];
+ const identities=new Map<BookingJourneyStage["key"],Set<string>>(definitions.map(stage=>[stage.key,new Set<string>()]));
+ for(const event of events){
+  const sessionId=event.attribution_session_id;
+  if(!sessionId)continue;
+  const name=canonicalEventName(String(event.event_name));
+  for(const stage of definitions)if(stage.events.includes(name))identities.get(stage.key)!.add(sessionId);
+ }
+ for(const booking of bookings){
+  if(!bookingCountsForAnalytics(booking.status))continue;
+  const snapshot=Array.isArray(booking.booking_attribution_snapshots)?booking.booking_attribution_snapshots[0]:booking.booking_attribution_snapshots;
+  identities.get("booking_completed")!.add(snapshot?.attribution_session_id||`booking:${booking.booking_id}`);
+ }
+ const observed=new Set<string>();
+ for(const stage of definitions)if(identities.get(stage.key)!.size)observed.add(stage.key);
+ const active=definitions.filter(stage=>!stage.optional||observed.has(stage.key));
+ const stages=active.map((stage,index)=>{
+  const count=identities.get(stage.key)!.size;
+  const previous=index?identities.get(active[index-1]!.key)!.size:0;
+  return {key:stage.key,label:stage.label,count,conversionRate:index?(previous?count/previous:null):null,dropOffRate:index?(previous?Math.max(0,1-count/previous):null):null,dropOffSessions:index?Math.max(0,previous-count):0};
+ });
+ const visits=identities.get("visit")!.size,completed=identities.get("booking_completed")!.size;
+ const largestDropOff=stages.slice(1).filter(stage=>stage.dropOffSessions>0).sort((a,b)=>b.dropOffSessions-a.dropOffSessions||b.dropOffRate!-a.dropOffRate!)[0]??null;
+ return {stages,overallConversionRate:visits?completed/visits:null,largestDropOff};
 }
 
 function percent(numerator:number,denominator:number){

@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
-import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildCampaignPerformanceReport,buildOrganicProviderPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourceCheckoutFunnelReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,organicProviderFor,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildBookingJourneyFunnel,buildCampaignPerformanceReport,buildOrganicProviderPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourceCheckoutFunnelReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,organicProviderFor,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
+
+test("builds a session-deduplicated booking journey and identifies the actual abandonment stage",()=>{
+ const funnel=buildBookingJourneyFunnel([
+  {attribution_session_id:"s1",event_name:"landing_view"},{attribution_session_id:"s1",event_name:"inventory_view"},{attribution_session_id:"s1",event_name:"booking_started"},{attribution_session_id:"s1",event_name:"date_selected"},{attribution_session_id:"s1",event_name:"item_added_to_cart"},{attribution_session_id:"s1",event_name:"availability_check"},{attribution_session_id:"s1",event_name:"customer_info_started"},{attribution_session_id:"s1",event_name:"final_price_presented"},{attribution_session_id:"s1",event_name:"checkout_started"},
+  {attribution_session_id:"s2",event_name:"landing_view"},{attribution_session_id:"s2",event_name:"inventory_view"},{attribution_session_id:"s2",event_name:"booking_started"},{attribution_session_id:"s2",event_name:"booking_started"},{attribution_session_id:"s2",event_name:"date_selected"},
+ ],[{booking_id:"b1",status:"confirmed",total_cents:1000,booking_attribution_snapshots:{attribution_session_id:"s1"}}]);
+ assert.equal(funnel.stages.find(stage=>stage.key==="visit")?.count,2);
+ assert.equal(funnel.stages.find(stage=>stage.key==="booking_flow_opened")?.count,2);
+ assert.equal(funnel.stages.find(stage=>stage.key==="booking_completed")?.count,1);
+ assert.equal(funnel.overallConversionRate,0.5);
+ assert.equal(funnel.largestDropOff?.key,"item_selected");
+});
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
  const values=attributionFromSearch(new URLSearchParams("gclid=click-1&utm_source=google&utm_medium=cpc&utm_campaign=summer&email=private@example.com"));
