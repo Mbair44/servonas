@@ -9,9 +9,8 @@ const hangup=()=>new Response('<?xml version="1.0" encoding="UTF-8"?><Response><
 const continueDial=()=>new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>',{headers:{"Content-Type":"text/xml"}});
 
 /**
- * Twilio invokes Number.url after AMD has classified the answered staff leg.
- * Returning Hangup for anything other than `human` prevents a personal
- * carrier voicemail from ever becoming the business call's bridge target.
+ * Twilio invokes Number.url after a staff leg answers. AMD is useful context,
+ * but not a bridge gate: it can be absent, slow, or wrong for a real employee.
  */
 export async function POST(request:Request){
  const params=new URLSearchParams(await request.text()),url=new URL(request.url),parent=url.searchParams.get("parent")??params.get("ParentCallSid")??"",employeeId=url.searchParams.get("employee")??"",businessId=url.searchParams.get("business")??"",sid=params.get("CallSid")??"",accountSid=params.get("AccountSid")??"",phone=normalizeVoicePhone(params.get("To")??"");
@@ -27,17 +26,13 @@ export async function POST(request:Request){
   console.info("Twilio voice staff leg rejected",{businessId:call.business_id,callId:call.id,legSid:sid||null,employeeId:employeeId||null,answerType,rawAnsweredBy:params.get("AnsweredBy")??null,reason:"missing_required_parameters",hasChildCallSid:Boolean(sid),hasEmployeeId:Boolean(employeeId),hasNormalizedPhone:Boolean(phone)});
   return hangup();
  }
- const leg={business_id:call.business_id,call_id:call.id,twilio_call_sid:sid,employee_id:employeeId,phone_e164:phone,status:answerType==="human"?"in_progress":"completed",answer_type:answerType,answered_at:answerType==="human"?now:null,machine_detected_at:answerType==="machine"?now:null,updated_at:now};
+ const leg={business_id:call.business_id,call_id:call.id,twilio_call_sid:sid,employee_id:employeeId,phone_e164:phone,status:"in_progress",answer_type:answerType,answered_at:now,machine_detected_at:answerType==="machine"?now:null,updated_at:now};
  await db.from("voice_call_legs").upsert(leg,{onConflict:"twilio_call_sid"});
- if(answerType!=="human"){
-  console.info("Twilio voice staff leg rejected",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,answerType,rawAnsweredBy:params.get("AnsweredBy")??null,reason:`amd_${answerType}`});
-  return hangup();
- }
  const {data:accepted}=await db.from("voice_calls").update({human_answered:true,was_missed:false,status:"in_progress",answered_at:now,answered_by_employee_id:employeeId,updated_at:now}).eq("id",call.id).eq("human_answered",false).eq("was_missed",false).select("id").maybeSingle();
  if(!accepted){
   console.info("Twilio voice human leg not bridged",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,reason:"already_resolved"});
   return hangup();
  }
- console.info("Twilio voice human bridge accepted",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,humanAccepted:true});
+ console.info("Twilio staff leg answered",{businessId:call.business_id,parentCallSid:parent,childCallSid:sid,employeeId,answeredBy:params.get("AnsweredBy")??null,amdAnswerType:answerType,action:"bridge"});
  return continueDial();
 }
