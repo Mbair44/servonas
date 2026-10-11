@@ -22,6 +22,19 @@ test("google ads migration creates private connection and campaign tables", asyn
  assert.match(migration, /revoke all on public\.business_google_ads_connections from anon,authenticated/);
 });
 
+test("google ads settings page reads its redacted connection summary server-side", async () => {
+ const [page, service] = await Promise.all([
+  read("../app/app/[businessSlug]/marketing/google-ads/page.tsx"),
+  read("../lib/googleAdsManagement.ts"),
+ ]);
+ assert.match(page, /loadGoogleAdsConnectionSummary\(business\.id\)/);
+ assert.doesNotMatch(page, /supabase\.from\("business_google_ads_connections"\)/);
+ assert.match(service, /export async function loadGoogleAdsConnectionSummary/);
+ assert.match(service, /const db = getSupabaseAdmin\(\)/);
+ assert.match(service, /select\("google_ads_customer_id,accessible_customer_ids/);
+ assert.doesNotMatch(service.match(/export async function loadGoogleAdsConnectionSummary[\s\S]*?\n}\n\nexport async function loadTenantGoogleAdsAccess/)?.[0] ?? "", /refresh_token/);
+});
+
 test("google ads campaign health defaults migration adds bidding columns for existing installs", async () => {
  const migration = await read("../supabase/migrations/20260901000100_google_ads_campaign_health_defaults.sql");
  assert.match(migration, /add column if not exists bidding_strategy text not null default 'MAXIMIZE_CLICKS'/);
