@@ -34,6 +34,7 @@ import {
 import { MultiPlatformSpendProvider } from "@/lib/marketingSpend";
 import { buildRoasCardModel, loadAdPlatformStatuses } from "@/lib/adPlatform";
 import { resolveAiInsights, buildPreviousPeriodReport } from "@/lib/aiInsights";
+import {touchForAttributionModel,type AttributionModel} from "@/lib/bookingAttributionModels";
 
 const money = (cents: number | null) => cents == null ? "Ad spend not connected" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const percent = (value: number | null) => value == null ? "—" : `${Math.round(value * 100)}%`;
@@ -242,7 +243,9 @@ function sourceLabel(source: SourceFilter) {
   return source === "all" ? "All traffic" : labelForSource(source);
 }
 
-export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; campaign?: string; device?: string; month?: string; date?: string; includeAutomated?: string }> }) {
+const attributionModelLabels:Record<AttributionModel,string>={first_touch:"First Touch",last_touch:"Last Touch",last_non_direct:"Last Non-Direct"};
+const modelSnapshot=(snapshot:any,model:AttributionModel)=>{const touch=touchForAttributionModel(snapshot,model);if(touch&&typeof touch==="object")return {...snapshot,utm_source:touch.source??null,utm_medium:touch.medium??null,utm_campaign:touch.campaign??null,utm_id:touch.campaign_id??null,gclid:touch.gclid??null,gbraid:touch.gbraid??null,wbraid:touch.wbraid??null,fbclid:touch.fbclid??null,first_landing_path:touch.landing_path??null,first_landing_url:touch.landing_url??null,first_referrer:touch.referrer??null};return model==="last_touch"&&snapshot?.attribution_session_id?snapshot:null;};
+export default async function BookingFunnelPage({ params, searchParams }: { params: Promise<{ businessSlug: string }>; searchParams: Promise<{ range?: string; from?: string; to?: string; source?: string; campaign?: string; device?: string; month?: string; date?: string; includeAutomated?: string; attributionModel?: string }> }) {
   const { businessSlug } = await params;
   const q = await searchParams;
   const { supabase, business, role } = await requireWorkspace(businessSlug);
@@ -256,6 +259,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const source = sourceOptions.includes((q.source ?? "all") as SourceFilter) ? (q.source ?? "all") as SourceFilter : "all";
   const campaign = (q.campaign ?? "").trim().slice(0, 200);
   const device = ["all", "mobile", "tablet", "desktop", "other"].includes(q.device ?? "all") ? q.device ?? "all" : "all";
+  const attributionModel:AttributionModel=["first_touch","last_touch","last_non_direct"].includes(q.attributionModel??"")?q.attributionModel as AttributionModel:"last_touch";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
   const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, metaResourceResult] = await Promise.all([
@@ -264,10 +268,10 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("business_ad_platform_daily_performance").select("campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend_amount").eq("business_id", business.id).eq("provider", "meta").gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
     supabase.from("inventory_items").select("id,name").eq("business_id", business.id).order("name"),
     supabase.from("booking_items").select("booking_id,inventory_item_id,rental_date,quantity,unit_price_cents,bookings!inner(created_at,business_id)").eq("bookings.business_id", business.id).gte("bookings.created_at", window.from).lt("bookings.created_at", window.to),
-    supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid").eq("business_id", business.id),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
+    supabase.from("booking_attribution_snapshots").select("booking_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status").eq("business_id", business.id),
+    supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,created_at,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status)").eq("business_id", business.id).gte("created_at", window.from).lt("created_at", window.to),
     supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,device_type)").eq("business_id", business.id).gte("occurred_at", previousWindowFrom).lt("occurred_at", window.from),
-    supabase.from("bookings").select("id,status,total_cents,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
+    supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,created_at,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status)").eq("business_id", business.id).gte("created_at", previousWindowFrom).lt("created_at", window.from),
     supabase.from("business_website_settings").select("status,custom_domain,public_slug,request_service_enabled,booking_enabled").eq("business_id", business.id).maybeSingle(),
     supabase.from("booking_settings").select("enabled,public_slug").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_payment_accounts").select("onboarding_status,charges_enabled,payouts_enabled,details_submitted").eq("business_id", business.id).eq("provider", "stripe").maybeSingle(),
@@ -303,16 +307,22 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const landingEventSessionIds = new Set(events.filter((row) => ["landing_page_view", "landing_view"].includes(String(row.event_name))).map((row) => row.attribution_session_id).filter(Boolean));
   // Sessions are authoritative visit records even if optional detail-event insertion failed.
   const sessionVisitRows: FunnelEventRow[] = sessions.filter((session) => !landingEventSessionIds.has(session.id)).map((session) => ({ attribution_session_id: session.id, event_name: "landing_page_view", booking_attribution_sessions: session }));
-  const allAttributedBookings = ((bookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; booking_attribution_snapshots?: unknown }>).map((row) => ({
+  const allAttributedBookings = ((bookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; amount_paid_cents?:number|null; created_at?:string|null; booking_attribution_snapshots?: unknown }>).map((row) => ({
     booking_id: row.id,
     status: row.status,
     total_cents: row.total_cents,
-    booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
+    amount_paid_cents:row.amount_paid_cents??0,created_at:row.created_at??null,
+    booking_attribution_snapshots: modelSnapshot(Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,attributionModel) as AttributedBookingRow["booking_attribution_snapshots"],
   }));
   const attributedBookings=allAttributedBookings.filter((row) => {
     const snapshot = Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots;
     const session = snapshot?.attribution_session_id ? sessionById.get(snapshot.attribution_session_id) : null;
-    return session ? matchesAudience(session) : !campaign && device === "all" && (source === "all" || normalizeMarketingSource(snapshot, metaPerformanceRows) === source);
+    if(!snapshot)return false;
+    // Revenue filters use the selected immutable booking-touch model. Device is
+    // intentionally still session-scoped because it is not an attribution touch.
+    return (source === "all" || normalizeMarketingSource(snapshot, metaPerformanceRows) === source) &&
+      (!campaign || (snapshot.utm_campaign ?? "").trim() === campaign) &&
+      (device === "all" || session?.device_type === device);
   });
   const report = attachSessionMetricsToSourceReport(
     buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>, metaPerformanceRows),
@@ -366,11 +376,13 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     booking_id: row.id,
     status: row.status,
     total_cents: row.total_cents,
-    booking_attribution_snapshots: row.booking_attribution_snapshots as AttributedBookingRow["booking_attribution_snapshots"],
-  })).filter((row) => source === "all" || normalizeMarketingSource(Array.isArray(row.booking_attribution_snapshots) ? row.booking_attribution_snapshots[0] : row.booking_attribution_snapshots, metaPerformanceRows) === source);
+    booking_attribution_snapshots: modelSnapshot(Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,attributionModel) as AttributedBookingRow["booking_attribution_snapshots"],
+  })).filter((row) => {const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;return snapshot&&(source === "all" || normalizeMarketingSource(snapshot,metaPerformanceRows) === source)&&(!campaign||(snapshot.utm_campaign??"").trim()===campaign);});
   const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {}, metaPerformanceRows);
   const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
   const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
+  const collectedRevenueCents=attributedBookings.reduce((sum,row)=>sum+Math.max(0,Number((row as any).amount_paid_cents??0)),0);
+  const attributionJourneys=((bookingsResponse.data??[]) as any[]).map(row=>{const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,first=touchForAttributionModel(snapshot,"first_touch"),last=touchForAttributionModel(snapshot,"last_touch"),selected=touchForAttributionModel(snapshot,attributionModel),elapsed=first?.occurred_at&&row.created_at?Math.max(0,Date.parse(row.created_at)-Date.parse(first.occurred_at)):null;return {id:row.id,status:snapshot?.attribution_status??"unknown",first,last,selected,elapsed};}).filter(row=>row.selected).slice(0,25);
   const trafficSourceRows = report.summaries.map((row) => ({ key: row.source, label: labelForSource(row.source), campaignSource: row.source, visits: row.visits, itemViews: row.engaged, bookingStarts: row.detailedCounts.booking_start ?? 0, bookings: row.detailedCounts.booking_completed ?? 0, revenueCents: row.revenueCents }));
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to, spendBySource.google_ads ?? null);
   const paidTotal=totalPaidEconomics(buildSourcePerformanceReport([],allAttributedBookings,{},metaPerformanceRows).summaries,adPlatformStatuses);
@@ -478,6 +490,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         <label>Traffic source<select name="source" defaultValue={source}><option value="all">All traffic</option>{marketingSources.map((value) => <option key={value} value={value}>{labelForSource(value)}</option>)}</select></label>
         <label>Campaign<select name="campaign" defaultValue={campaign}><option value="">All campaigns</option>{campaignOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         <label>Device<select name="device" defaultValue={device}><option value="all">All devices</option><option value="mobile">Mobile</option><option value="tablet">Tablet</option><option value="desktop">Desktop</option><option value="other">Other / unknown</option></select></label>
+        <label>Attribution model<select name="attributionModel" defaultValue={attributionModel}><option value="first_touch">First Touch</option><option value="last_touch">Last Touch</option><option value="last_non_direct">Last Non-Direct</option></select></label>
         <input type="hidden" name="month" value={selectedMonth} />
         <input type="hidden" name="date" value={selectedDate} />
         <button className="sv-button">Update report</button>
@@ -489,7 +502,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         <a className="sv-button sv-secondary sv-small" href={`/app/${businessSlug}/marketing/funnel?${queryString({ range: "30d", source })}`}>Last 30 days</a>
         <a className="sv-button sv-secondary sv-small" href={`/app/${businessSlug}/marketing/funnel?${queryString({ range: "month", source })}`}>This month</a>
       </div>
-      <p className="marketing-filter-note">The report date range controls when the interaction happened. Requested rental dates below show the date the customer was trying to book.</p>
+      <p className="marketing-filter-note"><strong>{attributionModelLabels[attributionModel]}</strong> is the selected model. Each booking is counted once in this model; first-touch and last-touch totals are alternative views and are never combined. The report date range controls when the interaction happened.</p>
     </section>
 
     <details className="workspace-panel marketing-attribution-note">
@@ -504,7 +517,13 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <article className="workspace-panel"><span>Booking starts</span><strong>{aggregatedStepCounts.get("booking_start") ?? 0}</strong><small>Visitors entering the booking flow</small></article>
       <article className="workspace-panel"><span>Bookings</span><strong>{totalBookings}</strong><small>Completed bookings during this period</small></article>
       <article className="workspace-panel"><span>Revenue</span><strong>{money(report.totals.revenueCents)}</strong><small>Attributed booking value</small></article>
+      <article className="workspace-panel"><span>Collected revenue</span><strong>{money(collectedRevenueCents)}</strong><small>Payments recorded on these attributed bookings</small></article>
       <article className="workspace-panel"><span>Ad spend / ROAS</span><strong>{roasCard.headline}</strong><small>{roasCard.detail}</small></article>
+    </section>
+
+    <section className="workspace-panel marketing-attribution-journeys">
+      <header><div><h2>Booking attribution journeys</h2><p>{attributionModelLabels[attributionModel]} is used for the report above. Direct visits replace literal last touch; Last Non-Direct keeps the most recent known non-direct source.</p></div></header>
+      {attributionJourneys.length?<div className="marketing-conversion-list">{attributionJourneys.map(journey=>{const touch=(value:any)=>value?`${labelForSource((value.source??"unknown") as MarketingSource)}${value.campaign?` · ${value.campaign}`:""}`:"Unknown";return <div key={journey.id}><dt><strong>Booking {journey.id.slice(0,8)}</strong><small>{touch(journey.first)} → {touch(journey.last)}</small></dt><dd>{touch(journey.selected)}<small>{journey.elapsed==null?"Journey time unavailable":`${Math.round(journey.elapsed/86_400_000)} day${Math.round(journey.elapsed/86_400_000)===1?"":"s"} from first touch`}</small></dd></div>;})}</div>:<p>No consent-linked attribution journeys are available for this reporting window yet.</p>}
     </section>
 
     <section className="workspace-panel marketing-ai-panel">

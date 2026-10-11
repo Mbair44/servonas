@@ -113,11 +113,12 @@ const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
  if(!bookingFunnelEnabled())return diagnosticResponse("funnel_disabled");
  const purpose=request.headers.get("purpose")||request.headers.get("x-middleware-prefetch")||"",ua=request.headers.get("user-agent")||"";
- const body=await request.json().catch(()=>null) as {sessionId?:string;interactionId?:string;event?:string;path?:string;pageType?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;serviceId?:string;metadata?:object;touchSession?:boolean;touchOnly?:boolean}|null;
+ const body=await request.json().catch(()=>null) as {sessionId?:string;visitorId?:string;analyticsConsent?:string;interactionId?:string;event?:string;path?:string;pageType?:string;landingUrl?:string;referrer?:string;attribution?:AttributionValues;inventoryItemId?:string;serviceId?:string;metadata?:object;touchSession?:boolean;touchOnly?:boolean}|null;
  const {businessSlug}=await params;
  diagnosticRequest(body,businessSlug,"received");
  if(!body||!validSessionId(body.sessionId)||!body.event||!allowed.has(body.event)){diagnosticRequest(body,businessSlug,"rejected",{reason:"invalid_payload"});return NextResponse.json({error:"Invalid analytics event."},{status:400});}
  const sessionId=body.sessionId as string,event=body.event as string;
+ const visitorId=body.analyticsConsent==="granted"&&validSessionId(body.visitorId)?body.visitorId:null;
  const db=getSupabaseAdmin();if(!db){diagnosticRequest(body,businessSlug,"rejected",{reason:"admin_client_unavailable"});return diagnosticResponse("admin_client_unavailable");}
  const businessId=await businessIdForBookingSlug(businessSlug);
  if(!businessId){diagnosticRequest(body,businessSlug,"rejected",{reason:"business_slug_unresolved"});return diagnosticResponse("business_slug_unresolved");}
@@ -143,6 +144,22 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
    console.error("Booking attribution session guarantee failed",{stage:"session_parent_insert",businessId,businessSlug,sessionId,event,code:parentError.code,message:parentError.message,details:parentError.details,hint:parentError.hint});
    return diagnosticResponse("session_parent_insert_failed");
   }
+ }
+ // Cross-session attribution is permitted only for the existing opt-in
+ // first-party analytics identifier. Session tracking remains available when
+ // consent is unavailable, but it is deliberately not stitched to a visitor.
+ if(visitorId){
+  const attribution=body.attribution??{};
+  // A touch is an arrival, rather than every click in the same session. This
+  // prevents checkout activity from replacing the source/timestamp of entry.
+  const qualifyingTouch=Boolean(body.touchSession)&&["landing_page_view","promotion_landing_view"].includes(event);
+  const touch={session_id:sessionId,source:normalizeMarketingSource(attribution),medium:clean(attribution.utm_medium,100)||null,campaign:clean(attribution.utm_campaign,200)||null,campaign_id:clean(attribution.utm_id,200)||null,landing_path:clean(body.path,1000)||null,landing_url:clean(body.landingUrl,2000)||null,referrer:clean(body.referrer,2000)||null,occurred_at:new Date().toISOString(),gclid:clean(attribution.gclid,500)||null,gbraid:clean(attribution.gbraid,500)||null,wbraid:clean(attribution.wbraid,500)||null,fbclid:clean(attribution.fbclid,500)||null};
+  const [{error:visitorSessionError},visitorResult]=await Promise.all([
+   db.from("booking_attribution_sessions").update({visitor_id:visitorId}).eq("business_id",businessId).eq("id",sessionId),
+   qualifyingTouch?db.rpc("upsert_booking_attribution_visitor",{p_business_id:businessId,p_visitor_id:visitorId,p_touch:touch}):Promise.resolve({error:null}),
+  ]);
+  const visitorError=visitorResult.error;
+  if(visitorSessionError||visitorError)console.warn("Booking attribution visitor touch skipped",{businessId,sessionId,visitorId,sessionError:visitorSessionError?.code??null,visitorError:visitorError?.code??null});
  }
  const inventoryItemId=clean(body.inventoryItemId,100)||null;
  const serviceId=clean(body.serviceId,100)||clean(metadata.service_id,100)||null;

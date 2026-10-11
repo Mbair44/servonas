@@ -2,24 +2,69 @@ import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getSubaccountWebhookSecretResolver} from "@/lib/twilio/subaccountWebhookSecrets";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
-import {resolveTenantOutboundSender} from "@/lib/twilio/tenantOutboundSender";
+import {normalizeVoicePhone,voiceAnswerType} from "@/lib/twilio/voice";
+import {sendTenantTwilioMessage} from "@/lib/twilio/messageUsage";
+
 export const runtime="nodejs";
 const terminal=new Set(["completed","busy","no-answer","failed","canceled"]);
+const xml=()=>new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>',{headers:{"Content-Type":"text/xml"}});
+const normalizedStatus=(value:string|null)=>((value??"initiated").replace(/-/g,"_"));
+
+async function sendMissedCallSms(input:{call:{id:string;business_id:string;from_number:string;missed_call_sms_sent_at:string|null;missed_call_sms_claimed_at:string|null};settings:{missed_call_sms_enabled?:boolean|null;missed_call_sms_body?:string|null}|null;businessName:string|null}){
+ if(!input.settings?.missed_call_sms_enabled||input.call.missed_call_sms_sent_at||input.call.missed_call_sms_claimed_at)return;
+ const db=getSupabaseAdmin();if(!db)return;
+ const now=new Date().toISOString();
+ const {data:claimed}=await db.from("voice_calls").update({missed_call_sms_claimed_at:now,updated_at:now}).eq("id",input.call.id).is("missed_call_sms_sent_at",null).is("missed_call_sms_claimed_at",null).select("id").maybeSingle();
+ if(!claimed)return;
+ const body=(input.settings.missed_call_sms_body||"Hi! Sorry we missed your call — this is {{business_name}}. How can we help? 🎉").replace(/{{business_name}}/g,input.businessName||"your rental business");
+ console.info("Twilio voice missed-call SMS attempted",{businessId:input.call.business_id,callId:input.call.id});
+ try{
+  await sendTenantTwilioMessage({businessId:input.call.business_id,to:input.call.from_number,body,sourceType:"voice_missed_call",sourceId:input.call.id});
+  await db.from("voice_calls").update({missed_call_sms_sent_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",input.call.id).eq("missed_call_sms_claimed_at",now);
+  console.info("Twilio voice missed-call SMS sent",{businessId:input.call.business_id,callId:input.call.id});
+ }catch(error){
+  // Keep the claim after an uncertain provider request; retrying could send a duplicate.
+  console.error("Twilio voice missed-call SMS failed",{businessId:input.call.business_id,callId:input.call.id,error:error instanceof Error?error.message:"unknown"});
+ }
+}
+
 export async function POST(request:Request){
- const params=new URLSearchParams(await request.text()),sid=params.get("CallSid")??"",accountSid=params.get("AccountSid")??"",parent=new URL(request.url).searchParams.get("parent")||params.get("ParentCallSid")||sid;
+ const params=new URLSearchParams(await request.text()),url=new URL(request.url),sid=params.get("CallSid")??"",accountSid=params.get("AccountSid")??"",parent=url.searchParams.get("parent")||params.get("ParentCallSid")||sid,employeeId=url.searchParams.get("employee"),businessParam=url.searchParams.get("business"),status=normalizedStatus(params.get("CallStatus")??params.get("DialCallStatus")),now=new Date().toISOString();
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
- const {data:call}=await db.from("voice_calls").select("id,business_id,from_number,to_number,missed_call_sms_sent_at,business_voice_settings(missed_call_sms_enabled,missed_call_sms_body)").eq("twilio_call_sid",parent).maybeSingle();
- if(!call)return NextResponse.json({error:"Unknown call"},{status:404});
+ const {data:call}=await db.from("voice_calls").select("id,business_id,from_number,to_number,human_answered,was_missed,missed_call_sms_sent_at,missed_call_sms_claimed_at,businesses(name),business_voice_settings(missed_call_sms_enabled,missed_call_sms_body)").eq("twilio_call_sid",parent).maybeSingle();
+ if(!call||businessParam&&businessParam!==call.business_id)return NextResponse.json({error:"Unknown call"},{status:404});
  const {data:account}=await db.from("business_twilio_accounts").select("twilio_subaccount_sid").eq("business_id",call.business_id).eq("twilio_subaccount_sid",accountSid).maybeSingle();
  const token=account?.twilio_subaccount_sid?await getSubaccountWebhookSecretResolver().getSubaccountAuthToken({businessId:call.business_id,subaccountSid:account.twilio_subaccount_sid}):null;
  if(!token||!validTwilioSignature(twilioWebhookUrl(request,"TWILIO_VOICE_STATUS_WEBHOOK_URL"),params,request.headers.get("x-twilio-signature")??"",token))return NextResponse.json({error:"Invalid signature"},{status:403});
- const status=(params.get("CallStatus")??params.get("DialCallStatus")??"initiated").replace(/-/g,"_");const now=new Date().toISOString(),employeeId=new URL(request.url).searchParams.get("employee");
- if(employeeId&&params.get("CallStatus")==="in-progress")await db.from("voice_calls").update({status:"in_progress",answered_at:now,answered_by_employee_id:employeeId}).eq("id",call.id);
- else await db.from("voice_calls").update({status,ended_at:terminal.has(status.replace(/_/g,"-"))?now:null,duration_seconds:Number(params.get("CallDuration")||0)||null,was_missed:["no_answer","busy","failed","canceled"].includes(status)}).eq("id",call.id);
  const voiceSettings=Array.isArray(call.business_voice_settings)?call.business_voice_settings[0]:call.business_voice_settings;
- if(["no_answer","busy","failed","canceled"].includes(status)&&voiceSettings?.missed_call_sms_enabled&&!call.missed_call_sms_sent_at){
-  const claimed=await db.from("voice_calls").update({missed_call_sms_sent_at:now}).eq("id",call.id).is("missed_call_sms_sent_at",null).select("id").maybeSingle();
-  if(claimed.data){try{const sender=await resolveTenantOutboundSender(call.business_id);if(sender.configured&&sender.accountSid&&sender.username&&sender.password&&sender.from){const body=voiceSettings.missed_call_sms_body.replace(/{{business_name}}/g,"your rental business");await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sender.accountSid}/Messages.json`,{method:"POST",headers:{Authorization:`Basic ${Buffer.from(`${sender.username}:${sender.password}`).toString("base64")}`,"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({To:call.from_number,From:sender.from,Body:body})});}}catch{console.error("Twilio voice missed-call SMS failed",{businessId:call.business_id,callId:call.id});}}
+ const business=Array.isArray(call.businesses)?call.businesses[0]:call.businesses;
+ if(employeeId){
+  const answerType=voiceAnswerType(params.get("AnsweredBy")),phone=normalizeVoicePhone(params.get("To")??"");
+  if(sid&&phone){
+   const leg:Record<string,unknown>={business_id:call.business_id,call_id:call.id,twilio_call_sid:sid,employee_id:employeeId,phone_e164:phone,status,ended_at:terminal.has(status.replace(/_/g,"-"))?now:null,duration_seconds:Number(params.get("CallDuration")||0)||null,updated_at:now};
+   // Status callbacks commonly omit AnsweredBy. Do not erase a classification
+   // already written by the AMD callback or synchronous screening endpoint.
+   if(answerType!=="unknown")leg.answer_type=answerType;
+   if(answerType==="human")leg.answered_at=now;
+   if(answerType==="machine")leg.machine_detected_at=now;
+   await db.from("voice_call_legs").upsert(leg,{onConflict:"twilio_call_sid"});
+   console.info(status==="initiated"?"Twilio voice staff leg initiated":"Twilio voice staff leg completed",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,status,answerType});
+   if(answerType!=="unknown")console.info("Twilio voice AMD result",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,answerType});
+  }
+  // Only staff-answer may accept a human. A raw answered/in-progress callback
+  // is not evidence that a person, rather than carrier voicemail, answered.
+  return xml();
  }
- return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
+ const isRoutingComplete=Boolean(url.searchParams.get("parent"));
+ if(!isRoutingComplete)return xml();
+ if(call.human_answered){
+  await db.from("voice_calls").update({status:"completed",was_missed:false,ended_at:now,duration_seconds:Number(params.get("DialCallDuration")||params.get("CallDuration")||0)||null,updated_at:now}).eq("id",call.id);
+  return xml();
+ }
+ const {data:missed}=await db.from("voice_calls").update({status:"no_answer",was_missed:true,ended_at:now,duration_seconds:Number(params.get("DialCallDuration")||params.get("CallDuration")||0)||null,updated_at:now}).eq("id",call.id).eq("human_answered",false).eq("was_missed",false).select("id,business_id,from_number,missed_call_sms_sent_at,missed_call_sms_claimed_at").maybeSingle();
+ if(missed){
+  console.info("Twilio voice parent call marked missed",{businessId:call.business_id,callId:call.id,status});
+  await sendMissedCallSms({call:missed,settings:voiceSettings,businessName:business?.name??null});
+ }
+ return xml();
 }

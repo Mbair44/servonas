@@ -21,6 +21,11 @@ test("captures Google click IDs and UTMs without retaining unrelated query value
  assert.deepEqual(values,{gclid:"click-1",utm_source:"google",utm_medium:"cpc",utm_campaign:"summer"});
 });
 
+test("captures Google auto-tagged campaign IDs in the canonical campaign field",()=>{
+ const values=attributionFromSearch(new URLSearchParams("gclid=click-1&gad_campaignid=12345&email=private@example.com"));
+ assert.deepEqual(values,{gclid:"click-1",utm_id:"12345"});
+});
+
 test("captures fbclid alongside other first-touch attribution fields",()=>{
  const values=attributionFromSearch(new URLSearchParams("fbclid=meta-click-1&utm_source=facebook&utm_campaign=fall"));
  assert.deepEqual(values,{fbclid:"meta-click-1",utm_source:"facebook",utm_campaign:"fall"});
@@ -143,6 +148,23 @@ test("campaign performance uses a tenant's Google campaign name without cross-te
  const rows=buildCampaignPerformanceReport({sessions:[{id:"google",utm_source:"google",utm_medium:"cpc",utm_campaign:"12345"}],events:[],bookings:[],googleCampaignRows:[{google_campaign_id:"12345",campaign_name:"Gilbert rentals"}]});
  assert.equal(rows[0]?.name,"Gilbert rentals");
  assert.equal(buildCampaignPerformanceReport({sessions:[{id:"other",utm_source:"google",utm_medium:"cpc",utm_campaign:"12345"}],events:[],bookings:[],googleCampaignRows:[]})[0]?.name,"12345");
+});
+
+test("campaign performance resolves Google auto-tagged and historical landing campaign IDs",()=>{
+ const googleCampaignRows=[{google_campaign_id:"12345",campaign_name:"Gilbert rentals"}];
+ const rows=buildCampaignPerformanceReport({sessions:[
+  {id:"persisted",gclid:"click-1",utm_id:"12345"},
+  {id:"historical",gclid:"click-2",first_landing_url:"https://example.com/?gclid=click-2&gad_campaignid=12345"},
+ ],events:[],bookings:[],googleCampaignRows});
+ assert.equal(rows.length,1);
+ assert.equal(rows[0]?.name,"Gilbert rentals");
+ assert.equal(rows[0]?.rawId,"12345");
+ assert.equal(rows[0]?.visits,2);
+});
+
+test("campaign performance does not falsely label a Google click ID as an unattributed campaign",()=>{
+ const rows=buildCampaignPerformanceReport({sessions:[{id:"click-only",gclid:"click-1"}],events:[],bookings:[]});
+ assert.equal(rows[0]?.name,"Google Ads campaign unavailable");
 });
 
 test("builds source funnel counts, revenue, and roas from the existing event stream",()=>{

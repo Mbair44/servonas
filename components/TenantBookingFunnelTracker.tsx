@@ -2,13 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { attributionFromSearch, type AttributionValues, type BookingFunnelEvent } from "@/lib/bookingFunnel";
+import { attributionFromSearch, validSessionId, type AttributionValues, type BookingFunnelEvent } from "@/lib/bookingFunnel";
 import { publicBookingFunnelEnabled } from "@/lib/optionalAnalytics";
 
 const key = (slug: string) => `servonas.booking-attribution.${slug}`;
 const dedupeKey = (slug: string) => `servonas.booking-funnel-dedupe.${slug}`;
 const debugKey = "servonas.booking-funnel-debug";
 const analyticsConsentKey = "servonas.analytics_consent";
+const visitorKey = "servonas.visitor_id";
 const analyticsEnabled = publicBookingFunnelEnabled();
 const sessionTouchIntervalMs = 15 * 60 * 1000;
 const activeHeartbeatMs = 2_000;
@@ -73,7 +74,12 @@ const meaningfulMetadata = (startedAt: number, event: BookingFunnelEvent, elemen
 });
 const pageTypeForPath = (pathname: string) => pathname === "/booking/checkout" || /^\/book\/[^/]+\/booking$/.test(pathname) ? "checkout" : pathname === "/booking" || /^\/book\/[^/]+$/.test(pathname) ? "booking" : "website";
 const isEmbeddedBooking = () => new URLSearchParams(location.search).get("embed") === "1";
-const payloadFor = (slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions, touchSession: boolean) => { const state = stored(slug), metadata: Record<string, unknown> = { ...deviceMetadata(), ...(options.metadata ?? {}), ...(debugEnabled()?{analytics_consent:localStorage.getItem(analyticsConsentKey)??"unset"}:{}) }; return { sessionId: state.sessionId, event, interactionId: interactionEvents.has(event) ? crypto.randomUUID() : undefined, path: `${location.pathname}${location.search}`, pageType: pageTypeForPath(location.pathname), landingUrl: state.landingUrl, referrer: state.referrer, attribution: state.attribution, inventoryItemId: options.inventoryItemId, serviceId: options.serviceId, metadata, touchSession, touchOnly: Boolean(options.touchOnly) }; };
+const consentedVisitorId = () => {
+ const consent=localStorage.getItem(analyticsConsentKey); if(consent!=="granted")return null;
+ const existing=localStorage.getItem(visitorKey); if(validSessionId(existing))return existing;
+ const visitorId=crypto.randomUUID(); localStorage.setItem(visitorKey,visitorId); return visitorId;
+};
+const payloadFor = (slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions, touchSession: boolean) => { const state = stored(slug), consent=localStorage.getItem(analyticsConsentKey),visitorId=consentedVisitorId(), metadata: Record<string, unknown> = { ...deviceMetadata(), ...(options.metadata ?? {}), ...(debugEnabled()?{analytics_consent:localStorage.getItem(analyticsConsentKey)??"unset"}:{}) }; return { sessionId: state.sessionId, visitorId, analyticsConsent:consent, event, interactionId: interactionEvents.has(event) ? crypto.randomUUID() : undefined, path: `${location.pathname}${location.search}`, pageType: pageTypeForPath(location.pathname), landingUrl: state.landingUrl, referrer: state.referrer, attribution: state.attribution, inventoryItemId: options.inventoryItemId, serviceId: options.serviceId, metadata, touchSession, touchOnly: Boolean(options.touchOnly) }; };
 const postWithBeacon = (slug: string, event: BookingFunnelEvent, payload: ReturnType<typeof payloadFor>) => { if (typeof navigator.sendBeacon !== "function") return false; try { const sent = navigator.sendBeacon(`/api/public-booking/${encodeURIComponent(slug)}/funnel`, new Blob([JSON.stringify(payload)], { type: "application/json" })); logDebug(slug, event, sent ? "beacon_sent" : "beacon_rejected", { eventType: payload.metadata.timing_event_type ?? event, flushReason: payload.metadata.timing_flush_reason ?? null, sendMethod: "beacon" }); return sent; } catch { return false; } };
 export const shouldCountPageAsActive = (visibilityState: string, focused: boolean) => visibilityState === "visible" || focused;
 
