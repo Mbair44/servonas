@@ -54,10 +54,16 @@ begin
   first_touch=case when public.booking_attribution_visitors.first_seen_at<=v_seen then public.booking_attribution_visitors.first_touch else excluded.first_touch end,
   first_seen_at=least(public.booking_attribution_visitors.first_seen_at,v_seen),
   last_touch=case when public.booking_attribution_visitors.last_seen_at<=v_seen then excluded.last_touch else public.booking_attribution_visitors.last_touch end,
-  last_non_direct_touch=case when v_source not in ('direct','unknown') and public.booking_attribution_visitors.last_seen_at<=v_seen then excluded.last_touch else public.booking_attribution_visitors.last_non_direct_touch end,
+  -- A newer direct visit can advance last_seen_at without replacing the last
+  -- non-direct touch. Compare non-direct touch timestamps directly so delayed
+  -- event delivery cannot discard a legitimate newer campaign touch.
+  last_non_direct_touch=case when v_source not in ('direct','unknown') and (
+   public.booking_attribution_visitors.last_non_direct_touch is null or
+   coalesce(nullif(public.booking_attribution_visitors.last_non_direct_touch->>'occurred_at','')::timestamptz,'-infinity'::timestamptz)<=v_seen
+  ) then excluded.last_touch else public.booking_attribution_visitors.last_non_direct_touch end,
   last_seen_at=greatest(public.booking_attribution_visitors.last_seen_at,v_seen),updated_at=v_now;
 end;$$;
-revoke all on function public.upsert_booking_attribution_visitor(uuid,uuid,jsonb) from public;
+revoke all on function public.upsert_booking_attribution_visitor(uuid,uuid,jsonb) from public,anon,authenticated;
 grant execute on function public.upsert_booking_attribution_visitor(uuid,uuid,jsonb) to service_role;
 
 alter table public.booking_attribution_visitors enable row level security;
