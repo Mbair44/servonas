@@ -27,6 +27,11 @@ export async function POST(request:Request){
  }
  const result=data as IntakeResult;
  if(security.mode==="tenant"&&result.business_id!==security.businessId)return NextResponse.json({error:"Tenant mismatch"},{status:403});
+ if(!result.duplicate){
+  const receivedAt=new Date().toISOString();
+  const {error:timelineError}=await db.from("customer_messages").upsert({business_id:result.business_id,customer_id:result.customer_id,counterparty_phone_e164:from,direction:"inbound",provider:"twilio",provider_message_id:sid,body,status:"received",source_type:"inbound_sms",received_at:receivedAt,created_at:receivedAt,updated_at:receivedAt},{onConflict:"provider,provider_message_id"});
+  if(timelineError) console.error("Inbound SMS timeline persistence failed",{businessId:result.business_id,messageSid:sid,code:timelineError.code});
+ }
  if(!result.duplicate)console.info("Twilio inbound SMS received",{messageSid:sid,from,to,businessId:result.business_id,customerId:result.customer_id});
  if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia:Number(params.get("NumMedia")||0),messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});return NextResponse.json({error:"Usage persistence failed"},{status:503});}}
  // Tenant replies are recorded without legacy parent-account auto sends.
