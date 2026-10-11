@@ -3515,13 +3515,13 @@ export async function fetchGoogleAdsCampaignMetrics(input: { accessToken: string
 export async function fetchGoogleAdsDailyCampaignMetrics(input: { accessToken: string; customerId: string; loginCustomerId?: string | null; dateFrom: string; dateTo: string; businessId?: string | null }) {
  const dateFilter = googleAdsCustomDateRangeFilter(input.dateFrom, input.dateTo);
  const results = await googleAdsSearchStream(input.customerId,input.accessToken,
-  `SELECT segments.date, campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE campaign.status != 'REMOVED' AND ${dateFilter}`,
+  `SELECT segments.date, customer.currency_code, campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE campaign.status != 'REMOVED' AND ${dateFilter}`,
   input.loginCustomerId,
   {stage:"google_ads_daily_campaign_spend_query",requestType:"daily_campaign_spend",businessId:input.businessId??null},
  );
  return results.map((row) => {
-  const campaign=row.campaign as Record<string,unknown>|undefined,metrics=row.metrics as Record<string,unknown>|undefined,segments=row.segments as Record<string,unknown>|undefined;
-  return {date:String(segments?.date??""),campaignId:String(campaign?.id??""),campaignName:String(campaign?.name??""),campaignStatus:String(campaign?.status??"UNKNOWN"),impressions:safeNumber(metrics?.impressions),clicks:safeNumber(metrics?.clicks),costMicros:safeNumber(metrics?.costMicros)};
+  const campaign=row.campaign as Record<string,unknown>|undefined,customer=row.customer as Record<string,unknown>|undefined,metrics=row.metrics as Record<string,unknown>|undefined,segments=row.segments as Record<string,unknown>|undefined;
+  return {date:String(segments?.date??""),campaignId:String(campaign?.id??""),campaignName:String(campaign?.name??""),campaignStatus:String(campaign?.status??"UNKNOWN"),currencyCode:String(customer?.currencyCode??customer?.currency_code??""),impressions:safeNumber(metrics?.impressions),clicks:safeNumber(metrics?.clicks),costMicros:safeNumber(metrics?.costMicros)};
  }).filter(row=>/^\d{4}-\d{2}-\d{2}$/.test(row.date)&&row.campaignId);
 }
 

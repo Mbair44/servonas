@@ -8,7 +8,7 @@ export async function loadGoogleAdsSpendForRange(input:{businessId:string;from:s
   db.from("business_ad_platform_daily_performance").select("spend_amount,currency").eq("business_id",input.businessId).eq("provider","google_ads").gte("report_date",input.from.slice(0,10)).lt("report_date",input.to.slice(0,10)),
   db.from("business_google_ads_connections").select("last_spend_sync_at,last_spend_sync_error").eq("business_id",input.businessId).maybeSingle(),
  ]);
- if(result.error||connection.error||!connection.data?.last_spend_sync_at||connection.data.last_spend_sync_error)return null;const currencies=new Set((result.data??[]).map(row=>String(row.currency??"USD")));if(currencies.size>1)return null;
+ if(result.error||connection.error||!connection.data?.last_spend_sync_at||connection.data.last_spend_sync_error)return null;const currencies=new Set((result.data??[]).map(row=>String(row.currency??"USD").toUpperCase()));if(currencies.size!==1||!currencies.has("USD"))return null;
  return Math.round((result.data??[]).reduce((sum,row)=>sum+Math.max(0,Number(row.spend_amount??0)),0)*100);
 }
 

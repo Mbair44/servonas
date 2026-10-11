@@ -12,8 +12,11 @@ export async function syncGoogleAdsSpend(input:{businessId:string;forceFull?:boo
  await db.from("business_google_ads_connections").update({last_spend_sync_attempt_at:now.toISOString(),last_spend_sync_error:null}).eq("business_id",input.businessId);
  try{
   const rows=await fetchGoogleAdsDailyCampaignMetrics({accessToken:access.accessToken,customerId:access.customerId,loginCustomerId:access.loginCustomerId,dateFrom:from,dateTo:to,businessId:input.businessId});
-  const syncedAt=new Date().toISOString();
-  const upserts=rows.map(row=>({business_id:input.businessId,provider:"google_ads",external_account_id:String(access.customerId),report_date:row.date,campaign_id:row.campaignId,campaign_name:row.campaignName,campaign_status:row.campaignStatus,adset_id:"__campaign__",adset_name:null,adset_status:null,ad_id:"__campaign__",ad_name:null,ad_status:null,spend_amount:row.costMicros/1_000_000,currency:"USD",impressions:row.impressions,reach:0,clicks:row.clicks,link_clicks:row.clicks,landing_page_views:0,raw_actions:[],raw_payload:{source:"google_ads_campaign_daily"},synced_at:syncedAt,updated_at:syncedAt}));
+  const syncedAt=new Date().toISOString(),currencies=[...new Set(rows.map(row=>row.currencyCode.trim().toUpperCase()).filter(Boolean))];
+  if(currencies.length>1)throw new Error("Google Ads returned multiple currencies for one connected account.");
+  if(rows.length&&!currencies.length)throw new Error("Google Ads did not return an account currency for campaign spend.");
+  const currency=currencies[0]??"USD";
+  const upserts=rows.map(row=>({business_id:input.businessId,provider:"google_ads",external_account_id:String(access.customerId),report_date:row.date,campaign_id:row.campaignId,campaign_name:row.campaignName,campaign_status:row.campaignStatus,adset_id:"__campaign__",adset_name:null,adset_status:null,ad_id:"__campaign__",ad_name:null,ad_status:null,spend_amount:row.costMicros/1_000_000,currency,impressions:row.impressions,reach:0,clicks:row.clicks,link_clicks:row.clicks,landing_page_views:0,raw_actions:[],raw_payload:{source:"google_ads_campaign_daily"},synced_at:syncedAt,updated_at:syncedAt}));
   if(upserts.length){const {error:writeError}=await db.from("business_ad_platform_daily_performance").upsert(upserts,{onConflict:"business_id,provider,external_account_id,report_date,campaign_id,adset_id,ad_id"});if(writeError)throw new Error(`Google Ads spend save failed: ${writeError.message}`);}
   await db.from("business_google_ads_connections").update({last_spend_sync_at:syncedAt,last_spend_sync_attempt_at:syncedAt,last_spend_sync_error:null,last_spend_sync_rows:upserts.length,updated_at:syncedAt}).eq("business_id",input.businessId);
   return {rowsSynced:upserts.length,from,to};
