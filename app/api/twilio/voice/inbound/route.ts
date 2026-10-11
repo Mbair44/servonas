@@ -36,5 +36,7 @@ export async function POST(request:Request){
   const statusUrl=`${origin(request)}/api/twilio/voice/status?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}`;
   return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${voiceXml(statusUrl)}</Redirect></Response>`,{headers:{"Content-Type":"text/xml"}});
  }
- return new Response(inboundVoiceTwiml({callId:sid,businessId,targets,timeout:settings.ring_timeout_seconds,record:["incoming","all"].includes(settings.recording_mode),origin:origin(request)}),{headers:{"Content-Type":"text/xml"}});
+ const publicOrigin=origin(request),twiml=inboundVoiceTwiml({callId:sid,businessId,targets,timeout:settings.ring_timeout_seconds,record:["incoming","all"].includes(settings.recording_mode),origin:publicOrigin});
+ console.info("Twilio voice Dial action constructed",{businessId,callSid:sid,actionUrl:`${publicOrigin}/api/twilio/voice/status?parent=${encodeURIComponent(sid)}&business=${encodeURIComponent(businessId)}`,method:"POST",targetCount:targets.length});
+ return new Response(twiml,{headers:{"Content-Type":"text/xml"}});
 }
