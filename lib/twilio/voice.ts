@@ -26,6 +26,12 @@ export function inboundVoiceTwiml(input:{callId:string;businessId:string;targets
  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(action)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${callback}?recording=1&parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
 }
 
+/** The Dial action must always receive valid TwiML; notification work is separate. */
+export function missedInboundVoiceTwiml(input:{callId:string;businessId:string;origin:string}){
+ const callback=`${input.origin}/api/twilio/voice/status?recording=1&parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
+ return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry we missed your call. Please leave a message after the beep.</Say><Record playBeep="true" maxLength="120" action="${voiceXml(callback)}" method="POST" recordingStatusCallback="${voiceXml(callback)}" recordingStatusCallbackMethod="POST"/><Hangup/></Response>`;
+}
+
 export async function createOutboundVoiceCall(input:{businessId:string;customerId:string;to:string;employeeId:string;origin:string}){
  const sender=await resolveTenantOutboundSender(input.businessId);if(!sender.configured||!sender.accountSid||!sender.username||!sender.password||!sender.from)throw new Error("A live business Twilio number is required before placing a call.");
  const db=getSupabaseAdmin();if(!db)throw new Error("Voice storage is unavailable.");

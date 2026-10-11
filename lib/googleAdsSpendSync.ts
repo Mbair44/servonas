@@ -1,0 +1,21 @@
+import {getSupabaseAdmin} from "./supabaseAdmin";
+import {fetchGoogleAdsDailyCampaignMetrics,loadTenantGoogleAdsAccess} from "./googleAdsManagement";
+
+const day=(date:Date)=>date.toISOString().slice(0,10);
+export async function syncGoogleAdsSpend(input:{businessId:string;forceFull?:boolean}){
+ const db=getSupabaseAdmin();if(!db)throw new Error("Google Ads spend sync is unavailable.");
+ const {data:connection,error}=await db.from("business_google_ads_connections").select("google_ads_customer_id,login_customer_id,last_spend_sync_at,status").eq("business_id",input.businessId).maybeSingle();
+ if(error)throw new Error("Google Ads connection could not be loaded.");
+ if(!connection?.google_ads_customer_id||connection.status==="disconnected")throw new Error("Google Ads is not connected to a selected customer account.");
+ const access=await loadTenantGoogleAdsAccess(input.businessId);if(!access?.customerId)throw new Error("Google Ads customer access is unavailable.");
+ const now=new Date(),days=input.forceFull||!connection.last_spend_sync_at?30:7,from=day(new Date(now.getTime()-days*86400000)),to=day(now);
+ await db.from("business_google_ads_connections").update({last_spend_sync_attempt_at:now.toISOString(),last_spend_sync_error:null}).eq("business_id",input.businessId);
+ try{
+  const rows=await fetchGoogleAdsDailyCampaignMetrics({accessToken:access.accessToken,customerId:access.customerId,loginCustomerId:access.loginCustomerId,dateFrom:from,dateTo:to,businessId:input.businessId});
+  const syncedAt=new Date().toISOString();
+  const upserts=rows.map(row=>({business_id:input.businessId,provider:"google_ads",external_account_id:String(access.customerId),report_date:row.date,campaign_id:row.campaignId,campaign_name:row.campaignName,campaign_status:row.campaignStatus,adset_id:"__campaign__",adset_name:null,adset_status:null,ad_id:"__campaign__",ad_name:null,ad_status:null,spend_amount:row.costMicros/1_000_000,currency:"USD",impressions:row.impressions,reach:0,clicks:row.clicks,link_clicks:row.clicks,landing_page_views:0,raw_actions:[],raw_payload:{source:"google_ads_campaign_daily"},synced_at:syncedAt,updated_at:syncedAt}));
+  if(upserts.length){const {error:writeError}=await db.from("business_ad_platform_daily_performance").upsert(upserts,{onConflict:"business_id,provider,external_account_id,report_date,campaign_id,adset_id,ad_id"});if(writeError)throw new Error(`Google Ads spend save failed: ${writeError.message}`);}
+  await db.from("business_google_ads_connections").update({last_spend_sync_at:syncedAt,last_spend_sync_attempt_at:syncedAt,last_spend_sync_error:null,last_spend_sync_rows:upserts.length,updated_at:syncedAt}).eq("business_id",input.businessId);
+  return {rowsSynced:upserts.length,from,to};
+ }catch(error){const message=error instanceof Error?error.message:"Google Ads spend sync failed.";await db.from("business_google_ads_connections").update({last_spend_sync_error:message.slice(0,500),updated_at:new Date().toISOString()}).eq("business_id",input.businessId);throw error;}
+}
