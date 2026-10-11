@@ -128,7 +128,21 @@ export async function syncBusinessMarketingIssues(input: {
    updated_at: now,
   };
   const { error: notificationError } = await db.from("business_notifications").upsert(notificationRow, { onConflict: "business_id,dedupe_key" });
-  if (notificationError) throw new Error("Marketing issue notification could not be saved.");
+  // Notifications are a convenience layer over the persisted marketing issue.
+  // A notification schema/configuration problem must not make an otherwise
+  // successful Google Ads status check look like an Ads integration failure.
+  if (notificationError) {
+   console.error("Marketing issue notification could not be saved", {
+    businessId: input.businessId,
+    provider: input.provider,
+    issueType: issue.issueType,
+    severity: issue.severity,
+    errorCode: notificationError.code ?? null,
+    errorMessage: notificationError.message ?? null,
+    errorDetails: notificationError.details ?? null,
+    errorHint: notificationError.hint ?? null,
+   });
+  }
  }
 
  if (input.checkSucceeded) {
