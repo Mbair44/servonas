@@ -7,9 +7,11 @@ test("PostgreSQL: signed-tenant mapping, replay, START/STOP/HELP and request cla
  try{
   await db.exec(await readFile(new URL("./fixtures/twilioPilotSchema.sql",import.meta.url),"utf8"));
   await db.exec(await readFile(new URL("../supabase/migrations/20260914000800_tenant_sms_pilot.sql",import.meta.url),"utf8"));
+  await db.exec(await readFile(new URL("../supabase/migrations/20261011000100_allow_phone_only_sms_customers.sql",import.meta.url),"utf8"));
   const business="20000000-0000-0000-0000-000000000001";
   const inbound=async(sid:string,body:string,opt:string="",tenant=business,account="ACtenantA",to="+14805550111")=>(await db.query("select process_inbound_sms($1,$2,$3,$4,$5::uuid,$6,$7) as result",[sid,"+14805550999",to,body,tenant,account,opt])).rows[0].result;
   const first=await inbound("SMfirst","TEST RECEIVED");assert.equal(first.business_id,business);assert.equal(first.reply,false);
+  const phoneOnly=await db.query("select email,phone_normalized,lead_source from customers where id=$1",[first.customer_id]);assert.deepEqual(phoneOnly.rows[0],{email:null,phone_normalized:"+14805550999",lead_source:"Inbound SMS"});
   const repeat=await inbound("SMfirst","TEST RECEIVED");assert.equal(repeat.duplicate,true);assert.equal(repeat.message_id,first.message_id);
   assert.equal((await db.query("select count(*)::int as n from inbound_sms_messages")).rows[0].n,1);
   assert.equal((await db.query("select count(*)::int as n from customers")).rows[0].n,1);
