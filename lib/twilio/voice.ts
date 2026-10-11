@@ -14,6 +14,15 @@ export const voiceAnswerType=(value:string|null|undefined):VoiceAnswerType=>{
 };
 
 /**
+ * A completed Twilio Dial only means its child leg ended. It does not prove
+ * that Servonas accepted a human staff answer, because screening can hang up
+ * a carrier voicemail or an unclassified answer before bridging.
+ */
+export function dialCompletionAction(input:{humanAccepted:boolean;dialCallStatus:string;fallback?:boolean}){
+ return input.humanAccepted?"complete":"voicemail";
+}
+
+/**
  * `Number.url` is a synchronous screening step: it only returns empty TwiML
  * for an AMD-confirmed human. Machine, fax, and unknown answers are hung up
  * before the Dial can bridge them to the customer. `answerOnBridge` preserves

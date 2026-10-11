@@ -23,11 +23,14 @@ export async function POST(request:Request){
  // URL, so a configured static base URL cannot validate it correctly.
  if(!call||!token||!validTwilioSignature(request.url,params,request.headers.get("x-twilio-signature")??"",token))return NextResponse.json({error:"Invalid signature"},{status:403});
  const now=new Date().toISOString(),answerType=voiceAnswerType(params.get("AnsweredBy"));
- if(!sid||!employeeId||!phone)return hangup();
+ if(!sid||!employeeId||!phone){
+  console.info("Twilio voice staff leg rejected",{businessId:call.business_id,callId:call.id,legSid:sid||null,employeeId:employeeId||null,answerType,rawAnsweredBy:params.get("AnsweredBy")??null,reason:"missing_required_parameters",hasChildCallSid:Boolean(sid),hasEmployeeId:Boolean(employeeId),hasNormalizedPhone:Boolean(phone)});
+  return hangup();
+ }
  const leg={business_id:call.business_id,call_id:call.id,twilio_call_sid:sid,employee_id:employeeId,phone_e164:phone,status:answerType==="human"?"in_progress":"completed",answer_type:answerType,answered_at:answerType==="human"?now:null,machine_detected_at:answerType==="machine"?now:null,updated_at:now};
  await db.from("voice_call_legs").upsert(leg,{onConflict:"twilio_call_sid"});
  if(answerType!=="human"){
-  console.info("Twilio voice staff leg rejected",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,answerType});
+  console.info("Twilio voice staff leg rejected",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,answerType,rawAnsweredBy:params.get("AnsweredBy")??null,reason:`amd_${answerType}`});
   return hangup();
  }
  const {data:accepted}=await db.from("voice_calls").update({human_answered:true,was_missed:false,status:"in_progress",answered_at:now,answered_by_employee_id:employeeId,updated_at:now}).eq("id",call.id).eq("human_answered",false).eq("was_missed",false).select("id").maybeSingle();
@@ -35,6 +38,6 @@ export async function POST(request:Request){
   console.info("Twilio voice human leg not bridged",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,reason:"already_resolved"});
   return hangup();
  }
- console.info("Twilio voice human bridge accepted",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId});
+ console.info("Twilio voice human bridge accepted",{businessId:call.business_id,callId:call.id,legSid:sid,employeeId,humanAccepted:true});
  return continueDial();
 }
