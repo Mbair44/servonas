@@ -42,11 +42,23 @@ export async function recordBookingFunnelEvent(db:SupabaseClient,input:{business
  return result;
 }
 
-export async function snapshotBookingAttribution(db:SupabaseClient,input:{businessId:string;bookingId:string;sessionId?:string|null}){
- if(!validSessionId(input.sessionId))return;
- const {data:session,error}=await db.from("booking_attribution_sessions").select("id,first_landing_url,first_landing_path,first_referrer,gclid,gbraid,wbraid,fbclid,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id").eq("business_id",input.businessId).eq("id",input.sessionId).maybeSingle();
+const configuredAttributionLookbackDays=Number(process.env.MARKETING_ATTRIBUTION_LOOKBACK_DAYS);
+export const defaultAttributionLookbackDays=Number.isFinite(configuredAttributionLookbackDays)&&configuredAttributionLookbackDays>=1&&configuredAttributionLookbackDays<=365?Math.floor(configuredAttributionLookbackDays):30;
+export async function snapshotBookingAttribution(db:SupabaseClient,input:{businessId:string;bookingId:string;sessionId?:string|null;lookbackDays?:number}){
+ const lookbackDays=Math.max(1,Math.min(365,Math.floor(input.lookbackDays??defaultAttributionLookbackDays)));
+ if(!validSessionId(input.sessionId)){
+  const result=await db.from("booking_attribution_snapshots").insert({booking_id:input.bookingId,business_id:input.businessId,attribution_lookback_days:lookbackDays,attribution_status:"unknown",updated_at:new Date().toISOString()});
+  if(result.error&&result.error.code!=="23505")console.error("Booking attribution snapshot save failed",{businessId:input.businessId,bookingId:input.bookingId,code:result.error.code});
+  return;
+ }
+ const {data:session,error}=await db.from("booking_attribution_sessions").select("id,first_landing_url,first_landing_path,first_referrer,gclid,gbraid,wbraid,fbclid,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,visitor_id").eq("business_id",input.businessId).eq("id",input.sessionId).maybeSingle();
  if(error||!session)return;
- await db.from("booking_attribution_snapshots").upsert({booking_id:input.bookingId,business_id:input.businessId,attribution_session_id:session.id,first_landing_url:session.first_landing_url,first_landing_path:session.first_landing_path,first_referrer:session.first_referrer,gclid:session.gclid,gbraid:session.gbraid,wbraid:session.wbraid,fbclid:session.fbclid,utm_source:session.utm_source,utm_medium:session.utm_medium,utm_campaign:session.utm_campaign,utm_content:session.utm_content,utm_term:session.utm_term,utm_id:session.utm_id,updated_at:new Date().toISOString()},{onConflict:"booking_id"});
+ const {data:visitor}=validSessionId(session.visitor_id)?await db.from("booking_attribution_visitors").select("first_touch,last_touch,last_non_direct_touch,last_seen_at").eq("business_id",input.businessId).eq("visitor_id",session.visitor_id).maybeSingle():{data:null};
+ const eligible=(touch:unknown)=>{if(!touch||typeof touch!=="object")return null;const occurred=(touch as {occurred_at?:unknown}).occurred_at;if(typeof occurred!=="string"||Number.isNaN(Date.parse(occurred))||Date.now()-Date.parse(occurred)>lookbackDays*86_400_000)return null;return touch;};
+ const firstTouch=eligible(visitor?.first_touch),lastTouch=eligible(visitor?.last_touch),lastNonDirectTouch=eligible(visitor?.last_non_direct_touch);
+ const status=firstTouch||lastTouch?"known":session.visitor_id?"expired":"consent_unavailable";
+ const result=await db.from("booking_attribution_snapshots").insert({booking_id:input.bookingId,business_id:input.businessId,attribution_session_id:session.id,visitor_id:session.visitor_id??null,first_landing_url:session.first_landing_url,first_landing_path:session.first_landing_path,first_referrer:session.first_referrer,gclid:session.gclid,gbraid:session.gbraid,wbraid:session.wbraid,fbclid:session.fbclid,utm_source:session.utm_source,utm_medium:session.utm_medium,utm_campaign:session.utm_campaign,utm_content:session.utm_content,utm_term:session.utm_term,utm_id:session.utm_id,first_touch:firstTouch,last_touch:lastTouch,last_non_direct_touch:lastNonDirectTouch,attribution_lookback_days:lookbackDays,attribution_status:status,updated_at:new Date().toISOString()});
+ if(result.error&&result.error.code!=="23505")console.error("Booking attribution snapshot save failed",{businessId:input.businessId,bookingId:input.bookingId,code:result.error.code});
 }
 
 export function attributionFromSearch(search:URLSearchParams,fallback?:URLSearchParams):AttributionValues { return Object.fromEntries(attributionKeys.map(key=>[key,clean(search.get(key))||clean(fallback?.get(key))]).filter(([,value])=>Boolean(value))) as AttributionValues; }
