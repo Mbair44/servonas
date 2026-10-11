@@ -15,6 +15,7 @@ import {
   googleAdsRecommendedLandingPages,
   logGoogleAdsKeywordReviewStage,
   googleAdsReadyLabel,
+  loadGoogleAdsConnectionSummary,
   loadTenantGoogleAdsAccess,
   recordGoogleAdsBetaEvent,
   runGoogleAdsPermissionDiagnostic,
@@ -434,7 +435,23 @@ export default async function GoogleAdsPage({
  if (!canEdit) return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile} /><section className="epic3-content marketing-page"><div className="workspace-notice error">Only owners and administrators can manage Google Ads.</div></section></main>;
  await checkGoogleAdsBusinessIssues({ businessId: business.id, businessSlug, freshnessMinutes: 20 }).catch(() => null);
 
- const [{ data: services }, { data: inventory }, { data: categories }, { data: categoryPages }, { data: territories }, { data: website }, connectionQuery, { data: campaigns }, { data: adGroups }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
+ // This intentionally uses a server-side, redacted read. The connection table
+ // stores an OAuth refresh token and correctly denies the workspace client.
+ const connectionSummary = loadGoogleAdsConnectionSummary(business.id).catch((error) => {
+  console.error("google_ads_page_dependency_failed", {
+   provider: "supabase",
+   endpointHost: "supabase",
+   endpointPath: "business_google_ads_connections",
+   stage: "google_ads_page_connection_summary_read",
+   requestType: "google_ads_connection_page_read",
+   httpStatus: 500,
+   businessId: business.id,
+   errorMessage: error instanceof Error ? error.message : "Google Ads connection could not be loaded.",
+  });
+  return null;
+ });
+
+ const [{ data: services }, { data: inventory }, { data: categories }, { data: categoryPages }, { data: territories }, { data: website }, connection, { data: campaigns }, { data: adGroups }, { data: auditLog }, { data: betaEvents }, { data: betaFeedback }, { data: marketingIssues }] = await Promise.all([
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_services_read", endpointPath: "services", requestType: "google_ads_page_services_read" }, supabase.from("services").select("id,name,description").eq("business_id", business.id).eq("active", true).eq("is_deleted", false).order("sort_order").order("name")),
   // Inventory enriches offer choices only; it is intentionally independent of Google Ads rendering.
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_inventory_read", endpointPath: "inventory_items", requestType: "google_ads_page_inventory_read" }, supabase.from("inventory_items").select("id,name,description").eq("business_id", business.id).eq("active", true).order("created_at", { ascending: false }).order("name")),
@@ -442,7 +459,7 @@ export default async function GoogleAdsPage({
   supabase.from("category_website_pages").select("id,category_id,slug,status,title").eq("business_id",business.id),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_territories_read", endpointPath: "workforce_territories", requestType: "google_ads_page_territories_read" }, supabase.from("workforce_territories").select("name").eq("business_id", business.id).eq("is_active", true).order("name")),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_website_read", endpointPath: "business_website_settings", requestType: "google_ads_page_website_read" }, supabase.from("business_website_settings").select("public_slug,custom_domain,status,domain_status,hero_heading,hero_subheading,about_text").eq("business_id", business.id).maybeSingle()),
-  logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_connection_read", endpointPath: "business_google_ads_connections", requestType: "google_ads_connection_page_read" }, supabase.from("business_google_ads_connections").select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id,last_issue_check_at,last_issue_check_failed_at,last_issue_check_error").eq("business_id", business.id).maybeSingle()),
+  connectionSummary,
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_campaigns_read", endpointPath: "business_google_ads_campaigns", requestType: "google_ads_page_campaigns_read" }, supabase.from("business_google_ads_campaigns").select("*").eq("business_id", business.id).order("updated_at", { ascending: false })),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_ad_groups_read", endpointPath: "business_google_ads_ad_groups", requestType: "google_ads_page_ad_groups_read" }, supabase.from("business_google_ads_ad_groups").select("*").eq("business_id", business.id).order("updated_at", { ascending: false })),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_audit_read", endpointPath: "business_google_ads_audit_log", requestType: "google_ads_page_audit_read" }, supabase.from("business_google_ads_audit_log").select("campaign_id,event_type,metadata,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(100)),
@@ -450,21 +467,6 @@ export default async function GoogleAdsPage({
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_feedback_read", endpointPath: "business_google_ads_beta_feedback", requestType: "google_ads_page_feedback_read" }, supabase.from("business_google_ads_beta_feedback").select("rating,feedback,created_at").eq("business_id", business.id).order("created_at", { ascending: false }).limit(5)),
   logGoogleAdsPageGet({ businessId: business.id, stage: "google_ads_page_marketing_issues_read", endpointPath: "business_marketing_issues", requestType: "google_ads_marketing_issues_read" }, supabase.from("business_marketing_issues").select("*").eq("business_id", business.id).eq("provider", "google_ads").eq("status", "active").order("updated_at", { ascending: false })),
  ]);
- const { data: connection, error: connectionQueryError } = connectionQuery;
- if (connectionQueryError) {
-  console.error("google_ads_page_dependency_failed", {
-   provider: "supabase",
-   endpointHost: "supabase",
-   endpointPath: "business_google_ads_connections",
-   stage: "google_ads_page_connection_read",
-   requestType: "google_ads_connection_page_read",
-   httpStatus: Number((connectionQueryError as { status?: unknown }).status) || 400,
-   businessId: business.id,
-   errorCode: connectionQueryError.code,
-   errorMessage: connectionQueryError.message,
-  });
- }
-
  let connectionAccess: Awaited<ReturnType<typeof loadTenantGoogleAdsAccess>> | null = null;
  let connectionError: string | null = null;
  let metricsError: string | null = null;

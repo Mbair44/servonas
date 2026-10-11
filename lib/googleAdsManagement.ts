@@ -79,6 +79,30 @@ export type GoogleAdsConnectionIdentity = {
  email: string | null;
  name: string | null;
 };
+
+/**
+ * The OAuth connection row contains a refresh token and must never be queried
+ * with the workspace/browser Supabase client. This intentionally redacted
+ * shape is safe for an already-authorized server-rendered workspace page.
+ */
+export type GoogleAdsConnectionSummary = {
+ google_ads_customer_id: string | null;
+ accessible_customer_ids: string[];
+ accessible_customer_labels: Record<string, unknown>;
+ status: GoogleAdsConnectionStatus | null;
+ google_authenticated_email: string | null;
+ google_authenticated_name: string | null;
+ account_discovery_last_successful_at: string | null;
+ account_discovery_last_attempted_at: string | null;
+ account_discovery_retry_after_at: string | null;
+ account_discovery_last_http_status: number | null;
+ account_discovery_last_google_status: string | null;
+ account_discovery_last_message: string | null;
+ account_discovery_last_request_id: string | null;
+ last_issue_check_at: string | null;
+ last_issue_check_failed_at: string | null;
+ last_issue_check_error: string | null;
+};
 export type GoogleAdsOauthCompletionResult = {
  refreshToken: string;
  accessToken: string;
@@ -2181,6 +2205,35 @@ export async function completeGoogleAdsOauth(code: string, context: { businessId
  if (!token.refresh_token) throw new Error("Google did not provide long-term Google Ads access. Remove Servonas from Google permissions and connect again.");
  const authenticatedIdentity = await fetchGoogleAdsAuthenticatedIdentity(token.access_token!, token.id_token ?? null, context);
  return { refreshToken: token.refresh_token, accessToken: token.access_token!, authenticatedIdentity };
+}
+
+export async function loadGoogleAdsConnectionSummary(businessId: string): Promise<GoogleAdsConnectionSummary | null> {
+ const db = getSupabaseAdmin();
+ if (!db) throw new Error("Google Ads connection storage is unavailable.");
+ const { data, error } = await db.from("business_google_ads_connections")
+  .select("google_ads_customer_id,accessible_customer_ids,accessible_customer_labels,status,google_authenticated_email,google_authenticated_name,account_discovery_last_successful_at,account_discovery_last_attempted_at,account_discovery_retry_after_at,account_discovery_last_http_status,account_discovery_last_google_status,account_discovery_last_message,account_discovery_last_request_id,last_issue_check_at,last_issue_check_failed_at,last_issue_check_error")
+  .eq("business_id", businessId)
+  .maybeSingle();
+ if (error) throw new Error("Google Ads connection could not be loaded.");
+ if (!data) return null;
+ return {
+  google_ads_customer_id: typeof data.google_ads_customer_id === "string" ? data.google_ads_customer_id : null,
+  accessible_customer_ids: Array.isArray(data.accessible_customer_ids) ? data.accessible_customer_ids.filter((id): id is string => typeof id === "string") : [],
+  accessible_customer_labels: data.accessible_customer_labels && typeof data.accessible_customer_labels === "object" && !Array.isArray(data.accessible_customer_labels) ? data.accessible_customer_labels as Record<string, unknown> : {},
+  status: typeof data.status === "string" ? data.status as GoogleAdsConnectionStatus : null,
+  google_authenticated_email: typeof data.google_authenticated_email === "string" ? data.google_authenticated_email : null,
+  google_authenticated_name: typeof data.google_authenticated_name === "string" ? data.google_authenticated_name : null,
+  account_discovery_last_successful_at: typeof data.account_discovery_last_successful_at === "string" ? data.account_discovery_last_successful_at : null,
+  account_discovery_last_attempted_at: typeof data.account_discovery_last_attempted_at === "string" ? data.account_discovery_last_attempted_at : null,
+  account_discovery_retry_after_at: typeof data.account_discovery_retry_after_at === "string" ? data.account_discovery_retry_after_at : null,
+  account_discovery_last_http_status: Number.isFinite(Number(data.account_discovery_last_http_status)) ? Number(data.account_discovery_last_http_status) : null,
+  account_discovery_last_google_status: typeof data.account_discovery_last_google_status === "string" ? data.account_discovery_last_google_status : null,
+  account_discovery_last_message: typeof data.account_discovery_last_message === "string" ? data.account_discovery_last_message : null,
+  account_discovery_last_request_id: typeof data.account_discovery_last_request_id === "string" ? data.account_discovery_last_request_id : null,
+  last_issue_check_at: typeof data.last_issue_check_at === "string" ? data.last_issue_check_at : null,
+  last_issue_check_failed_at: typeof data.last_issue_check_failed_at === "string" ? data.last_issue_check_failed_at : null,
+  last_issue_check_error: typeof data.last_issue_check_error === "string" ? data.last_issue_check_error : null,
+ };
 }
 
 export async function loadTenantGoogleAdsAccess(businessId: string) {
