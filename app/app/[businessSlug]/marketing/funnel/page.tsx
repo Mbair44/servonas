@@ -575,15 +575,16 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     </section>
 
     <section className="workspace-panel">
-      <header><div><h2>Booking funnel</h2><p>Unique anonymous sessions reaching each stage. A session is counted once per stage, even when it repeats an interaction.</p></div></header>
+      <header><div><h2>From website visit to booking</h2><p>Follow the same visitors through four booking milestones. Each session counts once, including repeat visits to a step.</p></div></header>
       <div className="marketing-sources-table">
-        <div><b>Stage</b><b>Sessions</b><b>From prior stage</b><b>Drop-off</b></div>
-        {bookingJourney.stages.map((step) => {
-          return <div key={step.key}><span>{step.label}</span><span>{step.count}</span><span>{percent(step.conversionRate)}</span><span>{step.dropOffRate == null ? "—" : `${percent(step.dropOffRate)}${step.dropOffSessions ? ` (${step.dropOffSessions})` : ""}`}</span></div>;
-        })}
+        <div><b>Milestone</b><b>Sessions</b><b>Reached from previous</b><b>No next milestone recorded</b></div>
+        {bookingJourney.stages.map((step) => <div key={step.key}><span>{step.label}</span><span>{step.count}</span><span>{percent(step.conversionRate)}</span><span>{step.dropOffRate == null ? "—" : `${step.dropOffSessions} (${percent(step.dropOffRate)})`}</span></div>)}
         <div><span>Visit-to-booking conversion</span><span>{percent(bookingJourney.overallConversionRate)}</span><span>—</span><span>—</span></div>
       </div>
-      {bookingJourney.largestDropOff ? <aside className="marketing-session-insight-card"><div><span className="sv-kicker">Largest abandonment</span><strong>{bookingJourney.largestDropOff.dropOffSessions} session{bookingJourney.largestDropOff.dropOffSessions === 1 ? "" : "s"} did not continue after {bookingJourney.stages[Math.max(0, bookingJourney.stages.findIndex((stage) => stage.key === bookingJourney.largestDropOff?.key) - 1)]?.label.toLowerCase() ?? "the prior stage"}.</strong><p>{bookingJourney.largestDropOff.label}: {bookingJourney.largestDropOff.count} session{bookingJourney.largestDropOff.count === 1 ? "" : "s"} reached this stage, a {percent(bookingJourney.largestDropOff.dropOffRate)} drop from the prior observed stage.</p></div></aside> : <p className="marketing-checkout-reconciliation">No abandonment pattern is available yet. Servonas will show it after sessions advance through more than one funnel stage.</p>}
+      <p className="marketing-checkout-reconciliation">Booking activity includes opening the booking flow, selecting a date or rental, checking availability, entering details, or proceeding to checkout. A confirmed booking also counts toward earlier milestones. “No next milestone recorded” can include visitors still booking or missing tracking; it does not prove abandonment.</p>
+      {(bookingJourney.excludedActivitySessions>0||bookingJourney.unmatchedBookings>0)&&<p className="workspace-notice warning">Tracking coverage: {bookingJourney.excludedActivitySessions} activity session(s) and {bookingJourney.unmatchedBookings} confirmed booking(s) could not be matched to a website visit in this reporting window. They are excluded from these conversion rates.</p>}
+      {bookingJourney.largestDropOff&&<aside className="marketing-session-insight-card"><div><span className="sv-kicker">Where to look next</span><strong>{bookingJourney.largestDropOff.dropOffSessions} session{bookingJourney.largestDropOff.dropOffSessions===1?"":"s"} reached {bookingJourney.stages[bookingJourney.stages.findIndex(stage=>stage.key===bookingJourney.largestDropOff?.key)-1]?.label.toLowerCase()} without a recorded {bookingJourney.largestDropOff.label.toLowerCase()} milestone.</strong><p>Use the activity details below to investigate where visitors stop. Small samples and missing tracking can affect the result.</p></div></aside>}
+      <details><summary>View individual booking interactions</summary><p>Optional actions visitors took, in any order. Percentages compare each action with website visits, not the row above. These counts are observed events; missing steps are not filled in.</p><div className="marketing-sources-table"><div><b>Interaction</b><b>Sessions</b><b>Share of website visits</b><b>Measure</b></div>{bookingJourney.observedStages.map(step=><div key={step.key}><span>{step.label}</span><span>{step.count}</span><span>{percent(step.visitRate)}</span><span>Observed activity</span></div>)}</div></details>
     </section>
 
     <section className="workspace-panel">

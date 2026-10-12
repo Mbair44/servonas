@@ -4,7 +4,7 @@ import test from "node:test";
 import {attributionFromSearch,validSessionId} from "../lib/bookingFunnel.ts";
 import {attachSessionMetricsToSourceReport,automatedTrafficClassification,buildBookingJourneyFunnel,buildCampaignPerformanceReport,buildOrganicProviderPerformanceReport,buildSessionDurationBuckets,buildSessionQualityReport,buildSourceCheckoutFunnelReport,buildSourcePerformanceReport,buildLandingPageFunnelReport,normalizeMarketingSource,normalizeSessionAttribution,organicProviderFor,resolveMetaAttributionName,sessionEngagementClassification,verificationStatusForSession} from "../lib/marketingAttribution.ts";
 
-test("builds a session-deduplicated booking journey and identifies the actual abandonment stage",()=>{
+test("builds a session-deduplicated milestone journey and identifies missing progression",()=>{
  const funnel=buildBookingJourneyFunnel([
   {attribution_session_id:"s1",event_name:"landing_view"},{attribution_session_id:"s1",event_name:"inventory_view"},{attribution_session_id:"s1",event_name:"booking_started"},{attribution_session_id:"s1",event_name:"date_selected"},{attribution_session_id:"s1",event_name:"item_added_to_cart"},{attribution_session_id:"s1",event_name:"availability_check"},{attribution_session_id:"s1",event_name:"customer_info_started"},{attribution_session_id:"s1",event_name:"final_price_presented"},{attribution_session_id:"s1",event_name:"checkout_started"},
   {attribution_session_id:"s2",event_name:"landing_view"},{attribution_session_id:"s2",event_name:"inventory_view"},{attribution_session_id:"s2",event_name:"booking_started"},{attribution_session_id:"s2",event_name:"booking_started"},{attribution_session_id:"s2",event_name:"date_selected"},
@@ -13,7 +13,7 @@ test("builds a session-deduplicated booking journey and identifies the actual ab
  assert.equal(funnel.stages.find(stage=>stage.key==="booking_flow_opened")?.count,2);
  assert.equal(funnel.stages.find(stage=>stage.key==="booking_completed")?.count,1);
  assert.equal(funnel.overallConversionRate,0.5);
- assert.equal(funnel.largestDropOff?.key,"item_selected");
+ assert.equal(funnel.largestDropOff?.key,"checkout_payment_started");
 });
 
 test("captures Google click IDs and UTMs without retaining unrelated query values",()=>{
