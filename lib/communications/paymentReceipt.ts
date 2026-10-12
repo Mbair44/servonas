@@ -1,0 +1,16 @@
+const esc=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]!));
+export const paymentReceiptEvents=["payment_succeeded","partial_payment","invoice_paid","receipt_sent"];
+export function canonicalFinancialEmailEvent<T extends string>(event:T):T|"receipt_sent"{
+ return paymentReceiptEvents.includes(event)?"receipt_sent":event;
+}
+export function renderPaymentReceipt(input:{businessName:string;customerName:string;invoiceNumber:string;amountCents:number;balanceCents:number;currency:string;paidAt?:string|null;method?:string|null}){
+ const money=(cents:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:input.currency}).format(cents/100);
+ const amount=money(input.amountCents),balance=input.balanceCents>0?money(input.balanceCents):"Paid in full";
+ const date=input.paidAt?new Date(input.paidAt):null;
+ const paidDate=date&&!Number.isNaN(date.getTime())?new Intl.DateTimeFormat("en-US",{month:"long",day:"numeric",year:"numeric",timeZone:"UTC"}).format(date):null;
+ const method=input.method?input.method.replaceAll("_"," "):null;
+ const text=[`Payment receipt — ${input.businessName}`,`Hi ${input.customerName||"there"},`,`Thank you! We received your payment of ${amount}.`,`Invoice: ${input.invoiceNumber}`,paidDate?`Payment date: ${paidDate} (UTC)`:null,method?`Payment method: ${method}`:null,`Remaining balance: ${balance}`,"Keep this email for your records.","Powered by Servonas"].filter(Boolean).join("\n\n");
+ const row=(label:string,value:string)=>`<tr><td style="padding:10px 0;color:#5b6475">${esc(label)}</td><td style="padding:10px 0;text-align:right">${esc(value)}</td></tr>`;
+ const html=`<div style="background:#f6f8fc;padding:28px 12px;font-family:Arial,sans-serif;line-height:1.6;color:#172033"><div style="max-width:620px;margin:auto;background:#fff;border-radius:18px;overflow:hidden"><div style="padding:32px 28px;background:#6750e8;background:linear-gradient(135deg,#6750e8,#3c75e7);color:#fff;text-align:center"><div style="font-size:32px">✓</div><h1 style="font-size:28px;margin:8px 0">Payment received!</h1><p style="margin:0">${esc(input.businessName)}</p></div><div style="padding:28px"><p style="font-size:17px">Hi ${esc(input.customerName||"there")},</p><p>Thank you! Your payment has been received. Here’s your receipt for your records.</p><div style="background:#f4f1ff;border-radius:12px;padding:20px;margin:24px 0;text-align:center"><div style="color:#4f46a5">Amount paid</div><strong style="font-size:32px">${esc(amount)}</strong></div><table role="presentation" style="width:100%;border-collapse:collapse">${row("Invoice",input.invoiceNumber)}${paidDate?row("Payment date (UTC)",paidDate):""}${method?row("Payment method",method):""}<tr><td style="padding:16px 0;border-top:1px solid #e5e7eb"><strong>Remaining balance</strong></td><td style="padding:16px 0;border-top:1px solid #e5e7eb;text-align:right"><strong>${esc(balance)}</strong></td></tr></table><p style="margin:24px 0 0;color:#5b6475">${input.balanceCents>0?"This receipt confirms this payment. Your remaining balance is shown above.":"You’re all paid up. Thank you!"}</p></div><div style="padding:18px;text-align:center;color:#667085;font-size:12px;border-top:1px solid #e5e7eb">Powered by Servonas</div></div></div>`;
+ return {text,html};
+}

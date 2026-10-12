@@ -113,9 +113,8 @@ async function processInvoicePaymentEvent(
     if(reconcileError)throw new Error(`Payment reconciliation failed (${reconcileError.code}).`);
     const invoiceId=reconciled?.[0]?.invoice_id;
     if(invoiceId){
-      const notification=status==="failed"?"payment_failed":status==="succeeded"?(reconciled[0].invoice_status==="paid"?"invoice_paid":"partial_payment"):null;
+      const notification=status==="failed"?"payment_failed":status==="succeeded"?"receipt_sent":null;
       if(notification)await sendInvoiceFinancialEmail(invoiceId,notification,{paymentId:payment.id});
-      if(status==="succeeded")await sendInvoiceFinancialEmail(invoiceId,"receipt_sent",{paymentId:payment.id});
     }
     await supabase.from("payment_webhook_events").update({
       processing_status:"processed",processed_at:new Date().toISOString(),

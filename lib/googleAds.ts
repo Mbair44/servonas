@@ -1,4 +1,4 @@
-import {activeGoogleAdsContext,type GoogleTag} from "./googleTag.ts";
+import {activeGoogleAdsContext,updateGoogleAdsConsent,type GoogleTag} from "./googleTag.ts";
 
 export const GOOGLE_ADS_SIGNUP_CONVERSION =
  process.env.NEXT_PUBLIC_GOOGLE_ADS_SIGNUP_CONVERSION ??
@@ -26,6 +26,7 @@ export function trackGoogleAdsConversion(input:string|TenantGoogleAdsConversion,
   if(storageKey&&window.sessionStorage.getItem(storageKey)==="sent")return false;
   const gtag=(window as typeof window & {gtag?:GoogleTag}).gtag;
   if(typeof gtag!=="function")return false;
+  updateGoogleAdsConsent();
   gtag("event","conversion",{
    send_to:sendTo,
    ...(details.eventCallback?{event_callback:details.eventCallback}:{}),

@@ -1,15 +1,15 @@
 "use client";
 import {useEffect} from "react";
 import {usePathname} from "next/navigation";
-import {activateGoogleAdsTag,googleAdsConsentGranted} from "@/lib/googleTag";
+import {activateGoogleAdsTag,updateGoogleAdsConsent} from "@/lib/googleTag";
 
 export function TenantGoogleAdsTag({tagId,scope}:{tagId:string|null;scope:string}){
  const pathname=usePathname();
  useEffect(()=>{
   let release:(()=>void)|null=null;
   const update=()=>{
-   if(!googleAdsConsentGranted()){release?.();release=null;return;}
    if(!release)release=activateGoogleAdsTag(tagId,scope);
+   if(release)updateGoogleAdsConsent();
   };
   update();
   window.addEventListener("storage",update);

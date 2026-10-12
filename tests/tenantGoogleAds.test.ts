@@ -1,7 +1,7 @@
 import test,{afterEach} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {activateGoogleAdsTag,normalizeGoogleAdsTagId,isPlatformGoogleAdsPath} from "../lib/googleTag.ts";
+import {activateGoogleAdsTag,normalizeGoogleAdsTagId,isPlatformGoogleAdsPath,updateGoogleAdsConsent} from "../lib/googleTag.ts";
 import {trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion} from "../lib/googleAds.ts";
 
 const csb="AW-18406171248",other="AW-12345678901";
@@ -16,13 +16,29 @@ function browser(consent:string|null="granted",existing?:"gtag"|"ga4"|"gtm"){
 }
 afterEach(()=>{Reflect.deleteProperty(globalThis,"window");Reflect.deleteProperty(globalThis,"document");});
 
-test("CSB initializes only after consent and queues its own page view",()=>{
+const denied={ad_storage:"denied",analytics_storage:"denied",ad_user_data:"denied",ad_personalization:"denied"};
+const granted={ad_storage:"granted",analytics_storage:"granted",ad_user_data:"granted",ad_personalization:"denied"};
+test("CSB base tag loads with denied defaults before any config or event",()=>{
  const b=browser(null);
- assert.equal(activateGoogleAdsTag(csb,"csb"),null);assert.equal(b.scripts.length,0);assert.equal(b.events().length,0);
- b.state.consent="denied";assert.equal(activateGoogleAdsTag(csb,"csb"),null);
- b.state.consent="granted";assert.ok(activateGoogleAdsTag(csb,"csb"));
+ assert.ok(activateGoogleAdsTag(csb,"csb"));
  assert.equal(b.scripts[0].src,`https://www.googletagmanager.com/gtag/js?id=${csb}`);assert.equal(b.scripts[0].async,true);
- assert.deepEqual(b.events().slice(1),[["config",csb,{send_page_view:false,groups:"servonas_csb_AW_18406171248"}],["event","page_view",{send_to:csb}]]);
+ assert.deepEqual(b.events()[0],["consent","default",denied]);
+ assert.deepEqual(b.events().slice(2),[["config",csb,{send_page_view:false,groups:"servonas_csb_AW_18406171248"}],["event","page_view",{send_to:csb}]]);
+ assert.equal(trackGoogleAdsConversion({sendTo:`${csb}/test_label`}),false);
+ assert.equal(b.events().some(e=>e[1]==="conversion"),false);
+});
+test("existing choice updates consent, including revocation, without reloading",()=>{
+ const b=browser(null);activateGoogleAdsTag(csb,"csb");
+ b.state.consent="granted";updateGoogleAdsConsent();updateGoogleAdsConsent();
+ assert.deepEqual(b.events().at(-1),["consent","update",granted]);
+ assert.equal(b.events().filter(e=>e[1]==="update").length,1);
+ b.state.consent="denied";updateGoogleAdsConsent();
+ assert.deepEqual(b.events().at(-1),["consent","update",denied]);
+ assert.equal(trackGoogleAdsConversion({sendTo:`${csb}/test_label`}),false);assert.equal(b.scripts.length,1);
+});
+test("returning consent is restored after denied defaults and before config",()=>{
+ const b=browser("granted");activateGoogleAdsTag(csb,"csb");
+ assert.deepEqual(b.events().slice(0,2),[["consent","default",denied],["consent","update",granted]]);
 });
 test("missing and invalid IDs cannot load scripts or inject code",()=>{
  const b=browser();
@@ -70,7 +86,7 @@ test("private/preview paths and platform tag on tenant paths never track",()=>{
 test("unavailable storage and server execution safely no-op",()=>{
  assert.equal(trackGoogleAdsConversion({sendTo:`${csb}/test_label`}),false);
  const b=browser();b.win.localStorage.getItem=()=>{throw new Error("blocked");};
- assert.equal(activateGoogleAdsTag(csb,"csb"),null);assert.equal(trackGoogleAdsConversion({sendTo:`${csb}/test_label`}),false);
+ assert.ok(activateGoogleAdsTag(csb,"csb"));assert.deepEqual(b.events()[0],["consent","default",denied]);assert.equal(trackGoogleAdsConversion({sendTo:`${csb}/test_label`}),false);
 });
 test("schema seed, authorized settings, and public route resolution remain tenant scoped",async()=>{
  const read=(path:string)=>readFile(new URL(`../${path}`,import.meta.url),"utf8");

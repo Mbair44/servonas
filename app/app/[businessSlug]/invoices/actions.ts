@@ -682,7 +682,7 @@ export async function recordOfflinePayment(slug:string,invoiceId:string,data:For
   });
   if(error){console.error("Offline invoice payment failed",{code:error.code,message:error.message,businessId:business.id,invoiceId});const message=error.code==="23514"?"Payment exceeds the balance or the invoice cannot accept payments.":["PGRST202","42883"].includes(error.code??"")?"Payment recording is not available yet. Apply the required invoice payment migration.":error.code==="42501"?"You do not have permission to record this payment.":"Payment could not be recorded. Please try again or contact support.";redirect(path(slug,invoiceId,"error",message));}
   const {data:payment}=await supabase.from("payments").select("id").eq("business_id",business.id).eq("idempotency_key",requestKey).maybeSingle();
-  if(payment){await sendInvoiceFinancialEmail(invoiceId,"payment_succeeded",{paymentId:payment.id});await sendRentalLifecycleSms({paymentId:payment.id,type:"payment_receipt"}).catch(()=>console.error("Rental payment receipt SMS failed",{businessId:business.id,invoiceId,paymentId:payment.id}));}
+  if(payment){await sendInvoiceFinancialEmail(invoiceId,"receipt_sent",{paymentId:payment.id});await sendRentalLifecycleSms({paymentId:payment.id,type:"payment_receipt"}).catch(()=>console.error("Rental payment receipt SMS failed",{businessId:business.id,invoiceId,paymentId:payment.id}));}
   revalidatePath(`/app/${slug}/invoices/${invoiceId}`);
   redirect(path(slug,invoiceId,"success","Offline payment recorded"));
 }
