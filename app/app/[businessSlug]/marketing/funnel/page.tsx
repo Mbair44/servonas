@@ -1,3 +1,4 @@
+import {loadOverdueInvoiceSummary} from "@/lib/financial/invoiceReceivables";
 import {loadMetaAttributionResources} from "@/lib/metaAttributionResources";
 import {availablePaidSpend,sourcePaidEconomics,totalPaidEconomics,formatPaidRoas,paidEconomicsHelp} from "@/lib/paidSourceEconomics";
 import Link from "next/link";
@@ -279,7 +280,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("business_payment_accounts").select("onboarding_status,charges_enabled,payouts_enabled,details_submitted").eq("business_id", business.id).eq("provider", "stripe").maybeSingle(),
     supabase.from("website_service_requests").select("id,lead_status,created_at").eq("business_id", business.id).order("created_at", { ascending: true }).limit(20),
     supabase.from("estimates").select("id,status,created_at,updated_at").eq("business_id", business.id).eq("is_deleted", false).in("status", ["sent", "viewed"]).order("created_at", { ascending: true }).limit(20),
-    supabase.from("invoices").select("id,balance_due_cents,due_date,status").eq("business_id", business.id).eq("is_deleted", false).gt("balance_due_cents", 0).lt("due_date", new Date().toISOString().slice(0, 10)).limit(50),
+    loadOverdueInvoiceSummary(supabase,business.id,dateInTimeZone(new Date(),business.timezone||"America/Phoenix")),
     supabase.from("business_google_ads_connections").select("status,google_ads_customer_id").eq("business_id", business.id).maybeSingle(),
     supabase.from("business_google_ads_campaigns").select("id,status,campaign_name,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
     supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
@@ -476,10 +477,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         awaitingResponseCount: (estimatesResponse.data ?? []).length,
         oldestAwaitingResponseAt: ((estimatesResponse.data ?? []) as Array<{ created_at?: string | null }>)[0]?.created_at ?? null,
       },
-      invoices: {
-        overdueCount: (invoicesResponse.data ?? []).length,
-        overdueAmountCents: ((invoicesResponse.data ?? []) as Array<{ balance_due_cents?: number | null }>).reduce((sum, row) => sum + Math.max(0, Number(row.balance_due_cents ?? 0)), 0),
-      },
+      invoices: invoicesResponse,
     });
   }
   const aiInsights = await loadInsights();

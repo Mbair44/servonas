@@ -540,7 +540,7 @@ function buildDeterministicInsights(input: AiInsightEngineInput) {
       whyItMatters: "Overdue invoices can turn completed work into delayed cash flow.",
       recommendedAction: "Review the overdue invoices and follow up with those customers.",
       actionLabel: "View invoices",
-      actionHref: `/app/${input.businessSlug}/invoices`,
+      actionHref: `/app/${input.businessSlug}/invoices?status=overdue`,
       priority: "high",
       source: "financial",
       confidence: "high",
