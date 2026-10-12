@@ -1,5 +1,6 @@
 "use server";
 import {revalidatePath,revalidateTag} from "next/cache";import {redirect} from "next/navigation";import {requireWorkspace} from "@/lib/workspace";import {canManageBusiness} from "@/lib/access";
+import {parsePromotionDetails,updatePromotionDetails} from "@/lib/promotionEditing";
 import {parseDiscountTiers} from "@/lib/discountTiers";
 const path=(slug:string)=>`/app/${slug}/marketing/promotions`;
 export async function createPromotion(slug:string,data:FormData){
@@ -36,4 +37,18 @@ export async function savePromotionCategories(slug:string,promotionId:string,dat
  if(error){console.error("Promotion category repair failed",{businessId:business.id,promotionId,code:error.code,message:error.message});redirect(`${path(slug)}?error=${encodeURIComponent(error.code==="PGRST202"?"Apply the promotion eligibility repair migration, then save the categories again.":"The categories could not be saved. Verify the category migrations are applied and choose categories belonging to this business.")}`);}
  revalidateTag("public-promotion-inventory");revalidatePath(path(slug));revalidatePath(`/app/${slug}/marketing/discounts`);
  redirect(`${path(slug)}?success=Eligible+categories+saved.+The+existing+promotion+URL+is+ready+to+retry.`);
+}
+
+
+export async function editPromotion(slug:string,promotionId:string,_previous:{error:string;success:string},data:FormData){
+ const {supabase,business,role}=await requireWorkspace(slug);
+ if(!canManageBusiness(role))return {error:"You do not have permission to edit promotions.",success:""};
+ try{
+  await updatePromotionDetails(supabase,business.id,promotionId,parsePromotionDetails(data));
+ }catch(error){return {error:error instanceof Error?error.message:"The promotion could not be saved.",success:""};}
+ revalidateTag("public-promotion-inventory");
+ revalidatePath(path(slug));
+ revalidatePath("/sites/[siteSlug]/[promotionSlug]","page");
+ revalidatePath("/sites/domain/[domain]/[promotionSlug]","page");
+ return {error:"",success:"Promotion saved."};
 }
