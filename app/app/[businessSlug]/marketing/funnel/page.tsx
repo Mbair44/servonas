@@ -265,7 +265,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const attributionModel:AttributionModel=["first_touch","last_touch","last_non_direct"].includes(q.attributionModel??"")?q.attributionModel as AttributionModel:"last_touch";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
-  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, metaResourceResult] = await Promise.all([
+  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, metaResourceResult, offlineQrResponse] = await Promise.all([
     supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,device_type)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("business_ad_platform_daily_performance").select("provider,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend_amount,currency").eq("business_id", business.id).in("provider", ["meta","google_ads"]).gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
@@ -285,7 +285,9 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("business_google_ads_campaigns").select("id,status,campaign_name,google_campaign_id,google_campaign_status,google_campaign_primary_status,google_campaign_primary_status_reasons").eq("business_id", business.id),
     supabase.from("booking_attribution_sessions").select("id,session_started_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,browser,operating_system,device_type,first_interaction_type,first_interaction_label,first_interaction_identifier,first_interaction_path,first_interaction_at,time_to_first_interaction_milliseconds,meaningful_interaction_count,automated_classification,automated_classification_reason,total_session_duration_seconds,engaged_duration_seconds,total_session_duration_milliseconds,engaged_duration_milliseconds,duration_source,duration_final_flush_received,page_count,engaged_page_count").eq("business_id", business.id).gte("last_seen_at", window.from).lt("last_seen_at", window.to),
     loadMetaAttributionResources(supabase, business.id),
+    supabase.rpc("offline_qr_campaign_report", {p_business_id:business.id,p_from:window.from,p_to:window.to}),
   ]);
+  const offlineQrRows = (offlineQrResponse.data ?? []) as Array<{campaign:string;visits:number;booking_page_visits:number;checkout_starts:number;completed_bookings:number;converted_sessions:number;booked_revenue_cents:number;cost_cents:number|null}>;
   const metaPerformanceRows = metaResourceResult.rows;
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
@@ -298,7 +300,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     (source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source) &&
     (!campaign || (row.utm_campaign ?? "").trim() === campaign) &&
     (device === "all" || (row.device_type ?? "other") === device);
-  const campaignOptions = [...new Set(rawSessions.filter((row) => source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source).map((row) => row.utm_campaign?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right));
+  const campaignOptions = [...new Set([...offlineQrRows.map(row=>row.campaign), ...rawSessions.filter((row) => source === "all" || normalizeMarketingSource(row, metaPerformanceRows) === source).map((row) => row.utm_campaign?.trim()).filter((value): value is string => Boolean(value))])].sort((left, right) => left.localeCompare(right));
   const sessionById = new Map(rawSessions.map((row) => [row.id, row]));
   const events = ((eventsResponse.data ?? []) as FunnelEventRow[]).filter((row) => {
     const joined = Array.isArray(row.booking_attribution_sessions) ? row.booking_attribution_sessions[0] : row.booking_attribution_sessions;
@@ -505,6 +507,19 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         <a className="sv-button sv-secondary sv-small" href={`/app/${businessSlug}/marketing/funnel?${queryString({ range: "month", source })}`}>This month</a>
       </div>
       <p className="marketing-filter-note"><strong>{attributionModelLabels[attributionModel]}</strong> is the selected model. Each booking is counted once in this model; first-touch and last-touch totals are alternative views and are never combined. The report date range controls when the interaction happened.</p>
+    </section>
+
+    <section className="workspace-panel">
+      <h2>Offline QR campaigns</h2>
+      <p>Unique sessions arriving in the selected dates via offline / qr links, and their eventual booking outcomes. Reloads count once. Suspected bots are excluded. This section uses the arrival campaign; source, device and attribution-model filters above do not change it.</p>
+      <p>Booked revenue is the full confirmed booking value, including unpaid balances, excluding canceled and expired bookings. Conversion is the percentage of arrival sessions with a confirmed booking. Return is this cohort’s booked revenue divided by the campaign’s entire one-time cost.</p>
+      {offlineQrResponse.error ? <p role="status">Offline campaign reporting is unavailable. Apply the offline QR campaign reporting migration and refresh.</p> : offlineQrRows.length ? offlineQrRows.filter(row=>!campaign||row.campaign===campaign).map(row=><article key={row.campaign}>
+        <h3>{row.campaign}</h3>
+        <dl className="marketing-kpi-grid">
+          {[["Visits",row.visits],["Booking page visits",row.booking_page_visits],["Checkout starts",row.checkout_starts],["Completed bookings",row.completed_bookings],["Booked revenue",money(row.booked_revenue_cents)],["Conversion rate",row.visits?`${(100*row.converted_sessions/row.visits).toFixed(1)}%`:"—"],["One-time campaign cost",row.cost_cents===null?"Not recorded":money(row.cost_cents)],["Return on campaign spend",row.cost_cents?`${(row.booked_revenue_cents/row.cost_cents).toFixed(2)}×`:"—"]].map(([label,value])=><div key={label}><dt>{label}</dt><dd><strong>{value}</strong></dd></div>)}
+        </dl>
+      </article>) : <p>No offline QR campaign visits recorded for these dates.</p>}
+      <small>These are tagged website visits, not physical QR scans or unique people. Shared links also receive campaign credit. Use a wider date range to see the sign’s cumulative return.</small>
     </section>
 
     <details className="workspace-panel marketing-attribution-note">

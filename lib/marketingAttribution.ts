@@ -1,6 +1,6 @@
 import type {BookingFunnelEvent} from "./bookingFunnel.ts";
 
-export const marketingSources=["google","google_ads","google_business_profile","meta_ads","organic_social","meta_unspecified","direct","organic","referral","email","unknown"] as const;
+export const marketingSources=["google","google_ads","google_business_profile","meta_ads","organic_social","meta_unspecified","direct","organic","referral","email","offline","unknown"] as const;
 export type MarketingSource=(typeof marketingSources)[number];
 export const organicProviders=["google","bing","duckduckgo","yahoo","other"] as const;
 export type OrganicProvider=(typeof organicProviders)[number];
@@ -142,7 +142,7 @@ export function getTrafficTimingAnalytics(input:{sessions:AttributionSessionMetr
 }
 
 export type SessionDurationBucket={key:"timing_unavailable"|"under_1_second"|"one_to_four_seconds"|"five_to_nine_seconds"|"ten_or_more_seconds";label:string;count:number;};
-export type SessionQualitySource="google_business_profile"|"meta_ads"|"organic_social"|"meta_unspecified"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"unknown";
+export type SessionQualitySource="google_business_profile"|"meta_ads"|"organic_social"|"meta_unspecified"|"google_ads"|"organic_search"|"direct"|"referral"|"email"|"sms"|"offline"|"unknown";
 export type SessionEngagementClassification="engaged"|"quick_exit"|"neutral";
 export type AutomatedTrafficClassification="human_likely"|"automated_likely"|"unknown";
 export type SessionVerificationStatus="verified_activity"|"unverified_activity";
@@ -226,6 +226,7 @@ function hasMetaOrigin(session:AttributionSessionLike|null|undefined){
 
 export function normalizeMarketingSource(session:AttributionSessionLike|null|undefined,metaRows:MetaPerformanceNameRow[]=[]):MarketingSource{
  const utmSource=clean(session?.utm_source);
+ if(utmSource==="offline")return "offline";
  const utmMedium=clean(session?.utm_medium);
  const host=referrerHost(session?.first_referrer);
  if(clean(session?.gclid)||clean(session?.gbraid)||clean(session?.wbraid))return "google_ads";
@@ -376,6 +377,7 @@ export function labelForSource(source:MarketingSource){
   organic:"Organic",
   referral:"Referral",
   email:"Email",
+  offline:"Offline / QR",
   unknown:"Unknown",
  } as Record<MarketingSource,string>)[source];
 }
@@ -425,7 +427,7 @@ export function buildSessionDurationBuckets(sessions:AttributionSessionMetricsRo
 
 function sourceLabelForQuality(source:SessionQualitySource){
  return ({meta_ads:"Meta Ads",organic_social:"Organic Social",meta_unspecified:"Meta — unspecified",google_ads:"Google Ads",
-  google_business_profile:"Google Business Profile",organic_search:"Organic Search",direct:"Direct",referral:"Referral",email:"Email",sms:"SMS",unknown:"Unknown"} as Record<SessionQualitySource,string>)[source];
+  google_business_profile:"Google Business Profile",organic_search:"Organic Search",direct:"Direct",referral:"Referral",email:"Email",sms:"SMS",offline:"Offline / QR",unknown:"Unknown"} as Record<SessionQualitySource,string>)[source];
 }
 
 function cleanValue(value:string|null|undefined){

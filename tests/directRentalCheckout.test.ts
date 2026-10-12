@@ -11,7 +11,7 @@ function fixture(){
  const requests:any[]=[],errors:string[]=[],redirects:string[]=[];
  let resolve!:(value:any)=>void;
  const pending=new Promise(r=>{resolve=r;});
- const context:any={checkoutInFlight:{current:false},promoPending:false,date:'2026-10-03',startTime:'09:00',endDate:'2026-10-03',endTime:'17:00',requestRentalPeriod:()=>({endDate:'2026-10-03',endTime:'17:00'}),selected:[{id:'rental'}],priced:()=>({}),trackBookingFunnel:()=>{},businessSlug:'tenant',flowSource:'date_first',setBookingError:(s:string)=>errors.push(s),setSubmitting:()=>{},total:23500,deposit:11750,onlinePaymentsReady:true,cancellationPolicy:null,weatherPolicy:'weather',waiverPolicy:'waiver',appliedPromo:null,attributionSessionId:'session',bookingAttributionSession:()=>'',quantities:{rental:1},operatorFor:()=>false,optionSelections:{},setUpdatedQuote:(q:any)=>{context.quote=q;},setConfirmedTotal:()=>{},setInvoiceLaterConfirmation:()=>{},window:{location:{assign:(url:string)=>redirects.push(url)}},fetch:async(_url:string,options:any)=>{requests.push(JSON.parse(options.body));return pending;}};
+ const context:any={checkoutInFlight:{current:false},promoPending:false,date:'2026-10-03',startTime:'09:00',endDate:'2026-10-03',endTime:'17:00',requestRentalPeriod:()=>({endDate:'2026-10-03',endTime:'17:00'}),selected:[{id:'rental'}],priced:()=>({}),trackBookingFunnel:()=>{},businessSlug:'tenant',flowSource:'date_first',setBookingError:(s:string)=>errors.push(s),setSubmitting:()=>{},total:23500,deposit:11750,onlinePaymentsReady:true,cancellationPolicy:null,weatherPolicy:'weather',waiverPolicy:'waiver',appliedPromo:null,attributionSessionId:'session',bookingAttributionSession:()=>'qr-session',bookingAttributionValues:()=>({utm_source:'offline',utm_medium:'qr',utm_campaign:'sandwich_sign'}),quantities:{rental:1},operatorFor:()=>false,optionSelections:{},setUpdatedQuote:(q:any)=>{context.quote=q;},setConfirmedTotal:()=>{},setInvoiceLaterConfirmation:()=>{},window:{location:{assign:(url:string)=>redirects.push(url)}},fetch:async(_url:string,options:any)=>{requests.push(JSON.parse(options.body));return pending;}};
  context.deliveryStatus='ready';context.requirePublicAmounts=requirePublicAmounts;
  runInNewContext(ts.transpileModule(fn,{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,context);
  const data=new FormData();data.set('agreementAccepted','true');data.set('depositAccepted','true');data.set('finalPaymentAccepted','true');
@@ -20,6 +20,7 @@ function fixture(){
 test('accepted terms go directly to Stripe and rapid duplicate submission is ignored',async()=>{
  const f=fixture();const first=f.submit();await f.submit();assert.equal(f.requests.length,1);
  assert.equal(f.requests[0].acceptedTotalCents,23500);assert.equal(f.requests[0].acceptedDepositCents,11750);
+ assert.equal(f.requests[0].attributionSessionId,'qr-session');assert.deepEqual(f.requests[0].attribution,{utm_source:'offline',utm_medium:'qr',utm_campaign:'sandwich_sign'});
  assert.equal(f.requests[0].depositAccepted,'true');assert.equal(f.requests[0].finalPaymentAccepted,'true');
  f.resolve({ok:true,json:async()=>({url:'https://checkout.stripe.com/test'})});await first;
  assert.deepEqual(f.redirects,['https://checkout.stripe.com/test']);assert.equal(f.context.checkoutInFlight.current,true);
