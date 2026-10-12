@@ -18,7 +18,7 @@ import {zonedDateTimeToUtc} from "@/lib/bookingTime";
 import {validateRentalPromo} from "@/lib/discounts";
 import {calculateRentalCalendarDays,applyRentalDatePrice,resolveRentalPricingRules,resolveRentalDurationRules,rentalDurationAdjustment} from "@/lib/rentalPricing";
 import {operatorCharge} from "@/lib/rentalOperators";
-import {recordBookingFunnelEvent,snapshotBookingAttribution,validSessionId} from "@/lib/bookingFunnel";
+import {ensureCheckoutAttributionSession,recordBookingFunnelEvent,snapshotBookingAttribution,validSessionId} from "@/lib/bookingFunnel";
 import {deliveryQuoteMessage,quoteBusinessDelivery,type DeliveryQuote} from "@/lib/deliveryQuote";
 import type {VerifiedGoogleAddress} from "@/lib/googleAddress";
 import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
@@ -56,6 +56,7 @@ type CheckoutBody = {
   operators?: RequestedOperator[];
   options?: RequestedOption[];
   attributionSessionId?: string;
+  attribution?: unknown;
   additionalHours?: number;
   overnight?: boolean;
 };
@@ -280,7 +281,8 @@ export async function POST(request: Request) {
     const {error:pricingSnapshotError}=await supabase.from("bookings").update({cancellation_policy_acknowledged:policyAcknowledged,cancellation_policy_acknowledged_at:policyAcknowledged?new Date().toISOString():null,cancellation_policy_text_snapshot:cancellationPolicy?.cancellation_policy_enabled?cancellationPolicy.cancellation_policy_text:null,weather_policy_text_snapshot:weatherPolicy,rental_waiver_policy_text_snapshot:waiverPolicy,rental_terms_acknowledged_at:new Date().toISOString(),tax_snapshot:taxCalculation.snapshot,taxable_subtotal_cents:taxCalculation.taxableSubtotalCents,deposit_cents:depositCents,balance_due_cents:taxCalculation.remainingBalanceCents,subtotal_cents:subtotalCents,tax_cents:taxCents,total_cents:totalCents,operator_total_cents:operatorTotalCents,discount_cents:discountCents,discount_id:promo?.ok?promo.discountId:null,discount_code:promo?.ok?promo.code:null,discount_name:promo?.ok?promo.name:null,discount_snapshot:promo?.ok?promo.snapshot:null,delivery_fee_original_cents:deliveryFeeCents,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null,delivery_pricing_method:deliveryQuote?.snapshot.pricingMethod??null,delivery_rule_snapshot:deliveryRuleSnapshot,delivery_origin_snapshot:deliveryQuote?.snapshot.origin??null,delivery_destination_snapshot:deliveryQuote?.snapshot.destination??null,delivery_inside_service_area:deliveryQuote?.insideServiceArea??null,delivery_calculated_at:deliveryQuote?.snapshot.calculatedAt??null,delivery_provider:deliveryQuote?.snapshot.provider??null,delivery_provider_metadata:deliveryQuote?.snapshot.providerMetadata??null}).eq("id",booking.booking_id);
     if(pricingSnapshotError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation pricing could not be finalized. Please try again."},{status:500});}
     if(business){
-      const sessionId=validSessionId(body.attributionSessionId)?body.attributionSessionId:null;
+      const sessionId=await ensureCheckoutAttributionSession(supabase,business.id,body.attributionSessionId,body.attribution);
+      body.attributionSessionId=sessionId??undefined;
       await Promise.allSettled([
         snapshotBookingAttribution(supabase,{businessId:business.id,bookingId:booking.booking_id,sessionId}),
         recordBookingFunnelEvent(supabase,{businessId:business.id,sessionId,event:"booking_started",bookingId:booking.booking_id,customerId:createdBooking?.customer_id??null,inventoryItemId:orderedItems[0]?.id??null,metadata:{item_count:orderedItems.length,delivery_fee_cents:deliveryFeeCents,delivery_distance_miles:deliveryQuote?.distanceMiles??null},bookingTotalCents:totalCents,currency:"USD"}),

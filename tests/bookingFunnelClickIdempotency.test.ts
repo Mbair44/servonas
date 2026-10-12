@@ -3,6 +3,7 @@ import test from "node:test";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import {resolveBookingSession} from "../lib/bookingFunnel.ts";
 
 const read=(path:string)=>readFileSync(new URL(`../${path}`,import.meta.url),"utf8");
 const booking=read("components/PartyRentalBookingClient.tsx");
@@ -25,7 +26,7 @@ function harness(){
  const storage=new Map<string,string>();
  const sessionStorage=new Map<string,string>();
  const noop=()=>{};
- const context=vm.createContext({exports:{},crypto,Set,Map,Date,URLSearchParams,Element:class {},window:{navigator:{userAgent:""},sessionStorage:{getItem:(k:string)=>sessionStorage.get(k)??null,setItem:(k:string,v:string)=>sessionStorage.set(k,v)},localStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)}},location:{pathname:"/book/test",search:"",href:"https://test/book/test"},document:{referrer:""},navigator:{userAgent:""},localStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)},publicBookingFunnelEnabled:()=>true,attributionFromSearch:()=>({}),fetch:(_url:string,options:any)=>{requests.push(JSON.parse(options.body));return Promise.resolve({ok:true,status:204});},businessSlug:"test",date:"2026-09-20",focusedItemId:null,availabilityItemId:null,flowSource:"date_first",initialPromotionCode:null,setAvailabilityItemId:noop,setFocusedItemId:noop,setFlowSource:noop,setDate:noop,setEndDate:noop,setCartConflictMessage:noop,hoursForDate:()=>null,setStartTime:noop,setEndTime:noop,trackMetaStandardEvent:noop});
+ const context=vm.createContext({exports:{},resolveBookingSession,crypto,Set,Map,Date,URLSearchParams,Element:class {},window:{navigator:{userAgent:""},sessionStorage:{getItem:(k:string)=>sessionStorage.get(k)??null,setItem:(k:string,v:string)=>sessionStorage.set(k,v)},localStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)}},location:{pathname:"/book/test",search:"",href:"https://test/book/test"},document:{referrer:""},navigator:{userAgent:""},localStorage:{getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>storage.set(k,v)},publicBookingFunnelEnabled:()=>true,attributionFromSearch:()=>({}),fetch:(_url:string,options:any)=>{requests.push(JSON.parse(options.body));return Promise.resolve({ok:true,status:204});},businessSlug:"test",date:"2026-09-20",focusedItemId:null,availabilityItemId:null,flowSource:"date_first",initialPromotionCode:null,setAvailabilityItemId:noop,setFocusedItemId:noop,setFlowSource:noop,setDate:noop,setEndDate:noop,setCartConflictMessage:noop,hoursForDate:()=>null,setStartTime:noop,setEndTime:noop,trackMetaStandardEvent:noop});
  const trackerCore=tracker.slice(0,tracker.indexOf("type TenantBookingFunnelTrackerProps")).replace(/^import .*;\n/gm,"");
  vm.runInContext(compile(trackerCore),context);
  vm.runInContext(compile(["clean","safeMetadata","eventKeyFor"].map(name=>declaration(route,name)).join("\n")+ '\nconst validSessionId=(value:unknown)=>typeof value==="string"&&/^[0-9a-f-]{36}$/i.test(value);'),context);
@@ -39,7 +40,7 @@ test("a fresh promotion tab captures Meta attribution without inheriting an old 
  vm.runInContext('location.pathname="/fall-party-special";location.search="?utm_source=facebook&utm_medium=paid_social&utm_campaign=fall_party_special&utm_content=pumpkin_static&utm_term=ad_set&fbclid=meta-click";location.href="https://test/fall-party-special"+location.search;attributionFromSearch=params=>Object.fromEntries(["utm_source","utm_medium","utm_campaign","utm_content","utm_term","fbclid"].flatMap(key=>params.get(key)?[[key,params.get(key)]]:[]));',context);
  const attribution=vm.runInContext('bookingAttributionValues("test")',context);
  assert.deepEqual(JSON.parse(JSON.stringify(attribution)),{utm_source:"facebook",utm_medium:"paid_social",utm_campaign:"fall_party_special",utm_content:"pumpkin_static",utm_term:"ad_set",fbclid:"meta-click"});
- vm.runInContext('location.search="?utm_source=google&gclid=later-click"',context);
+ vm.runInContext('location.search="";location.href="https://test/booking/checkout"',context);
  const unchanged=vm.runInContext('bookingAttributionValues("test")',context);
  assert.deepEqual(JSON.parse(JSON.stringify(unchanged)),JSON.parse(JSON.stringify(attribution)));
 });
@@ -89,7 +90,7 @@ test("ingestion passes interaction ID to unique event key, including legacy fall
 });
 test("POST persists one row for retried click payloads and accepts a new click ID",async()=>{
  const rows=new Map<string,any>();
- const db={from:(table:string)=>({
+ const db={rpc:async()=>({error:null}),from:(table:string)=>({
   select(){return this;},ilike(){return this;},eq(){return this;},maybeSingle:async()=>({data:{business_id:"business-1"}}),
   insert:async(row:any)=>{
    if(table!=="booking_funnel_events")return {error:null};

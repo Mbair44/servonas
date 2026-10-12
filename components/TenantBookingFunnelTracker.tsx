@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { attributionFromSearch, validSessionId, type AttributionValues, type BookingFunnelEvent } from "@/lib/bookingFunnel";
+import { resolveBookingSession, validSessionId, type AttributionValues, type BookingFunnelEvent, type BookingSessionState } from "@/lib/bookingFunnel";
 import { publicBookingFunnelEnabled } from "@/lib/optionalAnalytics";
 
 const key = (slug: string) => `servonas.booking-attribution.${slug}`;
@@ -16,17 +16,19 @@ const activeHeartbeatMs = 2_000;
 const interactionEvents = new Set<BookingFunnelEvent>(["inventory_item_clicked", "event_date_selected", "event_date_changed", "booking_date_selected", "availability_date_selected", "date_selected"]);
 const eventTtlMs: Partial<Record<BookingFunnelEvent, number>> = { landing_page_view: 60_000, landing_view: 60_000, service_view: 60_000, inventory_item_view: 60_000, inventory_view: 60_000, inventory_item_clicked: 60_000, booking_cta_click: 15_000, availability_check_started: 15_000, availability_check: 15_000, check_availability_clicked: 15_000, event_date_selected: 5_000, event_date_changed: 5_000, date_selected: 5_000, rental_availability_checked: 5_000, rental_available: 5_000, rental_unavailable: 5_000, available_inventory_viewed: 5_000, booking_started: 15_000, customer_info_started: 60_000, customer_info_entered: 10_000, customer_info_completed: 60_000, delivery_address_completed: 60_000, delivery_fee_presented: 60_000, final_price_presented: 60_000, terms_accepted: 60_000, payment_cta_clicked: 15_000, payment_started: 60_000, lead_submitted: 10_000, checkout_started: 15_000, checkout_addons_viewed: 60_000, checkout_addons_skipped: 60_000, checkout_addons_added: 60_000, reservation_details_viewed: 60_000, reserve_clicked: 5_000, item_added_to_cart: 5_000, link_click: 5_000, button_click: 5_000, phone_click: 5_000, sms_click: 5_000, email_click: 5_000, form_start: 30_000, form_submit: 15_000, product_service_selection: 10_000 };
 const criticalEvents = new Set<BookingFunnelEvent>(["booking_started", "customer_info_entered", "checkout_started", "reserve_clicked", "item_added_to_cart", "lead_submitted", "payment_completed"]);
-type Stored = { sessionId: string; attribution: AttributionValues; landingUrl: string; referrer: string; lastSessionSyncAt?: number };
+type Stored = BookingSessionState;
 type TrackBookingFunnelOptions = { inventoryItemId?: string; serviceId?: string; metadata?: Record<string, unknown>; touchOnly?: boolean; beacon?: boolean };
 const formStartKey = (slug: string) => `servonas.booking-funnel-form-start.${slug}`;
 const inMemorySessions = new Map<string, Stored>();
 const readSession = (slug: string) => { try { return window.sessionStorage.getItem(key(slug)); } catch { return inMemorySessions.get(slug) ? JSON.stringify(inMemorySessions.get(slug)) : null; } };
 const writeSession = (slug: string, value: Stored) => { inMemorySessions.set(slug,value); try { window.sessionStorage.setItem(key(slug),JSON.stringify(value)); } catch { /* memory keeps this page's attribution when storage is blocked */ } };
 
-const stored = (slug: string): Stored => {
- const existing = readSession(slug); if (existing) { try { const value = JSON.parse(existing) as Stored; if (value.sessionId) return value; } catch { /* replace malformed storage */ } }
- let referrerSearch: URLSearchParams | undefined; try { referrerSearch = document.referrer ? new URL(document.referrer).searchParams : undefined; } catch { /* malformed referrer */ }
- const value = { sessionId: crypto.randomUUID(), attribution: attributionFromSearch(new URLSearchParams(location.search), referrerSearch), landingUrl: location.href, referrer: document.referrer, lastSessionSyncAt: 0 }; writeSession(slug,value); return value;
+const stored = (slug: string, initialSessionId?: string): Stored => {
+ let existing: Stored | null = null;
+ try { const raw = readSession(slug); existing = raw ? JSON.parse(raw) as Stored : null; } catch { /* Replace malformed storage. */ }
+ const value = resolveBookingSession(existing, location.href, document.referrer, () => crypto.randomUUID(), initialSessionId);
+ writeSession(slug, value);
+ return value;
 };
 const bookingPathFor = (slug: string) => `/book/${encodeURIComponent(slug)}`;
 const bookingCheckoutPathFor = (slug: string) => `${bookingPathFor(slug)}/booking`;
@@ -114,11 +116,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
  const sessionStartedAt = useRef<number>(Date.now());
  useEffect(() => {
   if (!analyticsEnabled) return;
-  if (initialSessionId && /^[0-9a-f-]{36}$/i.test(initialSessionId)) {
-   const current = stored(businessSlug);
-   writeSession(businessSlug,{ ...current, sessionId: initialSessionId });
-  }
-  const current = stored(businessSlug);
+  const current = stored(businessSlug, initialSessionId);
   if (!sent.current) {
    sent.current = true;
    sessionStartedAt.current = Date.now();

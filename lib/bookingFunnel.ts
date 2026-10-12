@@ -75,3 +75,33 @@ export function attributionFromSearch(search:URLSearchParams,fallback?:URLSearch
  }
  return attribution;
 }
+
+export type BookingSessionState = { sessionId: string; attribution: AttributionValues; landingUrl: string; referrer: string; lastSessionSyncAt?: number; linkedSessionId?: string };
+
+/** Explicit new campaign arrivals start a session; reloads and untagged navigation retain it. */
+export function resolveBookingSession(existing: BookingSessionState | null, url: string, referrer: string, newId: () => string, initialSessionId?: string): BookingSessionState {
+ const current = new URL(url);
+ const direct = attributionFromSearch(current.searchParams);
+ const changed = existing && Object.entries(direct).some(([key, value]) => existing.attribution?.[key as keyof AttributionValues] !== value);
+ const linkedId = initialSessionId || current.searchParams.get("sv_at");
+ if (existing && validSessionId(existing.sessionId) && !changed) {
+  // Continue explicit links across public-site / embedded-booking origins.
+  // Remember a consumed link so a stale sv_at cannot undo a new campaign arrival.
+  if (validSessionId(linkedId) && linkedId !== existing.linkedSessionId) return {...existing, sessionId: linkedId!, linkedSessionId: linkedId!, lastSessionSyncAt: 0};
+  return existing;
+ }
+ let fallback: URLSearchParams | undefined;
+ try { fallback = referrer ? new URL(referrer).searchParams : undefined; } catch { /* Invalid referrer. */ }
+ return { sessionId: validSessionId(linkedId) && (!changed || linkedId !== existing?.sessionId) ? linkedId! : newId(), ...(validSessionId(linkedId) ? {linkedSessionId:linkedId!} : {}), attribution: Object.keys(direct).length ? direct : attributionFromSearch(current.searchParams, fallback), landingUrl: url, referrer, lastSessionSyncAt: 0 };
+}
+
+/** Guarantee the parent before snapshot/events, even when the browser beacon was lost. */
+export async function ensureCheckoutAttributionSession(db: SupabaseClient, businessId: string, sessionId: unknown, attribution: unknown): Promise<string | null> {
+ if (!validSessionId(sessionId)) return null;
+ const values = attribution && typeof attribution === "object" ? attribution as Record<string, unknown> : {};
+ const patch: Record<string, unknown> = {page_increment: 0, engaged_page_increment: 0};
+ for (const key of attributionKeys) patch[key] = clean(values[key]) || null;
+ const {error} = await db.rpc("upsert_booking_attribution_session", {p_business_id: businessId, p_session_id: sessionId, p_patch: patch});
+ if (error) { console.warn("Checkout attribution session unavailable", {businessId, code: error.code}); return null; }
+ return sessionId as string;
+}
