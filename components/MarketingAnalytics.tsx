@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useState} from "react";
 import {usePathname} from "next/navigation";
+import {updateGoogleAdsConsent} from "@/lib/googleTag";
 import {publicOptionalAnalyticsEnabled} from "@/lib/optionalAnalytics";
 import {ANALYTICS_CONSENT_KEY,isPublicAnalyticsConsentPath,isServonasAnalyticsHost} from "@/lib/publicAnalytics";
 
@@ -32,8 +33,9 @@ export function trackMarketingEvent(eventType:MarketingEventType,options:{label?
 }
 
 export function MarketingAnalytics(){
+ const [ready,setReady]=useState(false);
  const [consent,setConsent]=useState<string|null>(null),pathname=usePathname();
- useEffect(()=>{if(analyticsEnabled&&consentSurface())setConsent(localStorage.getItem(CONSENT));},[]);
+ useEffect(()=>{try{if(analyticsEnabled&&consentSurface())setConsent(localStorage.getItem(CONSENT));}catch{/* Remain denied if storage is unavailable. */}setReady(true);},[]);
  useEffect(()=>{
   if(!analyticsEnabled||consent!=="granted"||!platform())return;
   const search=location.search.slice(1),params=new URLSearchParams(search);
@@ -43,7 +45,7 @@ export function MarketingAnalytics(){
   const click=(event:MouseEvent)=>{const element=(event.target as Element)?.closest("a,button") as HTMLElement|null;if(element)trackMarketingEvent("click",{label:(element.innerText||element.getAttribute("aria-label")||"").trim(),elementType:element.tagName.toLowerCase(),href:element instanceof HTMLAnchorElement?element.href:"",path:`${pathname}${search?`?${search}`:""}`});};
   document.addEventListener("click",click,true);return()=>document.removeEventListener("click",click,true);
  },[consent,pathname]);
- if(!analyticsEnabled||typeof window==="undefined"||!consentSurface()||consent)return null;
- const choose=(value:"granted"|"denied")=>{localStorage.setItem(CONSENT,value);setConsent(value);};
- return <aside className="analytics-consent" role="dialog" aria-label="Analytics preferences"><div><strong>Your privacy choices</strong><p>Optional first-party analytics help Servonas understand campaign traffic. We never store raw IP addresses or use invasive fingerprinting. <a href="/privacy">Privacy details</a></p></div><div><button className="sv-button sv-secondary" onClick={()=>choose("denied")}>Only necessary</button><button className="sv-button" onClick={()=>choose("granted")}>Allow analytics</button></div></aside>;
+ if(!ready||!analyticsEnabled||typeof window==="undefined"||!consentSurface()||consent)return null;
+ const choose=(value:"granted"|"denied")=>{try{localStorage.setItem(CONSENT,value);}catch{return;}updateGoogleAdsConsent();setConsent(value);};
+ return <aside className="analytics-consent" role="dialog" aria-label="Analytics preferences"><div><strong>Your privacy choices</strong><p>Optional analytics and advertising measurement help us understand visits and bookings. Google uses consent-limited measurement before you choose. Personalized advertising remains disabled. <a href="/privacy">Privacy details</a></p></div><div><button className="sv-button sv-secondary" onClick={()=>choose("denied")}>Only necessary</button><button className="sv-button" onClick={()=>choose("granted")}>Allow analytics</button></div></aside>;
 }

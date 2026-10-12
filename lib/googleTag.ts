@@ -8,6 +8,7 @@ type GoogleWindow=Window & {
  __servonasGoogleContext?:TagContext;
  __servonasGoogleConfigured?:Set<string>;
  __servonasGooglePage?:string;
+ __servonasGoogleConsent?:boolean;
 };
 
 export function normalizeGoogleAdsTagId(value:unknown):string|null{
@@ -31,11 +32,29 @@ export function activeGoogleAdsContext(){
  return context?.pathname===window.location.pathname?context:null;
 }
 
-/** One loader for all Google destinations; no network or queue writes before consent. */
+const googleConsentState=(granted:boolean)=>({
+ ad_storage:granted?"granted":"denied",
+ analytics_storage:granted?"granted":"denied",
+ ad_user_data:granted?"granted":"denied",
+ // The existing analytics choice does not separately authorize personalized ads.
+ ad_personalization:"denied",
+});
+
+export function updateGoogleAdsConsent(){
+ if(typeof window==="undefined")return;
+ const browser=window as GoogleWindow;
+ if(typeof browser.gtag!=="function"||browser.__servonasGoogleConsent===undefined)return;
+ const granted=googleAdsConsentGranted();
+ if(browser.__servonasGoogleConsent===granted)return;
+ browser.gtag("consent","update",googleConsentState(granted));
+ browser.__servonasGoogleConsent=granted;
+}
+
+/** Install the base tenant tag with denied Consent Mode defaults before any measurement. */
 export function activateGoogleAdsTag(rawId:unknown,scope:string):(()=>void)|null{
  const tagId=normalizeGoogleAdsTagId(rawId);
- if(!tagId||!scope||typeof window==="undefined"||!googleAdsConsentGranted()||!isPublicAnalyticsConsentPath(window.location.pathname))return null;
- if(scope==="platform"&&(!isServonasAnalyticsHost(window.location.hostname)||!isPlatformGoogleAdsPath(window.location.pathname)))return null;
+ if(!tagId||!scope||typeof window==="undefined"||!isPublicAnalyticsConsentPath(window.location.pathname))return null;
+ if(scope==="platform"&&(!googleAdsConsentGranted()||!isServonasAnalyticsHost(window.location.hostname)||!isPlatformGoogleAdsPath(window.location.pathname)))return null;
  const browser=window as GoogleWindow;
  const context={tagId,scope,pathname:window.location.pathname};
  const hadGtag=typeof browser.gtag==="function";
@@ -49,8 +68,13 @@ export function activateGoogleAdsTag(rawId:unknown,scope:string):(()=>void)|null
    // eslint-disable-next-line prefer-rest-params
    browser.dataLayer!.push(arguments);
   };
-  browser.gtag("js",new Date());
  }
+ if(browser.__servonasGoogleConsent===undefined){
+  browser.gtag!("consent","default",googleConsentState(false));
+  browser.__servonasGoogleConsent=false;
+ }
+ updateGoogleAdsConsent();
+ if(!hadGtag)browser.gtag!("js",new Date());
  if(!hadGtag&&!existingLoader){
   const script=document.createElement("script");
   script.async=true;

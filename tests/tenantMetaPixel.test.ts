@@ -101,7 +101,7 @@ test("tenant meta pixel can initialize immediately after consent without a hard 
  assert.match(component,/ensureMetaPixelScript\(\);\s+const fbq=ensureMetaPixelStub\(\);/s);
  assert.match(component,/if\(typeof fbq!=="function"\)return;/);
  assert.match(component,/fbq\("track","PageView"\)/);
- assert.match(analytics,/if\(!analyticsEnabled\|\|typeof window==="undefined"\|\|!consentSurface\(\)\|\|consent\)return null;/);
+ assert.match(analytics,/if\(!ready\|\|!analyticsEnabled\|\|typeof window==="undefined"\|\|!consentSurface\(\)\|\|consent\)return null;/);
  assert.match(analytics,/const platform=\(\)=>isServonasAnalyticsHost\(location\.hostname\)/);
  assert.match(analytics,/const consentSurface=\(\)=>isPublicAnalyticsConsentPath\(location\.pathname\)/);
  assert.match(googleTag,/!isServonasAnalyticsHost\(location\.hostname\)\|\|!isPublicAnalyticsConsentPath\(location\.pathname\)/);
