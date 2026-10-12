@@ -42,7 +42,7 @@ export function WorkspaceNav({slug,name,poolService=false,industry}:{slug:string
      <button type="button" className="workspace-nav-toggle" aria-expanded={open} aria-controls={`workspace-nav-${item.id}`} onClick={()=>toggle(item.id)}><span className="workspace-nav-toggle-label">{renderLabel(item.label,item.icon)}</span><i aria-hidden="true">⌄</i></button>
      <div id={`workspace-nav-${item.id}`} className="workspace-nav-children" hidden={!open}>
       {item.children.map(child=>{
-       const active=routeIsActive(pathname,child);
+       const active=activeGroup===item.id&&routeIsActive(pathname,child);
        return child.disabled?<span className="workspace-nav-disabled" aria-disabled="true" key={child.id}><span>{child.label}</span>{child.badge&&<em>{child.badge}</em>}</span>:
         <Link href={child.href!} onClick={closeMobileNavigation} aria-current={active?"page":undefined} className={active?"active":undefined} key={child.id}>{child.label}{child.badge&&<em>{child.badge}</em>}</Link>;
       })}
