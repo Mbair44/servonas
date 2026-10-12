@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import {messageTime,type conversations} from "@/lib/customerMessages/model";
-import {openConversation,refreshInbox,sendReply} from "./actions";
+import {openConversation,refreshInbox,sendReply,recoverMessageHistory} from "./actions";
 import styles from "./messages.module.css";
 type Inbox=ReturnType<typeof conversations>;
 export function MessagesInbox({slug,initial,timezone}:{slug:string;initial:Inbox;timezone:string}){
@@ -9,6 +9,10 @@ export function MessagesInbox({slug,initial,timezone}:{slug:string;initial:Inbox
  const lock=useRef(false),version=useRef(0),request=useRef<{key:string;body:string;id:string}|null>(null);
  const thread=inbox.find(c=>c.key===selected);
  const format=(date:string)=>new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:timezone}).format(new Date(date));
+ useEffect(()=>{let stopped=false,running=false;
+  async function recover(){if(running||stopped)return;running=true;try{await recoverMessageHistory(slug);}catch{/* Ordinary inbox reads and replies remain available. */}finally{running=false;}}
+  void recover();const timer=setInterval(()=>void recover(),15000);return()=>{stopped=true;clearInterval(timer);};
+ },[slug]);
  useEffect(()=>{let active=true;const timer=setInterval(async()=>{if(lock.current)return;const current=version.current;try{const next=await refreshInbox(slug);if(active&&current===version.current)setInbox(next);}catch{if(active)setError("Messages could not refresh. Check your connection and try again.");}},10000);return()=>{active=false;clearInterval(timer);};},[slug]);
  async function open(key:string){if(lock.current)return;const current=++version.current;setSelected(key);setBody("");setError("");try{const next=await openConversation(slug,key);if(current===version.current)setInbox(next);}catch(e){setError(e instanceof Error?e.message:"Could not open conversation.");}}
  async function send(event:React.FormEvent){event.preventDefault();if(lock.current||!thread||!body.trim())return;lock.current=true;setBusy(true);setError("");++version.current;

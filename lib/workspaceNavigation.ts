@@ -17,6 +17,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
  const base=`/app/${slug}`;
  return [
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
+  {id:"messages",label:"Messages",href:`${base}/messages`,routePatterns:[`${base}/messages`,`${base}/customers/messages`]},
   {id:"customers",label:"Customers",children:[
    {id:"customer-list",label:"Customers",href:`${base}/customers`},
    {id:"calls",label:"Calls",href:`${base}/calls`},
@@ -82,6 +83,7 @@ export function routeIsActive(pathname:string,item:WorkspaceNavigationItem){
 }
 
 export function activeNavigationGroup(pathname:string,items:WorkspaceNavigationItem[]){
+ if(items.some(item=>!item.children&&routeIsActive(pathname,item)))return undefined;
  return items.find(item=>item.children?.some(child=>routeIsActive(pathname,child)))?.id;
 }
 

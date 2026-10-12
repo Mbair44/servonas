@@ -2,6 +2,7 @@
 import {requireWorkspace} from "@/lib/workspace";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {sendTenantTwilioMessage,TenantSmsError} from "@/lib/twilio/messageUsage";
+import {recoverHistoricalBookingTexts} from "@/lib/customerMessages/historyProvider";
 import {loadInbox,markConversationRead,replyToConversation} from "@/lib/customerMessages/service";
 async function context(slug:string){
  const {business}=await requireWorkspace(slug);
@@ -14,4 +15,9 @@ export async function sendReply(slug:string,input:{key:string;body:string;reques
  const {db,businessId}=await context(slug);
  try{return {message:await replyToConversation(db,businessId,input,sendTenantTwilioMessage)};}
  catch(error){return {error:error instanceof TenantSmsError?`${error.message}${error.code?` (Twilio ${error.code})`:""}`:error instanceof Error?error.message:"Could not send this message."};}
+}
+
+export async function recoverMessageHistory(slug:string){
+ const {db,businessId}=await context(slug);
+ await recoverHistoricalBookingTexts(db,businessId);
 }

@@ -11,6 +11,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  const settings=visibleNavigation(items).find(item=>item.id==="settings")!;
  assert.deepEqual(customers.children?.map(item=>[item.label,item.href]),[
   ["Customers","/app/acme/customers"],
+  ["Calls","/app/acme/calls"],
   ["Campaigns","/app/acme/customers/campaigns"],
  ]);
  assert.deepEqual(operations.children?.map(item=>[item.label,item.href]),[
@@ -26,7 +27,10 @@ test("navigation uses grouped labels without changing routes",()=>{
  assert.deepEqual(marketing.children?.map(item=>[item.label,item.href]),[
   ["Funnel","/app/acme/marketing/funnel"],
   ["Discounts","/app/acme/marketing/discounts"],
+  ["Promotions","/app/acme/marketing/promotions"],
   ["Google Ads","/app/acme/marketing/google-ads"],
+  ["Meta Ads","/app/acme/marketing/meta-ads"],
+  ["Local SEO","/app/acme/marketing/seo"],
  ]);
  assert.deepEqual(settings.children?.map(item=>[item.label,item.href]),[
   ["General","/app/acme/settings"],
@@ -62,4 +66,11 @@ test("stored expansion parsing tolerates invalid and stale values",()=>{
  assert.deepEqual(parseExpandedGroups("not json",["sales"]),[]);
  assert.deepEqual(parseExpandedGroups('["sales","stale","sales",4]',["sales"]),["sales"]);
  assert.deepEqual(parseExpandedGroups('{"sales":true}',["sales"]),[]);
+});
+
+test("Messages is a standalone navigation item for new and existing inbox links",()=>{
+ const items=workspaceNavigation("acme"),messages=items.find(item=>item.id==="messages")!;
+ assert.equal(messages.label,"Messages");assert.equal(messages.href,"/app/acme/messages");assert.equal(messages.children,undefined);
+ for(const path of ["/app/acme/messages","/app/acme/customers/messages"]){assert.equal(routeIsActive(path,messages),true);assert.equal(activeNavigationGroup(path,items),undefined);}
+ assert.equal(activeNavigationGroup("/app/acme/customers/123",items),"customers");
 });
