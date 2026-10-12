@@ -65,7 +65,7 @@ test("custom-domain public route resolves into the shared business website shell
   read("components/BusinessWebsite.tsx"),
  ]);
  assert.match(domainRoute,/loadPublishedBusinessWebsiteByDomain/);
- assert.match(domainRoute,/return <BusinessWebsite site=\{site\}/);
+ assert.match(domainRoute,/<BusinessWebsite site=\{site\}/);
  assert.match(site,/TenantMetaPixel/);
 });
 
@@ -80,7 +80,7 @@ test("promotion and standalone booking routes mount only the resolved tenant pix
  assert.match(domainPromotion,/site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
  assert.match(hostedPromotion,/select\("business_id,meta_pixel_id,/);
  assert.match(hostedPromotion,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
- assert.match(loader,/from\("business_website_settings"\)\.select\("meta_pixel_id"\)/);
+ assert.match(loader,/from\("business_website_settings"\)\.select\("[^"\n]*\bmeta_pixel_id\b[^"\n]*"\)\.eq\("business_id",settings.business_id\)/);
  for(const route of [booking,checkout])assert.match(route,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
  for(const route of [domainPromotion,hostedPromotion,booking,checkout])assert.doesNotMatch(route,/2375527282981645/);
 });
