@@ -141,11 +141,11 @@ test("marketing spend and funnel reporting aggregate Google plus Meta and remove
   ]);
   assert.match(spend, /export class MultiPlatformSpendProvider/);
   assert.match(spend, /loadGoogleAdsSpendForRange/);
-  assert.match(spend, /fetchGoogleAdsCampaignMetrics/);
-  assert.match(spend, /costMicros/);
+  assert.match(spend, /\.eq\("provider","google_ads"\)/);
+  assert.match(spend, /last_spend_sync_at/);
   assert.doesNotMatch(spend, /monthly_budget_estimate_cents/);
   assert.match(spend, /\.eq\("provider","meta"\)/);
-  assert.match(spend, /facebook:metaSpendCents/);
+  assert.match(spend, /meta_ads:metaSpendCents/);
   assert.match(funnel, /new MultiPlatformSpendProvider\(supabase\)\.getSpendBySource/);
   assert.match(funnel, /const roasCard = buildRoasCardModel/);
   assert.match(funnel, /<strong>\{roasCard\.headline\}<\/strong><small>\{roasCard\.detail\}<\/small>/);

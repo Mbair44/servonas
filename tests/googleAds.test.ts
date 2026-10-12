@@ -4,7 +4,7 @@ import {GOOGLE_ADS_SIGNUP_CONVERSION,trackGoogleAdsConversion,trackGoogleAdsSign
 
 function browserWindow(gtag?: (...args:unknown[])=>void){
  const values=new Map<string,string>();
- return {gtag,sessionStorage:{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)}};
+ return {gtag,location:{pathname:"/signup"},localStorage:{getItem:()=>"granted"},__servonasGoogleContext:{tagId:"AW-18340749438",scope:"platform",pathname:"/signup"},sessionStorage:{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)}};
 }
 
 test("signup conversion uses the configured Google Ads destination",()=>{
@@ -23,17 +23,17 @@ test("signup conversion fires once for a confirmed Supabase user",()=>{
 
 test("unavailable Google tag never throws or marks a conversion sent",()=>{
  Object.defineProperty(globalThis,"window",{value:browserWindow(),configurable:true});
- assert.equal(trackGoogleAdsConversion("AW-test",{onceKey:"missing"}),false);
+ assert.equal(trackGoogleAdsConversion(GOOGLE_ADS_SIGNUP_CONVERSION,{onceKey:"missing"}),false);
  Reflect.deleteProperty(globalThis,"window");
 });
 
 test("a throwing Google tag does not mark the conversion as sent",()=>{
  const testWindow=browserWindow(()=>{throw new Error("blocked");});
  Object.defineProperty(globalThis,"window",{value:testWindow,configurable:true});
- assert.equal(trackGoogleAdsConversion("AW-test",{onceKey:"retryable"}),false);
+ assert.equal(trackGoogleAdsConversion(GOOGLE_ADS_SIGNUP_CONVERSION,{onceKey:"retryable"}),false);
  let handedOff=false;
  testWindow.gtag=()=>{handedOff=true;};
- assert.equal(trackGoogleAdsConversion("AW-test",{onceKey:"retryable"}),true);
+ assert.equal(trackGoogleAdsConversion(GOOGLE_ADS_SIGNUP_CONVERSION,{onceKey:"retryable"}),true);
  assert.equal(handedOff,true);
  Reflect.deleteProperty(globalThis,"window");
 });

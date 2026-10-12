@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Stripe from "stripe";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {GoogleAdsBookingConversion} from "@/components/GoogleAdsBookingConversion";
+import {TenantGoogleAdsTag} from "@/components/TenantGoogleAdsTag";
+import {normalizeGoogleAdsTagId} from "@/lib/googleTag";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {TenantMetaPixelPurchaseTracker} from "@/components/TenantMetaPixelPurchaseTracker";
 
@@ -21,6 +22,8 @@ export default async function SuccessPage({ searchParams }: Props) {
   let homeHref = "/";
   let bookingId:string|null=null;
   let metaPixelId:string|null=null;
+  let googleAdsTagId:string|null=null;
+  let googleAdsBusinessId:string|null=null;
 
   if (sessionId && stripeKey) {
     try {
@@ -29,13 +32,15 @@ export default async function SuccessPage({ searchParams }: Props) {
       bookingId=booking?.id??null;
       const business=booking?(Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses):null;
       businessName=business?.name||businessName;
-      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,meta_pixel_id").eq("business_id",booking.business_id).maybeSingle():{data:null};
+      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,meta_pixel_id,google_ads_tag_id").eq("business_id",booking.business_id).maybeSingle():{data:null};
       metaPixelId=typeof website?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(website.meta_pixel_id.trim())?website.meta_pixel_id.trim():null;
       if(website?.status==="published")homeHref=website.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`/sites/${encodeURIComponent(website.public_slug)}`;
       else if(db&&booking?.business_id){const {data:bookingPage}=await db.from("booking_settings").select("public_slug").eq("business_id",booking.business_id).maybeSingle();if(bookingPage?.public_slug)homeHref=`/book/${encodeURIComponent(bookingPage.public_slug)}`;}
       const {data:paymentAccount}=db&&booking?.business_id?await db.from("business_payment_accounts").select("provider_account_id").eq("business_id",booking.business_id).eq("provider","stripe").maybeSingle():{data:null};
       session = await stripe.checkout.sessions.retrieve(sessionId,{},paymentAccount?.provider_account_id?{stripeAccount:paymentAccount.provider_account_id}:undefined);
       if(booking&&session.metadata?.booking_id!==booking.id)throw new Error("Checkout Session did not match the reservation.");
+      googleAdsTagId=normalizeGoogleAdsTagId(website?.google_ads_tag_id);
+      googleAdsBusinessId=booking?.business_id??null;
     } catch (error) {
       console.error("Could not retrieve Stripe Checkout session:", error);
     }
@@ -56,6 +61,7 @@ export default async function SuccessPage({ searchParams }: Props) {
 
   return (
     <main className="section alt">
+      {googleAdsBusinessId&&<TenantGoogleAdsTag tagId={googleAdsTagId} scope={googleAdsBusinessId}/>}
       {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
       <div className="container">
         <div className="form-card" style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
@@ -66,7 +72,6 @@ export default async function SuccessPage({ searchParams }: Props) {
           {paid ? (
             <>
               {paid&&bookingId&&<TenantMetaPixelPurchaseTracker bookingId={bookingId} contentIds={String(session?.metadata?.inventory_item_ids??"").split(",").map(value=>value.trim()).filter(Boolean)} numItems={Math.max(1,Number(session?.metadata?.item_count??0))} value={totalCents>0?totalCents/100:undefined} currency={session?.currency?.toUpperCase()??"USD"}/>}
-              {bookingId&&<GoogleAdsBookingConversion bookingId={bookingId} valueCents={totalCents} currency={session?.currency?.toUpperCase()??"USD"}/>} 
               <p className="lead">Non-refundable deposit paid: <strong>{money(depositCents)}</strong></p>
               {discountCents > 0 ? <p className="lead">Promotion discount: <strong>{money(discountCents)}</strong></p> : null}
               <p className="muted">Remaining balance: <strong>{money(balanceCents)}</strong>. Keep your confirmation number for your records.</p>

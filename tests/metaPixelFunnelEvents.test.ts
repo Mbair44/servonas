@@ -25,7 +25,7 @@ test("rental booking flow maps view content initiate checkout and purchase to ca
  assert.match(rental,/trackMetaStandardEvent\("ViewContent"/);
  assert.match(rental,/eventKey:`view-content:\$\{businessSlug\}:\$\{item\.id\}`/);
  assert.match(rental,/if\(source==="browse"\)/);
- assert.match(rental,/onClick=\{\(\)=>noteInventoryInteraction\(item,"browse"\)\}/);
+ assert.match(rental,/onClick=\{event=>\{[^}]*noteInventoryInteraction\(item,"browse"\);\}\}/);
  assert.doesNotMatch(rental,/useEffect\([^)]*trackMetaStandardEvent\("ViewContent"/s);
  assert.match(rental,/trackMetaBrowserAndServerEvent\(businessSlug,"InitiateCheckout"/);
  assert.match(rental,/checkoutTransitionRef\.current/);
