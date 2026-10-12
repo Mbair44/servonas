@@ -59,7 +59,7 @@ export type AttributedBookingRow={
 };
 
 export type BookingJourneyStage={key:"visit"|"item_viewed"|"booking_flow_opened"|"date_selected"|"item_selected"|"availability_checked"|"customer_information_started"|"delivery_address_entered"|"final_price_displayed"|"checkout_payment_started"|"booking_completed";label:string;count:number;conversionRate:number|null;dropOffRate:number|null;dropOffSessions:number;};
-export type BookingJourneyFunnel={stages:BookingJourneyStage[];overallConversionRate:number|null;largestDropOff:BookingJourneyStage|null;};
+export type BookingJourneyFunnel={stages:BookingJourneyStage[];observedStages:Array<{key:string;label:string;count:number;visitRate:number|null}>;excludedActivitySessions:number;unmatchedBookings:number;overallConversionRate:number|null;largestDropOff:BookingJourneyStage|null;};
 
 export type MarketingSourceSummary={
  source:MarketingSource;
@@ -292,22 +292,40 @@ export function buildBookingJourneyFunnel(events:FunnelEventRow[],bookings:Attri
   const name=canonicalEventName(String(event.event_name));
   for(const stage of definitions)if(stage.events.includes(name))identities.get(stage.key)!.add(sessionId);
  }
+ const visits=identities.get("visit")!;
+ const unmatchedBookingIds=new Set<string>();
  for(const booking of bookings){
   if(!bookingCountsForAnalytics(booking.status))continue;
   const snapshot=Array.isArray(booking.booking_attribution_snapshots)?booking.booking_attribution_snapshots[0]:booking.booking_attribution_snapshots;
-  identities.get("booking_completed")!.add(snapshot?.attribution_session_id||`booking:${booking.booking_id}`);
+  if(snapshot?.attribution_session_id&&visits.has(snapshot.attribution_session_id))identities.get("booking_completed")!.add(snapshot.attribution_session_id);
+  else unmatchedBookingIds.add(booking.booking_id);
  }
- const observed=new Set<string>();
- for(const stage of definitions)if(identities.get(stage.key)!.size)observed.add(stage.key);
- const active=definitions.filter(stage=>!stage.optional||observed.has(stage.key));
- const stages=active.map((stage,index)=>{
-  const count=identities.get(stage.key)!.size;
-  const previous=index?identities.get(active[index-1]!.key)!.size:0;
-  return {key:stage.key,label:stage.label,count,conversionRate:index?(previous?count/previous:null):null,dropOffRate:index?(previous?Math.max(0,1-count/previous):null):null,dropOffSessions:index?Math.max(0,previous-count):0};
+ // Milestones share the exact same visitor cohort. Detailed interactions are
+ // optional or may arrive out of order; they are not sequential funnel gates.
+ const observedStages=definitions.slice(1,-1).map(stage=>{
+  const count=[...identities.get(stage.key)!].filter(id=>visits.has(id)).length;
+  return {key:stage.key,label:stage.label,count,visitRate:visits.size?count/visits.size:null};
  });
- const visits=identities.get("visit")!.size,completed=identities.get("booking_completed")!.size;
- const largestDropOff=stages.slice(1).filter(stage=>stage.dropOffSessions>0).sort((a,b)=>b.dropOffSessions-a.dropOffSessions||b.dropOffRate!-a.dropOffRate!)[0]??null;
- return {stages,overallConversionRate:visits?completed/visits:null,largestDropOff};
+ const outsideVisits=new Set<string>();
+ for(const ids of identities.values())for(const id of ids)if(!visits.has(id))outsideVisits.add(id);
+ const confirmed=identities.get("booking_completed")!;
+ // A confirmation is evidence of a booking outcome, not proof that a browser
+ // checkout event fired. The milestone is deliberately labeled accordingly.
+ const checkout=new Set([...identities.get("checkout_payment_started")!,...confirmed].filter(id=>visits.has(id)));
+ const activity=new Set(checkout);
+ for(const stage of definitions.slice(2))for(const id of identities.get(stage.key)!)if(visits.has(id))activity.add(id);
+ const milestones:Array<{key:BookingJourneyStage["key"];label:string;ids:Set<string>}>= [
+  {key:"visit",label:"Website visits",ids:visits},
+  {key:"booking_flow_opened",label:"Booking activity",ids:activity},
+  {key:"checkout_payment_started",label:"Checkout or confirmation",ids:checkout},
+  {key:"booking_completed",label:"Booking confirmed",ids:confirmed},
+ ];
+ const stages=milestones.map((stage,index)=>{
+  const count=stage.ids.size,previous=index?milestones[index-1].ids.size:0;
+  return {key:stage.key,label:stage.label,count,conversionRate:index&&previous?count/previous:null,dropOffRate:index&&previous?(previous-count)/previous:null,dropOffSessions:index?previous-count:0};
+ });
+ const largestDropOff=stages.slice(1).filter(stage=>stage.dropOffSessions>0).sort((a,b)=>b.dropOffSessions-a.dropOffSessions)[0]??null;
+ return {stages,observedStages,excludedActivitySessions:outsideVisits.size,unmatchedBookings:unmatchedBookingIds.size,overallConversionRate:visits.size?confirmed.size/visits.size:null,largestDropOff};
 }
 
 function percent(numerator:number,denominator:number){
