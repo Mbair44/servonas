@@ -1,3 +1,5 @@
+import {isOutstandingInvoice,isOverdueInvoice} from "@/lib/financial/invoiceReceivables";
+import {dateInTimeZone} from "@/lib/bookingTime";
 import Link from "next/link";
 import { canManageCustomers } from "@/lib/access";
 import { formatCents } from "@/lib/financial/priceBook";
@@ -89,16 +91,13 @@ export default async function InvoicesPage({
     };
   });
 
+  const today=dateInTimeZone(new Date(),business.timezone||"America/Phoenix");
   const rows = directory
     .filter(
       (invoice) =>
-        (status === "all" ||
-          invoice.status === status ||
-          (status === "open" &&
-            Number(invoice.balance_due_cents) > 0 &&
-            !["draft", "void", "uncollectible", "refunded"].includes(
-              invoice.status,
-            ))) &&
+        (status === "overdue" ? isOverdueInvoice(invoice,today) :
+          status === "open" ? isOutstandingInvoice(invoice) :
+          status === "all" || invoice.status === status) &&
         (!search ||
           [
             invoice.invoice_number,
@@ -144,14 +143,8 @@ export default async function InvoicesPage({
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
-  const openCount = directory.filter(
-    (invoice) =>
-      Number(invoice.balance_due_cents) > 0 &&
-      !["draft", "void", "uncollectible", "refunded"].includes(invoice.status),
-  ).length;
-  const overdueCount = directory.filter(
-    (invoice) => invoice.status === "overdue",
-  ).length;
+  const openCount = directory.filter(isOutstandingInvoice).length;
+  const overdueCount = directory.filter(invoice=>isOverdueInvoice(invoice,today)).length;
   const paidCount = directory.filter(
     (invoice) => invoice.status === "paid",
   ).length;
