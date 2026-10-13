@@ -14,9 +14,9 @@ export const winnerCommitment=(giveawayId:string,winnerEntryId:string,nonce:stri
 export const winnerNonce=()=>randomBytes(32).toString("hex");
 
 /** Turnstile stays fail-closed whenever production credentials are configured. */
-export async function verifyTurnstile(token:string,remoteIp:string|null){
+export async function verifyTurnstile(token:string,remoteIp:string|null,expected:{hostname:string;action:string}){
  const secret=process.env.TURNSTILE_SECRET_KEY?.trim();
  if(!secret)return process.env.NODE_ENV!=="production";
  if(!token)return false;
- try{const body=new URLSearchParams({secret,response:token,...(remoteIp?{remoteip:remoteIp}:{})});const response=await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify",{method:"POST",body,cache:"no-store"});return Boolean((await response.json() as {success?:boolean}).success);}catch{return false;}
+ try{const body=new URLSearchParams({secret,response:token,...(remoteIp?{remoteip:remoteIp}:{})});const response=await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify",{method:"POST",body,cache:"no-store"});const result=await response.json() as {success?:boolean;hostname?:string;action?:string};return result.success===true&&result.action===expected.action&&result.hostname?.toLowerCase()===expected.hostname.toLowerCase();}catch{return false;}
 }
