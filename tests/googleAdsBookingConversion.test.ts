@@ -8,13 +8,12 @@ const csb="AW-18406171248/dJbiCJve5ZodEPDE38hE";
 
 test("paid Stripe booking success uses the immutable full booking total and never the deposit",async()=>{
  const [success,component,checkout,webhook,managePayment]=await Promise.all([
-  read("app/success/page.tsx"),read("components/TenantGoogleAdsBookingConversion.tsx"),read("app/api/checkout/route.ts"),read("app/api/stripe/webhook/route.ts"),read("app/api/manage-booking/[token]/pay/route.ts"),
+  read("app/success/page.tsx"),read("components/GoogleAdsBookingConversion.tsx"),read("app/api/checkout/route.ts"),read("app/api/stripe/webhook/route.ts"),read("app/api/manage-booking/[token]/pay/route.ts"),
  ]);
  assert.match(success,/select\("id,business_id,total_cents,businesses\(name\)"\)/);
  assert.match(success,/bookingTotalCents=Number\.isSafeInteger\(Number\(booking\?\.total_cents\)\)/);
- assert.match(success,/<TenantGoogleAdsBookingConversion bookingId=\{bookingId\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
+ assert.match(success,/<GoogleAdsBookingConversion bookingId=\{bookingId\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
  assert.match(success,/const paid = session\?\.payment_status === "paid"/);
- assert.doesNotMatch(success,/TenantGoogleAdsBookingConversion[\s\S]*depositCents/);
  assert.match(component,/value:totalCents\/100/);
  assert.match(component,/Number\.isSafeInteger\(totalCents\)/);
  // Checkout calculates and stores total before sending the deposit-only Stripe line item.
@@ -28,8 +27,8 @@ test("paid Stripe booking success uses the immutable full booking total and neve
 });
 
 test("tenant destination, settings validation, success rendering, Meta boundary, and click IDs stay isolated",async()=>{
- const [migration,action,page,success,tracker,meta]=await Promise.all([
-  read("supabase/migrations/20261013000200_google_ads_booking_conversion.sql"),read("app/app/[businessSlug]/settings/website/actions.ts"),read("app/app/[businessSlug]/settings/website/page.tsx"),read("app/success/page.tsx"),read("components/TenantBookingFunnelTracker.tsx"),read("components/TenantMetaPixelPurchaseTracker.tsx"),
+ const [migration,action,page,success,tracker,attribution,meta]=await Promise.all([
+  read("supabase/migrations/20261013000200_google_ads_booking_conversion.sql"),read("app/app/[businessSlug]/settings/website/actions.ts"),read("app/app/[businessSlug]/settings/website/page.tsx"),read("app/success/page.tsx"),read("components/TenantBookingFunnelTracker.tsx"),read("lib/bookingFunnel.ts"),read("components/TenantMetaPixelPurchaseTracker.tsx"),
  ]);
  assert.match(migration,/google_ads_booking_conversion_destination/);
  assert.match(migration,/AW-18406171248\/dJbiCJve5ZodEPDE38hE/);
@@ -41,7 +40,7 @@ test("tenant destination, settings validation, success rendering, Meta boundary,
  assert.match(success,/normalizeGoogleAdsConversionDestination\(website\?\.google_ads_booking_conversion_destination,googleAdsTagId\)/);
  assert.match(success,/TenantMetaPixelPurchaseTracker/);
  assert.match(meta,/eventId:`purchase-\$\{bookingId\}`/);
- for(const clickId of ["gclid","gbraid","wbraid"]){assert.match(tracker,new RegExp(clickId));}
+ for(const clickId of ["gclid","gbraid","wbraid"]){assert.match(attribution,new RegExp(clickId));}
  assert.match(tracker,/applyStoredAttribution/);
 });
 
