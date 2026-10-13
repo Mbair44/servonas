@@ -12,6 +12,14 @@ type GoogleAdsConversionOptions={
  transactionId?:string;
 };
 type TenantGoogleAdsConversion=GoogleAdsConversionOptions & {sendTo:string};
+type GoogleAdsBookingConversion={bookingId:string;destination:string;value:number;currency?:string};
+
+export function normalizeGoogleAdsConversionDestination(value:unknown,tagId?:unknown):string|null{
+ if(typeof value!=="string")return null;
+ const destination=value.trim(),match=/^(AW-[0-9]{6,20})\/([A-Za-z0-9_-]{1,200})$/.exec(destination);
+ if(!match)return null;
+ return tagId==null||match[1]===tagId?destination:null;
+}
 
 /** No booking label is configured here. The destination must match the active tenant. */
 export function trackGoogleAdsConversion(input:string|TenantGoogleAdsConversion,options:GoogleAdsConversionOptions={}){
@@ -39,10 +47,11 @@ export function trackGoogleAdsConversion(input:string|TenantGoogleAdsConversion,
  }catch{return false;}
 }
 
-// Booking conversion wiring stays inactive until a tenant conversion label is supplied.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Preserve the dormant booking hook API until tenant labels exist.
-export function trackGoogleAdsBookingConversion(_bookingId:string,_value:number,_currency?:string){
- return false;
+/** Fires one tenant purchase conversion using an immutable Servonas booking ID. */
+export function trackGoogleAdsBookingConversion(input:GoogleAdsBookingConversion){
+ const destination=normalizeGoogleAdsConversionDestination(input.destination);
+ if(!destination||!input.bookingId||!Number.isFinite(input.value)||input.value<0)return false;
+ return trackGoogleAdsConversion({sendTo:destination,value:input.value,currency:input.currency??"USD",transactionId:input.bookingId});
 }
 
 export function trackGoogleAdsSignupConversion(userId:string,eventCallback?:()=>void){

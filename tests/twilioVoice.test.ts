@@ -6,8 +6,25 @@ import twilio from "twilio";
 import {validTwilioSignature} from "../lib/twilioWebhook.ts";
 
 test("voice routing sends every staff leg to private keypad screening before it may bridge",()=>{
- const xml=inboundVoiceTwiml({callId:"CA123",businessId:"business",targets:[{employeeId:"staff-1",phone:"+14805550123"},{employeeId:"staff-2",phone:"+16025550123"}],timeout:20,record:false,origin:"https://servonas.com"});
- assert.match(xml,/answerOnBridge="true" timeout="20"/);assert.match(xml,/action="https:\/\/servonas\.com\/api\/twilio\/voice\/dial-complete\?parent=CA123&amp;business=business" method="POST"/);assert.match(xml,/machineDetection="Enable"/);assert.match(xml,/\/api\/twilio\/voice\/staff-screen/);assert.match(xml,/\/api\/twilio\/voice\/leg-status/);assert.match(xml,/statusCallbackMethod="POST"/);assert.match(xml,/amdStatusCallback=/);assert.equal((xml.match(/<Number /g)??[]).length,2);assert.doesNotMatch(xml,/<(?:Say|Play|Gather|Pause)/);
+ const xml=inboundVoiceTwiml({callId:"CA123",businessId:"business",callerId:"+14804855057",targets:[{employeeId:"staff-1",phone:"+14805550123"},{employeeId:"staff-2",phone:"+16025550123"}],timeout:20,record:false,origin:"https://servonas.com"});
+ assert.match(xml,/<Dial callerId="\+14804855057" answerOnBridge="true" timeout="20"/);assert.match(xml,/action="https:\/\/servonas\.com\/api\/twilio\/voice\/dial-complete\?parent=CA123&amp;business=business" method="POST"/);assert.match(xml,/machineDetection="Enable"/);assert.match(xml,/\/api\/twilio\/voice\/staff-screen/);assert.match(xml,/\/api\/twilio\/voice\/leg-status/);assert.match(xml,/statusCallbackMethod="POST"/);assert.match(xml,/amdStatusCallback=/);assert.equal((xml.match(/<Number /g)??[]).length,2);assert.doesNotMatch(xml,/<(?:Say|Play|Gather|Pause)/);
+});
+test("staff caller ID is tenant-specific while customer identity remains on the inbound parent call",async()=>{
+ const csb=inboundVoiceTwiml({callId:"CA-csb",businessId:"csb",callerId:"+14804855057",targets:[{employeeId:"matthew",phone:"+16025550123"}],timeout:20,record:false,origin:"https://servonas.com"});
+ const other=inboundVoiceTwiml({callId:"CA-other",businessId:"other",callerId:"+16025550999",targets:[{employeeId:"staff",phone:"+16025550124"}],timeout:20,record:false,origin:"https://servonas.com"});
+ assert.match(csb,/<Dial callerId="\+14804855057"/);assert.match(csb,/>\+16025550123<\/Number>/);assert.doesNotMatch(csb,/\+16025550999/);
+ assert.match(other,/<Dial callerId="\+16025550999"/);assert.doesNotMatch(other,/\+14804855057/);
+ const [inbound,outbound,completed]=await Promise.all([readFile("app/api/twilio/voice/inbound/route.ts","utf8"),readFile("lib/twilio/voice.ts","utf8"),readFile("app/api/twilio/voice/dial-complete/route.ts","utf8")]);
+ assert.match(inbound,/from_number:from,to_number:to/);assert.match(inbound,/callerId:to/);assert.match(inbound,/eq\("phone_normalized",from\)/);
+ assert.match(outbound,/From:sender\.from/);assert.match(outbound,/from_number:sender\.from,to_number:input\.to/);
+ assert.match(completed,/sendTenantTwilioMessage\(\{businessId:input\.call\.business_id/);
+});
+test("inbound routing keeps ring-all and on-call selection separate from the staff caller ID",async()=>{
+ const inbound=await readFile("app/api/twilio/voice/inbound/route.ts","utf8");
+ assert.match(inbound,/settings\.routing_mode==="on_call"&&settings\.on_call_employee_id/);
+ assert.match(inbound,/\.in\("employee_id",\[settings\.on_call_employee_id/);
+ assert.match(inbound,/await staffQuery;/);
+ assert.match(inbound,/callerId:to,targets/);
 });
 test("unanswered Dial callbacks receive voicemail TwiML with recording",()=>{
  const xml=missedInboundVoiceTwiml({callId:"CA123",businessId:"business",origin:"https://servonas.com"});
