@@ -28,10 +28,16 @@ export function dialCompletionAction(input:{humanAccepted:boolean;dialCallStatus
  * can answer a child leg, but it cannot press 1. `answerOnBridge` keeps the
  * original caller on normal ringback until a screened staff member is bridged.
  */
-export function inboundVoiceTwiml(input:{callId:string;businessId:string;targets:VoiceTarget[];timeout:number;record:boolean;origin:string}){
+/**
+ * The inbound `To` number is the active, tenant-owned Twilio number that
+ * authenticated this webhook. Present it on the staff Dial leg so staff can
+ * identify a business call without changing the customer's original `From`
+ * number retained in the parent call record.
+ */
+export function inboundVoiceTwiml(input:{callId:string;businessId:string;callerId:string;targets:VoiceTarget[];timeout:number;record:boolean;origin:string}){
  const root=`${input.origin}/api/twilio/voice`,dialComplete=`${root}/dial-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`;
  const numbers=input.targets.map(target=>{const query=`parent=${encodeURIComponent(input.callId)}&employee=${encodeURIComponent(target.employeeId)}&business=${encodeURIComponent(input.businessId)}`,legCallback=`${root}/leg-status?${query}`,screen=`${root}/staff-screen?${query}`;return `<Number statusCallback="${voiceXml(legCallback)}" statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST" machineDetection="Enable" machineDetectionTimeout="5" amdStatusCallback="${voiceXml(legCallback)}" url="${voiceXml(screen)}" method="POST">${voiceXml(target.phone)}</Number>`;}).join("");
- return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(dialComplete)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${root}/voicemail-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
+ return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${voiceXml(input.callerId)}" answerOnBridge="true" timeout="${input.timeout}" action="${voiceXml(dialComplete)}" method="POST"${input.record?` record="record-from-answer-dual" recordingStatusCallback="${voiceXml(`${root}/voicemail-complete?parent=${encodeURIComponent(input.callId)}&business=${encodeURIComponent(input.businessId)}`)}"`:""}>${numbers}</Dial></Response>`;
 }
 
 /** The Dial action must always receive valid TwiML; notification work is separate. */

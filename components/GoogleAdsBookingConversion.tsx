@@ -1,4 +1,12 @@
 "use client";
 import {useEffect} from "react";
 import {trackGoogleAdsBookingConversion} from "@/lib/googleAds";
-export function GoogleAdsBookingConversion({bookingId,valueCents,currency="USD"}:{bookingId:string;valueCents:number;currency?:string}){useEffect(()=>{trackGoogleAdsBookingConversion(bookingId,valueCents/100,currency);},[bookingId,valueCents,currency]);return null;}
+
+/** Client-only because Google's gtag purchase event must share public-site consent. */
+export function GoogleAdsBookingConversion({bookingId,destination,totalCents,currency="USD"}:{bookingId:string;destination:string|null;totalCents:number;currency?:string}){
+ useEffect(()=>{
+  if(!destination||!Number.isSafeInteger(totalCents)||totalCents<0)return;
+  trackGoogleAdsBookingConversion({bookingId,destination,value:totalCents/100,currency});
+ },[bookingId,currency,destination,totalCents]);
+ return null;
+}

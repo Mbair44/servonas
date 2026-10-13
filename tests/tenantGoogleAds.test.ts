@@ -2,7 +2,7 @@ import test,{afterEach} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {activateGoogleAdsTag,normalizeGoogleAdsTagId,isPlatformGoogleAdsPath,updateGoogleAdsConsent} from "../lib/googleTag.ts";
-import {trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion} from "../lib/googleAds.ts";
+import {normalizeGoogleAdsConversionDestination,trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion} from "../lib/googleAds.ts";
 
 const csb="AW-18406171248",other="AW-12345678901";
 function browser(consent:string|null="granted",existing?:"gtag"|"ga4"|"gtm"){
@@ -74,7 +74,16 @@ test("conversion requires configured destination, real label, consent, and gtag;
  assert.equal(trackGoogleAdsConversion(input),true);assert.equal(trackGoogleAdsConversion(input),false);
  assert.deepEqual(b.events().at(-1),["event","conversion",{send_to:input.sendTo,value:42,currency:"USD",transaction_id:"booking-1"}]);
  release();assert.equal(trackGoogleAdsConversion({...input,transactionId:"new"}),false);
- assert.equal(trackGoogleAdsBookingConversion("booking-1",42),false);
+ assert.equal(trackGoogleAdsBookingConversion({bookingId:"booking-1",destination:`${csb}/test_label`,value:42}),false);
+});
+test("booking conversion sends the full configured amount once with the immutable booking ID",()=>{
+ const b=browser("granted");activateGoogleAdsTag(csb,"csb");
+ const destination=`${csb}/dJbiCJve5ZodEPDE38hE`;
+ assert.equal(normalizeGoogleAdsConversionDestination(destination,csb),destination);
+ assert.equal(normalizeGoogleAdsConversionDestination(destination,other),null);
+ assert.equal(trackGoogleAdsBookingConversion({bookingId:"4d660171-7b03-4a31-83cd-a1d57da46443",destination,value:345,currency:"USD"}),true);
+ assert.equal(trackGoogleAdsBookingConversion({bookingId:"4d660171-7b03-4a31-83cd-a1d57da46443",destination,value:345,currency:"USD"}),false);
+ assert.deepEqual(b.events().at(-1),["event","conversion",{send_to:destination,value:345,currency:"USD",transaction_id:"4d660171-7b03-4a31-83cd-a1d57da46443"}]);
 });
 test("private/preview paths and platform tag on tenant paths never track",()=>{
  const b=browser();

@@ -5,6 +5,8 @@ import {TenantGoogleAdsTag} from "@/components/TenantGoogleAdsTag";
 import {normalizeGoogleAdsTagId} from "@/lib/googleTag";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {TenantMetaPixelPurchaseTracker} from "@/components/TenantMetaPixelPurchaseTracker";
+import {GoogleAdsBookingConversion} from "@/components/GoogleAdsBookingConversion";
+import {normalizeGoogleAdsConversionDestination} from "@/lib/googleAds";
 
 export const dynamic = "force-dynamic";
 
@@ -23,16 +25,19 @@ export default async function SuccessPage({ searchParams }: Props) {
   let bookingId:string|null=null;
   let metaPixelId:string|null=null;
   let googleAdsTagId:string|null=null;
+  let googleAdsBookingConversionDestination:string|null=null;
   let googleAdsBusinessId:string|null=null;
+  let bookingTotalCents:number|null=null;
 
   if (sessionId && stripeKey) {
     try {
       const stripe=new Stripe(stripeKey),db=getSupabaseAdmin();
-      const {data:booking}=db?await db.from("bookings").select("id,business_id,businesses(name)").eq("stripe_checkout_session_id",sessionId).maybeSingle():{data:null};
+      const {data:booking}=db?await db.from("bookings").select("id,business_id,total_cents,businesses(name)").eq("stripe_checkout_session_id",sessionId).maybeSingle():{data:null};
       bookingId=booking?.id??null;
+      bookingTotalCents=Number.isSafeInteger(Number(booking?.total_cents))&&Number(booking?.total_cents)>=0?Number(booking?.total_cents):null;
       const business=booking?(Array.isArray(booking.businesses)?booking.businesses[0]:booking.businesses):null;
       businessName=business?.name||businessName;
-      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,meta_pixel_id,google_ads_tag_id").eq("business_id",booking.business_id).maybeSingle():{data:null};
+      const {data:website}=db&&booking?.business_id?await db.from("business_website_settings").select("public_slug,status,custom_domain,domain_status,meta_pixel_id,google_ads_tag_id,google_ads_booking_conversion_destination").eq("business_id",booking.business_id).maybeSingle():{data:null};
       metaPixelId=typeof website?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(website.meta_pixel_id.trim())?website.meta_pixel_id.trim():null;
       if(website?.status==="published")homeHref=website.domain_status==="connected"&&website.custom_domain?`https://${website.custom_domain}`:`/sites/${encodeURIComponent(website.public_slug)}`;
       else if(db&&booking?.business_id){const {data:bookingPage}=await db.from("booking_settings").select("public_slug").eq("business_id",booking.business_id).maybeSingle();if(bookingPage?.public_slug)homeHref=`/book/${encodeURIComponent(bookingPage.public_slug)}`;}
@@ -40,6 +45,7 @@ export default async function SuccessPage({ searchParams }: Props) {
       session = await stripe.checkout.sessions.retrieve(sessionId,{},paymentAccount?.provider_account_id?{stripeAccount:paymentAccount.provider_account_id}:undefined);
       if(booking&&session.metadata?.booking_id!==booking.id)throw new Error("Checkout Session did not match the reservation.");
       googleAdsTagId=normalizeGoogleAdsTagId(website?.google_ads_tag_id);
+      googleAdsBookingConversionDestination=normalizeGoogleAdsConversionDestination(website?.google_ads_booking_conversion_destination,googleAdsTagId);
       googleAdsBusinessId=booking?.business_id??null;
     } catch (error) {
       console.error("Could not retrieve Stripe Checkout session:", error);
@@ -56,7 +62,7 @@ export default async function SuccessPage({ searchParams }: Props) {
   const bookingNumber = session?.metadata?.booking_number;
   const depositCents = Number(session?.amount_total || 0);
   const discountCents = Number(session?.total_details?.amount_discount || 0);
-  const totalCents = Number(session?.metadata?.total_cents || 0);
+  const totalCents = bookingTotalCents??0;
   const balanceCents = Math.max(0, totalCents - depositCents - discountCents);
 
   return (
@@ -72,6 +78,7 @@ export default async function SuccessPage({ searchParams }: Props) {
           {paid ? (
             <>
               {paid&&bookingId&&<TenantMetaPixelPurchaseTracker bookingId={bookingId} contentIds={String(session?.metadata?.inventory_item_ids??"").split(",").map(value=>value.trim()).filter(Boolean)} numItems={Math.max(1,Number(session?.metadata?.item_count??0))} value={totalCents>0?totalCents/100:undefined} currency={session?.currency?.toUpperCase()??"USD"}/>}
+              {paid&&bookingId&&bookingTotalCents!==null&&<GoogleAdsBookingConversion bookingId={bookingId} destination={googleAdsBookingConversionDestination} totalCents={bookingTotalCents} currency="USD"/>}
               <p className="lead">Non-refundable deposit paid: <strong>{money(depositCents)}</strong></p>
               {discountCents > 0 ? <p className="lead">Promotion discount: <strong>{money(discountCents)}</strong></p> : null}
               <p className="muted">Remaining balance: <strong>{money(balanceCents)}</strong>. Keep your confirmation number for your records.</p>
