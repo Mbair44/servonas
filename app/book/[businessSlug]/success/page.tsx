@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { formatBusinessDateTime } from "@/lib/bookingTime";
 import {TenantMetaPixelPurchaseTracker} from "@/components/TenantMetaPixelPurchaseTracker";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
+import {GoogleAdsBookingConversion} from "@/components/GoogleAdsBookingConversion";
+import {normalizeGoogleAdsTagId} from "@/lib/googleTag";
+import {normalizeGoogleAdsConversionDestination} from "@/lib/googleAds";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -59,7 +62,7 @@ export default async function BookingSuccess({
     supabase.from("businesses").select("id,name,website_url").eq("id", submission.business_id).maybeSingle(),
     supabase.from("services").select("id,name").eq("id", submission.service_id).eq("business_id", submission.business_id).maybeSingle(),
     supabase.from("customers").select("id,first_name,last_name").eq("id", submission.customer_id).eq("business_id", submission.business_id).maybeSingle(),
-    supabase.from("jobs").select("id,job_number,status,starts_at,ends_at,service_address").eq("id", submission.job_id).eq("business_id", submission.business_id).maybeSingle(),
+    supabase.from("jobs").select("id,job_number,status,starts_at,ends_at,service_address,total_amount").eq("id", submission.job_id).eq("business_id", submission.business_id).maybeSingle(),
   ]);
   if (businessResult.error) databaseFailure("business lookup failed", businessResult.error);
   if (serviceResult.error) databaseFailure("service lookup failed", serviceResult.error);
@@ -83,8 +86,11 @@ export default async function BookingSuccess({
     databaseFailure("confirmed job is missing appointment times", { confirmation, jobId: job.id });
   }
   const status = job.status === "confirmed" ? "Confirmed" : "Pending confirmation";
-  const {data:websiteSettings}=await supabase.from("business_website_settings").select("meta_pixel_id").eq("business_id",submission.business_id).maybeSingle();
+  const {data:websiteSettings}=await supabase.from("business_website_settings").select("meta_pixel_id,google_ads_tag_id,google_ads_booking_conversion_destination").eq("business_id",submission.business_id).maybeSingle();
   const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
+  const googleAdsTagId=normalizeGoogleAdsTagId(websiteSettings?.google_ads_tag_id);
+  const googleAdsBookingConversionDestination=normalizeGoogleAdsConversionDestination(websiteSettings?.google_ads_booking_conversion_destination,googleAdsTagId);
+  const bookingTotalCents=Number.isSafeInteger(Math.round(Number(job.total_amount)*100))&&Number(job.total_amount)>=0?Math.round(Number(job.total_amount)*100):null;
   const { data: signedLogo } = settings.logo_path
     ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
     : { data: null };
@@ -102,6 +108,7 @@ export default async function BookingSuccess({
       <section className="public-booking-card booking-success">
         {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
         <TenantMetaPixelPurchaseTracker bookingId={submission.id} contentIds={[service.id]} contentName={service.name} numItems={1} />
+        {job.status==="confirmed"&&bookingTotalCents!==null&&<GoogleAdsBookingConversion bookingId={job.id} destination={googleAdsBookingConversionDestination} totalCents={bookingTotalCents} currency="USD"/>}
         {bookingLogo && <img className="booking-success-logo" src={bookingLogo} alt={`${business.name} logo`}/>}
         <div className="success-check" aria-hidden="true">✓</div>
         <small>Confirmation #{job.job_number}</small>

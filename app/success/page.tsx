@@ -28,6 +28,7 @@ export default async function SuccessPage({ searchParams }: Props) {
   let googleAdsBookingConversionDestination:string|null=null;
   let googleAdsBusinessId:string|null=null;
   let bookingTotalCents:number|null=null;
+  let isInitialOnlineRentalCheckout=false;
 
   if (sessionId && stripeKey) {
     try {
@@ -44,6 +45,7 @@ export default async function SuccessPage({ searchParams }: Props) {
       const {data:paymentAccount}=db&&booking?.business_id?await db.from("business_payment_accounts").select("provider_account_id").eq("business_id",booking.business_id).eq("provider","stripe").maybeSingle():{data:null};
       session = await stripe.checkout.sessions.retrieve(sessionId,{},paymentAccount?.provider_account_id?{stripeAccount:paymentAccount.provider_account_id}:undefined);
       if(booking&&session.metadata?.booking_id!==booking.id)throw new Error("Checkout Session did not match the reservation.");
+      isInitialOnlineRentalCheckout=Boolean(booking&&session.metadata?.booking_id===booking.id&&!session.metadata?.payment_kind);
       googleAdsTagId=normalizeGoogleAdsTagId(website?.google_ads_tag_id);
       googleAdsBookingConversionDestination=normalizeGoogleAdsConversionDestination(website?.google_ads_booking_conversion_destination,googleAdsTagId);
       googleAdsBusinessId=booking?.business_id??null;
@@ -78,7 +80,7 @@ export default async function SuccessPage({ searchParams }: Props) {
           {paid ? (
             <>
               {paid&&bookingId&&<TenantMetaPixelPurchaseTracker bookingId={bookingId} contentIds={String(session?.metadata?.inventory_item_ids??"").split(",").map(value=>value.trim()).filter(Boolean)} numItems={Math.max(1,Number(session?.metadata?.item_count??0))} value={totalCents>0?totalCents/100:undefined} currency={session?.currency?.toUpperCase()??"USD"}/>}
-              {paid&&bookingId&&bookingTotalCents!==null&&<GoogleAdsBookingConversion bookingId={bookingId} destination={googleAdsBookingConversionDestination} totalCents={bookingTotalCents} currency="USD"/>}
+              {paid&&isInitialOnlineRentalCheckout&&bookingId&&bookingTotalCents!==null&&<GoogleAdsBookingConversion bookingId={bookingId} destination={googleAdsBookingConversionDestination} totalCents={bookingTotalCents} currency="USD"/>}
               <p className="lead">Non-refundable deposit paid: <strong>{money(depositCents)}</strong></p>
               {discountCents > 0 ? <p className="lead">Promotion discount: <strong>{money(discountCents)}</strong></p> : null}
               <p className="muted">Remaining balance: <strong>{money(balanceCents)}</strong>. Keep your confirmation number for your records.</p>

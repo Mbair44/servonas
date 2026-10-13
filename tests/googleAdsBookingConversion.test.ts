@@ -14,6 +14,7 @@ test("paid Stripe booking success uses the immutable full booking total and neve
  assert.match(success,/bookingTotalCents=Number\.isSafeInteger\(Number\(booking\?\.total_cents\)\)/);
  assert.match(success,/<GoogleAdsBookingConversion bookingId=\{bookingId\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
  assert.match(success,/const paid = session\?\.payment_status === "paid"/);
+ assert.match(success,/!session\.metadata\?\.payment_kind/);
  assert.match(component,/value:totalCents\/100/);
  assert.match(component,/Number\.isSafeInteger\(totalCents\)/);
  // Checkout calculates and stores total before sending the deposit-only Stripe line item.
@@ -24,6 +25,21 @@ test("paid Stripe booking success uses the immutable full booking total and neve
  // Customer balance and payment-request Checkouts return to manage-booking, never /success.
  assert.match(managePayment,/success_url:`\$\{process\.env\.NEXT_PUBLIC_SITE_URL.*\/manage-booking\/\$\{token\}\?payment=processing`/);
  assert.doesNotMatch(managePayment,/\/success\?session_id/);
+});
+
+test("initial server HTML contains one consent-denied tenant loader, and confirmed service bookings use their final job total",async()=>{
+ const [tag,serviceSuccess]=await Promise.all([
+  read("components/TenantGoogleAdsTag.tsx"),read("app/book/[businessSlug]/success/page.tsx"),
+ ]);
+ assert.match(tag,/servonas-google-consent-/);
+ assert.match(tag,/ad_storage:'denied'/);
+ assert.match(tag,/window\.gtag\('config'/);
+ assert.match(tag,/https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=\$\{normalizedTagId\}/);
+ assert.match(tag,/normalizeGoogleAdsTagId\(tagId\)/);
+ assert.match(serviceSuccess,/select\("id,job_number,status,starts_at,ends_at,service_address,total_amount"\)/);
+ assert.match(serviceSuccess,/normalizeGoogleAdsConversionDestination\(websiteSettings\?\.google_ads_booking_conversion_destination,googleAdsTagId\)/);
+ assert.match(serviceSuccess,/job\.status==="confirmed"&&bookingTotalCents!==null/);
+ assert.match(serviceSuccess,/<GoogleAdsBookingConversion bookingId=\{job\.id\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
 });
 
 test("tenant destination, settings validation, success rendering, Meta boundary, and click IDs stay isolated",async()=>{
