@@ -46,6 +46,6 @@ export function MarketingAnalytics(){
   document.addEventListener("click",click,true);return()=>document.removeEventListener("click",click,true);
  },[consent,pathname]);
  if(!ready||!analyticsEnabled||typeof window==="undefined"||!consentSurface()||consent)return null;
- const choose=(value:"granted"|"denied")=>{try{localStorage.setItem(CONSENT,value);}catch{return;}updateGoogleAdsConsent();setConsent(value);};
+ const choose=(value:"granted"|"denied")=>{try{localStorage.setItem(CONSENT,value);}catch{return;}updateGoogleAdsConsent();window.dispatchEvent(new Event("servonas:analytics-consent-updated"));setConsent(value);};
  return <aside className="analytics-consent" role="dialog" aria-label="Analytics preferences"><div><strong>Your privacy choices</strong><p>Optional analytics and advertising measurement help us understand visits and bookings. Google uses consent-limited measurement before you choose. Personalized advertising remains disabled. <a href="/privacy">Privacy details</a></p></div><div><button className="sv-button sv-secondary" onClick={()=>choose("denied")}>Only necessary</button><button className="sv-button" onClick={()=>choose("granted")}>Allow analytics</button></div></aside>;
 }
