@@ -2,14 +2,15 @@ import test,{afterEach} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {activateGoogleAdsTag,normalizeGoogleAdsTagId,isPlatformGoogleAdsPath,updateGoogleAdsConsent} from "../lib/googleTag.ts";
-import {normalizeGoogleAdsConversionDestination,trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion} from "../lib/googleAds.ts";
+import {buildGoogleAdsBookingConversionPayload,normalizeGoogleAdsConversionDestination,trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion} from "../lib/googleAds.ts";
 
 const csb="AW-18406171248",other="AW-12345678901";
 function browser(consent:string|null="granted",existing?:"gtag"|"ga4"|"gtm"){
  const calls:unknown[][]=[],scripts:{src:string;async?:boolean}[]=existing==="ga4"?[{src:"https://www.googletagmanager.com/gtag/js?id=G-EXISTING"}]:existing==="gtm"?[{src:"https://www.googletagmanager.com/gtm.js?id=GTM-EXISTING"}]:[];
  const storage=new Map<string,string>();
  const state={consent};
- const win={location:{pathname:"/sites/copper-state-bounce",hostname:"servonas.com",href:"https://servonas.com/sites/copper-state-bounce"},localStorage:{getItem:()=>state.consent},sessionStorage:{getItem:(key:string)=>storage.get(key),setItem:(key:string,value:string)=>storage.set(key,value)},dataLayer:[] as IArguments[],gtag:existing==="gtag"?((...args:unknown[])=>calls.push(args)):undefined};
+ const localStorage=new Map<string,string>();
+ const win={location:{pathname:"/sites/copper-state-bounce",hostname:"servonas.com",href:"https://servonas.com/sites/copper-state-bounce"},localStorage:{getItem:(key:string)=>key==="servonas.analytics_consent"?state.consent:localStorage.get(key)??null,setItem:(key:string,value:string)=>localStorage.set(key,value)},sessionStorage:{getItem:(key:string)=>storage.get(key),setItem:(key:string,value:string)=>storage.set(key,value)},dataLayer:[] as IArguments[],gtag:existing==="gtag"?((...args:unknown[])=>calls.push(args)):undefined};
  Object.defineProperty(globalThis,"window",{value:win,configurable:true});
  Object.defineProperty(globalThis,"document",{value:{scripts,createElement:()=>({}),head:{appendChild:(script:{src:string})=>scripts.push(script)}},configurable:true});
  return {win,state,scripts,events:()=>existing==="gtag"?calls:win.dataLayer.map(args=>Array.from(args))};
@@ -84,6 +85,11 @@ test("booking conversion sends the full configured amount once with the immutabl
  assert.equal(trackGoogleAdsBookingConversion({bookingId:"4d660171-7b03-4a31-83cd-a1d57da46443",destination,value:345,currency:"USD"}),true);
  assert.equal(trackGoogleAdsBookingConversion({bookingId:"4d660171-7b03-4a31-83cd-a1d57da46443",destination,value:345,currency:"USD"}),false);
  assert.deepEqual(b.events().at(-1),["event","conversion",{send_to:destination,value:345,currency:"USD",transaction_id:"4d660171-7b03-4a31-83cd-a1d57da46443"}]);
+});
+test("booking conversion payload can be inspected without dispatching a Google event",()=>{
+ const destination=`${csb}/dJbiCJve5ZodEPDE38hE`;
+ assert.deepEqual(buildGoogleAdsBookingConversionPayload({bookingId:"4d660171-7b03-4a31-83cd-a1d57da46443",destination,value:345,currency:"USD"}),{send_to:destination,value:345,currency:"USD",transaction_id:"4d660171-7b03-4a31-83cd-a1d57da46443"});
+ assert.equal(buildGoogleAdsBookingConversionPayload({bookingId:"booking",destination:`${other}/label`,value:-1}),null);
 });
 test("private/preview paths and platform tag on tenant paths never track",()=>{
  const b=browser();

@@ -13,6 +13,7 @@ type GoogleAdsConversionOptions={
 };
 type TenantGoogleAdsConversion=GoogleAdsConversionOptions & {sendTo:string};
 type GoogleAdsBookingConversion={bookingId:string;destination:string;value:number;currency?:string};
+export type GoogleAdsConversionPayload={send_to:string;value:number;currency:string;transaction_id:string};
 
 export function normalizeGoogleAdsConversionDestination(value:unknown,tagId?:unknown):string|null{
  if(typeof value!=="string")return null;
@@ -31,7 +32,7 @@ export function trackGoogleAdsConversion(input:string|TenantGoogleAdsConversion,
  const onceKey=details.transactionId||details.onceKey;
  const storageKey=onceKey?`servonas.google-ads-conversion.${context.scope}.${sendTo}.${onceKey}`:null;
  try{
-  if(storageKey&&window.sessionStorage.getItem(storageKey)==="sent")return false;
+  if(storageKey&&(window.sessionStorage.getItem(storageKey)==="sent"||window.localStorage.getItem(storageKey)==="sent"))return false;
   const gtag=(window as typeof window & {gtag?:GoogleTag}).gtag;
   if(typeof gtag!=="function")return false;
   updateGoogleAdsConsent();
@@ -42,16 +43,27 @@ export function trackGoogleAdsConversion(input:string|TenantGoogleAdsConversion,
    ...(details.currency?{currency:details.currency}:{}),
    ...(details.transactionId?{transaction_id:details.transactionId}:{}),
   });
-  if(storageKey)window.sessionStorage.setItem(storageKey,"sent");
+  if(storageKey){window.sessionStorage.setItem(storageKey,"sent");try{window.localStorage.setItem(storageKey,"sent");}catch{/* Google transaction_id remains the cross-browser fallback. */}}
   return true;
  }catch{return false;}
 }
 
+/** Builds the provider payload without contacting Google; useful for safe staging diagnostics. */
+export function buildGoogleAdsBookingConversionPayload(input:GoogleAdsBookingConversion):GoogleAdsConversionPayload|null{
+ const destination=normalizeGoogleAdsConversionDestination(input.destination);
+ if(!destination||!input.bookingId||!Number.isFinite(input.value)||input.value<0)return null;
+ return {send_to:destination,value:input.value,currency:input.currency??"USD",transaction_id:input.bookingId};
+}
+
 /** Fires one tenant purchase conversion using an immutable Servonas booking ID. */
 export function trackGoogleAdsBookingConversion(input:GoogleAdsBookingConversion){
- const destination=normalizeGoogleAdsConversionDestination(input.destination);
- if(!destination||!input.bookingId||!Number.isFinite(input.value)||input.value<0)return false;
- return trackGoogleAdsConversion({sendTo:destination,value:input.value,currency:input.currency??"USD",transactionId:input.bookingId});
+ const payload=buildGoogleAdsBookingConversionPayload(input);
+ if(!payload)return false;
+ const sent=trackGoogleAdsConversion({sendTo:payload.send_to,value:payload.value,currency:payload.currency,transactionId:payload.transaction_id});
+ if(sent&&process.env.NEXT_PUBLIC_GOOGLE_ADS_DIAGNOSTICS==="true"&&typeof window!=="undefined"){
+  window.dispatchEvent(new CustomEvent("servonas:google-ads-conversion",{detail:payload}));
+ }
+ return sent;
 }
 
 export function trackGoogleAdsSignupConversion(userId:string,eventCallback?:()=>void){

@@ -10,11 +10,13 @@ test("paid Stripe booking success uses the immutable full booking total and neve
  const [success,component,checkout,webhook,managePayment]=await Promise.all([
   read("app/success/page.tsx"),read("components/GoogleAdsBookingConversion.tsx"),read("app/api/checkout/route.ts"),read("app/api/stripe/webhook/route.ts"),read("app/api/manage-booking/[token]/pay/route.ts"),
  ]);
- assert.match(success,/select\("id,business_id,total_cents,businesses\(name\)"\)/);
+ assert.match(success,/select\("id,business_id,status,total_cents,businesses\(name\)"\)/);
  assert.match(success,/bookingTotalCents=Number\.isSafeInteger\(Number\(booking\?\.total_cents\)\)/);
  assert.match(success,/<GoogleAdsBookingConversion bookingId=\{bookingId\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
  assert.match(success,/const paid = session\?\.payment_status === "paid"/);
  assert.match(success,/!session\.metadata\?\.payment_kind/);
+ assert.match(success,/bookingConfirmed=booking\?\.status==="confirmed"/);
+ assert.match(success,/confirmationStatusUrl=\{`\/api\/public-booking-conversion-status\?session_id=/);
  assert.match(component,/value:totalCents\/100/);
  assert.match(component,/Number\.isSafeInteger\(totalCents\)/);
  // Checkout calculates and stores total before sending the deposit-only Stripe line item.
@@ -25,6 +27,21 @@ test("paid Stripe booking success uses the immutable full booking total and neve
  // Customer balance and payment-request Checkouts return to manage-booking, never /success.
  assert.match(managePayment,/success_url:`\$\{process\.env\.NEXT_PUBLIC_SITE_URL.*\/manage-booking\/\$\{token\}\?payment=processing`/);
  assert.doesNotMatch(managePayment,/\/success\?session_id/);
+});
+
+test("rental success waits for webhook confirmation and diagnostic delivery remains opt-in",async()=>{
+ const [component,statusRoute,googleAds]=await Promise.all([
+  read("components/GoogleAdsBookingConversion.tsx"),read("app/api/public-booking-conversion-status/route.ts"),read("lib/googleAds.ts"),
+ ]);
+ assert.match(component,/attempts<20/);
+ assert.match(component,/payload\.confirmed===true/);
+ assert.match(component,/servonas:analytics-consent-updated/);
+ assert.match(component,/sendAttempt<20/);
+ assert.match(statusRoute,/stripe_checkout_session_id/);
+ assert.match(statusRoute,/data\?\.status==="confirmed"/);
+ assert.match(googleAds,/NEXT_PUBLIC_GOOGLE_ADS_DIAGNOSTICS==="true"/);
+ assert.match(googleAds,/servonas:google-ads-conversion/);
+ assert.match(googleAds,/window\.localStorage\.getItem\(storageKey\)/);
 });
 
 test("initial server HTML contains one consent-denied tenant loader, and confirmed service bookings use their final job total",async()=>{
