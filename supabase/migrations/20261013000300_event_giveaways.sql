@@ -12,10 +12,10 @@ create table public.event_giveaways (
  status text not null default 'draft' check(status in ('draft','published','closed','archived')),
  attribution_campaign text, created_by uuid references auth.users(id) on delete set null,
  published_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
- unique(business_id,lower(slug)),
  check(entry_ends_at is null or entry_starts_at is null or entry_ends_at > entry_starts_at),
  check(status <> 'published' or (entry_starts_at is not null and entry_ends_at is not null and nullif(btrim(eligibility_rules),'') is not null))
 );
+create unique index event_giveaways_business_slug_lower_key on public.event_giveaways(business_id,lower(slug));
 
 create table public.event_giveaway_entries (
  id uuid primary key default gen_random_uuid(),

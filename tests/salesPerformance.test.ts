@@ -130,6 +130,18 @@ test("booking-value RPC excludes canceled bookings and reads no payments or invo
  const sql=await readFile(new URL("../supabase/migrations/20260925000600_sales_performance_booking_value.sql",import.meta.url),"utf8");
  assert.match(sql,/sales_performance_booking_values/);assert.match(sql,/b\.status in \('confirmed','paid','completed'\)/);assert.doesNotMatch(sql,/status in \([^)]*cancelled/);assert.match(sql,/sum\(b\.total_cents\)/);assert.match(sql,/count\(\*\)/);assert.match(sql,/b\.created_at at time zone v_timezone/);assert.match(sql,/b\.business_id=p_business_id/);assert.doesNotMatch(sql,/public\.payments|public\.invoices/);
 });
+test("booked-sales migration retains creation-date totals and excludes canceled jobs",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20261013000500_sales_performance_booked_sales.sql",import.meta.url),"utf8");
+ assert.match(sql,/b\.created_at at time zone v_timezone/);assert.match(sql,/sum\(b\.total_cents\)/);assert.match(sql,/j\.is_deleted or j\.status='canceled'/);assert.doesNotMatch(sql,/public\.payments|public\.invoices/);
+});
+test("booked sales handles deposits, discounts, and events in another month through canonical booking totals",()=>{
+ const rows=[{booking_date:"2026-09-02",booking_value_cents:17500,booking_count:1},{booking_date:"2026-10-01",booking_value_cents:30000,booking_count:1}];
+ assert.deepEqual(bookingValueMetrics(rows,{start:"2026-09-01",end:"2026-09-30"}),{bookingValueCents:17500,bookingCount:1,averageCents:17500});
+});
+test("sales and revenue trend exposes independently persisted line toggles",async()=>{
+ const chart=await readFile(new URL("../components/SalesRevenueTrend.tsx",import.meta.url),"utf8"),dashboard=await readFile(new URL("../components/SalesPerformance.tsx",import.meta.url),"utf8");
+ assert.match(chart,/localStorage/);assert.match(chart,/showSales/);assert.match(chart,/showRevenue/);assert.match(chart,/Sales booked/);assert.match(chart,/Revenue collected/);assert.match(dashboard,/Sales \(Booked\)/);assert.match(dashboard,/Sales &amp; Revenue Trend/);
+});
 test("zero receipts and fully refunded customers have a clean empty state",()=>{
  const result=customerCategoryMetrics([receipt(0)],selected);
  assert.equal(result.customerCount,0);assert.equal(result.averageCents,null);assert.deepEqual(result.categories,[]);

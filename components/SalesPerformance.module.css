@@ -18,6 +18,8 @@
 .windows { display: flex; flex-wrap: wrap; gap: 4px; }
 .windows a { padding: 7px 10px; border-radius: 7px; color: #475569; font-size: .8rem; text-decoration: none; }
 .windows a[aria-current] { background: #eff6ff; color: #1d4ed8; font-weight: 750; }
+.legend { display:flex; gap:14px; align-items:center; border:0; padding:0; margin:12px 0; color:#475569; font-size:.8rem; }
+.legend label { display:flex; gap:6px; align-items:center; }
 .chartScroll { overflow-x: auto; }
 .chart { min-width: 560px; display: block; width: 100%; height: auto; margin-top: 10px; }
 .table summary { cursor: pointer; font-size: .8rem; color: #475569; }
