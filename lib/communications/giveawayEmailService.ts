@@ -1,4 +1,3 @@
-import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 const esc=(v:string)=>v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 export async function sendGiveawayConfirmation(input:{businessId:string;entryId:string;email:string;businessName:string;replyTo:string|null;code:string;expiresAt:string|null;minimumSubtotalCents:number|null}){
  const key=process.env.RESEND_API_KEY?.trim(),from=process.env.EMAIL_FROM?.trim();if(!key||!from)return {ok:false,skipped:true};
