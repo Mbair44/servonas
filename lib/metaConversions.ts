@@ -3,7 +3,7 @@ import {getSupabaseAdmin} from "./supabaseAdmin";
 const pixelPattern=/^[0-9]{8,24}$/;
 const configuredGraphVersion=process.env.META_GRAPH_API_VERSION?.trim()||"";
 const graphVersion=/^v\d+\.\d+$/.test(configuredGraphVersion)?configuredGraphVersion:"v22.0";
-type MetaEventName="InitiateCheckout";
+type MetaEventName="InitiateCheckout"|"Purchase";
 type MetaConversionInput={businessId:string;businessSlug:string;pixelId:string;event:MetaEventName;eventId:string;eventSourceUrl:string;userAgent:string;clientIp:string|null;fbp:string|null;fbc:string|null;customData:Record<string,unknown>};
 
 const debugEnabled=()=>process.env.NODE_ENV!=="production"||process.env.META_CONVERSIONS_DIAGNOSTICS==="1";

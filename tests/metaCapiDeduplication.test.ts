@@ -69,13 +69,23 @@ test("CAPI remains tenant scoped and never logs credentials",async()=>{
  assert.doesNotMatch(sender,/console\.(?:info|warn|error)\([^;]*\{[^}]*,\s*token(?:[,}])/i);
 });
 
-test("other Meta events only use server dedup when both sources exist",async()=>{
- const [rental,purchase,mechanical]=await Promise.all([
+test("confirmed purchases share a stable Pixel/CAPI event ID and the server verifies the booking",async()=>{
+ const [rental,purchase,mechanical,route,sender,stripeSuccess]=await Promise.all([
   read("components/PartyRentalBookingClient.tsx"),
   read("components/TenantMetaPixelPurchaseTracker.tsx"),
   read("components/MechanicalBullLanding.tsx"),
+  read("app/api/public-booking/[businessSlug]/meta-event/route.ts"),
+  read("lib/metaConversions.ts"),
+  read("components/StripeCheckoutSuccess.tsx"),
  ]);
- assert.match(purchase,/eventId:`purchase-\$\{bookingId\}`/);
+ assert.match(purchase,/const eventId=`purchase-\$\{bookingId\}`/);
+ assert.match(purchase,/trackMetaServerEvent\(businessSlug,"Purchase"/);
+ assert.match(rental,/trackMetaServerEvent\(businessSlug,"Purchase"/);
+ assert.match(stripeSuccess,/bookingId&&bookingConfirmed&&<TenantMetaPixelPurchaseTracker/);
+ assert.match(route,/body\?\.event==="InitiateCheckout"\|\|body\?\.event==="Purchase"/);
+ assert.match(route,/eq\("id",bookingId\)\.eq\("business_id",businessId\)\.eq\("status","confirmed"\)/);
+ assert.match(route,/transaction_id:confirmedBooking\.id/);
+ assert.match(sender,/type MetaEventName="InitiateCheckout"\|"Purchase"/);
  assert.match(rental,/trackMetaStandardEvent\("ViewContent"/);
  assert.match(mechanical,/trackMetaStandardEvent\("ViewContent"/);
  assert.doesNotMatch(`${rental}\n${purchase}\n${mechanical}`,/trackMetaBrowserAndServerEvent\([^\n]*"(?:Purchase|ViewContent)"/);

@@ -62,12 +62,12 @@ export function trackMetaStandardEvent(event:MetaStandardEvent,params:Record<str
  return true;
 }
 const metaCookie=(name:string)=>{if(typeof document==="undefined")return null;const prefix=`${name}=`;const entry=document.cookie.split(";").map(value=>value.trim()).find(value=>value.startsWith(prefix));return entry?decodeURIComponent(entry.slice(prefix.length)):null;};
-export function trackMetaServerEvent(businessSlug:string,event:"InitiateCheckout",params:Record<string,unknown>,eventId:string,eventSourceUrl?:string){
+export function trackMetaServerEvent(businessSlug:string,event:"InitiateCheckout"|"Purchase",params:Record<string,unknown>,eventId:string,eventSourceUrl?:string,bookingId?:string){
  if(typeof window==="undefined"||!consentGranted()||!activeMetaPixelId()||pathBlocked(window.location.pathname))return eventId;
  const serverKeys=window.__servonasMetaServerEventKeys??[];
  if(serverKeys.includes(eventId)){logMetaDebug(event,eventId,"server",true,{reason:"client_delivery_suppressed"});return eventId;}
  window.__servonasMetaServerEventKeys=[...serverKeys,eventId].slice(-metaEventLimit);
- const payload=JSON.stringify({event,eventId,eventSourceUrl:eventSourceUrl??window.location.href,customData:sanitizeMetaParams(params),fbp:metaCookie("_fbp"),fbc:metaCookie("_fbc")});
+ const payload=JSON.stringify({event,eventId,eventSourceUrl:eventSourceUrl??window.location.href,bookingId,customData:sanitizeMetaParams(params),fbp:metaCookie("_fbp"),fbc:metaCookie("_fbc")});
  const endpoint=`/api/public-booking/${encodeURIComponent(businessSlug)}/meta-event`;
  let beaconSent=false;
  try{if(typeof navigator.sendBeacon==="function")beaconSent=navigator.sendBeacon(endpoint,new Blob([payload],{type:"application/json"}));}catch{}
