@@ -12,21 +12,35 @@
 .increase { color: #166534; }
 .decrease { color: #b42318; }
 .metrics a { display: inline-block; margin-top: 8px; color: #2563eb; font-size: .8rem; }
-.trend { padding: 22px; }
+.trend { padding: 18px 22px 20px; }
 .trend h3 { margin: 0; }
 .trend p { color: #64748b; font-size: .8rem; }
 .windows { display: flex; flex-wrap: wrap; gap: 4px; }
 .windows a { padding: 7px 10px; border-radius: 7px; color: #475569; font-size: .8rem; text-decoration: none; }
 .windows a[aria-current] { background: #eff6ff; color: #1d4ed8; font-weight: 750; }
-.legend { display:flex; gap:14px; align-items:center; border:0; padding:0; margin:12px 0; color:#475569; font-size:.8rem; }
-.legend label { display:flex; gap:6px; align-items:center; }
-.chartScroll { overflow-x: auto; }
-.chart { min-width: 560px; display: block; width: 100%; height: auto; margin-top: 10px; }
+.trendChart { margin-top: 10px; }
+.legend { display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; margin:0 0 8px; }
+.legend button { display:inline-flex; align-items:center; gap:7px; min-height:32px; padding:6px 9px; border:1px solid #d9e2ed; border-radius:7px; background:#fff; color:#334155; font:650 .78rem/1 inherit; cursor:pointer; transition:border-color .15s ease,opacity .15s ease,background .15s ease; }
+.legend button:hover,.legend button:focus-visible { border-color:#94a3b8; background:#f8fafc; outline:none; }
+.legend button i,.chartTooltip i { width:18px; height:3px; border-radius:999px; display:inline-block; flex:none; }
+.legendHidden { opacity:.48; }
+.chartScroll { position:relative; overflow-x:auto; padding-top:2px; }
+.chart { min-width:540px; display:block; width:100%; height:auto; }
+.chartGrid { stroke:#e8edf3; stroke-width:1; }
+.chartAxis { fill:#64748b; font-size:11px; }
+.chartLine { stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.chartPoint { transition:r .12s ease; cursor:pointer; }
+.chartPoint:hover { r:6; }
+.chartTooltip { position:absolute; z-index:2; top:12px; min-width:184px; transform:translateX(-50%); padding:9px 10px; border:1px solid #d8e1ec; border-radius:8px; background:rgba(15,23,42,.96); color:#fff; box-shadow:0 8px 20px rgba(15,23,42,.18); font-size:.75rem; line-height:1.45; pointer-events:none; }
+.chartTooltip strong { display:block; margin-bottom:4px; font-size:.78rem; }
+.chartTooltip span { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.chartTooltip span i { width:10px; height:3px; }
+.chartTooltip b { margin-left:auto; font-variant-numeric:tabular-nums; }
 .table summary { cursor: pointer; font-size: .8rem; color: #475569; }
 .table table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: .8rem; }
 .table th, .table td { padding: 8px; border-bottom: 1px solid #e5eaf0; text-align: left; }
 .table td, .table thead th:last-child { text-align: right; }
-@media(max-width:800px) { .metrics { grid-template-columns: 1fr; } .trend { padding: 16px; } .filters label { flex: 1 1 140px; } .filters input,.filters select { min-width: 0; width: 100%; } }
+@media(max-width:800px) { .metrics { grid-template-columns: 1fr; } .trend { padding:16px; } .legend { gap:7px; } .legend button { min-height:30px; padding:5px 8px; } .chart { min-width:500px; } .chartTooltip { top:8px; } .filters label { flex: 1 1 140px; } .filters input,.filters select { min-width: 0; width: 100%; } }
 
 .categories { padding: 22px; margin-top: 16px; }
 .categories h3 { margin: 0; }

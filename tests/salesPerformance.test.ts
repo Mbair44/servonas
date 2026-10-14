@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
-import {allocateCategoryRevenue,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,normalizeSalesReceipts,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
+import {allocateCategoryRevenue,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,monthlyAverageComparisons,normalizeSalesReceipts,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
 import {dateInTimeZone} from "../lib/bookingTime.ts";
 const today="2026-09-14";
 test("normalizes nested JSONB weights returned as arrays or JSON text",()=>{
@@ -41,18 +41,26 @@ test("revenue sums collected daily amounts inclusively and excludes outside date
  const rows=[{date:"2026-08-31",cents:900},{date:"2026-09-01",cents:1000},{date:today,cents:2000},{date:"2026-09-15",cents:900}];
  assert.equal(revenueInRange(rows,salesRange("this_month",today)),3000);
 });
-test("comparisons never divide by zero",()=>{
- assert.equal(revenueChange(100,0),null);assert.equal(revenueChange(0,0),null);assert.equal(revenueChange(11800,10000),18);assert.equal(revenueChange(0,10000),-100);
+test("comparisons never divide by zero and use the magnitude of a negative baseline",()=>{
+ assert.equal(revenueChange(100,0),null);assert.equal(revenueChange(0,0),null);assert.equal(revenueChange(11800,10000),18);assert.equal(revenueChange(0,10000),-100);assert.equal(revenueChange(50,-100),150);
 });
 test("monthly average uses only available completed months and includes zero months",()=>{
  const rows=[{date:"2026-06-15",cents:9000},{date:"2026-08-01",cents:3000},{date:"2026-09-05",cents:999999}];
- assert.deepEqual(monthlyAverage(rows,"2026-06-15",today),{cents:4000,months:3});
+ assert.deepEqual(monthlyAverage(rows,"2026-06-15",today),{cents:4000,months:3,start:"2026-06-01",end:"2026-08-31"});
 });
 test("new tenants have no average until a historical month is complete",()=>{
- assert.deepEqual(monthlyAverage([],null,today),{cents:null,months:0});assert.deepEqual(monthlyAverage([{date:today,cents:900}],today,today),{cents:null,months:0});
+ assert.deepEqual(monthlyAverage([],null,today),{cents:null,months:0,start:null,end:null});assert.deepEqual(monthlyAverage([{date:today,cents:900}],today,today),{cents:null,months:0,start:null,end:null});
 });
 test("twelve-month average excludes older payments and the current month",()=>{
- assert.deepEqual(monthlyAverage([{date:"2025-08-31",cents:100000},{date:"2025-09-01",cents:12000},{date:"2026-09-01",cents:99999}],"2020-01-01",today),{cents:1000,months:12});
+ assert.deepEqual(monthlyAverage([{date:"2025-08-31",cents:100000},{date:"2025-09-01",cents:12000},{date:"2026-09-01",cents:99999}],"2020-01-01",today),{cents:1000,months:12,start:"2025-09-01",end:"2026-08-31"});
+});
+test("rolling monthly comparisons use the same completed-month window and omit unavailable history",()=>{
+ const rows=[{date:"2024-09-01",cents:1200},{date:"2025-09-01",cents:2400},{date:"2026-08-01",cents:3600}];
+ const averages=monthlyAverageComparisons(rows,"2024-09-01",today);
+ assert.equal(averages.current.months,12);assert.deepEqual({start:averages.current.start,end:averages.current.end},{start:"2025-09-01",end:"2026-08-31"});
+ assert.deepEqual({start:averages.previous.start,end:averages.previous.end},{start:"2025-08-01",end:"2026-07-31"});
+ assert.deepEqual({start:averages.lastYear.start,end:averages.lastYear.end},{start:"2024-09-01",end:"2025-08-31"});
+ assert.equal(monthlyAverageComparisons([],"2026-08-15",today).previous.cents,null);
 });
 test("trend zero-fills months, includes last-month boundaries and marks current month partial",()=>{
  const result=revenueTrend([{date:"2026-07-31",cents:100},{date:"2026-09-14",cents:500}],{start:"2026-07-01",end:today},"month",today);
@@ -100,6 +108,11 @@ test("open ready invoices contribute to the dashboard outstanding balance",async
  assert.match(sql,/j\.is_deleted or j\.status='canceled'/);
 });
 
+test("outstanding balance only returns a same-day snapshot instead of mislabeling current balances as historical",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20261013000600_sales_performance_outstanding_snapshots.sql",import.meta.url),"utf8");
+ assert.match(sql,/sales_performance_outstanding_as_of/);assert.match(sql,/if p_as_of<>v_today then return null/);assert.match(sql,/sales_performance_summary\(p_business_id,p_as_of,p_as_of\)/);assert.match(sql,/has_business_role/);assert.match(sql,/is_servonas_platform_admin/);
+});
+
 
 const selected={start:"2026-09-01",end:"2026-09-14"};
 const receipt=(cents:number,customerKey:string|null="customer:1",date="2026-09-10",weights=[{category:"Tenant category",cents:100}]):SalesReceipt=>({date,cents,customerKey,weights});
@@ -138,9 +151,9 @@ test("booked sales handles deposits, discounts, and events in another month thro
  const rows=[{booking_date:"2026-09-02",booking_value_cents:17500,booking_count:1},{booking_date:"2026-10-01",booking_value_cents:30000,booking_count:1}];
  assert.deepEqual(bookingValueMetrics(rows,{start:"2026-09-01",end:"2026-09-30"}),{bookingValueCents:17500,bookingCount:1,averageCents:17500});
 });
-test("sales and revenue trend exposes independently persisted line toggles",async()=>{
+test("sales and revenue trend exposes persisted legend toggles, markers, and accessible tooltips",async()=>{
  const chart=await readFile(new URL("../components/SalesRevenueTrend.tsx",import.meta.url),"utf8"),dashboard=await readFile(new URL("../components/SalesPerformance.tsx",import.meta.url),"utf8");
- assert.match(chart,/localStorage/);assert.match(chart,/showSales/);assert.match(chart,/showRevenue/);assert.match(chart,/Sales booked/);assert.match(chart,/Revenue collected/);assert.match(dashboard,/Sales \(Booked\)/);assert.match(dashboard,/Sales &amp; Revenue Trend/);
+ assert.match(chart,/localStorage/);assert.match(chart,/showSales/);assert.match(chart,/showRevenue/);assert.match(chart,/Sales Booked/);assert.match(chart,/Revenue Collected/);assert.match(chart,/aria-pressed/);assert.match(chart,/chartPoint/);assert.match(chart,/chartTooltip/);assert.match(chart,/chartGrid/);assert.match(chart,/onPointerUp/);assert.match(chart,/formatCents\(visible\.sales\)/);assert.match(chart,/formatCents\(visible\.cents\)/);assert.match(dashboard,/Sales \(Booked\)/);assert.match(dashboard,/Sales &amp; Revenue Trend/);assert.match(dashboard,/compactRangeLabel/);assert.match(dashboard,/sales_performance_outstanding_as_of/);assert.match(dashboard,/monthlyAverageComparisons/);
 });
 test("zero receipts and fully refunded customers have a clean empty state",()=>{
  const result=customerCategoryMetrics([receipt(0)],selected);

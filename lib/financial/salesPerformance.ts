@@ -29,13 +29,31 @@ export function comparisonRanges(range:SalesRange,period:SalesPeriod){
  return {previous,lastYear:{start:shiftMonth(range.start,-12),end:shiftMonth(range.end,-12)}};
 }
 export const revenueInRange=(daily:RevenueDay[],range:SalesRange)=>daily.reduce((sum,row)=>row.date>=range.start&&row.date<=range.end?sum+Number(row.cents):sum,0);
-export function revenueChange(current:number,prior:number):number|null{return prior>0?((current-prior)/prior)*100:null;}
-export function monthlyAverage(daily:RevenueDay[],firstDate:string|null,today:string){
- const lastMonth=shiftMonth(monthStart(today),-1),earliest=shiftMonth(monthStart(today),-12);
- if(!firstDate||monthStart(firstDate)>lastMonth)return {cents:null,months:0};
- const start=monthStart(firstDate)>earliest?monthStart(firstDate):earliest;
- const months=(Number(lastMonth.slice(0,4))-Number(start.slice(0,4)))*12+Number(lastMonth.slice(5,7))-Number(start.slice(5,7))+1;
- return {cents:Math.round(revenueInRange(daily,{start,end:addDays(monthStart(today),-1)})/months),months};
+/** Percent changes use the magnitude of the prior value; a zero baseline is not comparable. */
+export function revenueChange(current:number,prior:number):number|null{return prior===0?null:((current-prior)/Math.abs(prior))*100;}
+export const monthEnd=(date:string)=>addDays(shiftMonth(monthStart(date),1),-1);
+export const isMonthEnd=(date:string)=>date===monthEnd(date);
+export type MonthlyAverage={cents:number|null;months:number;start:string|null;end:string|null};
+/**
+ * A rolling average of completed calendar months as of a reporting date. Months
+ * before the business began operating are intentionally excluded; months after
+ * it began are zero-filled by revenueInRange.
+ */
+export function monthlyAverage(daily:RevenueDay[],operatingDate:string|null,asOf:string,windowMonths?:number):MonthlyAverage{
+ const completedEnd=isMonthEnd(asOf)?monthStart(asOf):shiftMonth(monthStart(asOf),-1);
+ if(!operatingDate||monthStart(operatingDate)>completedEnd)return {cents:null,months:0,start:null,end:null};
+ const available=(Number(completedEnd.slice(0,4))-Number(monthStart(operatingDate).slice(0,4)))*12+Number(completedEnd.slice(5,7))-Number(monthStart(operatingDate).slice(5,7))+1;
+ const months=windowMonths??Math.min(12,available);
+ if(months<1||available<months)return {cents:null,months:0,start:null,end:null};
+ const start=shiftMonth(completedEnd,1-months),end=monthEnd(completedEnd);
+ return {cents:Math.round(revenueInRange(daily,{start,end})/months),months,start,end};
+}
+export function monthlyAverageComparisons(daily:RevenueDay[],operatingDate:string|null,asOf:string){
+ const current=monthlyAverage(daily,operatingDate,asOf);
+ if(!current.months||!current.end)return {current,previous:{cents:null,months:0,start:null,end:null} as MonthlyAverage,lastYear:{cents:null,months:0,start:null,end:null} as MonthlyAverage};
+ const previous=monthlyAverage(daily,operatingDate,shiftMonth(current.end,-1),current.months);
+ const lastYear=monthlyAverage(daily,operatingDate,shiftMonth(current.end,-12),current.months);
+ return {current,previous,lastYear};
 }
 export function revenueTrend(daily:RevenueDay[],range:SalesRange,grouping:"day"|"week"|"month",today:string):RevenuePoint[]{
  const values=new Map(daily.map(row=>[row.date,Number(row.cents)])),points:RevenuePoint[]=[];
@@ -54,7 +72,8 @@ export function salesPerformanceOptions(query:Record<string,string|undefined>,to
  const trendWindow=["6","12","24"].includes(query.salesTrend??"")?Number(query.salesTrend):period==="custom"?0:12;
  const trendRange=trendWindow?{start:shiftMonth(monthStart(today),1-trendWindow),end:today}:range;
  const grouping=trendWindow?"month":daysInRange(range)<=45?"day":daysInRange(range)<=180?"week":"month";
- const from=[comparisons.previous.start,comparisons.lastYear.start,range.start,trendRange.start,shiftMonth(monthStart(today),-12)].sort()[0];
+ // The year-over-year rolling monthly average can require 24 completed months.
+ const from=[comparisons.previous.start,comparisons.lastYear.start,range.start,trendRange.start,shiftMonth(monthStart(range.end),-24)].sort()[0];
  return {period,range,comparisons,trendWindow,trendRange,grouping:grouping as "day"|"week"|"month",from};
 }
 
