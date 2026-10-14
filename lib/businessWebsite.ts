@@ -10,7 +10,7 @@ import {normalizeWebsiteDomain} from "@/lib/website";
 type WebsiteRow=Record<string,any>;
 type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean;cacheExternalReviews?:boolean};
 type QueryResult<T>={data:T|null;error:unknown|null};
-type DomainResolutionRoute="/sites/domain/[domain]"|"/sites/domain/[domain]/booking"|"/sites/domain/[domain]/mechanical-bull-rental";
+type DomainResolutionRoute="/sites/domain/[domain]"|"/sites/domain/[domain]/booking"|"/sites/domain/[domain]/mechanical-bull-rental"|"/sites/domain/[domain]/success"|"/sites/domain/[domain]/cancel";
 type DomainLookupFailureKind="timeout"|"supabase_api_error"|"network_error"|"unexpected_error";
 type DomainLookupContext={domain:string;route:DomainResolutionRoute;operation:string;table:string;attempt:number;startedAt:number};
 type DomainLookupFailure={kind:DomainLookupFailureKind;message:string;code:string|null;status:number|null;temporary:boolean;table:string;operation:string;attempt:number;elapsedMs:number};

@@ -8,12 +8,12 @@ const csb="AW-18406171248/dJbiCJve5ZodEPDE38hE";
 
 test("paid Stripe booking success uses the immutable full booking total and never the deposit",async()=>{
  const [success,component,checkout,webhook,managePayment]=await Promise.all([
-  read("app/success/page.tsx"),read("components/GoogleAdsBookingConversion.tsx"),read("app/api/checkout/route.ts"),read("app/api/stripe/webhook/route.ts"),read("app/api/manage-booking/[token]/pay/route.ts"),
+  read("components/StripeCheckoutSuccess.tsx"),read("components/GoogleAdsBookingConversion.tsx"),read("app/api/checkout/route.ts"),read("app/api/stripe/webhook/route.ts"),read("app/api/manage-booking/[token]/pay/route.ts"),
  ]);
  assert.match(success,/select\("id,business_id,status,total_cents,businesses\(name\)"\)/);
  assert.match(success,/bookingTotalCents=Number\.isSafeInteger\(Number\(booking\?\.total_cents\)\)/);
  assert.match(success,/<GoogleAdsBookingConversion bookingId=\{bookingId\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
- assert.match(success,/const paid = session\?\.payment_status === "paid"/);
+ assert.match(success,/session\?\.payment_status==="paid"/);
  assert.match(success,/!session\.metadata\?\.payment_kind/);
  assert.match(success,/bookingConfirmed=booking\?\.status==="confirmed"/);
  assert.match(success,/confirmationStatusUrl=\{`\/api\/public-booking-conversion-status\?session_id=/);
@@ -61,7 +61,7 @@ test("initial server HTML contains one consent-denied tenant loader, and confirm
 
 test("tenant destination, settings validation, success rendering, Meta boundary, and click IDs stay isolated",async()=>{
  const [migration,action,page,success,tracker,attribution,meta]=await Promise.all([
-  read("supabase/migrations/20261013000200_google_ads_booking_conversion.sql"),read("app/app/[businessSlug]/settings/website/actions.ts"),read("app/app/[businessSlug]/settings/website/page.tsx"),read("app/success/page.tsx"),read("components/TenantBookingFunnelTracker.tsx"),read("lib/bookingFunnel.ts"),read("components/TenantMetaPixelPurchaseTracker.tsx"),
+  read("supabase/migrations/20261013000200_google_ads_booking_conversion.sql"),read("app/app/[businessSlug]/settings/website/actions.ts"),read("app/app/[businessSlug]/settings/website/page.tsx"),read("components/StripeCheckoutSuccess.tsx"),read("components/TenantBookingFunnelTracker.tsx"),read("lib/bookingFunnel.ts"),read("components/TenantMetaPixelPurchaseTracker.tsx"),
  ]);
  assert.match(migration,/google_ads_booking_conversion_destination/);
  assert.match(migration,/AW-18406171248\/dJbiCJve5ZodEPDE38hE/);
