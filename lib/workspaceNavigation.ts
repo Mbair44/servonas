@@ -39,6 +39,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
    {id:"funnel",label:"Funnel",href:`${base}/marketing/funnel`},
    {id:"discounts",label:"Discounts",href:`${base}/marketing/discounts`},
    {id:"promotions",label:"Promotions",href:`${base}/marketing/promotions`},
+   {id:"giveaways",label:"Giveaways",href:`${base}/marketing/giveaways`},
    {id:"google-ads",label:"Google Ads",href:`${base}/marketing/google-ads`},
    {id:"meta-ads",label:"Meta Ads",href:`${base}/marketing/meta-ads`},
    {id:"seo",label:"Local SEO",href:`${base}/marketing/seo`},
