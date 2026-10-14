@@ -33,7 +33,7 @@ test("rental booking flow maps view content initiate checkout and purchase to ca
  assert.match(rental,/function showReservationPage/);
  assert.match(rental,/function goToCart\(\)\{openCheckout\(\);\}/);
  assert.match(rental,/trackMetaStandardEvent\("Purchase"/);
- assert.match(rental,/eventId:`purchase-\$\{invoiceLaterConfirmation\.bookingId\}`/);
+ assert.match(rental,/const eventId=`purchase-\$\{invoiceLaterConfirmation\.bookingId\}`/);
  assert.match(rental,/storage:"local"/);
 });
 
@@ -41,19 +41,19 @@ test("public booking forms and success pages track meta purchases only on author
  const [form,bookingSuccess,stripeSuccess,purchaseTracker]=await Promise.all([
   read("components/PublicBookingForm.tsx"),
   read("app/book/[businessSlug]/success/page.tsx"),
-  read("app/success/page.tsx"),
+  read("components/StripeCheckoutSuccess.tsx"),
   read("components/TenantMetaPixelPurchaseTracker.tsx"),
  ]);
  assert.match(form,/trackMetaBrowserAndServerEvent\(props\.publicSlug,"InitiateCheckout"/);
  assert.doesNotMatch(form,/useEffect\([^)]*trackMetaStandardEvent\("InitiateCheckout"/s);
  assert.match(bookingSuccess,/meta_pixel_id/);
  assert.match(bookingSuccess,/TenantMetaPixel pixelId=\{metaPixelId\}/);
- assert.match(bookingSuccess,/TenantMetaPixelPurchaseTracker bookingId=\{submission\.id\} contentIds=\{\[service\.id\]\}/);
+ assert.match(bookingSuccess,/job\.status==="confirmed"&&<TenantMetaPixelPurchaseTracker bookingId=\{submission\.id\} businessSlug=\{businessSlug\}/);
  assert.match(stripeSuccess,/meta_pixel_id/);
  assert.match(stripeSuccess,/TenantMetaPixel pixelId=\{metaPixelId\}/);
  assert.match(stripeSuccess,/TenantMetaPixelPurchaseTracker bookingId=\{bookingId\}/);
  assert.match(purchaseTracker,/trackMetaStandardEvent\("Purchase"/);
- assert.match(purchaseTracker,/eventId:`purchase-\$\{bookingId\}`/);
+ assert.match(purchaseTracker,/const eventId=`purchase-\$\{bookingId\}`/);
  assert.match(purchaseTracker,/storage:"local"/);
 });
 

@@ -107,7 +107,7 @@ export default async function BookingSuccess({
     <main className="public-booking" style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}>
       <section className="public-booking-card booking-success">
         {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
-        <TenantMetaPixelPurchaseTracker bookingId={submission.id} contentIds={[service.id]} contentName={service.name} numItems={1} />
+        {job.status==="confirmed"&&<TenantMetaPixelPurchaseTracker bookingId={submission.id} businessSlug={businessSlug} contentIds={[service.id]} contentName={service.name} numItems={1} value={bookingTotalCents===null?undefined:bookingTotalCents/100} />}
         {job.status==="confirmed"&&bookingTotalCents!==null&&<GoogleAdsBookingConversion bookingId={job.id} destination={googleAdsBookingConversionDestination} totalCents={bookingTotalCents} currency="USD"/>}
         {bookingLogo && <img className="booking-success-logo" src={bookingLogo} alt={`${business.name} logo`}/>}
         <div className="success-check" aria-hidden="true">✓</div>
