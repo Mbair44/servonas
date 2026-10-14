@@ -22,6 +22,7 @@ import {ensureCheckoutAttributionSession,recordBookingFunnelEvent,snapshotBookin
 import {deliveryQuoteMessage,quoteBusinessDelivery,type DeliveryQuote} from "@/lib/deliveryQuote";
 import type {VerifiedGoogleAddress} from "@/lib/googleAddress";
 import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
+import {resolveTenantCheckoutReturnOrigin} from "@/lib/tenantCheckoutOrigin";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
       ? await supabase.from("businesses").select("id,slug,name").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
-    const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text").eq("business_id",business.id).maybeSingle():{data:null,error:null};
+    const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text,custom_domain,domain_status,status").eq("business_id",business.id).maybeSingle():{data:null,error:null};
     if(policyLoadError)return NextResponse.json({error:"The cancellation policy could not be verified. Please try again."},{status:503});
     const policyError=cancellationPolicyError(cancellationPolicy,body.cancellationPolicyAccepted,body.cancellationPolicyText);
     if(policyError)return NextResponse.json({error:policyError},{status:400});
@@ -313,6 +314,11 @@ export async function POST(request: Request) {
       return NextResponse.json({paymentMode:"invoice_later",bookingId:booking.booking_id,bookingNumber:booking.booking_number});
     }
     const stripe = new Stripe(stripeKey!);
+    const checkoutReturnOrigin=resolveTenantCheckoutReturnOrigin({candidateOrigin:request.headers.get("origin"),settings:cancellationPolicy,platformOrigin:siteUrl});
+    const successUrl=`${checkoutReturnOrigin.origin}/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl=checkoutReturnOrigin.usesTenantDomain
+      ?`${checkoutReturnOrigin.origin}/cancel`
+      :business?`${siteUrl}/book/${encodeURIComponent(body.businessSlug!.trim())}`:`${siteUrl}/book?cart=${orderedItems.map((item) => `${item.id}:${item.quantity}`).join(",")}&cancelled=1`;
     let session: Stripe.Checkout.Session;
     try {
       session = await stripe.checkout.sessions.create({
@@ -331,8 +337,8 @@ export async function POST(request: Request) {
             },
           },
         }],
-        success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: business?`${siteUrl}/book/${encodeURIComponent(body.businessSlug!.trim())}`:`${siteUrl}/book?cart=${orderedItems.map((item) => `${item.id}:${item.quantity}`).join(",")}&cancelled=1`,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
         expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
         metadata: {
           booking_id: String(booking.booking_id),
