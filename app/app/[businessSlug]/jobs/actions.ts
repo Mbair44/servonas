@@ -15,6 +15,8 @@ import { checkJobSchedule, validateJobSchedule } from "@/lib/jobScheduling";
 import { jobPriorities, jobStatuses, nonNegativeMoney, paymentStatuses, validateJobTimes } from "@/lib/jobValidation";
 import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspaceCapability } from "@/lib/workspace";
+import {applyAssistedBookingAttribution} from "@/lib/assistedBookingAttribution";
+import {jobMarketingSource} from "@/lib/jobMarketingSource";
 
 export type JobActionState = { error?: string; warning?: string; fieldErrors?: Record<string, string>; values?: Record<string, string>; technicianIds?: string[] };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
@@ -328,6 +330,28 @@ export async function assignJobTechnician(slug: string, jobId: string, formData:
   revalidatePath(`/app/${slug}/schedule`);
   revalidatePath(`/app/${slug}/dispatch`);
   redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(technicianIds.length ? `${technicianIds.length} technician${technicianIds.length === 1 ? "" : "s"} assigned.` : "Job moved to unassigned.")}`);
+}
+
+/** Records a staff-selected acquisition channel for any job, not only pending rentals. */
+export async function updateJobMarketingSource(slug:string,jobId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const source=jobMarketingSource(text(formData,"marketingSource"));
+ if(!source)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Choose a valid marketing source.")}`);
+ const {data:job,error:jobLookupError}=await supabase.from("jobs").select("id").eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+ if(jobLookupError||!job)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Job not found.")}`);
+ const {data:booking,error:bookingLookupError}=await supabase.from("bookings").select("id").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
+ if(bookingLookupError)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Booking attribution could not be checked. Please retry.")}`);
+ // A linked booking is what powers acquisition reporting. Dashboard/manual work is
+ // intentionally left without an invented attribution snapshot.
+ if(booking&&source!=="dashboard"){
+  try{await applyAssistedBookingAttribution(supabase,{businessId:business.id,bookingId:booking.id,attribution:{kind:"manual",source:source==="unknown"?"unknown":source}});}
+  catch{redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Marketing attribution could not be saved. Please retry.")}`);}
+ }
+ const {error}=await supabase.from("jobs").update({booking_source:source,updated_by:user.id}).eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false);
+ if(error)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Marketing source could not be saved.")}`);
+ revalidatePath(`/app/${slug}/jobs`);revalidatePath(`/app/${slug}/jobs/${jobId}`);revalidatePath(`/app/${slug}/marketing/funnel`);
+ redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Marketing source saved.")}`);
 }
 
 export async function changeJobStatus(slug: string, jobId: string, formData: FormData) {
