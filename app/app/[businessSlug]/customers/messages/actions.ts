@@ -11,7 +11,7 @@ async function context(slug:string){
 }
 export async function refreshInbox(slug:string){const {db,businessId}=await context(slug);return loadInbox(db,businessId);}
 export async function openConversation(slug:string,key:string){const {db,businessId}=await context(slug);await markConversationRead(db,businessId,key);return loadInbox(db,businessId);}
-export async function sendReply(slug:string,input:{key:string;body:string;requestId:string}){
+export async function sendReply(slug:string,input:{key:string;body:string;requestId:string;target?:{customerId:string;phone:string}}){
  const {db,businessId}=await context(slug);
  try{return {message:await replyToConversation(db,businessId,input,sendTenantTwilioMessage)};}
  catch(error){return {error:error instanceof TenantSmsError?`${error.message}${error.code?` (Twilio ${error.code})`:""}`:error instanceof Error?error.message:"Could not send this message."};}

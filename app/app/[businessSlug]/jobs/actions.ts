@@ -386,6 +386,35 @@ export async function changeJobStatus(slug: string, jobId: string, formData: For
   revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(completionMessage)}`);
 }
 
+export async function saveJobAddon(slug:string,jobId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const addonId=text(formData,"addonId")||null,catalogId=text(formData,"catalogId")||null,name=text(formData,"name"),description=text(formData,"description"),quantity=Number(text(formData,"quantity")||"1"),unitPrice=Math.round(Number(text(formData,"unitPrice"))*100),isTaxable=formData.get("isTaxable")==="on";
+ if(!name||!Number.isInteger(quantity)||quantity<1||quantity>10000||!Number.isSafeInteger(unitPrice)||unitPrice<0)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Enter a name, a whole quantity, and a valid non-negative price.")}`);
+ const {error}=await supabase.rpc("save_job_addon",{p_business_id:business.id,p_job_id:jobId,p_addon_id:addonId,p_catalog_id:catalogId,p_name:name,p_description:description,p_quantity:quantity,p_unit_price_cents:unitPrice,p_is_taxable:isTaxable});
+ if(error){console.error("Job add-on save failed",{code:error.code,message:error.message,businessId:business.id,jobId});redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(error.code==="42501"?"You do not have permission to update add-ons.":"The add-on could not be saved.")}`);}
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);revalidatePath(`/manage-booking`);redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Add-on saved. No payment was charged.")}`);
+}
+
+export async function removeJobAddon(slug:string,jobId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const addonId=text(formData,"addonId");if(!addonId)redirect(`/app/${slug}/jobs/${jobId}?error=Add-on+not+found`);
+ const {error}=await supabase.rpc("remove_job_addon",{p_business_id:business.id,p_job_id:jobId,p_addon_id:addonId});
+ if(error){console.error("Job add-on removal failed",{code:error.code,message:error.message,businessId:business.id,jobId,addonId});redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The add-on could not be removed.")}`);}
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);revalidatePath(`/manage-booking`);redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Add-on removed. No payment was refunded or charged.")}`);
+}
+
+export async function saveJobAddonCatalog(slug:string,jobId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const name=text(formData,"name"),description=text(formData,"description"),price=Math.round(Number(text(formData,"unitPrice"))*100),taxable=formData.get("isTaxable")==="on";
+ if(!name||!Number.isSafeInteger(price)||price<0)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Enter a name and a valid default price.")}`);
+ const {error}=await supabase.from("job_addon_catalog").insert({business_id:business.id,name,description:description||null,default_unit_price_cents:price,is_taxable:taxable,visibility:"admin_only",is_active:true});
+ if(error){console.error("Add-on catalog save failed",{code:error.code,businessId:business.id});redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(error.code==="23505"?"An add-on with that name already exists.":"The saved add-on could not be created.")}`);}
+ revalidatePath(`/app/${slug}/jobs`);revalidatePath(`/app/${slug}/jobs/${jobId}`);redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Saved admin-only add-on created.")}`);
+}
+
 export async function overrideBookingDeliveryFee(slug:string,jobId:string,formData:FormData){
  const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"job_management");
  if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);

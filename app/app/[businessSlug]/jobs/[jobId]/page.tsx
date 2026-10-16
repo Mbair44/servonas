@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { WorkspaceNav } from "../../WorkspaceNav";
 import { requireWorkspace } from "@/lib/workspace";
 import { canManageCustomers } from "@/lib/access";
-import { addJobNote, addJobPhoto, archiveJob, assignJobTechnician, cancelJob, changeJobStatus, chargeCompletedJobCardOnFile, editJobNote, overrideBookingDeliveryFee, removeJobPhoto, updateJobMarketingSource } from "../actions";
+import { addJobNote, addJobPhoto, archiveJob, assignJobTechnician, cancelJob, changeJobStatus, chargeCompletedJobCardOnFile, editJobNote, overrideBookingDeliveryFee, removeJobPhoto, saveJobAddon, removeJobAddon, saveJobAddonCatalog, updateJobMarketingSource } from "../actions";
 import { availableJobTransitions, type JobStatus } from "@/lib/jobStatusTransitions";
 import {MissedCallTranscript} from "@/components/MissedCallTranscript";
 import {CustomerActionIcon} from "@/components/CustomerActionIcon";
@@ -13,6 +13,7 @@ import {ManageBookingLinkControls} from "@/components/ManageBookingLinkControls"
 import {resolveCurrentSmsConsent} from "@/lib/smsConsent";
 import {existingManageBookingUrl} from "@/lib/bookingManage/existingManageBookingUrl";
 import {jobMarketingSource,jobMarketingSourceLabels,jobMarketingSources} from "@/lib/jobMarketingSource";
+import {JobAddonsPanel} from "@/components/JobAddonsPanel";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const money = (value: number | null) => `$${Number(value ?? 0).toFixed(2)}`;
@@ -32,6 +33,10 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
   ]);
   if (error) console.error("Job detail query failed", { code: error.code, businessId: business.id, jobId });
   if (!job) notFound();
+  const [{data:addons},{data:addonCatalog}]=await Promise.all([
+    supabase.from("job_addons").select("id,catalog_id,name_snapshot,description_snapshot,quantity,unit_price_cents,is_taxable,tax_cents,total_cents").eq("business_id",business.id).eq("job_id",jobId).order("created_at"),
+    supabase.from("job_addon_catalog").select("id,name,description,default_unit_price_cents,is_taxable").eq("business_id",business.id).eq("visibility","admin_only").eq("is_active",true).order("name"),
+  ]);
   const customer = relation(job.customers), location = relation(job.service_locations), service = relation(job.services);
   const {data:recentAttributionEvents}=customer?.id?await supabase.from("booking_funnel_events").select("attribution_session_id,occurred_at,booking_id,booking_total_cents,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,first_landing_path)").eq("business_id",business.id).eq("customer_id",customer.id).not("attribution_session_id","is",null).order("occurred_at",{ascending:false}).limit(12):{data:[]};
   const recentSessions=[...new Map((recentAttributionEvents??[]).map((event:any)=>{const session=relation(event.booking_attribution_sessions);const source=[session?.utm_source,session?.utm_medium].filter(Boolean).join(" · ")||"Tracked visit",path=session?.first_landing_path||"/",amount=event.booking_total_cents?` · Attempted ${money(Number(event.booking_total_cents)/100)}`:"";return [event.attribution_session_id,{id:event.attribution_session_id,label:`${new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:business.timezone}).format(new Date(event.occurred_at))} · ${source} · ${path}${amount}`,recoveredFromBookingId:event.booking_id}];})).values()];
@@ -81,6 +86,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
       <section className="workspace-panel job-summary"><div className="panel-title"><h2>Schedule &amp; billing</h2>{canEdit&&<Link href={`/app/${businessSlug}/jobs/${jobId}/edit`}>Edit</Link>}</div><dl><div><dt>Time commitment</dt><dd>{job.schedule_commitment==="flexible"?"Flexible during service day":"Set appointment time"}</dd></div><div><dt>Start</dt><dd>{dateTime(job.starts_at)}</dd></div><div><dt>End</dt><dd>{dateTime(job.ends_at)}</dd></div><div><dt>Arrival window</dt><dd>{job.arrival_window_start ? `${dateTime(job.arrival_window_start)} – ${dateTime(job.arrival_window_end)}` : "Not set"}</dd></div><div><dt>Duration</dt><dd>{job.estimated_duration_minutes ? `${job.estimated_duration_minutes} minutes` : "Not set"}</dd></div></dl>
         <h2>Price & payment</h2><dl><div><dt>Subtotal</dt><dd>{money(job.subtotal)}</dd></div><div><dt>Tax</dt><dd>{money(job.tax_amount)}</dd></div><div><dt>Discount</dt><dd>−{money(job.discount_amount)}</dd></div><div><dt>Total</dt><dd><strong>{money(job.total_amount)}</strong></dd></div><div><dt>Payment</dt><dd>{job.payment_status.replaceAll("_", " ")}</dd></div><div><dt>Source</dt><dd>{job.booking_source || "Unknown"}</dd></div></dl>
       </section>
+      <JobAddonsPanel addons={(addons??[]).map((addon:any)=>({...addon,quantity:Number(addon.quantity),unit_price_cents:Number(addon.unit_price_cents),tax_cents:Number(addon.tax_cents),total_cents:Number(addon.total_cents)}))} catalog={(addonCatalog??[]).map((addon:any)=>({...addon,default_unit_price_cents:Number(addon.default_unit_price_cents)}))} canEdit={canEdit} saveAction={saveJobAddon.bind(null,businessSlug,jobId)} removeAction={removeJobAddon.bind(null,businessSlug,jobId)} catalogAction={saveJobAddonCatalog.bind(null,businessSlug,jobId)}/>
      </div>
     <MissedCallTranscript messages={recoveryMessages??[]} timeZone={business.timezone}/>
     <section className="workspace-panel" id="notes"><div className="panel-title"><div><span className="sv-kicker">Communication</span><h2>Job notes</h2></div>{canEdit&&<form className="job-note-action" action={addJobNote.bind(null,businessSlug,jobId)}><select name="noteType" aria-label="Note visibility" defaultValue="internal"><option value="internal">Internal</option><option value="customer_visible">Customer visible</option></select><textarea required name="note" rows={2} maxLength={4000} placeholder="Add an office note…"/><button className="sv-button sv-secondary">Add note</button></form>}</div>{notes?.length?<div className="job-note-list">{notes.map((note)=><article key={note.id}><div><b>{note.note_type.replaceAll("_"," ")}</b><span>{relation(note.employees)?.preferred_name||note.author_name} · {dateTime(note.created_at)}{note.updated_at!==note.created_at?" · edited":""}</span></div><p>{note.body}</p>{canEdit&&<details><summary>Edit</summary><form action={editJobNote.bind(null,businessSlug,jobId)}><input type="hidden" name="noteId" value={note.id}/><select name="noteType" defaultValue={note.note_type}><option value="internal">Internal</option><option value="customer_visible">Customer visible</option></select><textarea required name="note" rows={3} maxLength={4000} defaultValue={note.body}/><button className="sv-button sv-secondary">Save note</button></form></details>}</article>)}</div>:<p>No notes recorded yet.</p>}</section>
