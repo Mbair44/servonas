@@ -31,6 +31,14 @@ type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type RequestedOption = { inventoryItemId?: string; optionId?: string; choiceId?: string };
 type RequestedCustomerAddon = { catalogId?: string; quantity?: number };
+type CopperStatePowerNeed = "electricity" | "generator_request" | "unsure";
+const COPPER_STATE_BOUNCE_BUSINESS_ID = "cb25acc0-3623-4c06-9041-89a88f4ad6ed";
+
+function copperStatePowerRequestNote(value: unknown): string {
+  if (value === "generator_request") return "Power request: Generator Rental requested (+$150). Availability and compatibility require confirmation; this request is not charged automatically.";
+  if (value === "unsure") return "Power follow-up required: customer is unsure whether electricity is available.";
+  return "";
+}
 type BundleSelections = { groupItems?: Record<string,string[]>; addonItems?: string[] };
 type CheckoutBody = {
   cancellationPolicyAccepted?:boolean|string;
@@ -56,6 +64,7 @@ type CheckoutBody = {
   startTime?: string;
   endTime?: string;
   notes?: string;
+  powerNeed?: CopperStatePowerNeed;
   agreementAccepted?: string | boolean;
   depositAccepted?: string | boolean;
   finalPaymentAccepted?: string | boolean;
@@ -287,6 +296,8 @@ export async function POST(request: Request) {
     const deliveryRuleSnapshot=deliveryQuote?{...deliveryQuote.snapshot.rule,taxable:deliveryTaxLine.taxable,taxCents:deliveryTaxLine.taxCents,taxRateBasisPoints:taxSettings.calculationMethod==="manual"?(taxSettings.taxEnabled&&!taxCustomer?.tax_exempt&&deliveryTaxLine.taxable?taxSettings.manualTaxRateBasisPoints:0):null,taxCalculationId:taxCalculation.snapshot.calculationId}:null;
     // Never create a reservation or payment until the customer has reviewed the authoritative amount.
     if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,customerAddonQuote:selectedCatalogAddons.length>0,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
+    const powerRequestNote=business.id===COPPER_STATE_BOUNCE_BUSINESS_ID?copperStatePowerRequestNote(body.powerNeed):"";
+    const bookingNotes=[body.notes?.trim(),powerRequestNote].filter(Boolean).join("\n");
     const reservationDetails={
       p_items: requestedItems,
       p_rental_date: body.rentalDate,
@@ -300,13 +311,13 @@ export async function POST(request: Request) {
       p_delivery_address: body.address!.trim(),
       p_delivery_city: body.city,
       p_delivery_zip: body.zipCode!.trim(),
-      p_notes: body.notes?.trim() ?? "",
+      p_notes: bookingNotes,
     };
     const addonPayload=selectedCatalogAddons.map(selection=>{const line=taxCalculation.snapshot.lines.find(item=>item.id===`customer_addon:${selection.catalogId}`);return {catalogId:selection.catalogId,quantity:selection.quantity,taxCents:line?.taxCents??0,taxRateBasisPoints:taxSettings.calculationMethod==="manual"&&line?.taxable?taxSettings.manualTaxRateBasisPoints:0};});
     const requestKey=hasText(body.customerAddonRequestKey)&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.customerAddonRequestKey)?body.customerAddonRequestKey:null;
     const { data, error: bookingError } = resolvedBundle?await supabase.rpc("create_bundle_booking",{
       p_business_id:business.id,p_bundle_id:body.bundleId!.trim(),p_items:requestedItems,p_line_allocations:bundleLineAllocations,
-      p_details:{rentalDate:body.rentalDate,rentalEndDate:body.rentalEndDate,firstName:body.firstName!.trim(),lastName:body.lastName!.trim(),email:body.email!.trim(),phone:body.phone!.trim(),startTime:body.startTime,endTime:body.endTime,address:body.address!.trim(),city:body.city,zipCode:body.zipCode!.trim(),notes:body.notes?.trim()??""},
+      p_details:{rentalDate:body.rentalDate,rentalEndDate:body.rentalEndDate,firstName:body.firstName!.trim(),lastName:body.lastName!.trim(),email:body.email!.trim(),phone:body.phone!.trim(),startTime:body.startTime,endTime:body.endTime,address:body.address!.trim(),city:body.city,zipCode:body.zipCode!.trim(),notes:bookingNotes},
       p_bundle_snapshot:bundleSnapshot,p_selection_snapshot:{groups:body.bundleSelections?.groupItems??{},addons:body.bundleSelections?.addonItems??[],items:requestedItems},p_weekday_price_cents:resolvedBundle.basePriceCents,p_upgrade_cents:resolvedBundle.upgradeCents,p_addon_cents:resolvedBundle.addonCents,p_rental_subtotal_cents:resolvedBundle.rentalSubtotalCents,
     }):addonPayload.length?await supabase.rpc("create_public_booking_with_customer_addons",{...reservationDetails,p_customer_addons:addonPayload,p_addon_tax_rate_basis_points:0,p_request_key:requestKey}):await supabase.rpc("create_public_booking_quantities_timed",reservationDetails);
     if (bookingError) {

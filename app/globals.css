@@ -1863,3 +1863,5 @@ body:has(.embedded-booking)>.sv-header,body:has(.embedded-booking)>.sv-footer{di
 .assisted-rental-line p { margin: .5rem 0; }
 @media (max-width: 760px) { .assisted-rental-line { grid-template-columns: 1fr 1fr; } .assisted-rental-line label:first-child { grid-column: 1 / -1; } }
 .assisted-rental-items select { width: 100%; min-width: 0; padding: 12px; border: 1px solid #d7dde5; border-radius: 10px; font: inherit; }
+
+.rental-power-question{display:grid;gap:9px;margin:18px 0 4px;padding:14px;border:1px solid #d8e1ef;border-radius:12px;background:#f8fbff}.rental-power-question legend{padding:0 4px;font-weight:800;color:#162642}.rental-power-question label{display:flex;gap:8px;align-items:center;font-weight:600}.rental-power-question small{color:#53627a;line-height:1.4}
