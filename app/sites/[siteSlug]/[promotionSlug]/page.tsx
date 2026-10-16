@@ -5,6 +5,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {PromotionLanding} from "@/components/PromotionLanding";
 import {CategoryLanding} from "@/components/CategoryLanding";
 import {LocationLanding} from "@/components/LocationLanding";
+import {MarketingPageLanding} from "@/components/MarketingPageLanding";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 import {hostedTenantRobots,tenantMetadata,tenantCanonicalUrl,publicSeoPlatformUrl} from "@/lib/publicTenantSeo";
@@ -23,10 +24,11 @@ export default async function PublicLandingPage({params}:{params:Promise<{siteSl
  const {siteSlug,promotionSlug}=await params,db=getSupabaseAdmin();if(!db)notFound();
  const {data:website}=await db.from("business_website_settings").select("business_id,meta_pixel_id,google_reviews,photo_urls,request_service_enabled,booking_enabled,custom_domain,domain_status").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();if(!website)notFound();
  const metaPixelId=typeof website.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(website.meta_pixel_id.trim())?website.meta_pixel_id.trim():null,websiteUrl=`/sites/${encodeURIComponent(siteSlug)}`;
- const [{data:promotion},{data:categoryPage},{data:locationPage},{data:nearbyPages},{data:categoryPages},{data:business},{data:items},{data:services},{data:bookingBrand}]=await Promise.all([
+ const [{data:promotion},{data:categoryPage},{data:locationPage},{data:marketingPage},{data:nearbyPages},{data:categoryPages},{data:business},{data:items},{data:services},{data:bookingBrand}]=await Promise.all([
   db.from("promotions").select("*,discounts(*)").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("landing_page_enabled",true).maybeSingle(),
   db.from("category_website_pages").select("*").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("*").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
+  db.from("marketing_pages").select("*").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("slug,city,state").eq("business_id",website.business_id).eq("status","published").neq("slug",promotionSlug).limit(6),
   db.from("category_website_pages").select("category_id,slug,title").eq("business_id",website.business_id).eq("status","published"),
   db.from("businesses").select("name,primary_color,phone,industry_profile").eq("id",website.business_id).single(),
@@ -39,6 +41,7 @@ export default async function PublicLandingPage({params}:{params:Promise<{siteSl
  const canonicalBase=tenantCanonicalUrl(website,"/",`${publicSeoPlatformUrl}/sites/${encodeURIComponent(siteSlug)}`);
  if(promotion){const eligibility=await loadPromotionEligibility(db,website.business_id,promotion.discount_id);return <><TenantLandingSchema type="WebPage" name={promotion.headline} url={tenantCanonicalUrl(website,`/${promotion.slug}`,`${publicSeoPlatformUrl}/sites/${encodeURIComponent(siteSlug)}`)} homeUrl={canonicalBase}/>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<TenantBookingFunnelTracker businessSlug={siteSlug} landingType="promotion" landingId={promotion.id} landingLabel={promotion.slug}/><PromotionLanding promotion={promotion} business={brandedBusiness} items={filterPromotionInventory(items??[],promotion.discounts.applies_to,eligibility.eligibleIds)} baseBookingUrl={`/book/${siteSlug}`} websiteUrl={websiteUrl}/></>;}
  if(categoryPage)return <><TenantLandingSchema type="CollectionPage" name={categoryPage.title} url={tenantCanonicalUrl(website,`/${categoryPage.slug}`,`${publicSeoPlatformUrl}/sites/${encodeURIComponent(siteSlug)}`)} homeUrl={canonicalBase}/>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<TenantBookingFunnelTracker businessSlug={siteSlug} landingType="category" landingId={categoryPage.category_id} landingLabel={categoryPage.slug}/><CategoryLanding page={categoryPage} business={brandedBusiness} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl={`/book/${siteSlug}`} websiteUrl={websiteUrl}/></>;
+ if(marketingPage)return <><TenantLandingSchema type="WebPage" name={marketingPage.title} url={tenantCanonicalUrl(website,`/${marketingPage.slug}`,`${publicSeoPlatformUrl}/sites/${encodeURIComponent(siteSlug)}`)} homeUrl={canonicalBase}/><TenantBookingFunnelTracker businessSlug={siteSlug} landingType="website" landingId={marketingPage.id} landingLabel={marketingPage.slug}/><MarketingPageLanding page={marketingPage} business={brandedBusiness} homeUrl={websiteUrl}/></>;
  if(!locationPage)notFound();
  return <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}<TenantBookingFunnelTracker businessSlug={siteSlug} landingType="location" landingId={locationPage.id} landingLabel={locationPage.slug}/><LocationLanding page={locationPage} business={brandedBusiness} websiteUrl={websiteUrl} ctaUrl={bookingBrand?.enabled?`/book/${siteSlug}`:`${websiteUrl}#contact`} nearbyPages={nearbyPages??[]} categoryPages={indexableCategoryPages(categoryPages??[],items??[]).map(page=>({...page,slug:`${websiteUrl}/${page.slug}`}))}/></>;
 }

@@ -30,11 +30,13 @@ function checkoutFixture({payLater=false,providerFailure=false,inactiveTax=false
   '@/lib/discounts':{validateRentalPromo:async()=>({ok:true,discountCents:5000,code:'SAVE',snapshot:{appliesTo:orderWidePromo?'order':'selected_items'}})},
   '@/lib/deliveryQuote':{quoteBusinessDelivery:async()=>({eligible:true,feeCents:10000,taxCents:0,snapshot:{rule:{taxable:false}}}),deliveryQuoteMessage:()=>''},
   '@/lib/bookingTime':{zonedDateTimeToUtc:(date:string,time:string)=>new Date(`${date}T${time}:00Z`)},
-  '@/lib/bookingFunnel':{recordBookingFunnelEvent:noop,snapshotBookingAttribution:noop,validSessionId:()=>false},
+  '@/lib/bookingFunnel':{ensureCheckoutAttributionSession:async()=>null,recordBookingFunnelEvent:noop,snapshotBookingAttribution:noop,validSessionId:()=>false},
   '@/lib/rentalBookingJob':{ensureRentalBookingJob:async()=>null},
   '@/lib/communications/rentalBookingEmailService':{sendRentalBookingConfirmationEmail:noop,sendRentalBookingBusinessNotification:noop},
   '@/lib/communications/rentalBookingConfirmationSms':{sendRentalBookingConfirmationSms:noop},
   '@/lib/smsConsent':{webBookingSmsConsentDisclosure:()=>'',WEB_BOOKING_SMS_CONSENT_VERSION:'test'},
+  '@/lib/tenantCheckoutOrigin':{resolveTenantCheckoutReturnOrigin:()=>({origin:'https://example.com',usesTenantDomain:false})},
+  '@/lib/rentalBundleResolver':{resolveRentalBundle:()=>{throw Error('not used by standalone fixture');},allocateBundleRevenue:()=>[]},
  };
  const exports:any={};const code=ts.transpileModule(readFileSync(new URL('../app/api/checkout/route.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;
  runInNewContext(code,{exports,require:(name:string)=>{if(!(name in modules))throw Error(`Unexpected dependency ${name}`);return modules[name];},process:{env:{STRIPE_SECRET_KEY:'test',GOOGLE_MAPS_API_KEY:'test',NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:'test'}},console});

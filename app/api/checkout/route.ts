@@ -23,10 +23,12 @@ import {deliveryQuoteMessage,quoteBusinessDelivery,type DeliveryQuote} from "@/l
 import type {VerifiedGoogleAddress} from "@/lib/googleAddress";
 import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
 import {resolveTenantCheckoutReturnOrigin} from "@/lib/tenantCheckoutOrigin";
+import {allocateBundleRevenue,resolveRentalBundle} from "@/lib/rentalBundleResolver";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type RequestedOption = { inventoryItemId?: string; optionId?: string; choiceId?: string };
+type BundleSelections = { groupItems?: Record<string,string[]>; addonItems?: string[] };
 type CheckoutBody = {
   cancellationPolicyAccepted?:boolean|string;
   cancellationPolicyText?:string;
@@ -36,6 +38,8 @@ type CheckoutBody = {
   acceptedTotalCents?: number;
   acceptedDepositCents?: number;
   items?: RequestedItem[];
+  bundleId?: string;
+  bundleSelections?: BundleSelections;
   rentalDate?: string;
   rentalEndDate?: string;
   firstName?: string;
@@ -83,7 +87,7 @@ export async function POST(request: Request) {
           .filter((item) => hasText(item.inventoryItemId) && Number.isInteger(item.quantity) && Number(item.quantity) > 0)
           .map((item) => ({ inventoryItemId: item.inventoryItemId!.trim(), quantity: Number(item.quantity) }))
       : [];
-    if (requestedItems.length === 0) return NextResponse.json({ error: "Please choose at least one rental item." }, { status: 400 });
+    if (requestedItems.length === 0&&!hasText(body.bundleId)) return NextResponse.json({ error: "Please choose at least one rental item." }, { status: 400 });
     if (new Set(requestedItems.map((item) => item.inventoryItemId)).size !== requestedItems.length) {
       return NextResponse.json({ error: "The same rental item cannot appear more than once." }, { status: 400 });
     }
@@ -112,6 +116,21 @@ export async function POST(request: Request) {
       ? await supabase.from("businesses").select("id,slug,name").eq("id",publicBooking.business_id).eq("industry_profile","party_rental").eq("is_deleted",false).maybeSingle()
       : {data:null};
     if(!business)return NextResponse.json({error:"This party-rental booking page is unavailable."},{status:404});
+    let resolvedBundle:ReturnType<typeof resolveRentalBundle>|null=null;
+    let bundleSnapshot:Record<string,unknown>|null=null;
+    if(hasText(body.bundleId)){
+      if(requestedItems.length)return NextResponse.json({error:"Bundle equipment is selected by the package."},{status:400});
+      const {data:bundle}=await supabase.from("rental_bundles").select("id,business_id,name,slug,status,weekday_price_cents,weekend_price_cents,allow_promotional_discounts,description").eq("id",body.bundleId.trim()).eq("business_id",business.id).eq("status","published").maybeSingle();
+      if(!bundle)return NextResponse.json({error:"This bundle is not available."},{status:404});
+      const [{data:groups},{data:addons}]=await Promise.all([
+        supabase.from("rental_bundle_groups").select("id,selection_mode,min_selections,max_selections,rental_bundle_group_items(inventory_item_id,quantity,upgrade_price_cents)").eq("bundle_id",bundle.id).eq("business_id",business.id).order("sort_order"),
+        supabase.from("rental_bundle_addons").select("inventory_item_id,quantity,price_adjustment_cents,is_required").eq("bundle_id",bundle.id).eq("business_id",business.id).order("sort_order"),
+      ]);
+      try{resolvedBundle=resolveRentalBundle({bundle,groups:(groups??[]).map((group:any)=>({...group,items:group.rental_bundle_group_items??[]})),addons:addons??[],selectedGroupItems:body.bundleSelections?.groupItems??{},selectedAddonItems:body.bundleSelections?.addonItems??[],rentalDate:body.rentalDate!});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Choose valid bundle items."},{status:400});}
+      requestedItems.splice(0,requestedItems.length,...resolvedBundle.items);
+      bundleSnapshot={id:bundle.id,name:bundle.name,slug:bundle.slug,description:bundle.description,weekdayPriceCents:bundle.weekday_price_cents,weekendPriceCents:bundle.weekend_price_cents,allowPromotionalDiscounts:bundle.allow_promotional_discounts};
+      if((body.options?.length??0)>0||(body.operators?.length??0)>0||Number(body.additionalHours??0)>0||body.overnight===true)return NextResponse.json({error:"Bundle pricing cannot be changed with standalone options."},{status:400});
+    }
     const {data:cancellationPolicy,error:policyLoadError}=business?await supabase.from("business_website_settings").select("cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text,custom_domain,domain_status,status").eq("business_id",business.id).maybeSingle():{data:null,error:null};
     if(policyLoadError)return NextResponse.json({error:"The cancellation policy could not be verified. Please try again."},{status:503});
     const policyError=cancellationPolicyError(cancellationPolicy,body.cancellationPolicyAccepted,body.cancellationPolicyText);
@@ -183,7 +202,9 @@ export async function POST(request: Request) {
     const requestedOperators=new Map((Array.isArray(body.operators)?body.operators:[]).filter(row=>hasText(row.inventoryItemId)).map(row=>[row.inventoryItemId!.trim(),row.selected===true]));
     let pricedItems;try{const rentalDays=calculateRentalCalendarDays(body.rentalDate!,body.rentalEndDate!);pricedItems=await Promise.all(orderedItems.map(async item=>{const rules=resolveRentalPricingRules(businessRules,item),price=applyRentalDatePrice(await resolveRentalDatePrice(supabase,{businessId:business!.id,rentalItemId:item.id,rentalDate:body.rentalDate!,timeZone:publicBooking?.timezone??"America/Phoenix"}),rentalDays,rules),operator=operatorCharge(item,startInstant,endInstant,item.quantity,requestedOperators.get(item.id));const duration= rentalDurationAdjustment(resolveRentalDurationRules(durationBusinessRules,item),requestedAdditionalHours,requestedOvernight),optionSelections=optionSnapshotsByItem.get(item.id)??[],optionAdjustmentCents=optionSelections.reduce((sum,selection)=>sum+selection.price_adjustment_cents,0);return {...item,...price,operator,...duration,optionSelections,optionAdjustmentCents};}));}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"The rental period is invalid."},{status:400});}
     const authoritativeItems=pricedItems.map(item=>({id:item.id,quantity:item.quantity,rentalUnitPriceCents:item.totalUnitPriceCents,unitPriceCents:item.totalUnitPriceCents+(item.operator.chargeCents/item.quantity)}));
-    const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:authoritativeItems,deliveryFeeCents:deliveryQuote?.feeCents??0}):null;
+    if(resolvedBundle&&hasText(body.promoCode)&&!resolvedBundle.allowPromotions)return NextResponse.json({error:"Promo codes do not apply to this bundle."},{status:400});
+    const promoItems=resolvedBundle?[{id:body.bundleId!.trim(),quantity:1,rentalUnitPriceCents:resolvedBundle.rentalSubtotalCents,unitPriceCents:resolvedBundle.rentalSubtotalCents}]:authoritativeItems;
+    const promo=hasText(body.promoCode)&&business?await validateRentalPromo(supabase,{businessId:business.id,code:body.promoCode,email:body.email,items:promoItems,deliveryFeeCents:deliveryQuote?.feeCents??0}):null;
     if(promo&&!promo.ok)return NextResponse.json({error:promo.error},{status:400});
 
     const [{data:billing,error:billingError},{data:taxCustomer,error:customerTaxError},{data:deliverySettings,error:deliverySettingsError}]=await Promise.all([
@@ -194,7 +215,9 @@ export async function POST(request: Request) {
     if(billingError||customerTaxError||deliverySettingsError)return NextResponse.json({error:"Tax settings could not be verified. Please try again."},{status:503});
     const taxSettings:BusinessTaxSettings={taxEnabled:Boolean(billing?.tax_enabled),calculationMethod:billing?.tax_calculation_method==="automatic"?"automatic":"manual",displayMode:billing?.tax_display_mode==="inclusive"?"inclusive":"exclusive",manualTaxRateBasisPoints:Number(billing?.default_tax_rate_basis_points??0),defaultInvoiceItemTaxable:billing?.default_invoice_item_taxable??true};
     const operatorTotalCents=pricedItems.reduce((sum,item)=>sum+item.operator.chargeCents,0);
-    const rentalTaxLines=pricedItems.map(item=>{const resolved=resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code});return {id:item.id,amountCents:(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolved.taxCode,taxCodeSource:resolved.source};});
+    const bundleLineAllocations=resolvedBundle?allocateBundleRevenue(pricedItems.map(item=>({inventoryItemId:item.id,quantity:item.quantity,listUnitPriceCents:item.totalUnitPriceCents})),resolvedBundle.rentalSubtotalCents):null;
+    const allocationByItem=new Map(bundleLineAllocations?.map(line=>[line.inventoryItemId,line.lineTotalCents]));
+    const rentalTaxLines=pricedItems.map(item=>{const resolved=resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code});return {id:item.id,amountCents:allocationByItem.get(item.id)??(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolved.taxCode,taxCodeSource:resolved.source};});
     let taxCalculation;
     try{
       taxCalculation=await calculateBookingTax({
@@ -239,7 +262,7 @@ export async function POST(request: Request) {
     const deliveryRuleSnapshot=deliveryQuote?{...deliveryQuote.snapshot.rule,taxable:deliveryTaxLine.taxable,taxCents:deliveryTaxLine.taxCents,taxRateBasisPoints:taxSettings.calculationMethod==="manual"?(taxSettings.taxEnabled&&!taxCustomer?.tax_exempt&&deliveryTaxLine.taxable?taxSettings.manualTaxRateBasisPoints:0):null,taxCalculationId:taxCalculation.snapshot.calculationId}:null;
     // Never create a reservation or payment until the customer has reviewed the authoritative amount.
     if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
-    const { data, error: bookingError } = await supabase.rpc("create_public_booking_quantities_timed", {
+    const reservationDetails={
       p_items: requestedItems,
       p_rental_date: body.rentalDate,
       p_rental_end_date: body.rentalEndDate,
@@ -253,7 +276,12 @@ export async function POST(request: Request) {
       p_delivery_city: body.city,
       p_delivery_zip: body.zipCode!.trim(),
       p_notes: body.notes?.trim() ?? "",
-    });
+    };
+    const { data, error: bookingError } = resolvedBundle?await supabase.rpc("create_bundle_booking",{
+      p_business_id:business.id,p_bundle_id:body.bundleId!.trim(),p_items:requestedItems,p_line_allocations:bundleLineAllocations,
+      p_details:{rentalDate:body.rentalDate,rentalEndDate:body.rentalEndDate,firstName:body.firstName!.trim(),lastName:body.lastName!.trim(),email:body.email!.trim(),phone:body.phone!.trim(),startTime:body.startTime,endTime:body.endTime,address:body.address!.trim(),city:body.city,zipCode:body.zipCode!.trim(),notes:body.notes?.trim()??""},
+      p_bundle_snapshot:bundleSnapshot,p_selection_snapshot:{groups:body.bundleSelections?.groupItems??{},addons:body.bundleSelections?.addonItems??[],items:requestedItems},p_weekday_price_cents:resolvedBundle.basePriceCents,p_upgrade_cents:resolvedBundle.upgradeCents,p_addon_cents:resolvedBundle.addonCents,p_rental_subtotal_cents:resolvedBundle.rentalSubtotalCents,
+    }):await supabase.rpc("create_public_booking_quantities_timed",reservationDetails);
     if (bookingError) {
       const message = bookingError.message || "Could not create the reservation.";
       const sharedInventoryConflict=/same equipment/i.test(message),conflict=bookingError.code==="23505"||/one_active_(?:reservation|booking)_per_item_date|same equipment|already reserved/i.test(message);
@@ -269,7 +297,7 @@ export async function POST(request: Request) {
     const disclosure=webBookingSmsConsentDisclosure(business?.name??"this business");
 
     const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id,unit_price_cents,date_pricing_snapshot").eq("booking_id",booking.booking_id);
-    if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length||bookingItems.some(line=>{const price=pricedItems.find(item=>item.id===line.inventory_item_id);return !price||line.unit_price_cents!==price.totalUnitPriceCents||line.date_pricing_snapshot?.dateAdjustedBasePriceCents!==price.dateAdjustedBasePriceCents||line.date_pricing_snapshot?.originalBasePriceCents!==price.originalBasePriceCents||line.date_pricing_snapshot?.appliedDateRuleId!==price.appliedDateRuleId;})){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
+    if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length||(!resolvedBundle&&bookingItems.some(line=>{const price=pricedItems.find(item=>item.id===line.inventory_item_id);return !price||line.unit_price_cents!==price.totalUnitPriceCents||line.date_pricing_snapshot?.dateAdjustedBasePriceCents!==price.dateAdjustedBasePriceCents||line.date_pricing_snapshot?.originalBasePriceCents!==price.originalBasePriceCents||line.date_pricing_snapshot?.appliedDateRuleId!==price.appliedDateRuleId;}))){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
     const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({tax_snapshot:taxCalculation.snapshot.lines.find(line=>line.id===item.id),operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents,standard_rental_hours_snapshot:resolveRentalDurationRules(durationBusinessRules,item).standardRentalHours,additional_hours:item.additionalHours,overnight_selected:item.overnight,duration_adjustment_cents:item.durationAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
     if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}

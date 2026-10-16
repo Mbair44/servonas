@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import{readFileSync}from"node:fs";
+const read=(p:string)=>readFileSync(new URL(`../${p}`,import.meta.url),"utf8");
+test("published marketing pages resolve after existing page types on both public hosts",()=>{for(const p of ["app/sites/[siteSlug]/[promotionSlug]/page.tsx","app/sites/domain/[domain]/[promotionSlug]/page.tsx"]){const s=read(p);assert.match(s,/marketing_pages/);assert.match(s,/\.eq\("status","published"\)/);assert.ok(s.indexOf("if(promotion)")<s.indexOf("if(marketingPage)"));assert.ok(s.indexOf("if(categoryPage)")<s.indexOf("if(marketingPage)"));}});
+test("draft preview requires workspace authorization and tenant page ownership",()=>{const s=read("app/app/[businessSlug]/marketing/pages/[pageId]/preview/page.tsx");assert.match(s,/requireWorkspace/);assert.match(s,/canManageBusiness/);assert.match(s,/\.eq\("business_id",business\.id\)/);assert.match(s,/\.eq\("id",pageId\)/);});
