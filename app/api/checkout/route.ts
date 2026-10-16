@@ -24,10 +24,21 @@ import type {VerifiedGoogleAddress} from "@/lib/googleAddress";
 import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
 import {resolveTenantCheckoutReturnOrigin} from "@/lib/tenantCheckoutOrigin";
 import {allocateBundleRevenue,resolveRentalBundle} from "@/lib/rentalBundleResolver";
+import {eligibleCustomerAddons} from "@/lib/customerAddonEligibility";
+import {customerCatalogAddonsUiEnabled} from "@/lib/customerCatalogAddonFeature";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type RequestedOption = { inventoryItemId?: string; optionId?: string; choiceId?: string };
+type RequestedCustomerAddon = { catalogId?: string; quantity?: number };
+type CopperStatePowerNeed = "electricity" | "generator_request" | "unsure";
+const COPPER_STATE_BOUNCE_BUSINESS_ID = "cb25acc0-3623-4c06-9041-89a88f4ad6ed";
+
+function copperStatePowerRequestNote(value: unknown): string {
+  if (value === "generator_request") return "Power request: Generator Rental requested (+$150). Availability and compatibility require confirmation; this request is not charged automatically.";
+  if (value === "unsure") return "Power follow-up required: customer is unsure whether electricity is available.";
+  return "";
+}
 type BundleSelections = { groupItems?: Record<string,string[]>; addonItems?: string[] };
 type CheckoutBody = {
   cancellationPolicyAccepted?:boolean|string;
@@ -53,6 +64,7 @@ type CheckoutBody = {
   startTime?: string;
   endTime?: string;
   notes?: string;
+  powerNeed?: CopperStatePowerNeed;
   agreementAccepted?: string | boolean;
   depositAccepted?: string | boolean;
   finalPaymentAccepted?: string | boolean;
@@ -60,6 +72,8 @@ type CheckoutBody = {
   promoCode?: string;
   operators?: RequestedOperator[];
   options?: RequestedOption[];
+  customerCatalogAddons?: RequestedCustomerAddon[];
+  customerAddonRequestKey?: string;
   attributionSessionId?: string;
   attribution?: unknown;
   additionalHours?: number;
@@ -69,6 +83,8 @@ type CheckoutBody = {
 function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
+
+function quantityExceeds(quantity:number,maximum:number){return !Number.isSafeInteger(quantity)||quantity<1||quantity>maximum;}
 
 export async function POST(request: Request) {
   try {
@@ -181,6 +197,22 @@ export async function POST(request: Request) {
 
     if(items.some(item=>item.business_id&&item.business_id!==business?.id))return NextResponse.json({error:"Open this business’s booking page to reserve these rentals."},{status:400});
 
+    const requestedCustomerAddons=Array.isArray(body.customerCatalogAddons)?body.customerCatalogAddons:[];
+    if(requestedCustomerAddons.length>20)return NextResponse.json({error:"Too many add-ons were selected."},{status:400});
+    const customerAddonQuantities=new Map<string,number>();
+    for(const requested of requestedCustomerAddons){
+      if(!hasText(requested.catalogId)||!Number.isInteger(requested.quantity)||Number(requested.quantity)<1)return NextResponse.json({error:"One or more selected add-ons are invalid."},{status:400});
+      const catalogId=requested.catalogId.trim();
+      if(customerAddonQuantities.has(catalogId))return NextResponse.json({error:"The same add-on cannot be selected more than once."},{status:400});
+      customerAddonQuantities.set(catalogId,Number(requested.quantity));
+    }
+    if(customerAddonQuantities.size&&(!customerCatalogAddonsUiEnabled()||resolvedBundle))return NextResponse.json({error:"Catalog add-ons are not available for this reservation."},{status:400});
+    type EligibleCatalogAddon={id:string;default_unit_price_cents:number;is_taxable:boolean;max_customer_quantity:number};
+    const eligibleCatalogAddons:EligibleCatalogAddon[]=customerAddonQuantities.size?await eligibleCustomerAddons(supabase,{businessId:business.id,rentalItemIds:requestedItems.map(item=>item.inventoryItemId),date:body.rentalDate!,startTime:body.startTime!,endTime:body.endTime!}) as EligibleCatalogAddon[]:[];
+    const eligibleCatalogAddonById=new Map<string,EligibleCatalogAddon>(eligibleCatalogAddons.map(addon=>[addon.id,addon]));
+    const selectedCatalogAddons=[...customerAddonQuantities].map(([catalogId,quantity])=>({catalogId,quantity,addon:eligibleCatalogAddonById.get(catalogId)}));
+    if(selectedCatalogAddons.some(selection=>!selection.addon||quantityExceeds(selection.quantity,selection.addon.max_customer_quantity)))return NextResponse.json({error:"One or more selected add-ons are no longer available. Review your booking and try again."},{status:409});
+
     const {data:configuredOptions,error:optionsError}=await supabase.from("inventory_item_booking_options").select("id,inventory_item_id,name,required,inventory_item_booking_option_choices(id,label,price_adjustment_cents)").eq("business_id",business!.id).in("inventory_item_id",ids);
     if(optionsError)return NextResponse.json({error:"Booking options could not be verified. Please try again."},{status:503});
     const submittedOptions=Array.isArray(body.options)?body.options:[];
@@ -218,10 +250,12 @@ export async function POST(request: Request) {
     const bundleLineAllocations=resolvedBundle?allocateBundleRevenue(pricedItems.map(item=>({inventoryItemId:item.id,quantity:item.quantity,listUnitPriceCents:item.totalUnitPriceCents})),resolvedBundle.rentalSubtotalCents):null;
     const allocationByItem=new Map(bundleLineAllocations?.map(line=>[line.inventoryItemId,line.lineTotalCents]));
     const rentalTaxLines=pricedItems.map(item=>{const resolved=resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code});return {id:item.id,amountCents:allocationByItem.get(item.id)??(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolved.taxCode,taxCodeSource:resolved.source};});
+    const customerAddonTaxLines=selectedCatalogAddons.map(selection=>({id:`customer_addon:${selection.catalogId}`,amountCents:selection.quantity*Number(selection.addon!.default_unit_price_cents),taxable:Boolean(selection.addon!.is_taxable),taxCode:null,discountEligible:false}));
+    const taxLines=[...rentalTaxLines,...customerAddonTaxLines];
     let taxCalculation;
     try{
       taxCalculation=await calculateBookingTax({
-        lines:rentalTaxLines,
+        lines:taxLines,
         discountCents:promo?.ok?promo.discountCents:0,
         discountIncludesDelivery:promo?.ok&&promo.snapshot.appliesTo==="order",
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
@@ -246,7 +280,7 @@ export async function POST(request: Request) {
       // canonical calculation with tax disabled so no manual-rate fallback can
       // occur, while preserving an immutable audit marker in the snapshot.
       taxCalculation=await calculateBookingTax({
-        lines:rentalTaxLines,
+        lines:taxLines,
         discountCents:promo?.ok?promo.discountCents:0,
         discountIncludesDelivery:promo?.ok&&promo.snapshot.appliesTo==="order",
         delivery:{id:"delivery",amountCents:deliveryQuote?.feeCents??0,taxable:deliverySettings?.delivery_taxable??false},
@@ -261,7 +295,9 @@ export async function POST(request: Request) {
     const deliveryTaxLine=taxCalculation.snapshot.lines.find(line=>line.id==="delivery")!;
     const deliveryRuleSnapshot=deliveryQuote?{...deliveryQuote.snapshot.rule,taxable:deliveryTaxLine.taxable,taxCents:deliveryTaxLine.taxCents,taxRateBasisPoints:taxSettings.calculationMethod==="manual"?(taxSettings.taxEnabled&&!taxCustomer?.tax_exempt&&deliveryTaxLine.taxable?taxSettings.manualTaxRateBasisPoints:0):null,taxCalculationId:taxCalculation.snapshot.calculationId}:null;
     // Never create a reservation or payment until the customer has reviewed the authoritative amount.
-    if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
+    if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,customerAddonQuote:selectedCatalogAddons.length>0,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
+    const powerRequestNote=business.id===COPPER_STATE_BOUNCE_BUSINESS_ID?copperStatePowerRequestNote(body.powerNeed):"";
+    const bookingNotes=[body.notes?.trim(),powerRequestNote].filter(Boolean).join("\n");
     const reservationDetails={
       p_items: requestedItems,
       p_rental_date: body.rentalDate,
@@ -275,13 +311,15 @@ export async function POST(request: Request) {
       p_delivery_address: body.address!.trim(),
       p_delivery_city: body.city,
       p_delivery_zip: body.zipCode!.trim(),
-      p_notes: body.notes?.trim() ?? "",
+      p_notes: bookingNotes,
     };
+    const addonPayload=selectedCatalogAddons.map(selection=>{const line=taxCalculation.snapshot.lines.find(item=>item.id===`customer_addon:${selection.catalogId}`);return {catalogId:selection.catalogId,quantity:selection.quantity,taxCents:line?.taxCents??0,taxRateBasisPoints:taxSettings.calculationMethod==="manual"&&line?.taxable?taxSettings.manualTaxRateBasisPoints:0};});
+    const requestKey=hasText(body.customerAddonRequestKey)&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.customerAddonRequestKey)?body.customerAddonRequestKey:null;
     const { data, error: bookingError } = resolvedBundle?await supabase.rpc("create_bundle_booking",{
       p_business_id:business.id,p_bundle_id:body.bundleId!.trim(),p_items:requestedItems,p_line_allocations:bundleLineAllocations,
-      p_details:{rentalDate:body.rentalDate,rentalEndDate:body.rentalEndDate,firstName:body.firstName!.trim(),lastName:body.lastName!.trim(),email:body.email!.trim(),phone:body.phone!.trim(),startTime:body.startTime,endTime:body.endTime,address:body.address!.trim(),city:body.city,zipCode:body.zipCode!.trim(),notes:body.notes?.trim()??""},
+      p_details:{rentalDate:body.rentalDate,rentalEndDate:body.rentalEndDate,firstName:body.firstName!.trim(),lastName:body.lastName!.trim(),email:body.email!.trim(),phone:body.phone!.trim(),startTime:body.startTime,endTime:body.endTime,address:body.address!.trim(),city:body.city,zipCode:body.zipCode!.trim(),notes:bookingNotes},
       p_bundle_snapshot:bundleSnapshot,p_selection_snapshot:{groups:body.bundleSelections?.groupItems??{},addons:body.bundleSelections?.addonItems??[],items:requestedItems},p_weekday_price_cents:resolvedBundle.basePriceCents,p_upgrade_cents:resolvedBundle.upgradeCents,p_addon_cents:resolvedBundle.addonCents,p_rental_subtotal_cents:resolvedBundle.rentalSubtotalCents,
-    }):await supabase.rpc("create_public_booking_quantities_timed",reservationDetails);
+    }):addonPayload.length?await supabase.rpc("create_public_booking_with_customer_addons",{...reservationDetails,p_customer_addons:addonPayload,p_addon_tax_rate_basis_points:0,p_request_key:requestKey}):await supabase.rpc("create_public_booking_quantities_timed",reservationDetails);
     if (bookingError) {
       const message = bookingError.message || "Could not create the reservation.";
       const sharedInventoryConflict=/same equipment/i.test(message),conflict=bookingError.code==="23505"||/one_active_(?:reservation|booking)_per_item_date|same equipment|already reserved/i.test(message);
@@ -375,6 +413,7 @@ export async function POST(request: Request) {
           rental_date: String(body.rentalDate),
           inventory_item_ids: ids.join(","),
           item_count: String(orderedItems.reduce((sum, item) => sum + item.quantity, 0)),
+          customer_addon_count:String(addonPayload.reduce((sum,addon)=>sum+addon.quantity,0)),
           subtotal_cents:String(subtotalCents),tax_cents:String(taxCents),total_cents:String(totalCents),discount_cents:String(discountCents),delivery_fee_cents:String(deliveryFeeCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name,...(promo.snapshot.tier?{discount_tier_id:promo.snapshot.tier.id}:{})}:{}),
           deposit_cents: String(depositCents),
           final_payment_authorized:String(depositCents<totalCents),
