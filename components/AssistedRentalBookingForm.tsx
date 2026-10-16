@@ -35,7 +35,7 @@ export function AssistedRentalBookingForm({slug,items,customers,disclosure,reque
   <input type="hidden" name="rentalItems" value={JSON.stringify(lines)}/>
   <label>Existing customer<select name="existingCustomer"><option value="">Enter customer below</option>{customers.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select><small>When selected, the saved customer details are used.</small></label>
   <label>First name<input name="firstName"/></label><label>Last name<input name="lastName"/></label>
-  <label>Phone<input name="phone" type="tel"/></label><label>Email<input name="email" type="email"/></label>
+  <label>Phone<input name="phone" type="tel" required/></label><label>Email <small>Optional</small><input name="email" type="email"/></label>
   <label className="wide toggle-row"><input name="smsConsent" type="checkbox" value="true"/><span><b>Customer explicitly agrees to receive booking-related text messages</b><small>{disclosure}</small></span></label>
   <label>Rental date<input required name="rentalDate" type="date" min={new Date().toISOString().slice(0,10)}/></label>
   <fieldset className="wide assisted-rental-items"><legend>Rental items</legend>

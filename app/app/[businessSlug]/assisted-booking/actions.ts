@@ -28,11 +28,23 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
    first=customer.first_name??"";last=customer.last_name??"";email=customer.email??"";phone=customer.phone??"";
   }
   const address=text(form,"address"),city=text(form,"city"),zip=text(form,"zip");
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(`${date}T12:00:00Z`))||new Date(`${date}T12:00:00Z`)<new Date(new Date().toDateString())||!first||!last||!email||!phone||!address||!zip||!requestKey)throw new Error("Complete all required fields.");
-  const {data,error}=await db.rpc("create_assisted_rental_booking",{p_business_id:business.id,p_request_key:requestKey,p_items:lines,p_details:{rentalDate:date,firstName:first,lastName:last,email,phone,address,city,zip,...amounts,smsConsent:text(form,"smsConsent")==="true",smsDisclosure:webBookingSmsConsentDisclosure(business.name),smsDisclosureVersion:STAFF_BOOKING_SMS_CONSENT_VERSION}});
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(`${date}T12:00:00Z`))||new Date(`${date}T12:00:00Z`)<new Date(new Date().toDateString())||!first||!last||!phone||!address||!zip||!requestKey)throw new Error("Complete all required fields.");
+  // The canonical rental reservation function predates phone-first assisted
+  // bookings and requires an email. Supply a deterministic internal placeholder
+  // only for that call, then immediately clear it from the customer record.
+  // It is never exposed or used for email delivery.
+  const emailWasOmitted=!email;
+  const reservationEmail=email||`assisted-${requestKey}@no-email.servonas.invalid`;
+  const {data,error}=await db.rpc("create_assisted_rental_booking",{p_business_id:business.id,p_request_key:requestKey,p_items:lines,p_details:{rentalDate:date,firstName:first,lastName:last,email:reservationEmail,phone,address,city,zip,...amounts,smsConsent:text(form,"smsConsent")==="true",smsDisclosure:webBookingSmsConsentDisclosure(business.name),smsDisclosureVersion:STAFF_BOOKING_SMS_CONSENT_VERSION}});
   if(error)throw new Error(error.message);
   created=Array.isArray(data)?data[0]:data;
   if(!created?.booking_id)throw new Error("Booking could not be created.");
+  if(emailWasOmitted){
+   const {data:createdBooking,error:bookingError}=await db.from("bookings").select("customer_id").eq("id",created.booking_id).eq("business_id",business.id).maybeSingle();
+   if(bookingError||!createdBooking)throw new Error("Booking customer could not be updated.");
+   const {error:customerError}=await db.from("customers").update({email:null}).eq("id",createdBooking.customer_id).eq("business_id",business.id).eq("email",reservationEmail);
+   if(customerError)throw new Error("Booking customer could not be updated.");
+  }
  }catch(error){return {error:error instanceof Error?error.message:"Booking could not be created."};}
  try{
   await ensureRentalBookingJob(db,created.booking_id);

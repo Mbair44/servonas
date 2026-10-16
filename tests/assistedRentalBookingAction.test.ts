@@ -28,6 +28,13 @@ test('action sends all rentals and staff consent in one tenant-scoped atomic cal
 test('availability failure returns item name without redirect or payment and preserves submitted data',async()=>{const f=fixture(true);const before=Array.from(f.form.entries());const result=await f.run();assert.match(result.error,/Castle/);assert.equal(result.url,undefined);assert.deepEqual(f.jobs,[]);assert.deepEqual(f.payments,[]);assert.deepEqual(Array.from(f.form.entries()),before);});
 test('foreign item and malformed amount fail before any reservation',async()=>{const f=fixture();f.form.set('rentalItems',JSON.stringify([{inventoryItemId:'foreign',quantity:1,unitPriceCents:1}]));assert.ok((await f.run()).error);assert.equal(f.calls.length,0);});
 
+test('assisted booking accepts a phone-first customer without storing a synthetic email address',()=>{
+ assert.doesNotMatch(source,/\|\|!email\|\|!phone/);
+ assert.match(source,/const emailWasOmitted=!email/);
+ assert.match(source,/assisted-\$\{requestKey\}@no-email\.servonas\.invalid/);
+ assert.match(source,/\.update\(\{email:null\}\)/);
+});
+
 test('shared job builder includes all rental name snapshots and quantities',async()=>{
  const writes:any[]=[];
  const booking={id:'booking',business_id:'tenant',customer_id:'customer',event_start_time:'09:00',event_end_time:'17:00',delivery_address:'123 Main',subtotal_cents:41000,total_cents:41000,bookings_items:[{rental_date:'2035-01-01',quantity:1,item_name_snapshot:'Monsoon',inventory_items:{name:'Renamed item'}},{rental_date:'2035-01-01',quantity:1,item_name_snapshot:'Castle',inventory_items:{name:'Castle'}}]};
