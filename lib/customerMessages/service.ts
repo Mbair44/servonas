@@ -15,12 +15,24 @@ export async function markConversationRead(db:SupabaseClient,businessId:string,k
  for(let offset=0;offset<ids.length;offset+=100){const {error}=await db.from("customer_messages").update({read_at:now,updated_at:now}).eq("business_id",businessId).eq("direction","inbound").is("read_at",null).in("id",ids.slice(offset,offset+100));if(error)throw new Error("Could not mark messages read.");}
  return ids;
 }
-type Send=(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string})=>Promise<{sid:string}>;
-export async function replyToConversation(db:SupabaseClient,businessId:string,input:{key:string;body:string;requestId:string},send:Send){
+type Send=(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string;customerId?:string})=>Promise<{sid:string}>;
+type ReplyTarget={customerId:string;phone:string};
+const validPhone=(phone:string)=>/^\+[1-9]\d{7,14}$/.test(normalizePhone(phone));
+async function conversationTarget(db:SupabaseClient,businessId:string,input:{key:string;target?:ReplyTarget}){
+ const existing=(await loadInbox(db,businessId)).find(c=>c.key===input.key);
+ if(existing)return{phone:existing.phone,customerId:existing.key.startsWith("customer:")?existing.key.slice("customer:".length):null};
+ const target=input.target;
+ if(!target||input.key!==`customer:${target.customerId}`||!validPhone(target.phone))throw new Error("Conversation not found in this workspace.");
+ const phone=normalizePhone(target.phone),{data:customer,error}=await db.from("customers").select("id,phone,secondary_phone,phone_normalized").eq("business_id",businessId).eq("id",target.customerId).eq("is_deleted",false).single();
+ if(error||!customer)throw new Error("Customer not found in this workspace.");
+ const phones=[customer.phone,customer.secondary_phone,customer.phone_normalized].filter((value):value is string=>Boolean(value)).map(normalizePhone);
+ if(!phones.includes(phone))throw new Error("That phone number does not belong to this customer.");
+ return{phone,customerId:customer.id};
+}
+export async function replyToConversation(db:SupabaseClient,businessId:string,input:{key:string;body:string;requestId:string;target?:ReplyTarget},send:Send){
  const body=input.body.trim();if(!body||body.length>1600)throw new Error("Enter a message between 1 and 1600 characters.");
  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.requestId))throw new Error("Invalid send request.");
- const thread=(await loadInbox(db,businessId)).find(c=>c.key===input.key);if(!thread)throw new Error("Conversation not found in this workspace.");
- const to=normalizePhone(thread.phone);if(!/^\+[1-9]\d{7,14}$/.test(to))throw new Error("This conversation does not have a valid reply number.");
+ const thread=await conversationTarget(db,businessId,input),to=normalizePhone(thread.phone);if(!/^\+[1-9]\d{7,14}$/.test(to))throw new Error("This conversation does not have a valid reply number.");
  const {error:claimError}=await db.from("customer_message_send_requests").insert({business_id:businessId,request_id:input.requestId,conversation_key:input.key,body});
  let sid:string;
  if(claimError){
@@ -30,7 +42,7 @@ export async function replyToConversation(db:SupabaseClient,businessId:string,in
   if(!existing.provider_message_id)throw new Error("This send is pending or its delivery is uncertain. Refresh before sending another message; this request will not be sent twice.");
   sid=existing.provider_message_id;
  }else{
-  const result=await send({businessId,to,body,sourceType:"manual_reply",sourceId:input.requestId});sid=result.sid;
+  const result=await send({businessId,to,body,sourceType:"manual_reply",sourceId:input.requestId,customerId:thread.customerId??undefined});sid=result.sid;
   const {error}=await db.from("customer_message_send_requests").update({provider_message_id:sid}).eq("business_id",businessId).eq("request_id",input.requestId);
   if(error)throw new Error("Message accepted, but confirmation could not be saved. Refresh the inbox; do not resend.");
  }
