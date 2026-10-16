@@ -7,6 +7,7 @@ import {CategoryLanding} from "@/components/CategoryLanding";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
 import {LocationLanding} from "@/components/LocationLanding";
+import {MarketingPageLanding} from "@/components/MarketingPageLanding";
 import type {Metadata} from "next";
 import {tenantMetadata} from "@/lib/publicTenantSeo";
 import {TenantLandingSchema} from "@/components/TenantPublicSchema";
@@ -28,10 +29,11 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
  const [record,db]=await Promise.all([loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]"),Promise.resolve(getSupabaseAdmin())]);
  if(!db||record.kind!=="ok")notFound();
  const site=record.site,businessId=record.settings.business_id;
- const [{data:promotion},{data:categoryPage},{data:locationPage},{data:nearbyPages},{data:categoryPages},{data:items}]=await Promise.all([
+ const [{data:promotion},{data:categoryPage},{data:locationPage},{data:marketingPage},{data:nearbyPages},{data:categoryPages},{data:items}]=await Promise.all([
   db.from("promotions").select("*,discounts(*)").eq("business_id",businessId).ilike("slug",promotionSlug).eq("landing_page_enabled",true).maybeSingle(),
   db.from("category_website_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
+  db.from("marketing_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("slug,city,state").eq("business_id",businessId).eq("status","published").neq("slug",promotionSlug).limit(6),
   db.from("category_website_pages").select("category_id,slug,title").eq("business_id",businessId).eq("status","published"),
   db.from("inventory_items").select("id,name,description,daily_price_cents,image_url,category_id").eq("business_id",businessId).eq("active",true),
@@ -41,6 +43,7 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
   return <><TenantLandingSchema type="WebPage" name={promotion.headline} url={`https://${domain}/${promotion.slug}`} homeUrl={`https://${domain}`}/>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="promotion" landingId={promotion.id} landingLabel={promotion.slug}/>}<PromotionLanding promotion={promotion} business={site} items={filterPromotionInventory(items??[],promotion.discounts.applies_to,eligibility.eligibleIds)} baseBookingUrl="/booking" websiteUrl="/"/></>;
  }
  if(categoryPage)return <><TenantLandingSchema type="CollectionPage" name={categoryPage.title} url={`https://${domain}/${categoryPage.slug}`} homeUrl={`https://${domain}`}/>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="category" landingId={categoryPage.category_id} landingLabel={categoryPage.slug}/>}<CategoryLanding page={categoryPage} business={site} items={(items??[]).filter(item=>item.category_id===categoryPage.category_id)} bookingUrl="/booking" websiteUrl="/"/></>;
+ if(marketingPage)return <><TenantLandingSchema type="WebPage" name={marketingPage.title} url={`https://${domain}/${marketingPage.slug}`} homeUrl={`https://${domain}`}/>{site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="website" landingId={marketingPage.id} landingLabel={marketingPage.slug}/>}<MarketingPageLanding page={marketingPage} business={site} homeUrl="/"/></>;
  if(!locationPage)notFound();
  return <>{site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>} {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} landingType="location" landingId={locationPage.id} landingLabel={locationPage.slug}/>}<LocationLanding page={locationPage} business={site} websiteUrl="/" ctaUrl={site.bookingEnabled?"/booking":"/#contact"} nearbyPages={nearbyPages??[]} categoryPages={indexableCategoryPages(categoryPages??[],items??[])}/></>;
 }

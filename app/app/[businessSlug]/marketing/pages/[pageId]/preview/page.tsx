@@ -1,0 +1,5 @@
+import {notFound} from "next/navigation";
+import {requireWorkspace} from "@/lib/workspace";
+import {canManageBusiness} from "@/lib/access";
+import {MarketingPageLanding} from "@/components/MarketingPageLanding";
+export default async function MarketingPagePreview({params}:{params:Promise<{businessSlug:string;pageId:string}>}){const {businessSlug,pageId}=await params,{supabase,business,role}=await requireWorkspace(businessSlug);if(!canManageBusiness(role))notFound();const [{data:page},{data:settings}]=await Promise.all([supabase.from("marketing_pages").select("*").eq("business_id",business.id).eq("id",pageId).maybeSingle(),supabase.from("business_website_settings").select("primary_color,custom_domain,domain_status").eq("business_id",business.id).maybeSingle()]);if(!page)notFound();return <><div className="business-site-preview-bar">Preview mode — this draft is not public.</div><MarketingPageLanding page={page} business={{name:business.name,primaryColor:settings?.primary_color,phone:business.phone}} homeUrl={`/app/${businessSlug}/marketing/pages`}/></>}
