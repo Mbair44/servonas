@@ -1,6 +1,6 @@
 import type {BusinessTaxSettings} from './financial/tax.ts';
 
-export type BookingTaxLine={id:string;amountCents:number;taxable:boolean;taxCode?:string|null};
+export type BookingTaxLine={id:string;amountCents:number;taxable:boolean;taxCode?:string|null;discountEligible?:boolean};
 export type BookingTaxProvider=(lines:BookingTaxLine[])=>Promise<{calculationId:string;lines:Array<{id:string;taxCents:number;metadata?:unknown}>;metadata?:unknown}>;
 
 /** New quotes only. Allocate discounts before asking the provider; never reprice saved bookings. */
@@ -9,12 +9,12 @@ export async function calculateBookingTax(input:{lines:BookingTaxLine[];discount
  const cents=(n:number)=>{if(!Number.isSafeInteger(n)||n<0)throw new Error('Invalid booking amount.');return n;};
  const subtotalCents=input.lines.reduce((sum,line)=>sum+cents(line.amountCents),0);
  const deliveryAmountCents=cents(input.delivery.amountCents);
- const discountBaseCents=subtotalCents+(input.discountIncludesDelivery?deliveryAmountCents:0);
+ const discountBaseCents=input.lines.filter(line=>line.discountEligible!==false).reduce((sum,line)=>sum+line.amountCents,0)+(input.discountIncludesDelivery&&input.delivery.discountEligible!==false?deliveryAmountCents:0);
  const discountCents=Math.min(discountBaseCents,cents(input.discountCents));
  // Cumulative allocation preserves every cent and is deterministic across mixed eligibility.
  let cumulative=0,allocated=0;
  const allocatableLines=[...input.lines,{...input.delivery,amountCents:deliveryAmountCents}];
- const lines=allocatableLines.map(line=>{const eligibleForOrderDiscount=line.id!==input.delivery.id||Boolean(input.discountIncludesDelivery);cumulative+=eligibleForOrderDiscount?line.amountCents:0;const next=discountBaseCents?Math.round(discountCents*cumulative/discountBaseCents):0,discount=next-allocated;allocated=next;return {...line,discountCents:discount,amountCents:line.amountCents-discount};});
+ const lines=allocatableLines.map(line=>{const eligibleForOrderDiscount=line.discountEligible!==false&&(line.id!==input.delivery.id||Boolean(input.discountIncludesDelivery));cumulative+=eligibleForOrderDiscount?line.amountCents:0;const next=discountBaseCents?Math.round(discountCents*cumulative/discountBaseCents):0,discount=next-allocated;allocated=next;return {...line,discountCents:discount,amountCents:line.amountCents-discount};});
  const taxable=lines.filter(line=>settings.taxEnabled&&!input.exempt&&line.taxable&&line.amountCents>0);
  let result:Awaited<ReturnType<BookingTaxProvider>>|null=null;
  if(settings.calculationMethod==='automatic'&&taxable.length)result=await provider(taxable);

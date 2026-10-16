@@ -14,7 +14,13 @@ export async function ensureRentalBookingJob(db:SupabaseClient,bookingId:string)
  const {data:booking,error}=await db.from("bookings").select("id,business_id,customer_id,job_id,event_start_time,event_end_time,delivery_address,delivery_city,delivery_state,delivery_zip,notes,discount_snapshot,tax_snapshot,subtotal_cents,tax_cents,delivery_fee_cents,discount_cents,total_cents,balance_due_cents,amount_paid_cents,bookings_items:booking_items(rental_date,quantity,item_name_snapshot,operator_selected,operator_billable_hours,operator_hourly_rate_cents,operator_charge_cents,option_selections,inventory_items(name))").eq("id",bookingId).maybeSingle();
  if(error)throw new RentalBookingJobPersistenceError("load_rental_booking","bookings",error);
  if(!booking)throw new Error("Rental booking could not be loaded (not_found).");
- if(booking.job_id)return booking.job_id;
+ // Repair/link booking-originated add-ons even when a prior webhook already
+ // created the job. The update is idempotent and does not change totals.
+ if(booking.job_id){
+  const linkedAddons=await db.from("job_addons").update({job_id:booking.job_id}).eq("business_id",booking.business_id).eq("booking_id",booking.id).is("job_id",null);
+  if(linkedAddons.error)throw new RentalBookingJobPersistenceError("link_booking_addons_to_existing_job","job_addons",linkedAddons.error);
+  return booking.job_id;
+ }
  if(!booking.business_id||!booking.customer_id)throw new Error("Rental booking is missing its business or customer.");
  const {data:business}=await db.from("businesses").select("timezone").eq("id",booking.business_id).maybeSingle();
  const items=(booking.bookings_items??[]) as any[];
@@ -33,5 +39,7 @@ export async function ensureRentalBookingJob(db:SupabaseClient,bookingId:string)
  if(!job)throw new Error("Rental job could not be created (no row returned).");
  const linked=await db.from("bookings").update({job_id:job.id}).eq("id",booking.id).is("job_id",null);
  if(linked.error)throw new RentalBookingJobPersistenceError("link_rental_job","bookings",linked.error);
+ const linkedAddons=await db.from("job_addons").update({job_id:job.id}).eq("business_id",booking.business_id).eq("booking_id",booking.id).is("job_id",null);
+ if(linkedAddons.error)throw new RentalBookingJobPersistenceError("link_booking_addons_to_job","job_addons",linkedAddons.error);
  return job.id;
 }
