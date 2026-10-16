@@ -1,0 +1,10 @@
+"use client";
+import {storageImageThumbUrl} from "@/lib/storageImageVariants";
+import {publicMoney} from "@/lib/publicBookingNumbers";
+import type {CustomerCatalogAddon} from "@/lib/customerCatalogAddonUi";
+
+export function CustomerCatalogAddonPicker({addons,quantities,onChange,notice,loading}:{addons:CustomerCatalogAddon[];quantities:Record<string,number>;onChange:(id:string,quantity:number)=>void;notice?:string;loading?:boolean}){
+ if(loading)return <section className="rental-booking-step rental-party-panel" aria-live="polite"><h2>Optional add-ons</h2><p>Checking eligible add-ons…</p></section>;
+ if(!addons.length)return notice?<p className="field-help" role="status">{notice}</p>:null;
+ return <section className="rental-booking-step rental-party-panel" aria-labelledby="customer-addon-title"><div className="rental-party-panel-head"><div><span className="eyebrow">Optional add-ons</span><h2 id="customer-addon-title">Complete your event</h2><p>Add-ons are shown only when they work with your selected rentals.</p></div></div>{notice&&<p className="field-help" role="status">{notice}</p>}<div className="rental-upsell-list">{addons.map(addon=>{const quantity=quantities[addon.id]??0;return <article className={`rental-upsell-item${quantity?" selected":""}`} key={addon.id}>{addon.imageUrl&&<img src={storageImageThumbUrl(addon.imageUrl)??addon.imageUrl} alt="" loading="lazy"/>}<div><strong>{addon.name}</strong>{addon.description&&<small>{addon.description}</small>}<span>{publicMoney(addon.unitPriceCents)}{addon.maxQuantity>1?" each":""}</span></div>{quantity?<div className="quantity-picker"><button type="button" aria-label={`Remove one ${addon.name}`} onClick={()=>onChange(addon.id,quantity-1)}>−</button><div><strong>{quantity}</strong><span>{addon.maxQuantity>1?`of ${addon.maxQuantity}`:"selected"}</span></div><button type="button" aria-label={`Add one ${addon.name}`} disabled={quantity>=addon.maxQuantity} onClick={()=>onChange(addon.id,quantity+1)}>+</button></div>:<button type="button" className="button secondary" onClick={()=>onChange(addon.id,1)}>Add {publicMoney(addon.unitPriceCents)}</button>}</article>;})}</div></section>;
+}
