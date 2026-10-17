@@ -10,7 +10,7 @@ export function incrementalDepositCents(input:{newTotalCents:number;amountPaidCe
 
 /** Server-only staging entrypoint. `pricingSnapshot` and `newTotals` must be produced
  * by the authoritative booking pricing service, never from browser values. */
-export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:string;bookingId:string;items:RentalItemAddition[];pricingSnapshot:Record<string,unknown>;oldTotals:Record<string,unknown>;newTotals:Record<string,unknown>;depositPercent:number;amountPaidCents:number;idempotencyKey:string;expiresAt:Date;successUrl:string;cancelUrl:string;requiredPaymentCents?:number;stripeMetadata?:Record<string,string>}){
+export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:string;bookingId:string;items:RentalItemAddition[];pricingSnapshot:Record<string,unknown>;oldTotals:Record<string,unknown>;newTotals:Record<string,unknown>;depositPercent:number;amountPaidCents:number;idempotencyKey:string;expiresAt:Date;successUrl:string;cancelUrl:string;requiredPaymentCents?:number;stripeMetadata?:Record<string,string>;restrictedTestStripeAccountId?:string}){
  const requiredPaymentCents=input.requiredPaymentCents??incrementalDepositCents({newTotalCents:Number(input.newTotals.total_cents??0),amountPaidCents:input.amountPaidCents,depositPercent:input.depositPercent});
  if(!Number.isSafeInteger(requiredPaymentCents)||requiredPaymentCents<0)throw new Error("The required payment is invalid.");
  const {data:amendmentId,error:holdError}=await db.rpc("create_booking_item_amendment_hold",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_requested_items:input.items,p_pricing_snapshot:input.pricingSnapshot,p_old_totals:input.oldTotals,p_new_totals:input.newTotals,p_required_payment_cents:requiredPaymentCents,p_idempotency_key:input.idempotencyKey,p_expires_at:input.expiresAt.toISOString()});
@@ -18,7 +18,13 @@ export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:str
  if(requiredPaymentCents===0){await applyPaidBookingItemAmendment(db,{amendmentId,paymentReference:null,checkoutSessionId:null,amountPaidCents:0});return {amendmentId,requiredPaymentCents,checkoutUrl:null};}
  const {data:account,error:accountError}=await db.from("business_payment_accounts").select("provider_account_id,charges_enabled").eq("business_id",input.businessId).eq("provider","stripe").maybeSingle();
  if(accountError||!account?.provider_account_id||!account.charges_enabled)throw new Error("Online payments are unavailable; the inventory hold will expire.");
- const session=await stripeClient().checkout.sessions.create({mode:"payment",line_items:[{quantity:1,price_data:{currency:"usd",unit_amount:requiredPaymentCents,product_data:{name:"Required deposit for booking update"}}}],success_url:input.successUrl,cancel_url:input.cancelUrl,expires_at:Math.floor(input.expiresAt.getTime()/1000),metadata:{booking_id:input.bookingId,business_id:input.businessId,amendment_id:String(amendmentId),payment_kind:"booking_item_amendment",...(input.stripeMetadata??{})}},{stripeAccount:account.provider_account_id,idempotencyKey:`booking-amendment:${amendmentId}`});
+ const stripe=stripeClient();
+ if(input.restrictedTestStripeAccountId){
+  if(!process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_")||account.provider_account_id!==input.restrictedTestStripeAccountId)throw new Error("Restricted test checkout requires the configured Stripe test account.");
+  const connected=await stripe.accounts.retrieve(account.provider_account_id);
+  if(("deleted" in connected&&connected.deleted)||Boolean((connected as {livemode?:boolean}).livemode))throw new Error("Restricted test checkout requires a Stripe test-mode connected account.");
+ }
+ const session=await stripe.checkout.sessions.create({mode:"payment",line_items:[{quantity:1,price_data:{currency:"usd",unit_amount:requiredPaymentCents,product_data:{name:"Required deposit for booking update"}}}],success_url:input.successUrl,cancel_url:input.cancelUrl,expires_at:Math.floor(input.expiresAt.getTime()/1000),metadata:{booking_id:input.bookingId,business_id:input.businessId,amendment_id:String(amendmentId),payment_kind:"booking_item_amendment",...(input.stripeMetadata??{})}},{stripeAccount:account.provider_account_id,idempotencyKey:`booking-amendment:${amendmentId}`});
  const {error:sessionError}=await db.from("booking_amendments").update({stripe_checkout_session_id:session.id}).eq("id",amendmentId).eq("business_id",input.businessId);
  if(sessionError||!session.url)throw new Error("Checkout could not be started; the inventory hold will expire.");
  return {amendmentId,requiredPaymentCents,checkoutUrl:session.url,checkoutSessionId:session.id};

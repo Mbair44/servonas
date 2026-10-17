@@ -1,0 +1,8 @@
+"use client";
+import {useState} from "react";
+
+export function SmartUpsellRestrictedTestPanel({items,create}:{items:Array<{id:string;name:string}>;create:(inventoryItemId:string)=>Promise<{url:string;expiresAt:string}>}){
+ const [item,setItem]=useState(items[0]?.id??""),[result,setResult]=useState<{url:string;expiresAt:string}|null>(null),[error,setError]=useState<string|null>(null),[busy,setBusy]=useState(false);
+ if(!items.length)return <section className="workspace-panel"><h2>Restricted end-to-end test</h2><p>No eligible rental is configured for the designated test booking.</p></section>;
+ return <section className="workspace-panel"><h2>Restricted end-to-end test</h2><p>This creates one pending offer for the server-allowlisted test booking only. It never sends SMS or email.</p><label>Rental to offer<select value={item} onChange={event=>setItem(event.target.value)}>{items.map(option=><option key={option.id} value={option.id}>{option.name}</option>)}</select></label><button className="sv-button" disabled={busy} onClick={async()=>{setBusy(true);setError(null);try{setResult(await create(item));}catch(cause){setError(cause instanceof Error?cause.message:"Unable to create test offer.");}finally{setBusy(false);}}}>{busy?"Creating…":"Create restricted test offer"}</button>{error&&<p className="workspace-notice warning">{error}</p>}{result&&<div className="workspace-notice"><strong>Secure test URL</strong><p><a href={result.url} target="_blank" rel="noreferrer">Open test offer</a></p><small>Expires {new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(result.expiresAt))}. This URL is displayed only in this authorized session.</small></div>}</section>;
+}

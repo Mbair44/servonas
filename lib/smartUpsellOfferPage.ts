@@ -1,9 +1,10 @@
 import {hashSmartUpsellToken,smartUpsellTokenIsUsable,type SmartUpsellStatus} from "./smartUpsells.ts";
 import {smartUpsellOfferCanBeginCheckout} from "./smartUpsellCheckout.ts";
+import {isRestrictedSmartUpsellTestOffer} from "./smartUpsellRestrictedTest.ts";
 import {normalizeWebsiteDomain} from "./website";
 
 type Db=any;
-export type PublicSmartUpsellOffer={token:string;business:{name:string;phone:string|null;logoUrl:string|null;brandColor:string|null};item:{name:string;imageUrl:string|null};pricing:{originalPriceCents:number;discountedPriceCents:number;discountCents:number;depositCents:number;remainingBalanceIncrementCents:number;additionalDeliveryFeeCents:number;taxCents:number};expiresAt:string;checkoutEligible:boolean};
+export type PublicSmartUpsellOffer={token:string;business:{name:string;phone:string|null;logoUrl:string|null;brandColor:string|null};item:{name:string;imageUrl:string|null};pricing:{originalPriceCents:number;discountedPriceCents:number;discountCents:number;depositCents:number;remainingBalanceIncrementCents:number;additionalDeliveryFeeCents:number;taxCents:number};expiresAt:string;checkoutEligible:boolean;restrictedTestCheckout:boolean};
 
 /** Token lookup intentionally returns null for every invalid relationship to avoid information disclosure. */
 export async function loadPublicSmartUpsellOffer(db:Db,input:{token:string;domain?:string|null;now?:Date}):Promise<PublicSmartUpsellOffer|null>{
@@ -14,5 +15,5 @@ export async function loadPublicSmartUpsellOffer(db:Db,input:{token:string;domai
  // A view is a server-side lifecycle event. Invalid tokens return before this point.
  if(offer.status==="sent")await db.rpc("transition_smart_upsell_offer",{p_offer_id:offer.id,p_business_id:offer.business_id,p_next_status:"viewed",p_metadata:{viewed_via:"public_offer_page"}}).catch(()=>null);
  const normalized={status:offer.status as SmartUpsellStatus,expires_at:offer.expires_at,discounted_price_cents:Number(offer.discounted_price_cents),additional_delivery_fee_cents:Number(offer.additional_delivery_fee_cents),tax_cents:Number(offer.tax_cents),deposit_cents:Number(offer.deposit_cents),remaining_balance_increment_cents:Number(offer.remaining_balance_increment_cents)};
- return {token:input.token,business:{name:business.name,phone:business.phone??null,logoUrl:bookingSettings?.logo_url??null,brandColor:bookingSettings?.brand_color??null},item:{name:item.name,imageUrl:item.image_url??null},pricing:{originalPriceCents:Number(offer.original_price_cents),discountedPriceCents:Number(offer.discounted_price_cents),discountCents:Number(offer.discount_cents),depositCents:Number(offer.deposit_cents),remainingBalanceIncrementCents:Number(offer.remaining_balance_increment_cents),additionalDeliveryFeeCents:Number(offer.additional_delivery_fee_cents),taxCents:Number(offer.tax_cents)},expiresAt:offer.expires_at,checkoutEligible:smartUpsellOfferCanBeginCheckout(normalized,now)};
+ return {token:input.token,business:{name:business.name,phone:business.phone??null,logoUrl:bookingSettings?.logo_url??null,brandColor:bookingSettings?.brand_color??null},item:{name:item.name,imageUrl:item.image_url??null},pricing:{originalPriceCents:Number(offer.original_price_cents),discountedPriceCents:Number(offer.discounted_price_cents),discountCents:Number(offer.discount_cents),depositCents:Number(offer.deposit_cents),remainingBalanceIncrementCents:Number(offer.remaining_balance_increment_cents),additionalDeliveryFeeCents:Number(offer.additional_delivery_fee_cents),taxCents:Number(offer.tax_cents)},expiresAt:offer.expires_at,checkoutEligible:smartUpsellOfferCanBeginCheckout(normalized,now),restrictedTestCheckout:isRestrictedSmartUpsellTestOffer(offer)};
 }
