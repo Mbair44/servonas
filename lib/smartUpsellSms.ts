@@ -4,8 +4,10 @@ import {smartUpsellCheckoutPreparationEnabled} from "./smartUpsellCheckout.ts";
 
 type Db=any;
 export const smartUpsellAutomatedSmsEnabled=()=>process.env.SMART_UPSELL_AUTOMATED_SMS_ENABLED==="true";
+/** Sending requires the same validated checkout gate as accepting an offer. */
+export const smartUpsellAutomationReady=()=>smartUpsellAutomatedSmsEnabled()&&smartUpsellCheckoutPreparationEnabled();
 /** All three server-only controls are required before an admin can activate a tenant. */
-export const smartUpsellActivationEnabled=()=>smartUpsellAutomatedSmsEnabled()&&smartUpsellCheckoutPreparationEnabled()&&process.env.SMART_UPSELL_ADMIN_ACTIVATION_ENABLED==="true";
+export const smartUpsellActivationEnabled=()=>smartUpsellAutomationReady()&&process.env.SMART_UPSELL_ADMIN_ACTIVATION_ENABLED==="true";
 const money=(cents:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(cents/100);
 const retryAt=(attempt:number)=>new Date(Date.now()+Math.min(60*60_000,Math.max(60_000,2**Math.min(attempt,6)*60_000))).toISOString();
 const eventDay=(date:string,timezone:string)=>new Intl.DateTimeFormat("en-US",{timeZone:timezone,weekday:"long"}).format(new Date(date));
@@ -22,7 +24,7 @@ async function offerOrigin(db:Db,businessId:string){
 
 /** Creates immutable offers and queue rows. It is never called by the dry run. */
 export async function scheduleSmartUpsellOffers(db:Db,input:{now?:Date;limitBusinesses?:number}={}){
- if(!smartUpsellAutomatedSmsEnabled())return{disabled:true,offersCreated:0,queued:0,failures:0};
+ if(!smartUpsellAutomationReady())return{disabled:true,reason:"checkout_unavailable",offersCreated:0,queued:0,failures:0};
  const now=input.now??new Date(),{data:settings,error}=await db.from("business_smart_upsell_settings").select("*").eq("enabled",true).limit(Math.min(Math.max(input.limitBusinesses??100,1),500));
  if(error)throw new Error("Smart Upsell settings could not be loaded.");let offersCreated=0,queued=0,failures=0;
  for(const setting of settings??[]){
@@ -48,9 +50,12 @@ export async function scheduleSmartUpsellOffers(db:Db,input:{now?:Date;limitBusi
 
 /** Rechecks consent, booking state, offer expiry, and tenant-local send window immediately before Twilio dispatch. */
 export async function dispatchSmartUpsellSmsQueue(db:Db,input:{now?:Date;limit?:number}={}){
- if(!smartUpsellAutomatedSmsEnabled())return{disabled:true,processed:0,sent:0,skipped:0,failed:0};const now=input.now??new Date();
+ if(!smartUpsellAutomationReady())return{disabled:true,reason:"checkout_unavailable",processed:0,sent:0,skipped:0,failed:0};const now=input.now??new Date();
  const {data:queue,error}=await db.from("smart_upsell_sms_deliveries").select("*").in("status",["queued","failed"]).lte("next_attempt_at",now.toISOString()).order("queued_at").limit(Math.min(Math.max(input.limit??100,1),500));if(error)throw new Error("Smart Upsell SMS queue is unavailable.");let processed=0,sent=0,skipped=0,failed=0;
- for(const row of queue??[]){processed++;const {data:claimed}=await db.from("smart_upsell_sms_deliveries").update({status:"sending",attempt_count:Number(row.attempt_count??0)+1,updated_at:now.toISOString()}).eq("id",row.id).eq("status",row.status).select("id").maybeSingle();if(!claimed)continue;
+ for(const row of queue??[]){processed++;
+  // Recheck immediately before each dispatch so a gate change cannot send a stale queued offer.
+  if(!smartUpsellAutomationReady()){await db.from("smart_upsell_sms_deliveries").update({status:"skipped",skipped_at:now.toISOString(),last_error:"Checkout validation gate is unavailable; SMS was not sent.",updated_at:now.toISOString()}).eq("id",row.id).in("status",["queued","failed"]);skipped++;continue;}
+  const {data:claimed}=await db.from("smart_upsell_sms_deliveries").update({status:"sending",attempt_count:Number(row.attempt_count??0)+1,updated_at:now.toISOString()}).eq("id",row.id).eq("status",row.status).select("id").maybeSingle();if(!claimed)continue;
   try{const [{data:offer},{data:customer},{data:consent},{data:business},{data:settings}]=await Promise.all([
    db.from("smart_upsell_offers").select("id,status,expires_at,booking_id,business_id,customer_id").eq("id",row.offer_id).eq("business_id",row.business_id).maybeSingle(),
    db.from("customers").select("id,sms_consent_status,is_deleted").eq("id",row.customer_id).eq("business_id",row.business_id).maybeSingle(),

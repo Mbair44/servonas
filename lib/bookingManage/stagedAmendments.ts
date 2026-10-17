@@ -30,6 +30,7 @@ export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentI
   .select("id,business_id,booking_id,requested_items,idempotency_key,required_payment_cents,status,expires_at,pricing_snapshot")
   .eq("id",input.amendmentId).maybeSingle();
  if(amendmentError||!amendment)throw new Error("Staged booking amendment was not found.");
+ const smartOfferId=typeof amendment.pricing_snapshot?.smart_upsell_offer_id==="string"?amendment.pricing_snapshot.smart_upsell_offer_id:null;
  if(amendment.status==="applied")return {applied:false,duplicate:true};
  if(amendment.status==="expired"||amendment.status==="cancelled"||new Date(amendment.expires_at)<=new Date())throw new Error("Staged booking amendment has expired.");
  if(Number(input.amountPaidCents)!==Number(amendment.required_payment_cents))throw new Error("Staged amendment payment amount did not match.");
@@ -39,10 +40,10 @@ export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentI
   const {data:before}=await db.from("bookings").select("balance_charge_scheduled_for").eq("id",amendment.booking_id).eq("business_id",amendment.business_id).maybeSingle();
   if(Number(input.amountPaidCents)>0){const {error}=await db.rpc("apply_customer_balance_payment",{p_business_id:amendment.business_id,p_booking_id:amendment.booking_id,p_payment_reference:input.paymentReference??input.checkoutSessionId,p_amount_cents:input.amountPaidCents,p_checkout_session_id:input.checkoutSessionId});if(error)throw error;}
   const result=await addRentalItemsToBooking(db,{businessId:amendment.business_id,bookingId:amendment.booking_id,items:amendment.requested_items as RentalItemAddition[],idempotencyKey:`amendment:${amendment.id}`,amendmentId:amendment.id});
-  if(before?.balance_charge_scheduled_for){await db.from("bookings").update({balance_charge_scheduled_for:before.balance_charge_scheduled_for}).eq("id",amendment.booking_id).eq("business_id",amendment.business_id).gt("balance_due_cents",0);}
+  // This Smart Upsell-specific safeguard never changes ordinary amendment scheduling.
+  if(smartOfferId&&before?.balance_charge_scheduled_for){await db.from("bookings").update({balance_charge_scheduled_for:before.balance_charge_scheduled_for}).eq("id",amendment.booking_id).eq("business_id",amendment.business_id).gt("balance_due_cents",0);}
   const {error:completeError}=await db.from("booking_amendments").update({status:"applied",applied_at:new Date().toISOString(),failure_reason:null}).eq("id",amendment.id);
   if(completeError)throw completeError;
-  const smartOfferId=typeof amendment.pricing_snapshot?.smart_upsell_offer_id==="string"?amendment.pricing_snapshot.smart_upsell_offer_id:null;
   if(smartOfferId){
    const {error:offerError}=await db.rpc("transition_smart_upsell_offer",{p_offer_id:smartOfferId,p_business_id:amendment.business_id,p_next_status:"accepted",p_metadata:{amendment_id:amendment.id,checkout_session_id:input.checkoutSessionId,payment_reference:input.paymentReference}});
    if(offerError)throw new Error(offerError.message||"Smart Upsell reconciliation could not be finalized.");

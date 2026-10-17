@@ -35,3 +35,4 @@ create policy "staff view Smart Upsell SMS deliveries" on public.smart_upsell_sm
   using(public.has_business_role(business_id,array['owner','admin','manager']));
 revoke all on public.smart_upsell_sms_deliveries from public;
 grant select on public.smart_upsell_sms_deliveries to authenticated;
+grant all on public.smart_upsell_sms_deliveries to service_role;

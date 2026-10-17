@@ -14,12 +14,16 @@ export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:strin
  if(!Array.isArray(input.items)||!input.items.length)throw new Error("Choose at least one rental item.");
  const {data:booking,error:bookingError}=await db.from("bookings").select("id,business_id,customer_id,status,rental_starts_at,rental_ends_at,discount_code,discount_cents,discount_snapshot,booking_items:booking_items(inventory_item_id,quantity,unit_price_cents,operator_charge_cents)").eq("id",input.bookingId).eq("business_id",input.businessId).maybeSingle();
  if(bookingError||!booking)throw new Error("Booking not found.");
+ let smartUpsellSnapshot:Record<string,unknown>|null=null;
  if(input.amendmentId){
   const {data:amendment,error}=await db.from("booking_amendments").select("pricing_snapshot").eq("id",input.amendmentId).eq("business_id",input.businessId).eq("booking_id",input.bookingId).single();
   if(error||!amendment)throw new Error("Staged pricing snapshot is unavailable.");
-  const overrides=amendment.pricing_snapshot?.unit_price_overrides??{};
-  const {data,error:applyError}=await db.rpc("add_rental_items_to_booking_tax_correct",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items,p_discount_cents:amendment.pricing_snapshot.discount_cents??0,p_discount_snapshot:amendment.pricing_snapshot.discount_snapshot??null,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId,p_unit_price_overrides:overrides});
-  if(applyError)throw new Error(applyError.message);return data;
+  const offerId=typeof amendment.pricing_snapshot?.smart_upsell_offer_id==="string"?amendment.pricing_snapshot.smart_upsell_offer_id:null;
+  if(offerId){
+   const {data:offer,error:offerError}=await db.from("smart_upsell_offers").select("id").eq("id",offerId).eq("business_id",input.businessId).eq("booking_id",input.bookingId).maybeSingle();
+   if(offerError||!offer)throw new Error("The Smart Upsell amendment is invalid.");
+   smartUpsellSnapshot=amendment.pricing_snapshot;
+  }
  }
  const ids=[...new Set(input.items.map(item=>item.inventoryItemId))];
  if(ids.length!==input.items.length)throw new Error("Each rental can only be added once per change.");
@@ -38,7 +42,14 @@ export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:strin
  const additions=await Promise.all(input.items.map(async item=>{const inventoryItem=byId.get(item.inventoryItemId);if(!inventoryItem)throw new Error("One or more selected rentals are no longer available.");const price=applyRentalDatePrice(await resolveRentalDatePrice(db,{businessId:input.businessId,rentalItemId:item.inventoryItemId,rentalDate:localDate(start),timeZone:settings.timezone??"America/Phoenix"}),days,resolveRentalPricingRules(businessRules,inventoryItem));return{id:item.inventoryItemId,quantity:Number(item.quantity),rentalUnitPriceCents:price.totalUnitPriceCents,unitPriceCents:price.totalUnitPriceCents};}));
  let discountCents=Number(booking.discount_cents??0),discountSnapshot=booking.discount_snapshot??null;
  if(booking.discount_code){const promo=await validateRentalPromo(db,{businessId:input.businessId,customerId:booking.customer_id??undefined,code:booking.discount_code,items:[...existing,...additions]});if(promo.ok){discountCents=promo.discountCents;discountSnapshot=promo.snapshot;}else{discountCents=0;discountSnapshot=null;}}
- const {data,error}=await db.rpc("add_rental_items_to_booking_tax_correct",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items.map(item=>({...item,expectedRentalUnitPriceCents:additions.find(line=>line.id===item.inventoryItemId)!.unitPriceCents})),p_discount_cents:discountCents,p_discount_snapshot:discountSnapshot,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null,p_unit_price_overrides:{}});
+ const requestedItems=input.items.map(item=>({...item,expectedRentalUnitPriceCents:additions.find(line=>line.id===item.inventoryItemId)!.unitPriceCents}));
+ if(smartUpsellSnapshot){
+  const {data,error}=await db.rpc("add_rental_items_to_booking_tax_correct",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:requestedItems,p_discount_cents:smartUpsellSnapshot.discount_cents??0,p_discount_snapshot:smartUpsellSnapshot.discount_snapshot??null,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null,p_unit_price_overrides:smartUpsellSnapshot.unit_price_overrides??{}});
+  if(error)throw new Error(error.message||"Could not update the Smart Upsell.");
+  return data;
+ }
+ // Ordinary amendments continue through their established canonical RPC.
+ const {data,error}=await db.rpc("add_rental_items_to_booking",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:requestedItems,p_discount_cents:discountCents,p_discount_snapshot:discountSnapshot,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null});
  if(error)throw new Error(error.message||"Could not update the booking.");
  return data;
 }
