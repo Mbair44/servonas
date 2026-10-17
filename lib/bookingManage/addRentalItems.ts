@@ -17,7 +17,8 @@ export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:strin
  if(input.amendmentId){
   const {data:amendment,error}=await db.from("booking_amendments").select("pricing_snapshot").eq("id",input.amendmentId).eq("business_id",input.businessId).eq("booking_id",input.bookingId).single();
   if(error||!amendment)throw new Error("Staged pricing snapshot is unavailable.");
-  const {data,error:applyError}=await db.rpc("add_rental_items_to_booking",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items,p_discount_cents:amendment.pricing_snapshot.discount_cents??0,p_discount_snapshot:amendment.pricing_snapshot.discount_snapshot??null,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId});
+  const overrides=amendment.pricing_snapshot?.unit_price_overrides??{};
+  const {data,error:applyError}=await db.rpc("add_rental_items_to_booking_tax_correct",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items,p_discount_cents:amendment.pricing_snapshot.discount_cents??0,p_discount_snapshot:amendment.pricing_snapshot.discount_snapshot??null,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId,p_unit_price_overrides:overrides});
   if(applyError)throw new Error(applyError.message);return data;
  }
  const ids=[...new Set(input.items.map(item=>item.inventoryItemId))];
@@ -37,7 +38,7 @@ export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:strin
  const additions=await Promise.all(input.items.map(async item=>{const inventoryItem=byId.get(item.inventoryItemId);if(!inventoryItem)throw new Error("One or more selected rentals are no longer available.");const price=applyRentalDatePrice(await resolveRentalDatePrice(db,{businessId:input.businessId,rentalItemId:item.inventoryItemId,rentalDate:localDate(start),timeZone:settings.timezone??"America/Phoenix"}),days,resolveRentalPricingRules(businessRules,inventoryItem));return{id:item.inventoryItemId,quantity:Number(item.quantity),rentalUnitPriceCents:price.totalUnitPriceCents,unitPriceCents:price.totalUnitPriceCents};}));
  let discountCents=Number(booking.discount_cents??0),discountSnapshot=booking.discount_snapshot??null;
  if(booking.discount_code){const promo=await validateRentalPromo(db,{businessId:input.businessId,customerId:booking.customer_id??undefined,code:booking.discount_code,items:[...existing,...additions]});if(promo.ok){discountCents=promo.discountCents;discountSnapshot=promo.snapshot;}else{discountCents=0;discountSnapshot=null;}}
- const {data,error}=await db.rpc("add_rental_items_to_booking",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items.map(item=>({...item,expectedRentalUnitPriceCents:additions.find(line=>line.id===item.inventoryItemId)!.unitPriceCents})),p_discount_cents:discountCents,p_discount_snapshot:discountSnapshot,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null});
+ const {data,error}=await db.rpc("add_rental_items_to_booking_tax_correct",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:input.items.map(item=>({...item,expectedRentalUnitPriceCents:additions.find(line=>line.id===item.inventoryItemId)!.unitPriceCents})),p_discount_cents:discountCents,p_discount_snapshot:discountSnapshot,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null,p_unit_price_overrides:{}});
  if(error)throw new Error(error.message||"Could not update the booking.");
  return data;
 }

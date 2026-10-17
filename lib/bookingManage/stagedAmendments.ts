@@ -10,23 +10,24 @@ export function incrementalDepositCents(input:{newTotalCents:number;amountPaidCe
 
 /** Server-only staging entrypoint. `pricingSnapshot` and `newTotals` must be produced
  * by the authoritative booking pricing service, never from browser values. */
-export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:string;bookingId:string;items:RentalItemAddition[];pricingSnapshot:Record<string,unknown>;oldTotals:Record<string,unknown>;newTotals:Record<string,unknown>;depositPercent:number;amountPaidCents:number;idempotencyKey:string;expiresAt:Date;successUrl:string;cancelUrl:string}){
- const requiredPaymentCents=incrementalDepositCents({newTotalCents:Number(input.newTotals.total_cents??0),amountPaidCents:input.amountPaidCents,depositPercent:input.depositPercent});
+export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:string;bookingId:string;items:RentalItemAddition[];pricingSnapshot:Record<string,unknown>;oldTotals:Record<string,unknown>;newTotals:Record<string,unknown>;depositPercent:number;amountPaidCents:number;idempotencyKey:string;expiresAt:Date;successUrl:string;cancelUrl:string;requiredPaymentCents?:number;stripeMetadata?:Record<string,string>}){
+ const requiredPaymentCents=input.requiredPaymentCents??incrementalDepositCents({newTotalCents:Number(input.newTotals.total_cents??0),amountPaidCents:input.amountPaidCents,depositPercent:input.depositPercent});
+ if(!Number.isSafeInteger(requiredPaymentCents)||requiredPaymentCents<0)throw new Error("The required payment is invalid.");
  const {data:amendmentId,error:holdError}=await db.rpc("create_booking_item_amendment_hold",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_requested_items:input.items,p_pricing_snapshot:input.pricingSnapshot,p_old_totals:input.oldTotals,p_new_totals:input.newTotals,p_required_payment_cents:requiredPaymentCents,p_idempotency_key:input.idempotencyKey,p_expires_at:input.expiresAt.toISOString()});
  if(holdError||!amendmentId)throw new Error(holdError?.message||"The requested rentals could not be held.");
  if(requiredPaymentCents===0){await applyPaidBookingItemAmendment(db,{amendmentId,paymentReference:null,checkoutSessionId:null,amountPaidCents:0});return {amendmentId,requiredPaymentCents,checkoutUrl:null};}
  const {data:account,error:accountError}=await db.from("business_payment_accounts").select("provider_account_id,charges_enabled").eq("business_id",input.businessId).eq("provider","stripe").maybeSingle();
  if(accountError||!account?.provider_account_id||!account.charges_enabled)throw new Error("Online payments are unavailable; the inventory hold will expire.");
- const session=await stripeClient().checkout.sessions.create({mode:"payment",line_items:[{quantity:1,price_data:{currency:"usd",unit_amount:requiredPaymentCents,product_data:{name:"Required deposit for booking update"}}}],success_url:input.successUrl,cancel_url:input.cancelUrl,expires_at:Math.floor(input.expiresAt.getTime()/1000),metadata:{booking_id:input.bookingId,business_id:input.businessId,amendment_id:String(amendmentId),payment_kind:"booking_item_amendment"}},{stripeAccount:account.provider_account_id});
+ const session=await stripeClient().checkout.sessions.create({mode:"payment",line_items:[{quantity:1,price_data:{currency:"usd",unit_amount:requiredPaymentCents,product_data:{name:"Required deposit for booking update"}}}],success_url:input.successUrl,cancel_url:input.cancelUrl,expires_at:Math.floor(input.expiresAt.getTime()/1000),metadata:{booking_id:input.bookingId,business_id:input.businessId,amendment_id:String(amendmentId),payment_kind:"booking_item_amendment",...(input.stripeMetadata??{})}},{stripeAccount:account.provider_account_id,idempotencyKey:`booking-amendment:${amendmentId}`});
  const {error:sessionError}=await db.from("booking_amendments").update({stripe_checkout_session_id:session.id}).eq("id",amendmentId).eq("business_id",input.businessId);
  if(sessionError||!session.url)throw new Error("Checkout could not be started; the inventory hold will expire.");
- return {amendmentId,requiredPaymentCents,checkoutUrl:session.url};
+ return {amendmentId,requiredPaymentCents,checkoutUrl:session.url,checkoutSessionId:session.id};
 }
 
 /** Applies a paid staged amendment. Call only from the Stripe webhook/recovery worker. */
 export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentId:string;paymentReference:string|null;checkoutSessionId:string|null;amountPaidCents:number}){
  const {data:amendment,error:amendmentError}=await db.from("booking_amendments")
-  .select("id,business_id,booking_id,requested_items,idempotency_key,required_payment_cents,status,expires_at")
+  .select("id,business_id,booking_id,requested_items,idempotency_key,required_payment_cents,status,expires_at,pricing_snapshot")
   .eq("id",input.amendmentId).maybeSingle();
  if(amendmentError||!amendment)throw new Error("Staged booking amendment was not found.");
  if(amendment.status==="applied")return {applied:false,duplicate:true};
@@ -41,6 +42,13 @@ export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentI
   if(before?.balance_charge_scheduled_for){await db.from("bookings").update({balance_charge_scheduled_for:before.balance_charge_scheduled_for}).eq("id",amendment.booking_id).eq("business_id",amendment.business_id).gt("balance_due_cents",0);}
   const {error:completeError}=await db.from("booking_amendments").update({status:"applied",applied_at:new Date().toISOString(),failure_reason:null}).eq("id",amendment.id);
   if(completeError)throw completeError;
+  const smartOfferId=typeof amendment.pricing_snapshot?.smart_upsell_offer_id==="string"?amendment.pricing_snapshot.smart_upsell_offer_id:null;
+  if(smartOfferId){
+   const {error:offerError}=await db.rpc("transition_smart_upsell_offer",{p_offer_id:smartOfferId,p_business_id:amendment.business_id,p_next_status:"accepted",p_metadata:{amendment_id:amendment.id,checkout_session_id:input.checkoutSessionId,payment_reference:input.paymentReference}});
+   if(offerError)throw new Error(offerError.message||"Smart Upsell reconciliation could not be finalized.");
+   const {error:referenceError}=await db.from("smart_upsell_offers").update({stripe_checkout_session_id:input.checkoutSessionId,stripe_payment_intent_id:input.paymentReference}).eq("id",smartOfferId).eq("business_id",amendment.business_id);
+   if(referenceError)throw new Error("Smart Upsell payment reference could not be recorded.");
+  }
   return {applied:true,duplicate:false,result};
  }catch(error){
   await db.from("booking_amendments").update({status:"application_failed",failure_reason:error instanceof Error?error.message.slice(0,500):"application failed"}).eq("id",amendment.id);

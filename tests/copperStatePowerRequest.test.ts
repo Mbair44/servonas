@@ -12,6 +12,8 @@ test("Copper State Bounce review offers an optional power question without a pri
  assert.match(source,/not included in today&apos;s total/);
  assert.match(source,/name="powerNeed"/);
  assert.match(source,/businessSlug==="copper-state-bounce"/);
+ assert.match(source,/rental-event-notes[\s\S]*\{powerQuestion\}/);
+ assert.match(source,/selected\.length>0&&!showCheckout[\s\S]*\{powerQuestion\}/);
 });
 
 test("checkout saves only Copper State generator and follow-up requests as booking notes",()=>{

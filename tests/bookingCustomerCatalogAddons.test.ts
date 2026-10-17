@@ -50,3 +50,14 @@ test("job reconciliation links booking add-ons idempotently without changing boo
  assert.match(jobBuilder,/\.eq\("booking_id",booking\.id\)\.is\("job_id",null\)/);
  assert.doesNotMatch(jobBuilder,/job_addons[\s\S]{0,220}total_cents/);
 });
+
+const permissionMigration=readFileSync(new URL("../supabase/migrations/20261016000500_lock_down_customer_addon_rpc.sql",import.meta.url),"utf8");
+const checkoutRoute=readFileSync(new URL("../app/api/checkout/route.ts",import.meta.url),"utf8");
+const adminClient=readFileSync(new URL("../lib/supabaseAdmin.ts",import.meta.url),"utf8");
+test("customer add-on RPC is limited to the service-role checkout client",()=>{
+ assert.match(permissionMigration,/revoke all[\s\S]*from anon, authenticated/);
+ assert.match(permissionMigration,/grant execute[\s\S]*to service_role/);
+ assert.match(checkoutRoute,/const supabase = getSupabaseAdmin\(\)/);
+ assert.match(checkoutRoute,/supabase\.rpc\("create_public_booking_with_customer_addons"/);
+ assert.match(adminClient,/SUPABASE_SERVICE_ROLE_KEY/);
+});
