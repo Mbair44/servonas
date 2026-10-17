@@ -22,10 +22,10 @@ export async function GET(request:Request){
  let scheduledBalancesProcessed=0;
  if(scheduledError)console.error("Scheduled booking balance scan failed",{code:scheduledError.code});
  for(const booking of scheduledBookings??[]){
-  // A paid amendment is reconciling its own deposit and total. Let its hold expire or
-  // webhook reconciliation finish before an existing authorization can collect again.
-  const {data:activeAmendment}=await db.from("booking_amendments").select("id").eq("booking_id",booking.id).in("status",["pending_payment","payment_processing","applying"]).gt("expires_at",new Date().toISOString()).limit(1).maybeSingle();
-  if(activeAmendment)continue;
+  // Only a server-created Smart Upsell amendment defers the established balance workflow.
+  const {data:activeAmendment}=await db.from("booking_amendments").select("pricing_snapshot").eq("booking_id",booking.id).in("status",["pending_payment","payment_processing","applying"]).gt("expires_at",new Date().toISOString()).limit(10);
+  const activeSmartUpsell=(activeAmendment??[]).some(amendment=>typeof amendment.pricing_snapshot?.smart_upsell_offer_id==="string");
+  if(activeSmartUpsell)continue;
   const {data:job}=await db.from("jobs").select("status").eq("id",booking.job_id).maybeSingle();
   if(job?.status!=="completed")continue;
   const result=await processCompletedJobBilling(String(booking.job_id));

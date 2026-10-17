@@ -24,6 +24,6 @@ test("durable queue is tenant-scoped, unique per offer, and source uses central 
  assert.match(scheduler,/customer_sms_consents/);assert.match(scheduler,/sms_consent_status!=="express"/);assert.match(scheduler,/status===\"opted_out\"/);assert.match(scheduler,/sendTenantTwilioMessage/);assert.match(scheduler,/token_hash!==hashSmartUpsellToken/);
 });
 test("scheduler and cron remain feature-gated and dry run stays side-effect free",()=>{
- assert.match(cron,/smartUpsellAutomatedSmsEnabled/);assert.match(cron,/scheduleSmartUpsellOffers/);assert.match(scheduler,/if\(!smartUpsellAutomatedSmsEnabled\(\)\)/);
+ assert.match(cron,/smartUpsellAutomationReady/);assert.match(cron,/scheduleSmartUpsellOffers/);assert.match(scheduler,/if\(!smartUpsellAutomationReady\(\)\)/);
  const dry=fs.readFileSync("lib/smartUpsellCandidates.ts","utf8");assert.match(dry,/read-only candidate report/);assert.doesNotMatch(dry,/smart_upsell_sms_deliveries/);
 });

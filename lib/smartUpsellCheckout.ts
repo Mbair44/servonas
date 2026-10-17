@@ -6,6 +6,13 @@ export const smartUpsellCheckoutPreparationEnabled=()=>process.env.SMART_UPSELL_
 export function smartUpsellCheckoutUnavailable(){return "This special offer is not available for online checkout yet. Please contact the business for help.";}
 export function smartUpsellOfferCanBeginCheckout(offer:{status:SmartUpsellStatus;expires_at:string|Date;discounted_price_cents:number;additional_delivery_fee_cents:number;tax_cents:number;deposit_cents:number;remaining_balance_increment_cents:number},now=new Date()){if(!["pending","sent","viewed"].includes(offer.status))return false;if(new Date(offer.expires_at).getTime()<=now.getTime())return false;const total=Number(offer.discounted_price_cents)+Number(offer.additional_delivery_fee_cents)+Number(offer.tax_cents);return Number(offer.deposit_cents)+Number(offer.remaining_balance_increment_cents)===total;}
 export function assertSmartUpsellCheckoutGate(){if(!smartUpsellCheckoutPreparationEnabled())throw new Error(smartUpsellCheckoutUnavailable());}
+export function calculateSmartUpsellTaxCents(input:{discountedPriceCents:number;taxEnabled:boolean;taxCalculationMethod:string|null;taxDisplayMode:string|null;taxRateBasisPoints:number;customerTaxExempt:boolean;itemTaxable:boolean|null|undefined}){
+ if(input.taxCalculationMethod==="automatic")throw new Error("This offer requires address-aware tax reconciliation and cannot be checked out online.");
+ if(typeof input.itemTaxable!=="boolean")throw new Error("This rental is missing its tax classification.");
+ if(!input.taxEnabled||input.customerTaxExempt||!input.itemTaxable)return 0;
+ const rate=Math.max(0,Number(input.taxRateBasisPoints)||0),subtotal=Math.max(0,Number(input.discountedPriceCents)||0);
+ return input.taxDisplayMode==="inclusive"?Math.round(subtotal*rate/(10000+rate)):Math.round(subtotal*rate/10000);
+}
 
 /** Server-only: stage an existing amendment hold; booking lines commit only in the paid webhook. */
 export async function prepareSmartUpsellCheckout(db:AdminDb,input:{token:string;origin:string;now?:Date}){
@@ -14,16 +21,15 @@ export async function prepareSmartUpsellCheckout(db:AdminDb,input:{token:string;
  if(offerError||!offer||!smartUpsellTokenIsUsable(offer,now)||!smartUpsellOfferCanBeginCheckout(offer,now))throw new Error("This special offer is no longer available.");
  const [{data:booking},{data:item},{data:billing},{data:customer},{data:settings}]=await Promise.all([
   db.from("bookings").select("id,business_id,customer_id,status,rental_starts_at,rental_ends_at,subtotal_cents,discount_cents,discount_snapshot,tax_cents,delivery_fee_cents,total_cents,amount_paid_cents,balance_due_cents,balance_charge_scheduled_for,final_payment_authorized_at").eq("id",offer.booking_id).eq("business_id",offer.business_id).maybeSingle(),
-  db.from("inventory_items").select("id,business_id,active").eq("id",offer.inventory_item_id).eq("business_id",offer.business_id).maybeSingle(),
+  db.from("inventory_items").select("id,business_id,active,is_taxable").eq("id",offer.inventory_item_id).eq("business_id",offer.business_id).maybeSingle(),
   db.from("business_billing_settings").select("tax_enabled,tax_calculation_method,tax_display_mode,default_tax_rate_basis_points,default_invoice_item_taxable").eq("business_id",offer.business_id).maybeSingle(),
   db.from("customers").select("id,tax_exempt").eq("id",offer.customer_id).eq("business_id",offer.business_id).maybeSingle(),
   db.from("business_smart_upsell_settings").select("enabled").eq("business_id",offer.business_id).maybeSingle(),
  ]);
  if(!settings?.enabled||!booking||!item?.active||booking.customer_id!==offer.customer_id||booking.rental_starts_at!==offer.rental_starts_at||booking.rental_ends_at!==offer.rental_ends_at||!["paid","confirmed"].includes(booking.status)||new Date(booking.rental_starts_at)<=now)throw new Error("This special offer is no longer eligible.");
- if(!customer||billing?.tax_enabled&&billing.tax_calculation_method==="automatic")throw new Error("This offer requires address-aware tax reconciliation and cannot be checked out online.");
+ if(!customer)throw new Error("This offer is no longer eligible.");
  if(Number(offer.additional_delivery_fee_cents)!==0)throw new Error("Smart Upsells cannot add a delivery fee.");
- const taxable=Boolean(item.is_taxable??billing?.default_invoice_item_taxable??true),rate=taxable&&billing?.tax_enabled&&!customer.tax_exempt?Number(billing.default_tax_rate_basis_points??0):0;
- const expectedTax=billing?.tax_enabled&&rate>0?Math.round(Number(offer.discounted_price_cents)*rate/(billing.tax_display_mode==="inclusive"?10000+rate:10000)):0;
+ const expectedTax=calculateSmartUpsellTaxCents({discountedPriceCents:Number(offer.discounted_price_cents),taxEnabled:Boolean(billing?.tax_enabled),taxCalculationMethod:billing?.tax_calculation_method??null,taxDisplayMode:billing?.tax_display_mode??null,taxRateBasisPoints:Number(billing?.default_tax_rate_basis_points??0),customerTaxExempt:Boolean(customer.tax_exempt),itemTaxable:item.is_taxable});
  if(!Number.isSafeInteger(expectedTax)||expectedTax!==Number(offer.tax_cents))throw new Error("This offer's tax snapshot is no longer valid.");
  if(!booking.final_payment_authorized_at||!booking.balance_charge_scheduled_for||new Date(booking.balance_charge_scheduled_for)<=now)throw new Error("This booking's scheduled balance can no longer be safely adjusted online.");
  const addedSubtotal=Number(offer.discounted_price_cents)+Number(offer.additional_delivery_fee_cents),addedTax=Number(offer.tax_cents);
