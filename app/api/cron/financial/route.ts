@@ -18,10 +18,14 @@ export async function GET(request:Request){
   if(updateError){console.error("Overdue invoice update failed",{code:updateError.code,invoiceId:invoice.id});continue;}
   if(updated){await db.from("invoice_events").insert({business_id:invoice.business_id,invoice_id:invoice.id,event_type:"overdue"});await sendInvoiceFinancialEmail(invoice.id,"invoice_overdue");processed++;}
  }
- const {data:scheduledBookings,error:scheduledError}=await db.from("bookings").select("job_id").not("job_id","is",null).not("final_payment_authorized_at","is",null).lte("balance_charge_scheduled_for",new Date().toISOString()).gt("balance_due_cents",0).in("status",["paid","confirmed","completed"]).limit(100);
+ const {data:scheduledBookings,error:scheduledError}=await db.from("bookings").select("id,job_id").not("job_id","is",null).not("final_payment_authorized_at","is",null).lte("balance_charge_scheduled_for",new Date().toISOString()).gt("balance_due_cents",0).in("status",["paid","confirmed","completed"]).limit(100);
  let scheduledBalancesProcessed=0;
  if(scheduledError)console.error("Scheduled booking balance scan failed",{code:scheduledError.code});
  for(const booking of scheduledBookings??[]){
+  // A paid amendment is reconciling its own deposit and total. Let its hold expire or
+  // webhook reconciliation finish before an existing authorization can collect again.
+  const {data:activeAmendment}=await db.from("booking_amendments").select("id").eq("booking_id",booking.id).in("status",["pending_payment","payment_processing","applying"]).gt("expires_at",new Date().toISOString()).limit(1).maybeSingle();
+  if(activeAmendment)continue;
   const {data:job}=await db.from("jobs").select("status").eq("id",booking.job_id).maybeSingle();
   if(job?.status!=="completed")continue;
   const result=await processCompletedJobBilling(String(booking.job_id));
