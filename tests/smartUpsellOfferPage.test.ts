@@ -30,5 +30,5 @@ test("public routes use token-only validation and domain ownership checks",()=>{
 test("customer page displays discounted total, deposit, balance, and a disabled-state explanation",()=>{
  const page=read("components/SmartUpsellOfferPage.tsx"),styles=read("components/SmartUpsellOfferPage.module.css"),route=read("app/api/smart-upsells/[token]/checkout/route.ts");
  assert.match(page,/Regular price/);assert.match(page,/Your exclusive price/);assert.match(page,/Pay today/);assert.match(page,/Added to your remaining balance/);assert.match(page,/smartUpsellCheckoutPreparationEnabled/);assert.match(styles,/@media\(max-width:480px\)/);
- assert.match(route,/smartUpsellCheckoutPreparationEnabled\(\)/);assert.doesNotMatch(route,/stripeClient|stageBookingItemAmendment|\.rpc\(/);
+ assert.match(route,/prepareSmartUpsellCheckout/);assert.doesNotMatch(route,/stripeClient|stageBookingItemAmendment|\.rpc\(/);
 });

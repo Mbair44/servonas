@@ -32,7 +32,7 @@ test("checkout prepares only internally consistent live offers",()=>{
  assert.equal(smartUpsellOfferCanBeginCheckout({...base,status:"accepted"}),false);
 });
 test("server route keeps gate before staging and uses existing amendment infrastructure",()=>{
- assert.match(route,/smartUpsellCheckoutPreparationEnabled\(\)/);assert.match(route,/prepareSmartUpsellCheckout/);
+ assert.match(route,/prepareSmartUpsellCheckout/);assert.match(checkout,/assertSmartUpsellCheckoutGate\(offer\)/);
  assert.match(checkout,/stageBookingItemAmendment/);assert.match(checkout,/calculateSmartUpsellTaxCents/);assert.match(checkout,/taxCalculationMethod==="automatic"/);
  assert.match(checkout,/balance_charge_scheduled_for/);assert.match(checkout,/idempotencyKey:`smart-upsell:\$\{offer\.id\}`/);
  assert.match(cron,/booking_amendments/);assert.match(cron,/payment_processing/);
