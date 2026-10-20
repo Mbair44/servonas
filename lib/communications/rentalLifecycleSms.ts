@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendTenantTwilioMessage } from "@/lib/twilio/messageUsage";
+import {claimGoogleReviewRequestEligibility} from "@/lib/googleReviewEligibility";
 
 type LifecycleType = "reminder" | "technician_en_route" | "review_request" | "payment_receipt";
 type First<T> = T | T[] | null;
@@ -25,7 +26,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   if (error || !data) return { ok: true, skipped: true, reason: "payment_not_succeeded" };
   payment = data; jobId = jobId ?? data.job_id;
  }
- let bookingQuery = db.from("bookings").select("id,business_id,job_id,status,sms_consent,booking_number,customers(phone_normalized,sms_consent_status),businesses(name),booking_items(rental_date,inventory_items(name))");
+ let bookingQuery = db.from("bookings").select("id,business_id,customer_id,job_id,status,sms_consent,booking_number,customers(phone_normalized,sms_consent_status),businesses(name),booking_items(rental_date,inventory_items(name))");
  bookingQuery = input.bookingId ? bookingQuery.eq("id", input.bookingId) : bookingQuery.eq("job_id", jobId ?? "");
  const { data: booking, error: bookingError } = await bookingQuery.maybeSingle();
  if (bookingError || !booking || !booking.job_id || !["paid", "confirmed", "completed"].includes(booking.status)) return { ok: true, skipped: true, reason: "rental_booking_not_confirmed" };
@@ -44,20 +45,43 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   balanceDueCents = Number(invoice?.balance_due_cents ?? 0);
  }
  const eventKey = input.type === "payment_receipt" ? `payment:${payment?.id ?? "missing"}` : `booking:${booking.id}`;
- const event = await db.from("job_communication_events").insert({ job_id: booking.job_id, channel: "sms", template_key: input.type, event_key: eventKey, recipient_phone: customer.phone_normalized, status: "queued" }).select("id").single();
+ const event=input.type==="review_request"
+  ?await db.rpc("claim_review_request_event",{p_job_id:booking.job_id,p_phone:customer.phone_normalized,p_event_key:eventKey}).maybeSingle()
+  :await db.from("job_communication_events").insert({ job_id: booking.job_id, channel: "sms", template_key: input.type, event_key: eventKey, recipient_phone: customer.phone_normalized, status: "queued" }).select("id").single();
  if (event.error?.code === "23505") return { ok: true, duplicate: true };
  if (event.error || !event.data) return { ok: false, error: "SMS event could not be claimed." };
+ const claimedEvent=event.data as {id?:string;event_id?:string;claimed?:boolean};
+ const eventId=claimedEvent.id??claimedEvent.event_id;
+ if(!eventId)return {ok:false,error:"SMS event could not be claimed."};
+ if(input.type==="review_request"&&claimedEvent.claimed!==true)return {ok:true,duplicate:true};
  try {
+  // This occurs after the durable/idempotent event claim and directly before
+  // Twilio. It intentionally re-reads canonical review state on every retry.
+  if(input.type==="review_request"){
+   if(!booking.customer_id){
+    await db.from("job_communication_events").update({status:"suppressed",suppression_reason:"customer_not_found",error_message:"Skipped: customer not found.",processing_started_at:null}).eq("id",eventId);
+    return {ok:true,skipped:true,reason:"customer_not_found"};
+   }
+   const eligibility=await claimGoogleReviewRequestEligibility({eventId,businessId:booking.business_id,customerId:booking.customer_id});
+   if(!eligibility.eligible){
+    const reason=eligibility.reason??"review_request_ineligible";
+    // The RPC marks known permanent reasons; retain an auditable result even if
+    // the database/schema is temporarily unavailable.
+    await db.from("job_communication_events").update({status:"suppressed",suppression_reason:reason,error_message:`Skipped: ${reason.replaceAll("_"," ")}.`,processing_started_at:null}).eq("id",eventId).eq("status","queued");
+    await db.from("bookings").update({review_sms_suppressed_at:new Date().toISOString()}).eq("id",booking.id);
+    return {ok:true,skipped:true,reason};
+   }
+  }
   const rentalDate = first(booking.booking_items)?.rental_date ?? null;
   const rentalItemNames = (booking.booking_items ?? []).flatMap(row => { const name = first(row.inventory_items)?.name?.trim(); return name ? [name] : []; });
   const body = rentalLifecycleSmsBody(input.type, business?.name ?? "Your rental business", rentalItemNames, rentalDate, payment ? { amountCents: Number(payment.amount_cents), balanceDueCents, reviewUrl } : input.type === "review_request" ? { amountCents: 0, balanceDueCents: 0, reviewUrl } : undefined);
-  const sent = await sendTenantTwilioMessage({ businessId: booking.business_id, to: customer.phone_normalized, body, sourceType: `rental_${input.type}`, sourceId: event.data.id });
-  await db.from("job_communication_events").update({ status: "sent", provider_message_id: sent.sid, sent_at: new Date().toISOString(), error_message: null }).eq("id", event.data.id);
+  const sent = await sendTenantTwilioMessage({ businessId: booking.business_id, to: customer.phone_normalized, body, sourceType: `rental_${input.type}`, sourceId: eventId });
+  await db.from("job_communication_events").update({ status: "sent", provider_message_id: sent.sid, sent_at: new Date().toISOString(), error_message: null,processing_started_at:null }).eq("id", eventId);
   if (input.type === "reminder" || input.type === "review_request") await db.from("bookings").update({ [input.type === "reminder" ? "reminder_sms_sent_at" : "review_sms_sent_at"]: new Date().toISOString() }).eq("id", booking.id);
   return { ok: true, sid: sent.sid };
  } catch (error) {
   const message = error instanceof Error ? error.message : "SMS send failed.";
-  await db.from("job_communication_events").update({ status: "failed", error_message: message.slice(0, 1000) }).eq("id", event.data.id);
+  await db.from("job_communication_events").update({ status: "failed", error_message: message.slice(0, 1000),processing_started_at:null }).eq("id", eventId);
   console.error("Rental lifecycle SMS failed", { bookingId: booking.id, businessId: booking.business_id, type: input.type });
   return { ok: false, error: message };
  }
