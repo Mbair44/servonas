@@ -1,14 +1,14 @@
 import {getSupabaseAdmin} from "./supabaseAdmin";
 import {fetchGoogleAdsDailyCampaignMetrics,loadTenantGoogleAdsAccess} from "./googleAdsManagement";
+import {adSpendSyncRange} from "./adSpendSyncRange";
 
-const day=(date:Date)=>date.toISOString().slice(0,10);
-export async function syncGoogleAdsSpend(input:{businessId:string;forceFull?:boolean}){
+export async function syncGoogleAdsSpend(input:{businessId:string;forceFull?:boolean;dateFrom?:string;dateThrough?:string}){
  const db=getSupabaseAdmin();if(!db)throw new Error("Google Ads spend sync is unavailable.");
  const {data:connection,error}=await db.from("business_google_ads_connections").select("google_ads_customer_id,login_customer_id,last_spend_sync_at,status").eq("business_id",input.businessId).maybeSingle();
  if(error)throw new Error("Google Ads connection could not be loaded.");
  if(!connection?.google_ads_customer_id||connection.status==="disconnected")throw new Error("Google Ads is not connected to a selected customer account.");
  const access=await loadTenantGoogleAdsAccess(input.businessId);if(!access?.customerId)throw new Error("Google Ads customer access is unavailable.");
- const now=new Date(),days=input.forceFull||!connection.last_spend_sync_at?30:7,from=day(new Date(now.getTime()-days*86400000)),to=day(now);
+ const now=new Date(),days=input.forceFull||!connection.last_spend_sync_at?30:7,{from,to}=adSpendSyncRange({dateFrom:input.dateFrom,dateThrough:input.dateThrough,fallbackDays:days,today:now});
  await db.from("business_google_ads_connections").update({last_spend_sync_attempt_at:now.toISOString(),last_spend_sync_error:null}).eq("business_id",input.businessId);
  try{
   const rows=await fetchGoogleAdsDailyCampaignMetrics({accessToken:access.accessToken,customerId:access.customerId,loginCustomerId:access.loginCustomerId,dateFrom:from,dateTo:to,businessId:input.businessId});
