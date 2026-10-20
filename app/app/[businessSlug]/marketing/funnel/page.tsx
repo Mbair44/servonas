@@ -291,6 +291,12 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.rpc("offline_qr_campaign_report", {p_business_id:business.id,p_from:window.from,p_to:window.to}),
   ]);
   const offlineQrRows = (offlineQrResponse.data ?? []) as Array<{campaign:string;visits:number;booking_page_visits:number;checkout_starts:number;completed_bookings:number;converted_sessions:number;booked_revenue_cents:number;cost_cents:number|null}>;
+  // Payment-period reporting must include bookings created before this window.
+  // Keep the creation-period query above unchanged for Bookings Created.
+  const [paidBookingsResponse, previousPaidBookingsResponse] = await Promise.all([
+    supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,paid_at,created_at,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status)").eq("business_id", business.id).gt("amount_paid_cents", 0).gte("paid_at", window.from).lt("paid_at", window.to),
+    supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,paid_at,created_at,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status)").eq("business_id", business.id).gt("amount_paid_cents", 0).gte("paid_at", previousWindowFrom).lt("paid_at", window.from),
+  ]);
   const metaPerformanceRows = metaResourceResult.rows;
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
@@ -336,8 +342,17 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       (!campaign || (snapshot.utm_campaign ?? "").trim() === campaign) &&
       (device === "all" || session?.device_type === device);
   });
+  const allAttributedPaidBookings = ((paidBookingsResponse.data ?? []) as Array<{ id: string; status: string | null; total_cents: number | null; amount_paid_cents?:number|null; paid_at?:string|null; created_at?:string|null; booking_attribution_snapshots?: unknown }>).map((row) => ({
+    booking_id: row.id,status: row.status,total_cents: row.total_cents,amount_paid_cents: row.amount_paid_cents??0,paid_at:row.paid_at??null,created_at:row.created_at??null,
+    booking_attribution_snapshots: modelSnapshot(Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,attributionModel) as AttributedBookingRow["booking_attribution_snapshots"],
+  }));
+  const attributedPaidBookings=allAttributedPaidBookings.filter((row) => {
+    const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
+    const session=snapshot?.attribution_session_id?sessionById.get(snapshot.attribution_session_id):null;
+    return Boolean(snapshot)&&(source==="all"||normalizeMarketingSource(snapshot,metaPerformanceRows)===source)&&(!campaign||(snapshot?.utm_campaign??"").trim()===campaign)&&(device==="all"||session?.device_type===device);
+  });
   const report = attachSessionMetricsToSourceReport(
-    buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>, metaPerformanceRows),
+    buildSourcePerformanceReport([...events, ...sessionVisitRows], attributedBookings, source === "all" ? spendBySource : Object.fromEntries(marketingSources.map((key) => [key, key === source ? spendBySource[key] ?? null : null])) as Partial<Record<MarketingSource, number | null>>, metaPerformanceRows, attributedPaidBookings),
     sessions, metaPerformanceRows,
   );
   const gbpActionRows=buildGoogleBusinessProfileActionPerformanceReport([...events,...sessionVisitRows],attributedBookings);
@@ -350,7 +365,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const campaignPerformance = buildCampaignPerformanceReport({
     sessions,
     events: [...events, ...sessionVisitRows],
-    bookings: attributedBookings,
+    bookings: attributedBookings, paidBookings: attributedPaidBookings,
     metaPerformanceRows,
     googleCampaignRows: ((googleCampaignsResponse.data ?? []) as Array<{ google_campaign_id: string | number | null; campaign_name: string | null }>),
   });
@@ -392,19 +407,24 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     total_cents: row.total_cents,
     booking_attribution_snapshots: modelSnapshot(Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,attributionModel) as AttributedBookingRow["booking_attribution_snapshots"],
   })).filter((row) => {const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;return snapshot&&(source === "all" || normalizeMarketingSource(snapshot,metaPerformanceRows) === source)&&(!campaign||(snapshot.utm_campaign??"").trim()===campaign);});
-  const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {}, metaPerformanceRows);
+  const previousAttributedPaidBookings=((previousPaidBookingsResponse.data??[]) as any[]).map((row)=>({booking_id:row.id,status:row.status,total_cents:row.total_cents,amount_paid_cents:row.amount_paid_cents??0,paid_at:row.paid_at??null,created_at:row.created_at??null,booking_attribution_snapshots:modelSnapshot(Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,attributionModel) as AttributedBookingRow["booking_attribution_snapshots"]})).filter((row)=>{const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;return snapshot&&(source==="all"||normalizeMarketingSource(snapshot,metaPerformanceRows)===source)&&(!campaign||(snapshot.utm_campaign??"").trim()===campaign);});
+  const previousReport = buildSourcePerformanceReport(previousEvents, previousAttributedBookings, {}, metaPerformanceRows, previousAttributedPaidBookings);
   const previousTotals = buildPreviousPeriodReport(previousReport.summaries);
-  const totalBookings = report.summaries.reduce((sum, row) => sum + (row.detailedCounts.booking_completed ?? 0), 0);
-  const collectedRevenueCents=attributedBookings.reduce((sum,row)=>sum+Math.max(0,Number((row as any).amount_paid_cents??0)),0);
+  const totalBookingsCreated = report.summaries.reduce((sum, row) => sum + row.bookingsCreated, 0);
+  const totalPaidBookings = report.summaries.reduce((sum, row) => sum + row.paidBookings, 0);
+  // Legacy nested reporting labels still use this compatibility alias. The
+  // primary dashboard cards and source data expose both cohorts explicitly.
+  const totalBookings = totalPaidBookings;
+  const collectedRevenueCents=attributedPaidBookings.reduce((sum,row)=>sum+Math.max(0,Number(row.amount_paid_cents??0)),0);
   const attributionJourneys=((bookingsResponse.data??[]) as any[]).map(row=>{const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,first=touchForAttributionModel(snapshot,"first_touch"),last=touchForAttributionModel(snapshot,"last_touch"),selected=touchForAttributionModel(snapshot,attributionModel),elapsed=first?.occurred_at&&row.created_at?Math.max(0,Date.parse(row.created_at)-Date.parse(first.occurred_at)):null;return {id:row.id,status:snapshot?.attribution_status??"unknown",first,last,selected,elapsed};}).filter(row=>row.selected).slice(0,25);
-  const trafficSourceRows = report.summaries.map((row) => ({ key: row.source, label: labelForSource(row.source), campaignSource: row.source, visits: row.visits, itemViews: row.engaged, bookingStarts: row.detailedCounts.booking_start ?? 0, bookings: row.detailedCounts.booking_completed ?? 0, revenueCents: row.revenueCents }));
+  const trafficSourceRows = report.summaries.map((row) => ({ key: row.source, label: labelForSource(row.source), campaignSource: row.source, visits: row.visits, itemViews: row.engaged, bookingStarts: row.detailedCounts.booking_start ?? 0, bookingsCreated: row.bookingsCreated, paidBookings: row.paidBookings, bookings:row.paidBookings, revenueCents: row.revenueCents }));
   const adPlatformStatuses = await loadAdPlatformStatuses(supabase, business.id, window.from, window.to, spendBySource.google_ads ?? null);
-  const paidTotal=totalPaidEconomics(buildSourcePerformanceReport([],allAttributedBookings,{},metaPerformanceRows).summaries,adPlatformStatuses);
+  const paidTotal=totalPaidEconomics(buildSourcePerformanceReport([],allAttributedBookings,{},metaPerformanceRows,allAttributedPaidBookings).summaries,adPlatformStatuses);
   const roasCard = buildRoasCardModel({ statuses: adPlatformStatuses, attributedRevenueCents: paidTotal.revenueCents, roas: paidTotal.roas });
   // Keep paid platforms visible even when spend has no associated onsite activity.
   for(const [key,label] of [["google_ads","Google Ads"],["meta_ads","Meta Ads"]] as const){
     const visible=source==="all"||source===key;
-    if(visible&&!trafficSourceRows.some(row=>row.key===key))trafficSourceRows.push({key,label,campaignSource:key,visits:0,itemViews:0,bookingStarts:0,bookings:0,revenueCents:0});
+    if(visible&&!trafficSourceRows.some(row=>row.key===key))trafficSourceRows.push({key,label,campaignSource:key,visits:0,itemViews:0,bookingStarts:0,bookingsCreated:0,paidBookings:0,bookings:0,revenueCents:0});
   }
   const aggregatedStepCounts = new Map<string, number>();
   for (const summary of report.summaries) {
@@ -471,7 +491,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         bookingStarts: aggregatedStepCounts.get("booking_start") ?? 0,
         checkoutStarts: aggregatedStepCounts.get("checkout_started") ?? 0,
         leads: aggregatedStepCounts.get("lead_submitted") ?? 0,
-        bookings: totalBookings,
+        bookings: totalPaidBookings,
         revenueCents: report.totals.revenueCents,
         periodLabel: sourceLabel(source).toLowerCase() === "all traffic" ? "this reporting window" : `this reporting window from ${sourceLabel(source)}`,
         previousVisits: previousTotals.visits,
@@ -539,7 +559,8 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <article className="workspace-panel"><span>Visits</span><strong>{report.totals.visits}</strong><small>Attributed session visits</small></article>
       <article className="workspace-panel"><span>Engaged visitors</span><strong>{report.totals.engaged}</strong><small>Viewed an offering or entered booking</small></article>
       <article className="workspace-panel"><span>Booking interest</span><strong>{aggregatedStepCounts.get("booking_start") ?? 0}</strong><small>Sessions that clicked a rental, checked availability, or opened a reservation</small></article>
-      <article className="workspace-panel"><span>Bookings</span><strong>{totalBookings}</strong><small>Completed bookings during this period</small></article>
+      <article className="workspace-panel"><span>Bookings Created</span><strong>{totalBookingsCreated}</strong><small>Distinct bookings created during this period, all statuses</small></article>
+      <article className="workspace-panel"><span>Paid Bookings</span><strong>{totalPaidBookings}</strong><small>Distinct valid bookings with a positive recorded payment during this period</small></article>
       <article className="workspace-panel"><span>Revenue</span><strong>{money(report.totals.revenueCents)}</strong><small>Attributed booking value</small></article>
       <article className="workspace-panel"><span>Collected revenue</span><strong>{money(collectedRevenueCents)}</strong><small>Payments recorded on these attributed bookings</small></article>
       <article className="workspace-panel"><span>Ad spend / ROAS</span><strong>{roasCard.headline}</strong><small>{roasCard.detail}</small></article>
