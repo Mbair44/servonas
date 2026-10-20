@@ -266,6 +266,45 @@ export async function getGoogleBusinessProfileReviews(businessId:string):Promise
  try{const accessToken=await refreshAccessToken(connection.refresh_token),result=await googleRequest<{averageRating?:number;totalReviewCount?:number;reviews?:{reviewId?:string;reviewer?:{displayName?:string;profilePhotoUrl?:string};starRating?:string;comment?:string;createTime?:string;reviewReply?:{comment?:string;updateTime?:string}}[]}>({url:`https://mybusiness.googleapis.com/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews?pageSize=50&orderBy=updateTime%20desc`,accessToken,service:"mybusiness.googleapis.com",endpoint:`/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews`,context:{googleBusinessOperationId:`gbr-${businessId}`,stage:"review_sync",businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,retryAttempt:0,requestCounter:{current:0}}});return {rating:Number(result.averageRating||0),reviewCount:Number(result.totalReviewCount||0),reviews:(result.reviews??[]).map(review=>({reviewId:review.reviewId||"",author:review.reviewer?.displayName||"Google user",authorUri:null,rating:stars[review.starRating||""]||0,text:review.comment||"",publishedAt:review.createTime||null,reply:review.reviewReply?.comment||null,replyUpdatedAt:review.reviewReply?.updateTime||null})).filter(review=>review.rating>0&&review.text&&review.reviewId)};}catch(error){console.error("Google Business Profile review sync failed",{businessId,message:error instanceof Error?error.message:"unknown"});return null;}
 }
 
+const reviewName=(value:string)=>value.toLocaleLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+
+/** Syncs the authoritative Google review feed. Suggestions are intentionally
+ * non-suppressing: a staff member must confirm them in the dashboard. */
+export async function syncGoogleBusinessReviews(businessId:string){
+ const db=getSupabaseAdmin();if(!db)throw new Error("Supabase is unavailable.");
+ const {data:connection}=await db.from("business_google_profile_connections").select("refresh_token,google_account_id,google_location_id,status").eq("business_id",businessId).maybeSingle();
+ if(!connection?.refresh_token||connection.status!=="connected"||!connection.google_account_id||!connection.google_location_id)throw new Error("Google Business Profile is not connected or needs reauthorization.");
+ const {data:location,error:locationError}=await db.from("business_google_locations").upsert({business_id:businessId,google_account_id:connection.google_account_id,google_location_id:connection.google_location_id,is_active:true},{onConflict:"business_id,google_location_id"}).select("id").single();
+ if(locationError||!location)throw new Error("Google review location storage is unavailable.");
+ const {data:run}=await db.from("google_review_sync_runs").insert({business_id:businessId,google_location_id:location.id,status:"started"}).select("id").single();
+ const startedAt=new Date().toISOString(); let seen=0;
+ try{
+  const accessToken=await refreshAccessToken(connection.refresh_token,{googleBusinessOperationId:`review-sync-${businessId}`,stage:"review_sync",businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,requestCounter:{current:0}});
+  let pageToken="";
+  do {
+   const query=new URLSearchParams({pageSize:"50",orderBy:"updateTime desc"});if(pageToken)query.set("pageToken",pageToken);
+   const endpoint=`/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews`;
+   const page=await googleRequest<{reviews?:{reviewId?:string;reviewer?:{displayName?:string;profilePhotoUrl?:string};starRating?:string;comment?:string;createTime?:string;updateTime?:string;reviewReply?:{comment?:string;updateTime?:string};reviewUrl?:string}[];nextPageToken?:string}>({url:`https://mybusiness.googleapis.com${endpoint}?${query}`,accessToken,service:"mybusiness.googleapis.com",endpoint,context:{googleBusinessOperationId:`review-sync-${businessId}`,stage:"review_sync",businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,requestCounter:{current:0}}});
+   for(const review of page.reviews??[]){
+    if(!review.reviewId)continue; seen++;
+    const {data:stored,error}=await db.from("google_reviews").upsert({business_id:businessId,google_location_id:location.id,google_review_id:review.reviewId,reviewer_display_name:review.reviewer?.displayName??"Google user",reviewer_profile_photo_url:review.reviewer?.profilePhotoUrl??null,star_rating:stars[review.starRating??""]??null,review_text:review.comment??"",review_created_at:review.createTime??null,review_updated_at:review.updateTime??review.createTime??null,reply_text:review.reviewReply?.comment??null,reply_updated_at:review.reviewReply?.updateTime??null,google_review_url:review.reviewUrl??null,is_available:true,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:"google_location_id,google_review_id"}).select("id,reviewer_display_name,review_created_at").single();
+    if(error||!stored)throw new Error("Google review storage failed.");
+    const {data:customers}=await db.from("customers").select("id,first_name,last_name").eq("business_id",businessId).eq("is_deleted",false);
+    const name=reviewName(stored.reviewer_display_name??"");
+    for(const customer of customers??[]){const customerName=reviewName(`${customer.first_name??""} ${customer.last_name??""}`);if(name&&customerName===name)await db.from("google_review_customer_matches").upsert({business_id:businessId,review_id:stored.id,customer_id:customer.id,status:"suggested",confidence:.70,match_reason:{strategy:"exact_normalized_name",review_created_at:stored.review_created_at}},{onConflict:"review_id,customer_id",ignoreDuplicates:true});}
+   }
+   pageToken=page.nextPageToken??"";
+  } while(pageToken);
+  await db.from("google_reviews").update({is_available:false,updated_at:new Date().toISOString()}).eq("business_id",businessId).eq("google_location_id",location.id).lt("last_seen_at",startedAt);
+  await db.from("google_review_sync_runs").update({status:"succeeded",completed_at:new Date().toISOString(),records_seen:seen}).eq("id",run?.id??"");
+  return {ok:true,recordsSeen:seen};
+ }catch(error){
+  const api=error instanceof GoogleBusinessApiError?error:null,permission=api?.httpStatus===401||api?.httpStatus===403;
+  await db.from("google_review_sync_runs").update({status:permission?"permissions_error":"failed",completed_at:new Date().toISOString(),records_seen:seen,error_code:api?.googleStatus??null,error_message:(error instanceof Error?error.message:"Review sync failed.").slice(0,1000)}).eq("id",run?.id??"");
+  throw error;
+ }
+}
+
 export async function postGoogleBusinessProfileReviewReply(input:{businessId:string;reviewId:string;reply:string}){
  const db=getSupabaseAdmin();if(!db)throw new Error("Google Business Profile is unavailable.");
  const {data:connection}=await db.from("business_google_profile_connections").select("refresh_token,google_account_id,google_location_id,status").eq("business_id",input.businessId).maybeSingle();

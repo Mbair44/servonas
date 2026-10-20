@@ -15,12 +15,15 @@ export async function GET(request: Request) {
   if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const supabase = getSupabaseAdmin(); if (!supabase) return NextResponse.json({ error: "Supabase unavailable" }, { status: 503 });
   const tomorrow = phoenixDate(1), yesterday = phoenixDate(-1);
-  const [reminders, reviews] = await Promise.all([
+  const [reminders, reviews, pendingReviewEvents] = await Promise.all([
     supabase.from("bookings").select("id,booking_items!inner(rental_date)").in("status", ["paid","confirmed"]).is("reminder_sms_sent_at", null).eq("booking_items.rental_date", tomorrow),
     supabase.from("bookings").select("id,booking_items!inner(rental_date)").in("status", ["paid","confirmed","completed"]).is("review_sms_sent_at", null).eq("booking_items.rental_date", yesterday),
+    supabase.from("job_communication_events").select("job_id").eq("channel","sms").eq("template_key","review_request").in("status",["queued","failed"]),
   ]);
   const reminderIds = [...new Set((reminders.data ?? []).map((b) => b.id))];
-  const reviewIds = [...new Set((reviews.data ?? []).map((b) => b.id))];
+  const pendingJobIds=[...new Set((pendingReviewEvents.data??[]).map(event=>event.job_id))];
+  const {data:pendingBookings}=pendingJobIds.length?await supabase.from("bookings").select("id").in("job_id",pendingJobIds).in("status",["paid","confirmed","completed"]).is("review_sms_sent_at",null):{data:[]};
+  const reviewIds = [...new Set([...(reviews.data ?? []).map((b) => b.id),...(pendingBookings??[]).map(booking=>booking.id)])];
   const [reminderResults,reviewResults,fleetRegistration]=await Promise.all([
     Promise.all(reminderIds.map((bookingId) => sendRentalLifecycleSms({ bookingId, type: "reminder" }))),
     Promise.all(reviewIds.map((bookingId) => sendRentalLifecycleSms({ bookingId, type: "review_request" }))),
