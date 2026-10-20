@@ -23,7 +23,7 @@ type MetaTokenDebugResponse = {
     user_id?: string;
   };
 };
-type MetaSelectedAccountResponse = { id?: string; account_id?: string; name?: string; account_status?: number | string };
+type MetaSelectedAccountResponse = { id?: string; account_id?: string; name?: string; account_status?: number | string; currency?: string };
 
 export type MetaAdsAccount = {
   id: string;
@@ -415,7 +415,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
       businessSlug: input.businessSlug,
       adAccountId: connection.external_account_id,
     });
-    const selectedAccount = await metaFetch<MetaSelectedAccountResponse>(`/${accountId}?fields=id,account_id,name,account_status`, {
+    const selectedAccount = await metaFetch<MetaSelectedAccountResponse>(`/${accountId}?fields=id,account_id,name,account_status,currency`, {
       accessToken,
       stage: "meta_ads_selected_account_access_check",
       businessId: input.businessId,
@@ -484,7 +484,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
         ad_name: row.ad_name == null ? null : String(row.ad_name),
         ad_status: null,
         spend_amount: Number(row.spend ?? 0),
-        currency: "USD",
+        currency: String(selectedAccount.currency ?? "").toUpperCase(),
         impressions: Number(row.impressions ?? 0),
         reach: Number(row.reach ?? 0),
         clicks: Number(row.clicks ?? 0),
@@ -514,6 +514,9 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
       next = response.paging?.next ?? null;
     }
 
+    const syncedAt=new Date().toISOString(),coverage=[] as {business_id:string;provider:"meta";report_date:string;currency:string;synced_at:string}[];
+    for(let cursor=since;cursor<=until;){coverage.push({business_id:input.businessId,provider:"meta",report_date:cursor,currency:String(selectedAccount.currency??"").toUpperCase(),synced_at:syncedAt});const next=new Date(`${cursor}T12:00:00Z`);next.setUTCDate(next.getUTCDate()+1);cursor=next.toISOString().slice(0,10);}
+    const {error:coverageError}=await admin.from("business_ad_platform_spend_coverage").upsert(coverage,{onConflict:"business_id,provider,report_date"});if(coverageError)throw new MetaAdsSyncError("database_error","Meta spend coverage could not be saved.",500,"spend_coverage",{databaseCode:coverageError.code});
     const { count, error: countError } = await admin
       .from("business_ad_platform_daily_performance")
       .select("*", { count: "exact", head: true })
