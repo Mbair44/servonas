@@ -26,8 +26,10 @@ test("navigation uses grouped labels without changing routes",()=>{
  ]);
  assert.deepEqual(marketing.children?.map(item=>[item.label,item.href]),[
   ["Funnel","/app/acme/marketing/funnel"],
+  ["Traffic Timing","/app/acme/marketing/traffic-timing"],
   ["Discounts","/app/acme/marketing/discounts"],
   ["Promotions","/app/acme/marketing/promotions"],
+  ["Giveaways","/app/acme/marketing/giveaways"],
   ["Google Ads","/app/acme/marketing/google-ads"],
   ["Meta Ads","/app/acme/marketing/meta-ads"],
   ["Local SEO","/app/acme/marketing/seo"],
