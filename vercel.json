@@ -4,6 +4,7 @@
     { "path": "/api/cron/messages", "schedule": "0 16 * * *" },
     { "path": "/api/cron/financial", "schedule": "15 16 * * *" },
     { "path": "/api/cron/google-ads-spend", "schedule": "30 16 * * *" },
+    { "path": "/api/cron/meta-ads-spend", "schedule": "45 16 * * *" },
     { "path": "/api/cron/google-reviews", "schedule": "15 17 * * *" }
   ]
 }
