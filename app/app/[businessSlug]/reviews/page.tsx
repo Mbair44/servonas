@@ -6,7 +6,7 @@ import {decideGoogleReviewMatch} from "./actions";
 
 export default async function ReviewsPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{status?:string}>}){
  const {businessSlug}=await params,{status}=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
- let query=supabase.from("google_reviews").select("id,reviewer_display_name,star_rating,review_text,review_created_at,google_review_url,business_google_locations(location_title),google_review_customer_matches(id,status,customer_id,customers(first_name,last_name))").eq("business_id",business.id).order("review_created_at",{ascending:false}).limit(200);
+ const query=supabase.from("google_reviews").select("id,reviewer_display_name,star_rating,review_text,review_created_at,google_review_url,business_google_locations(location_title),google_review_customer_matches(id,status,customer_id,customers(first_name,last_name))").eq("business_id",business.id).order("review_created_at",{ascending:false}).limit(200);
  const {data:reviews,error}=await query;if(error)console.error("Could not load Google reviews",{businessId:business.id,code:error.code});
  const filtered=(reviews??[]).filter((review:any)=>{
   if(!status||status==="all")return true;
