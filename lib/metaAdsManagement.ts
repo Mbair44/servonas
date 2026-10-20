@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { getSupabaseAdmin } from "./supabaseAdmin";
+import { adSpendSyncRange } from "./adSpendSyncRange";
 import { deleteMetaAccessToken, readMetaAccessToken, writeMetaAccessToken, type AdPlatformConnectionState } from "./adPlatform";
 
 type MetaTokenResponse = {
@@ -350,7 +351,7 @@ function metricValue(actions: unknown, actionType: string) {
   return match ? Number(match.value ?? 0) : 0;
 }
 
-export async function syncMetaAdsPerformance(input: { businessId: string; businessSlug: string; actorUserId?: string | null; forceFull?: boolean; }) {
+export async function syncMetaAdsPerformance(input: { businessId: string; businessSlug: string; actorUserId?: string | null; forceFull?: boolean; dateFrom?: string; dateThrough?: string; }) {
   const admin = getSupabaseAdmin();
   if (!admin) throw new MetaAdsSyncError("database_error", "Meta Ads sync is temporarily unavailable.", 500, "supabase_admin_initialization");
   const connectionResult = await admin
@@ -387,8 +388,7 @@ export async function syncMetaAdsPerformance(input: { businessId: string; busine
     : `act_${String(connection.external_account_id)}`;
   const today = new Date();
   const defaultWindowDays = connection.last_successful_sync_at && !input.forceFull ? 7 : 30;
-  const since = new Date(today.getTime() - defaultWindowDays * 86400000).toISOString().slice(0, 10);
-  const until = today.toISOString().slice(0, 10);
+  const {from: since,to: until}=adSpendSyncRange({dateFrom:input.dateFrom,dateThrough:input.dateThrough,fallbackDays:defaultWindowDays,today});
   const startUpdate = await admin.from("business_ad_platform_connections").update({
     status: "syncing",
     last_sync_attempt_at: new Date().toISOString(),
