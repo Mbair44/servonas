@@ -28,6 +28,7 @@ test("CAC migration enforces paid booking qualification, first acquisition, time
  const sql=await readFile(new URL("../supabase/migrations/20261020000200_blended_customer_acquisition_cost.sql",import.meta.url),"utf8");
  assert.match(sql,/b\.business_id=p_business_id/);assert.match(sql,/b\.customer_id is not null/);assert.match(sql,/distinct on \(b\.customer_id\)/);assert.match(sql,/b\.status in \('confirmed','paid','completed'\)/);assert.match(sql,/coalesce\(b\.amount_paid_cents,0\)>0/);assert.match(sql,/b\.paid_at is not null/);assert.match(sql,/b\.paid_at at time zone v_timezone/);
  assert.match(sql,/performance\.report_date/);assert.match(sql,/spend_coverage\.report_date/);
+ assert.match(sql,/generate_series\(p_from,p_through,interval '1 day'\)::date as report_day/);assert.doesNotMatch(sql,/::date day/);
  assert.match(sql,/has_business_role\(p_business_id,array\['owner','admin','manager'\]\)/);assert.match(sql,/is_servonas_platform_admin\(\)/);assert.match(sql,/auth\.role\(\)<>'service_role'/);assert.match(sql,/coverage.*provider='google_ads'.*provider='meta'/s);
 });
 test("both ad providers write verified daily coverage only after their spend upsert succeeds",async()=>{
