@@ -23,3 +23,14 @@ test("a $200 credit is applied once across multiple eligible rentals",()=>{
  assert.ok(result.ok);if(!result.ok)return;
  assert.equal(result.discountCents,20_000);assert.equal(result.totalCents,35_000);
 });
+
+test("draft giveaway previews stay workspace-authorized while public giveaways stay published-only",async()=>{
+ const [dashboard,preview,publicRoute]=await Promise.all([
+  read("app/app/[businessSlug]/marketing/giveaways/page.tsx"),
+  read("app/app/[businessSlug]/marketing/giveaways/[giveawayId]/preview/page.tsx"),
+  read("app/sites/[siteSlug]/giveaways/[giveawaySlug]/page.tsx"),
+ ]);
+ assert.match(dashboard,/marketing\/giveaways\/\$\{g\.id\}\/preview/);
+ assert.match(preview,/requireWorkspace/);assert.match(preview,/canManageBusiness/);assert.match(preview,/\.eq\("business_id",business\.id\)\.eq\("id",giveawayId\)/);assert.match(preview,/entries are disabled/);
+ assert.match(publicRoute,/\.eq\("status","published"\)/);
+});
