@@ -55,6 +55,9 @@ export type AttributedBookingRow={
  booking_id:string;
  status:string|null;
  total_cents:number|null;
+ amount_paid_cents?:number|null;
+ paid_at?:string|null;
+ created_at?:string|null;
  booking_attribution_snapshots?:(AttributionSessionLike&{attribution_session_id?:string|null})|(AttributionSessionLike&{attribution_session_id?:string|null})[]|null;
 };
 
@@ -68,6 +71,9 @@ export type MarketingSourceSummary={
  conversionStarted:number;
  leadsOrBookings:number;
  bookings:number;
+ bookingsCreated:number;
+ paidBookings:number;
+ paidBookedValueCents:number;
  customers:number;
  revenueCents:number;
  spendCents:number|null;
@@ -112,9 +118,9 @@ export type AttributionSessionMetricsRow=AttributionSessionLike&{
  engaged_page_count?:number|null;
 };
 
-export type TrafficTimingMetric="visits"|"booking_starts"|"bookings"|"revenue";
-export type TrafficTimingDay={day:number;label:string;visits:number;itemViews:number;bookingStarts:number;completedBookings:number;revenueCents:number;bookingStartRate:number|null;bookingConversionRate:number|null;revenuePerVisitCents:number|null;averageBookingValueCents:number|null;};
-export type TrafficTimingAnalytics={summary:{mostTraffic:number|null;highestBookingStartRate:number|null;mostBookings:number|null;mostRevenue:number|null};weekdays:TrafficTimingDay[];heatmap:Array<{day:number;hour:number;visits:number;bookingStarts:number;startRate:number|null;bookings:number;revenueCents:number}>;insights:string[];smallSample:boolean;};
+export type TrafficTimingMetric="visits"|"booking_starts"|"bookings_created"|"paid_bookings"|"revenue";
+export type TrafficTimingDay={day:number;label:string;visits:number;itemViews:number;bookingStarts:number;bookingsCreated:number;paidBookings:number;paidBookedValueCents:number;bookingStartRate:number|null;createdBookingConversionRate:number|null;paidBookingConversionRate:number|null;paidBookedValuePerVisitCents:number|null;averagePaidBookedValueCents:number|null;};
+export type TrafficTimingAnalytics={summary:{mostTraffic:number|null;highestBookingStartRate:number|null;mostBookings:number|null;mostRevenue:number|null};weekdays:TrafficTimingDay[];heatmap:Array<{day:number;hour:number;visits:number;bookingStarts:number;startRate:number|null;bookingsCreated:number;paidBookings:number;paidBookedValueCents:number}>;insights:string[];smallSample:boolean;};
 export type PaidOpportunityWindow={day:number;startHour:number;endHour:number;visits:number;bookingStarts:number;startRate:number|null;bookings:number;revenueCents:number;classification:"lean_in"|"normal"|"watch"|"insufficient_data";baselineStartRate:number|null;sampleSize:number;reasons:string[]};
 export function getPaidOpportunityWindows(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:Array<AttributedBookingRow&{created_at?:string|null}>;timezone:string;metaPerformanceRows?:MetaPerformanceNameRow[]}):{windows:PaidOpportunityWindow[];baseline:{visits:number;bookingStarts:number;startRate:number|null;bookings:number;revenueCents:number};insights:string[]}{
  const fmt=new Intl.DateTimeFormat("en-US",{timeZone:input.timezone,weekday:"short",hour:"numeric",hourCycle:"h23"}),loc=(value:string|null|undefined)=>{if(!value)return null;const p=fmt.formatToParts(new Date(value)),get=(t:string)=>p.find(x=>x.type===t)?.value,h=Number(get("hour")),d=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(get("weekday")??"");return d>=0&&Number.isFinite(h)?{day:d,hour:h}:null;},key=(day:number,hour:number)=>day*8+Math.floor(hour/3),windows:PaidOpportunityWindow[]=Array.from({length:56},(_,i)=>{const day=Math.floor(i/8),start=(i%8)*3;return {day,startHour:start,endHour:start+3,visits:0,bookingStarts:0,startRate:null,bookings:0,revenueCents:0,classification:"insufficient_data",baselineStartRate:null,sampleSize:0,reasons:[]};});
@@ -127,18 +133,19 @@ export function getPaidOpportunityWindows(input:{sessions:AttributionSessionMetr
  const insights=windows.filter(w=>w.classification==="lean_in").sort((a,b)=>(b.startRate??0)-(a.startRate??0)).slice(0,2).map(w=>`${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][w.day]} ${w.startHour}:00–${w.endHour}:00 shows above-average booking intent from Meta traffic.`);return {windows,baseline,insights};
 }
 /** Buckets each metric by its own action timestamp in the tenant timezone. Visits use session start; funnel actions use event time; bookings/revenue use booking completion/created time. */
-export function getTrafficTimingAnalytics(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:Array<AttributedBookingRow&{created_at?:string|null}>;timezone:string;source?:MarketingSource|"all";metaPerformanceRows?:MetaPerformanceNameRow[]}):TrafficTimingAnalytics{
+export function getTrafficTimingAnalytics(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];paidBookings?:AttributedBookingRow[];timezone:string;source?:MarketingSource|"all";metaPerformanceRows?:MetaPerformanceNameRow[]}):TrafficTimingAnalytics{
  const source=input.source??"all", fmt=new Intl.DateTimeFormat("en-US",{timeZone:input.timezone,weekday:"short",hour:"numeric",hourCycle:"h23"});
  const parts=(value:string|null|undefined)=>{if(!value)return null;const parsed=fmt.formatToParts(new Date(value));const get=(type:string)=>parsed.find(part=>part.type===type)?.value;const weekday=get("weekday"),hour=Number(get("hour"));const day=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(weekday??"");return day>=0&&Number.isFinite(hour)?{day,hour}:null;};
  const eligible=(row:AttributionSessionLike|null|undefined)=>source==="all"||normalizeMarketingSource(row??null,input.metaPerformanceRows??[])===source;
- const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"], days=dayNames.map((label,day)=>({day,label,visits:0,itemViews:0,bookingStarts:0,completedBookings:0,revenueCents:0,bookingStartRate:null as number|null,bookingConversionRate:null as number|null,revenuePerVisitCents:null as number|null,averageBookingValueCents:null as number|null}));
- const heatmap=Array.from({length:7},(_,day)=>Array.from({length:24},(_,hour)=>({day,hour,visits:0,bookingStarts:0,startRate:null as number|null,bookings:0,revenueCents:0}))).flat();
+ const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"], days=dayNames.map((label,day)=>({day,label,visits:0,itemViews:0,bookingStarts:0,bookingsCreated:0,paidBookings:0,paidBookedValueCents:0,bookingStartRate:null as number|null,createdBookingConversionRate:null as number|null,paidBookingConversionRate:null as number|null,paidBookedValuePerVisitCents:null as number|null,averagePaidBookedValueCents:null as number|null}));
+ const heatmap=Array.from({length:7},(_,day)=>Array.from({length:24},(_,hour)=>({day,hour,visits:0,bookingStarts:0,startRate:null as number|null,bookingsCreated:0,paidBookings:0,paidBookedValueCents:0}))).flat();
  const sessionIds=new Set<string>(); for(const session of input.sessions){if(!eligible(session))continue;const at=parts((session as any).session_started_at??(session as any).started_at??(session as any).last_seen_at);if(!at)continue;sessionIds.add(session.id);days[at.day].visits++;heatmap[at.day*24+at.hour].visits++;}
  const seenStarts=new Set<string>(),seenViews=new Set<string>(); for(const event of input.events){if(!eligible(event.booking_attribution_sessions as AttributionSessionLike))continue;const at=parts(event.occurred_at);if(!at)continue;const name=String(event.event_name),key=event.attribution_session_id??event.event_key??`${name}:${event.occurred_at}`;if(["inventory_view","inventory_item_view","rental_viewed"].includes(name)&&!seenViews.has(key)){seenViews.add(key);days[at.day].itemViews++;}if(["booking_started","booking_cta_click","inventory_item_clicked","check_availability_clicked","reserve_clicked"].includes(name)&&!seenStarts.has(key)){seenStarts.add(key);days[at.day].bookingStarts++;heatmap[at.day*24+at.hour].bookingStarts++;}}
- const seenBookings=new Set<string>(); for(const booking of input.bookings){if(!eligible(Array.isArray(booking.booking_attribution_snapshots)?booking.booking_attribution_snapshots[0]:booking.booking_attribution_snapshots)||seenBookings.has(booking.booking_id))continue;const at=parts(booking.created_at);if(!at)continue;seenBookings.add(booking.booking_id);const revenue=Math.max(0,Number(booking.total_cents??0));days[at.day].completedBookings++;days[at.day].revenueCents+=revenue;const cell=heatmap[at.day*24+at.hour];cell.bookings++;cell.revenueCents+=revenue;}
- for(const cell of heatmap)cell.startRate=cell.visits?cell.bookingStarts/cell.visits:null;for(const day of days){day.bookingStartRate=day.visits?day.bookingStarts/day.visits:null;day.bookingConversionRate=day.visits?day.completedBookings/day.visits:null;day.revenuePerVisitCents=day.visits?Math.round(day.revenueCents/day.visits):null;day.averageBookingValueCents=day.completedBookings?Math.round(day.revenueCents/day.completedBookings):null;}
+ const seenCreated=new Set<string>(); for(const booking of input.bookings){if(!eligible(Array.isArray(booking.booking_attribution_snapshots)?booking.booking_attribution_snapshots[0]:booking.booking_attribution_snapshots)||seenCreated.has(booking.booking_id))continue;const at=parts(booking.created_at);if(!at)continue;seenCreated.add(booking.booking_id);days[at.day].bookingsCreated++;heatmap[at.day*24+at.hour].bookingsCreated++;}
+ const seenPaid=new Set<string>(); for(const booking of input.paidBookings??[]){if(!paidBookingCountsForAnalytics(booking)||!eligible(Array.isArray(booking.booking_attribution_snapshots)?booking.booking_attribution_snapshots[0]:booking.booking_attribution_snapshots)||seenPaid.has(booking.booking_id))continue;const at=parts(booking.paid_at);if(!at)continue;seenPaid.add(booking.booking_id);const value=Math.max(0,Number(booking.total_cents??0));days[at.day].paidBookings++;days[at.day].paidBookedValueCents+=value;const cell=heatmap[at.day*24+at.hour];cell.paidBookings++;cell.paidBookedValueCents+=value;}
+ for(const cell of heatmap)cell.startRate=cell.visits?cell.bookingStarts/cell.visits:null;for(const day of days){day.bookingStartRate=day.visits?day.bookingStarts/day.visits:null;day.createdBookingConversionRate=day.visits?day.bookingsCreated/day.visits:null;day.paidBookingConversionRate=day.visits?day.paidBookings/day.visits:null;day.paidBookedValuePerVisitCents=day.visits?Math.round(day.paidBookedValueCents/day.visits):null;day.averagePaidBookedValueCents=day.paidBookings?Math.round(day.paidBookedValueCents/day.paidBookings):null;}
  const meaningful=days.filter(day=>day.visits>=25), maxBy=(fn:(day:TrafficTimingDay)=>number|null)=>meaningful.length?meaningful.reduce((best,day)=>best===null||Number(fn(day)??-1)>Number(fn(days[best])??-1)?day.day:best,null as number|null):null;
- const insights:string[]=[];const traffic=maxBy(day=>day.visits),intent=maxBy(day=>day.bookingStartRate),bookings=maxBy(day=>day.completedBookings),revenue=maxBy(day=>day.revenueCents);if(traffic!==null)insights.push(`${days[traffic].label} generates the most website traffic.`);if(intent!==null)insights.push(`${days[intent].label} visitors start bookings at the highest rate.`);if(revenue!==null)insights.push(`${days[revenue].label} generated the most booking revenue.`);const busiest=heatmap.filter(cell=>cell.visits).sort((a,b)=>b.visits-a.visits)[0];if(busiest)insights.push(`Your busiest shopping window is ${dayNames[busiest.day]} at ${busiest.hour<12?busiest.hour||12:busiest.hour===12?12:busiest.hour-12}:00 ${busiest.hour<12?"AM":"PM"}.`);return {summary:{mostTraffic:traffic,highestBookingStartRate:intent,mostBookings:bookings,mostRevenue:revenue},weekdays:days,heatmap,insights,smallSample:sessionIds.size<25};
+ const insights:string[]=[];const traffic=maxBy(day=>day.visits),intent=maxBy(day=>day.bookingStartRate),bookings=maxBy(day=>day.paidBookings),revenue=maxBy(day=>day.paidBookedValueCents);if(traffic!==null)insights.push(`${days[traffic].label} generates the most website traffic.`);if(intent!==null)insights.push(`${days[intent].label} visitors start bookings at the highest rate.`);if(revenue!==null)insights.push(`${days[revenue].label} generated the most paid booking value.`);const busiest=heatmap.filter(cell=>cell.visits).sort((a,b)=>b.visits-a.visits)[0];if(busiest)insights.push(`Your busiest shopping window is ${dayNames[busiest.day]} at ${busiest.hour<12?busiest.hour||12:busiest.hour===12?12:busiest.hour-12}:00 ${busiest.hour<12?"AM":"PM"}.`);return {summary:{mostTraffic:traffic,highestBookingStartRate:intent,mostBookings:bookings,mostRevenue:revenue},weekdays:days,heatmap,insights,smallSample:sessionIds.size<25};
 }
 
 export type SessionDurationBucket={key:"timing_unavailable"|"under_1_second"|"one_to_four_seconds"|"five_to_nine_seconds"|"ten_or_more_seconds";label:string;count:number;};
@@ -151,7 +158,7 @@ export type SessionAttributionBreakdown={providerLabel:string;platformLabel:stri
 export type MetaPerformanceNameRow={campaign_id:string|null;campaign_name:string|null;adset_id:string|null;adset_name:string|null;ad_id:string|null;ad_name:string|null;};
 export type MetaAttributionName={name:string;rawId:string;level:"campaign"|"adset"|"ad";campaignName:string|null;campaignId:string|null;};
 export type GoogleCampaignNameRow={google_campaign_id:string|number|null;campaign_name:string|null;};
-export type CampaignPerformanceRow={source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;resourceLevel:"campaign"|"adset"|"ad"|null;campaignName:string|null;campaignId:string|null;visits:number;itemViews:number;bookingStarts:number;bookings:number;revenueCents:number;};
+export type CampaignPerformanceRow={source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;resourceLevel:"campaign"|"adset"|"ad"|null;campaignName:string|null;campaignId:string|null;visits:number;itemViews:number;bookingStarts:number;bookingsCreated:number;paidBookings:number;paidBookedValueCents:number;bookings:number;revenueCents:number;};
 export type SessionQualityDetail={id:string;startedAt:string|null;source:SessionQualitySource;campaignName:string|null;campaignId:string|null;sourceLabel:string;landingPage:string;device:string;browser:string;sessionLengthMs:number|null;verificationStatus:SessionVerificationStatus;timeToFirstInteractionMs:number|null;firstInteraction:string|null;firstInteractionLabel:string|null;pagesViewed:number;engagementClassification:SessionEngagementClassification;automatedClassification:AutomatedTrafficClassification;attribution:SessionAttributionBreakdown;metaAttributionName:MetaAttributionName|null;};
 export type SessionQualityReport={includeAutomated:boolean;totalSessions:number;visibleSessions:number;verifiedSessions:number;unverifiedSessions:number;engagedSessions:number;quickExits:number;likelyAutomatedSessions:number;medianActiveSessionDurationMs:number|null;medianTimeToFirstInteractionMs:number|null;buckets:Array<SessionDurationBucket&{percentage:number;automatedCount:number;details:SessionQualityDetail[];sourceBreakdown:Array<{key:SessionQualitySource;label:string;count:number;percentage:number}>;landingPages:Array<{path:string;count:number}>;deviceBreakdown:Array<{label:string;count:number;percentage:number}>;campaignBreakdown:Array<{name:string;campaignId:string|null;isMetaId:boolean;source:string;count:number}>;verificationBreakdown:AttributionBreakdownEntry[];insight:string|null;observation:string|null;}>;landingPagePerformance:Array<{path:string;sessions:number;verifiedSessions:number;engaged:number;quickExits:number;avgActiveTimeMs:number|null;ctaInteractionRate:number;trafficSources:AttributionBreakdownEntry[];campaigns:AttributionBreakdownEntry[];devices:AttributionBreakdownEntry[];}>;primaryInsight:string|null;supportingObservation:string|null;};
 
@@ -390,8 +397,14 @@ export interface MarketingSpendProvider{
  getSpendBySource(input:{businessId:string;from:string;to:string}):Promise<Partial<Record<MarketingSource,number|null>>>;
 }
 
-function bookingCountsForAnalytics(status:string|null|undefined){
+export function bookingCountsForAnalytics(status:string|null|undefined){
  return status==="confirmed"||status==="paid"||status==="scheduled"||status==="dispatched"||status==="en_route"||status==="arrived"||status==="in_progress"||status==="completed";
+}
+
+/** A paid booking is a valid operational booking with a recorded positive payment.
+ * `paid_at` is the reporting timestamp; repeated payment attempts never add another booking. */
+export function paidBookingCountsForAnalytics(booking:Pick<AttributedBookingRow,"status"|"amount_paid_cents"|"paid_at">){
+ return bookingCountsForAnalytics(booking.status)&&Math.max(0,Number(booking.amount_paid_cents??0))>0&&Boolean(booking.paid_at);
 }
 
 function average(values:number[]){
@@ -950,13 +963,13 @@ export function buildSourceCheckoutFunnelReport(input:{source:CheckoutFunnelSour
  return summarizeCheckoutFunnels(rows);
 }
 
-export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={},metaRows:MetaPerformanceNameRow[]=[]){
- const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;booking:Set<string>;revenue:number;}>();
+export function buildSourcePerformanceReport(events:FunnelEventRow[],bookingsCreated:AttributedBookingRow[]=[],spendBySource:Partial<Record<MarketingSource,number|null>>={},metaRows:MetaPerformanceNameRow[]=[],paidBookings:AttributedBookingRow[]=[]){
+ const sourceBuckets=new Map<MarketingSource,{detailed:Map<string,Set<string>>;customer:Set<string>;created:Set<string>;paid:Set<string>;paidBookedValue:number;}>();
  for(const row of events){
   const session=Array.isArray(row.booking_attribution_sessions)?row.booking_attribution_sessions[0]:row.booking_attribution_sessions;
   const source=normalizeMarketingSource(session,metaRows);
   const sessionId=row.attribution_session_id||`${source}:anonymous`;
-  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),created:new Set(),paid:new Set(),paidBookedValue:0};
   const canonical=canonicalEventName(String(row.event_name));
   const eventSet=bucket.detailed.get(canonical)??new Set<string>();
   eventSet.add(sessionId);
@@ -964,18 +977,24 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
   if(row.customer_id)bucket.customer.add(row.customer_id);
   sourceBuckets.set(source,bucket);
  }
- for(const row of bookings){
-  if(!bookingCountsForAnalytics(row.status))continue;
+ for(const row of bookingsCreated){
   const session=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
   const source=normalizeMarketingSource(session,metaRows);
-  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
-  bucket.booking.add(row.booking_id);
-  bucket.revenue+=Math.max(0,Number(row.total_cents??0));
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),created:new Set(),paid:new Set(),paidBookedValue:0};
+  bucket.created.add(row.booking_id);
+  sourceBuckets.set(source,bucket);
+ }
+ for(const row of paidBookings){
+  if(!paidBookingCountsForAnalytics(row))continue;
+  const session=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
+  const source=normalizeMarketingSource(session,metaRows);
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),created:new Set(),paid:new Set(),paidBookedValue:0};
+  if(!bucket.paid.has(row.booking_id)){bucket.paid.add(row.booking_id);bucket.paidBookedValue+=Math.max(0,Number(row.total_cents??0));}
   sourceBuckets.set(source,bucket);
  }
 
  const summaries=(marketingSources.map((source)=>{
-  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),booking:new Set(),revenue:0};
+  const bucket=sourceBuckets.get(source)??{detailed:new Map(),customer:new Set(),created:new Set(),paid:new Set(),paidBookedValue:0};
   const detailedCounts=Object.fromEntries([...bucket.detailed.entries()].map(([key,value])=>[key,value.size])) as Record<string,number>;
   const visits=detailedCounts.landing_view??0;
   // Funnel stages describe people, not the number of telemetry signals a person generated.
@@ -997,12 +1016,15 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
    bucket.detailed.get("item_added"),
    bucket.detailed.get("checkout_started"),
   ]);
-  const bookings=bucket.booking.size;
-  detailedCounts.booking_completed=bookings;
-  const leadsOrBookings=(detailedCounts.lead_submitted??0)+bookings;
-  const customers=bucket.customer.size||bookings||0;
+  const bookingsCreated=bucket.created.size, paidBookings=bucket.paid.size;
+  const bookings=paidBookings;
+  detailedCounts.bookings_created=bookingsCreated;
+  detailedCounts.booking_completed=paidBookings;
+  detailedCounts.paid_bookings=paidBookings;
+  const leadsOrBookings=(detailedCounts.lead_submitted??0)+paidBookings;
+  const customers=bucket.customer.size||paidBookings||0;
   const spendCents=spendBySource[source]??null;
-  const revenueCents=bucket.revenue;
+  const revenueCents=bucket.paidBookedValue;
   const roas=spendCents&&spendCents>0?revenueCents/spendCents:null;
   const stepCounts=detailedStepOrder.map((step,index)=>{
    const count=step.key==="engaged"?engaged:detailedCounts[step.key]??0;
@@ -1011,10 +1033,10 @@ export function buildSourcePerformanceReport(events:FunnelEventRow[],bookings:At
    const dropOffRate=index===0?null:(previous>0?Math.max(0,1-count/previous):null);
    return {key:step.key,label:step.label,count,progressFromPrevious,dropOffRate};
   });
-  const summary:MarketingSourceSummary={source,visits,engaged,conversionStarted,leadsOrBookings,bookings,customers,revenueCents,spendCents,roas,detailedCounts,stepCounts,sessionMetrics:{sessionCount:visits,avgSessionDurationSeconds:null,medianSessionDurationSeconds:null,avgEngagedDurationSeconds:null,medianEngagedDurationSeconds:null,bounceSessions:0,singlePageSessions:0},insight:"",sampleStrength:sampleStrength(visits)};
+  const summary:MarketingSourceSummary={source,visits,engaged,conversionStarted,leadsOrBookings,bookings,bookingsCreated,paidBookings,paidBookedValueCents:revenueCents,customers,revenueCents,spendCents,roas,detailedCounts,stepCounts,sessionMetrics:{sessionCount:visits,avgSessionDurationSeconds:null,medianSessionDurationSeconds:null,avgEngagedDurationSeconds:null,medianEngagedDurationSeconds:null,bounceSessions:0,singlePageSessions:0},insight:"",sampleStrength:sampleStrength(visits)};
   summary.insight=buildMarketingInsight(summary);
   return summary;
- }).filter((item)=>item.visits||item.engaged||item.leadsOrBookings||item.revenueCents||item.spendCents!=null));
+ }).filter((item)=>item.visits||item.engaged||item.leadsOrBookings||item.bookingsCreated||item.revenueCents||item.spendCents!=null));
 
  const totals=summaries.reduce((acc,row)=>{
   acc.visits+=row.visits;
@@ -1090,13 +1112,13 @@ function campaignIdentity(session:AttributionSessionLike|undefined|null,metaRows
 }
 
 /** Groups the same first-touch attribution used by source reporting into campaign rows. */
-export function buildCampaignPerformanceReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];metaPerformanceRows?:MetaPerformanceNameRow[];googleCampaignRows?:GoogleCampaignNameRow[]}):CampaignPerformanceRow[]{
+export function buildCampaignPerformanceReport(input:{sessions:AttributionSessionMetricsRow[];events:FunnelEventRow[];bookings:AttributedBookingRow[];paidBookings?:AttributedBookingRow[];metaPerformanceRows?:MetaPerformanceNameRow[];googleCampaignRows?:GoogleCampaignNameRow[]}):CampaignPerformanceRow[]{
  const metaRows=input.metaPerformanceRows ?? [],googleRows=input.googleCampaignRows ?? [];
- const rows=new Map<string,{source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;resourceLevel:"campaign"|"adset"|"ad"|null;campaignName:string|null;campaignId:string|null;visits:Set<string>;itemViews:Set<string>;bookingStarts:Set<string>;bookings:Set<string>;revenueCents:number}>();
+ const rows=new Map<string,{source:MarketingSource|"meta_ads";name:string;rawId:string|null;isMetaId:boolean;resourceLevel:"campaign"|"adset"|"ad"|null;campaignName:string|null;campaignId:string|null;visits:Set<string>;itemViews:Set<string>;bookingStarts:Set<string>;bookingsCreated:Set<string>;paidBookings:Set<string>;paidBookedValueCents:number}>();
  const sessionAttribution=new Map<string,AttributionSessionLike>();
  const bucketFor=(session:AttributionSessionLike|undefined|null)=>{
   const identity=campaignIdentity(session,metaRows,googleRows),key=`${identity.source}:${identity.resourceLevel??"none"}:${identity.name}:${identity.rawId ?? ""}`;
-  let bucket=rows.get(key);if(!bucket){bucket={...identity,visits:new Set(),itemViews:new Set(),bookingStarts:new Set(),bookings:new Set(),revenueCents:0};rows.set(key,bucket);}return bucket;
+  let bucket=rows.get(key);if(!bucket){bucket={...identity,visits:new Set(),itemViews:new Set(),bookingStarts:new Set(),bookingsCreated:new Set(),paidBookings:new Set(),paidBookedValueCents:0};rows.set(key,bucket);}return bucket;
  };
  for(const session of input.sessions){sessionAttribution.set(session.id,session);bucketFor(session).visits.add(session.id);}
  for(const event of input.events){
@@ -1107,11 +1129,14 @@ export function buildCampaignPerformanceReport(input:{sessions:AttributionSessio
   if(canonical==="booking_start")bucket.bookingStarts.add(identity);
  }
  for(const booking of input.bookings){
-  if(!bookingCountsForAnalytics(booking.status))continue;
-  const bucket=bucketFor(snapshotFor(booking));if(bucket.bookings.has(booking.booking_id))continue;
-  bucket.bookings.add(booking.booking_id);bucket.revenueCents+=Math.max(0,Number(booking.total_cents ?? 0));
+  bucketFor(snapshotFor(booking)).bookingsCreated.add(booking.booking_id);
  }
- return [...rows.values()].map((row)=>({source:row.source,name:row.name,rawId:row.rawId,isMetaId:row.isMetaId,resourceLevel:row.resourceLevel,campaignName:row.campaignName,campaignId:row.campaignId,visits:row.visits.size,itemViews:row.itemViews.size,bookingStarts:row.bookingStarts.size,bookings:row.bookings.size,revenueCents:row.revenueCents})).filter((row)=>row.visits||row.itemViews||row.bookingStarts||row.bookings||row.revenueCents).sort((left,right)=>left.source.localeCompare(right.source)||String(left.campaignName??left.name).localeCompare(String(right.campaignName??right.name))||right.visits-left.visits||left.name.localeCompare(right.name));
+ for(const booking of input.paidBookings??[]){
+  if(!paidBookingCountsForAnalytics(booking))continue;
+  const bucket=bucketFor(snapshotFor(booking));if(bucket.paidBookings.has(booking.booking_id))continue;
+  bucket.paidBookings.add(booking.booking_id);bucket.paidBookedValueCents+=Math.max(0,Number(booking.total_cents ?? 0));
+ }
+ return [...rows.values()].map((row)=>({source:row.source,name:row.name,rawId:row.rawId,isMetaId:row.isMetaId,resourceLevel:row.resourceLevel,campaignName:row.campaignName,campaignId:row.campaignId,visits:row.visits.size,itemViews:row.itemViews.size,bookingStarts:row.bookingStarts.size,bookingsCreated:row.bookingsCreated.size,paidBookings:row.paidBookings.size,paidBookedValueCents:row.paidBookedValueCents,bookings:row.paidBookings.size,revenueCents:row.paidBookedValueCents})).filter((row)=>row.visits||row.itemViews||row.bookingStarts||row.bookingsCreated||row.paidBookings||row.paidBookedValueCents).sort((left,right)=>left.source.localeCompare(right.source)||String(left.campaignName??left.name).localeCompare(String(right.campaignName??right.name))||right.visits-left.visits||left.name.localeCompare(right.name));
 }
 
 export const googleBusinessProfileActions=["website","booking","other"] as const;
