@@ -31,3 +31,19 @@ test("paid bookings are deduplicated and tenant data is caller scoped",()=>{
  assert.equal(result.weekdays.reduce((sum,row)=>sum+row.paidBookings,0),1);
  assert.equal(result.weekdays.reduce((sum,row)=>sum+row.paidBookedValueCents,0),7000);
 });
+
+test("hour buckets retain each metric's own local timestamp across days",()=>{
+ const result=getTrafficTimingAnalytics({timezone:"America/New_York",sessions:[{id:"s",session_started_at:"2026-03-08T06:30:00Z"} as any],events:[{event_name:"booking_started",attribution_session_id:"s",occurred_at:"2026-03-08T07:15:00Z",booking_attribution_sessions:{}} as any],bookings:[{booking_id:"created",status:"pending_payment",total_cents:0,created_at:"2026-03-08T07:30:00Z",booking_attribution_snapshots:{}}],paidBookings:[{booking_id:"paid",status:"completed",amount_paid_cents:100,paid_at:"2026-03-08T08:00:00Z",total_cents:9000,booking_attribution_snapshots:{}}],source:"all"});
+ assert.equal(result.hours.reduce((sum,row)=>sum+row.visits,0),1);
+ assert.equal(result.hours.reduce((sum,row)=>sum+row.bookingStarts,0),1);
+ assert.equal(result.hours.reduce((sum,row)=>sum+row.bookingsCreated,0),1);
+ assert.equal(result.hours.reduce((sum,row)=>sum+row.paidBookings,0),1);
+ assert.equal(result.hours[2].visits,0);
+ assert.equal(result.hours.reduce((sum,row)=>sum+row.paidBookedValueCents,0),9000);
+});
+
+test("zero-traffic time buckets never produce a conversion rate",()=>{
+ const result=getTrafficTimingAnalytics({timezone:"America/Phoenix",sessions:[],events:[],bookings:[{booking_id:"created",status:"pending_payment",total_cents:0,created_at:"2026-01-04T12:00:00Z",booking_attribution_snapshots:{}}],paidBookings:[],source:"all"});
+ const bucket=result.hours.find(row=>row.bookingsCreated===1)!;
+ assert.equal(bucket.visits,0);assert.equal(bucket.createdBookingConversionRate,null);assert.equal(bucket.paidBookingConversionRate,null);
+});
