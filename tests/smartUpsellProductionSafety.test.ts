@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {calculateSmartUpsellTaxCents} from "../lib/smartUpsellCheckout.ts";
-import {smartUpsellAutomationReady} from "../lib/smartUpsellSms.ts";
+import {smartUpsellAutomationReady,smartUpsellSmsBody} from "../lib/smartUpsellSms.ts";
+import {bookingSendDue} from "../lib/smartUpsellCandidates.ts";
 
 const read=(path:string)=>fs.readFileSync(path,"utf8");
 const additions=read("lib/bookingManage/addRentalItems.ts");
@@ -12,6 +13,11 @@ const checkout=read("lib/smartUpsellCheckout.ts");
 const sms=read("lib/smartUpsellSms.ts");
 const callback=read("app/api/twilio/tenant-message-status/route.ts");
 const migration=read("supabase/migrations/20261017000300_smart_upsell_sms_delivery.sql");
+const automaticTaxMigration=read("supabase/migrations/20261021000100_smart_upsell_automatic_tax.sql");
+const candidates=read("lib/smartUpsellCandidates.ts");
+const pricing=read("lib/smartUpsells.ts");
+const actions=read("app/app/[businessSlug]/marketing/smart-upsells/actions.ts");
+const vercel=read("vercel.json");
 
 test("ordinary amendments retain the established canonical RPC",()=>{
  assert.match(additions,/smart_upsell_offer_id/);
@@ -53,4 +59,28 @@ test("SMS queue remains service-role writable and an unavailable queue cannot br
  assert.match(callback,/Smart Upsell queue is unavailable; continuing established callback processing/);
  assert.match(callback,/Smart Upsell callback bookkeeping failed; continuing established callback processing/);
  assert.doesNotMatch(callback,/recordSmartUpsellSmsDeliveryStatus\(.*\}catch\{return NextResponse\.json\(\{error:"Callback persistence failed"/s);
+});
+
+test("automatic tax is quoted from the delivery address and applied only from the staged snapshot",()=>{
+ assert.match(pricing,/bookingTaxProvider/);
+ assert.match(pricing,/Automatic tax requires the booking delivery address/);
+ assert.match(checkout,/automatic_tax_snapshot/);
+ assert.match(actions,/prepareSmartUpsellPricing/);
+ assert.doesNotMatch(candidates,/automatic_tax_requires_future_checkout_integration/);
+ assert.match(automaticTaxMigration,/auth\.role\(\) <> 'service_role'/);
+ assert.match(automaticTaxMigration,/Automatic tax reconciliation snapshot is unavailable/);
+ assert.match(automaticTaxMigration,/automatic_tax_cents/);
+ assert.match(automaticTaxMigration,/automatic_tax_reconciled/);
+});
+
+test("daily scheduling covers the next 24-hour lead-time window without misleading tax-inclusive SMS",()=>{
+ const settings={enabled:true,sendBeforeEventHours:48,discountBasisPoints:5000,depositBasisPoints:5000,offerExpirationHours:24,maxOffersPerBooking:1,additionalDeliveryFeeCents:0,automaticSelection:true,minimumDiscountedPriceCents:null,smsSendWindowStartHour:0,smsSendWindowEndHour:23};
+ const now=new Date("2026-10-21T16:00:00.000Z"),booking={id:"booking",business_id:"tenant",customer_id:"customer",status:"paid",rental_starts_at:"2026-10-24T12:00:00.000Z",rental_ends_at:"2026-10-24T16:00:00.000Z",customers:{phone:"+15555550100",sms_consent_status:"express"}};
+ assert.equal(bookingSendDue({booking,settings,timezone:"UTC",now,offerCount:0,dailyWindowMinutes:24*60}).eligible,true);
+ assert.equal(bookingSendDue({...{booking:{...booking,rental_starts_at:"2026-10-23T15:59:00.000Z"},settings,timezone:"UTC",now,offerCount:0},dailyWindowMinutes:24*60}).eligible,false);
+ assert.match(vercel,/"path": "\/api\/cron\/smart-upsells"/);
+ assert.match(vercel,/"schedule": "0 16 \* \* \*"/);
+ assert.match(sms,/dailyWindowMinutes:24\*60/);
+ assert.match(smartUpsellSmsBody({firstName:"Ada",eventStart:"2026-10-24T12:00:00.000Z",timezone:"UTC",itemName:"Slide",discountedPriceCents:10000,originalPriceCents:20000,offerLink:"https://example.test",businessName:"Test"}),/plus applicable tax/);
+ assert.match(sms,/Number\(created\.offer\.discounted_price_cents\)/);
 });
