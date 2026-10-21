@@ -12,6 +12,10 @@ const checkout=read("lib/smartUpsellCheckout.ts");
 const sms=read("lib/smartUpsellSms.ts");
 const callback=read("app/api/twilio/tenant-message-status/route.ts");
 const migration=read("supabase/migrations/20261017000300_smart_upsell_sms_delivery.sql");
+const automaticTaxMigration=read("supabase/migrations/20261021000100_smart_upsell_automatic_tax.sql");
+const candidates=read("lib/smartUpsellCandidates.ts");
+const pricing=read("lib/smartUpsells.ts");
+const actions=read("app/app/[businessSlug]/marketing/smart-upsells/actions.ts");
 
 test("ordinary amendments retain the established canonical RPC",()=>{
  assert.match(additions,/smart_upsell_offer_id/);
@@ -53,4 +57,16 @@ test("SMS queue remains service-role writable and an unavailable queue cannot br
  assert.match(callback,/Smart Upsell queue is unavailable; continuing established callback processing/);
  assert.match(callback,/Smart Upsell callback bookkeeping failed; continuing established callback processing/);
  assert.doesNotMatch(callback,/recordSmartUpsellSmsDeliveryStatus\(.*\}catch\{return NextResponse\.json\(\{error:"Callback persistence failed"/s);
+});
+
+test("automatic tax is quoted from the delivery address and applied only from the staged snapshot",()=>{
+ assert.match(pricing,/bookingTaxProvider/);
+ assert.match(pricing,/Automatic tax requires the booking delivery address/);
+ assert.match(checkout,/automatic_tax_snapshot/);
+ assert.match(actions,/prepareSmartUpsellPricing/);
+ assert.doesNotMatch(candidates,/automatic_tax_requires_future_checkout_integration/);
+ assert.match(automaticTaxMigration,/auth\.role\(\) <> 'service_role'/);
+ assert.match(automaticTaxMigration,/Automatic tax reconciliation snapshot is unavailable/);
+ assert.match(automaticTaxMigration,/automatic_tax_cents/);
+ assert.match(automaticTaxMigration,/automatic_tax_reconciled/);
 });
