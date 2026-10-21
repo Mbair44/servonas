@@ -5,6 +5,7 @@
     { "path": "/api/cron/financial", "schedule": "15 16 * * *" },
     { "path": "/api/cron/google-ads-spend", "schedule": "30 16 * * *" },
     { "path": "/api/cron/meta-ads-spend", "schedule": "45 16 * * *" },
-    { "path": "/api/cron/google-reviews", "schedule": "15 17 * * *" }
+    { "path": "/api/cron/google-reviews", "schedule": "15 17 * * *" },
+    { "path": "/api/cron/smart-upsells", "schedule": "0 16 * * *" }
   ]
 }

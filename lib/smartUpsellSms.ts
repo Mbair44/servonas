@@ -13,7 +13,7 @@ const retryAt=(attempt:number)=>new Date(Date.now()+Math.min(60*60_000,Math.max(
 const eventDay=(date:string,timezone:string)=>new Intl.DateTimeFormat("en-US",{timeZone:timezone,weekday:"long"}).format(new Date(date));
 
 export function smartUpsellSmsBody(input:{firstName:string|null;eventStart:string;timezone:string;itemName:string;discountedPriceCents:number;originalPriceCents:number;offerLink:string;businessName:string}){
- return `Hey ${input.firstName?.trim()||"there"}! 🎉 We're getting everything ready for your party this ${eventDay(input.eventStart,input.timezone)}!\n\nWe have an extra ${input.itemName} available that day, and since we're already delivering to you, we'd love to offer it to you for 50% OFF!\n\nAdd our ${input.itemName} for just ${money(input.discountedPriceCents)} (normally ${money(input.originalPriceCents)}).\n\nInterested? Grab it here: ${input.offerLink}\n\n— ${input.businessName}\nReply STOP to opt out.`.slice(0,1600);
+ return `Hey ${input.firstName?.trim()||"there"}! 🎉 We're getting everything ready for your party this ${eventDay(input.eventStart,input.timezone)}!\n\nWe have an extra ${input.itemName} available that day, and since we're already delivering to you, we'd love to offer it to you for 50% OFF!\n\nAdd our ${input.itemName} for ${money(input.discountedPriceCents)} (normally ${money(input.originalPriceCents)}), plus applicable tax.\n\nInterested? Grab it here: ${input.offerLink}\n\n— ${input.businessName}\nReply STOP to opt out.`.slice(0,1600);
 }
 async function offerOrigin(db:Db,businessId:string){
  const [{data:site},{data:business}]=await Promise.all([db.from("business_website_settings").select("custom_domain,status,domain_status").eq("business_id",businessId).eq("status","published").eq("domain_status","connected").maybeSingle(),db.from("businesses").select("slug").eq("id",businessId).maybeSingle()]);
@@ -29,7 +29,7 @@ export async function scheduleSmartUpsellOffers(db:Db,input:{now?:Date;limitBusi
  if(error)throw new Error("Smart Upsell settings could not be loaded.");let offersCreated=0,queued=0,failures=0;
  for(const setting of settings??[]){
   await db.from("smart_upsell_offers").update({status:"expired",expired_at:now.toISOString()}).eq("business_id",setting.business_id).in("status",["pending","sent","viewed","checkout_pending"]).lt("expires_at",now.toISOString());
-  try{const rows=await dryRunSmartUpsellCandidates(db,{businessId:setting.business_id,now});for(const row of rows){if(!row.eligible||!row.selected)continue;
+  try{const rows=await dryRunSmartUpsellCandidates(db,{businessId:setting.business_id,now,dailyWindowMinutes:24*60});for(const row of rows){if(!row.eligible||!row.selected)continue;try{
    const {data:booking}=await db.from("bookings").select("id,business_id,customer_id,rental_starts_at,rental_ends_at,customers(first_name,phone_normalized,phone,sms_consent_status,is_deleted),businesses(name,timezone)").eq("id",row.bookingId).eq("business_id",setting.business_id).maybeSingle();
    const customer=Array.isArray(booking?.customers)?booking?.customers[0]:booking?.customers,business=Array.isArray(booking?.businesses)?booking?.businesses[0]:booking?.businesses;
    if(!booking||!customer||customer.is_deleted||customer.sms_consent_status!=="express"||!booking.rental_starts_at||!booking.rental_ends_at)continue;
@@ -40,10 +40,10 @@ export async function scheduleSmartUpsellOffers(db:Db,input:{now?:Date;limitBusi
    const created=await createSmartUpsellOfferFromCandidate(db,{businessId:setting.business_id,booking, candidate:row.selected,settings:smartSettings,requestKey:`smart-upsell:${booking.id}`,now});
    if(created.offer.token_hash!==hashSmartUpsellToken(created.token))continue; // concurrent scheduler created the durable offer; never send an unknown token.
    offersCreated++;
-   const origin=await offerOrigin(db,setting.business_id),link=`${origin}/upsell/${created.token}`,body=smartUpsellSmsBody({firstName:customer.first_name??null,eventStart:booking.rental_starts_at,timezone:business?.timezone??"America/Phoenix",itemName:row.selected.name,discountedPriceCents:row.selected.price.discountedPriceCents,originalPriceCents:row.selected.price.originalPriceCents,offerLink:link,businessName:business?.name??"Your rental company"});
+   const origin=await offerOrigin(db,setting.business_id),link=`${origin}/upsell/${created.token}`,body=smartUpsellSmsBody({firstName:customer.first_name??null,eventStart:booking.rental_starts_at,timezone:business?.timezone??"America/Phoenix",itemName:row.selected.name,discountedPriceCents:Number(created.offer.discounted_price_cents),originalPriceCents:Number(created.offer.original_price_cents),offerLink:link,businessName:business?.name??"Your rental company"});
    const {error:queueError}=await db.from("smart_upsell_sms_deliveries").insert({business_id:setting.business_id,offer_id:created.offer.id,customer_id:booking.customer_id,phone_e164:phone,body,status:"queued",next_attempt_at:now.toISOString()});
    if(queueError&&queueError.code!=="23505"){await db.from("smart_upsell_offers").update({status:"failed",offer_metadata:{...(created.offer.offer_metadata??{}),queue_error:"delivery_queue_unavailable"}}).eq("id",created.offer.id).eq("business_id",setting.business_id).in("status",["pending"]);throw queueError;}if(!queueError)queued++;
-  }}catch{failures++;}
+  }catch{failures++;}}}catch{failures++;}
  }
  return{disabled:false,offersCreated,queued,failures};
 }
