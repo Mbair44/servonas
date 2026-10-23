@@ -6,7 +6,7 @@ import { submitPublicBooking } from "./actions";
 import type {Metadata} from "next";
 import {EmbeddedBookingBridge} from "@/components/EmbeddedBookingBridge";
 import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracker";
-import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
+import {browserGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {loadPublicBookingData} from "./loadPublicBookingData";
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 
@@ -28,7 +28,7 @@ export default async function PublicBookingPage({
   const { businessSlug } = await params;
   const query = await searchParams;
   const embedded = query.embed === "1";
-  const googleMapsApiKey=publicGoogleMapsApiKey();
+  const googleMapsApiKey=browserGoogleMapsApiKey();
   const data=await loadPublicBookingData(businessSlug,query.promotion,query.promotionId);
   if (!data) notFound();
   const {settings,services,schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;

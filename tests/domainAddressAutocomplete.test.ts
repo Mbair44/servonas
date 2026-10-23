@@ -15,14 +15,16 @@ test("domain registration offers Google address autocomplete with manual fallbac
  assert.match(page,/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/);
 });
 
-test("public booking routes reuse the shared Google Maps key fallback",async()=>{
+test("public booking routes use a browser-restricted Google Maps key",async()=>{
  const helper=await fs.readFile("lib/googleMapsKey.ts","utf8");
  const domainBookingPage=await fs.readFile("app/sites/domain/[domain]/booking/page.tsx","utf8");
  const publicBookingPage=await fs.readFile("app/book/[businessSlug]/page.tsx","utf8");
  const checkoutPage=await fs.readFile("app/book/[businessSlug]/booking/page.tsx","utf8");
  assert.match(helper,/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/);
- assert.match(helper,/GOOGLE_MAPS_API_KEY/);
- assert.match(domainBookingPage,/publicGoogleMapsApiKey/);
- assert.match(publicBookingPage,/publicGoogleMapsApiKey/);
- assert.match(checkoutPage,/publicGoogleMapsApiKey/);
+ assert.match(helper,/browserGoogleMapsApiKey/);
+ assert.match(domainBookingPage,/browserGoogleMapsApiKey/);
+ assert.match(publicBookingPage,/browserGoogleMapsApiKey/);
+ assert.match(checkoutPage,/browserGoogleMapsApiKey/);
+ const browserHelper=helper.match(/export function browserGoogleMapsApiKey\(\) \{([\s\S]*?)\n\}/)?.[1]??"";
+ assert.doesNotMatch(browserHelper,/process\.env\.GOOGLE_MAPS_API_KEY/);
 });

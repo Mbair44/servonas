@@ -8,7 +8,7 @@ import {TenantBookingFunnelTracker} from "@/components/TenantBookingFunnelTracke
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {TemporarySiteUnavailable} from "@/components/TemporarySiteUnavailable";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
-import {publicGoogleMapsApiKey} from "@/lib/googleMapsKey";
+import {browserGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {normalizeWebsiteDomain} from "@/lib/website";
 import {submitPublicBooking} from "@/app/book/[businessSlug]/actions";
 import {loadPublicBookingData} from "@/app/book/[businessSlug]/loadPublicBookingData";
@@ -34,7 +34,7 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
  if(!bookingSlug)notFound();
  const query=await searchParams;
  const embedded=query.embed==="1";
- const googleMapsApiKey=publicGoogleMapsApiKey();
+ const googleMapsApiKey=browserGoogleMapsApiKey();
  const data=await loadPublicBookingData(bookingSlug,query.promotion,query.promotionId);
  if(!data)notFound();
  const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
