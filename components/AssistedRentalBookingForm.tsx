@@ -6,14 +6,19 @@ import {createEmergencyAssistedBooking} from "@/app/app/[businessSlug]/assisted-
 import {assistedMoneyCents,assistedRentalTotals,type AssistedRentalItem} from "@/lib/assistedRentalItems";
 
 type Row={key:number;id:string;quantity:string;price:string};
+type AssistedCustomer={id:string;label:string;firstName:string;lastName:string;phone:string;email:string;address:string;city:string;zip:string};
+type CustomerDetails=Omit<AssistedCustomer,"id"|"label">;
 const money=(cents:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
-export function AssistedRentalBookingForm({slug,items,customers,disclosure,requestKey,depositPercent}:{slug:string;items:AssistedRentalItem[];customers:{id:string;label:string}[];disclosure:string;requestKey:string;depositPercent:number}){
+const blankCustomerDetails:CustomerDetails={firstName:"",lastName:"",phone:"",email:"",address:"",city:"Mesa",zip:""};
+export function AssistedRentalBookingForm({slug,items,customers,disclosure,requestKey,depositPercent}:{slug:string;items:AssistedRentalItem[];customers:AssistedCustomer[];disclosure:string;requestKey:string;depositPercent:number}){
  const router=useRouter(),submitting=useRef(false),nextKey=useRef(1);
  const [rows,setRows]=useState<Row[]>([{key:0,id:'',quantity:'1',price:'0.00'}]);
  const [override,setOverride]=useState(false),[subtotal,setSubtotal]=useState('0.00');
  const [discount,setDiscount]=useState('0'),[delivery,setDelivery]=useState('0'),[tax,setTax]=useState('0');
  const [depositOverride,setDepositOverride]=useState(false),[deposit,setDeposit]=useState('0');
  const [error,setError]=useState(''),[pending,setPending]=useState(false);
+ const [existingCustomer,setExistingCustomer]=useState(""),[customerDetails,setCustomerDetails]=useState<CustomerDetails>(blankCustomerDetails);
+ const updateCustomer=(patch:Partial<CustomerDetails>)=>setCustomerDetails(current=>({...current,...patch}));
  const update=(key:number,patch:Partial<Row>)=>setRows(current=>current.map(row=>row.key===key?{...row,...patch}:row));
  let totals:ReturnType<typeof assistedRentalTotals>|null=null;
  let lines:{inventoryItemId:string;quantity:number;unitPriceCents:number}[]=[];
@@ -33,9 +38,9 @@ export function AssistedRentalBookingForm({slug,items,customers,disclosure,reque
  }}>
   <input type="hidden" name="requestKey" value={requestKey}/>
   <input type="hidden" name="rentalItems" value={JSON.stringify(lines)}/>
-  <label>Existing customer<select name="existingCustomer"><option value="">Enter customer below</option>{customers.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select><small>When selected, the saved customer details are used.</small></label>
-  <label>First name<input name="firstName"/></label><label>Last name<input name="lastName"/></label>
-  <label>Phone<input name="phone" type="tel" required/></label><label>Email <small>Optional</small><input name="email" type="email"/></label>
+  <label>Existing customer<select name="existingCustomer" value={existingCustomer} onChange={event=>{const customer=customers.find(item=>item.id===event.target.value);setExistingCustomer(event.target.value);setCustomerDetails(customer?{firstName:customer.firstName,lastName:customer.lastName,phone:customer.phone,email:customer.email,address:customer.address,city:customer.city||"Mesa",zip:customer.zip}:blankCustomerDetails);}}><option value="">Enter customer below</option>{customers.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select><small>Selecting a customer fills their saved contact details and primary service address. You can adjust the event address below.</small></label>
+  <label>First name<input name="firstName" value={customerDetails.firstName} onChange={event=>updateCustomer({firstName:event.target.value})}/></label><label>Last name<input name="lastName" value={customerDetails.lastName} onChange={event=>updateCustomer({lastName:event.target.value})}/></label>
+  <label>Phone<input name="phone" type="tel" required value={customerDetails.phone} onChange={event=>updateCustomer({phone:event.target.value})}/></label><label>Email <small>Optional</small><input name="email" type="email" value={customerDetails.email} onChange={event=>updateCustomer({email:event.target.value})}/></label>
   <label className="wide toggle-row"><input name="smsConsent" type="checkbox" value="true"/><span><b>Customer explicitly agrees to receive booking-related text messages</b><small>{disclosure}</small></span></label>
   <label>Rental date<input required name="rentalDate" type="date" min={new Date().toISOString().slice(0,10)}/></label>
   <fieldset className="wide assisted-rental-items"><legend>Rental items</legend>
@@ -51,7 +56,7 @@ export function AssistedRentalBookingForm({slug,items,customers,disclosure,reque
    <button type="button" className="button secondary" onClick={()=>setRows(current=>[...current,{key:nextKey.current++,id:'',quantity:'1',price:'0.00'}])}>+ Add another rental</button>
    <p>For more than one of the same rental, increase its quantity. Unit prices start at the catalog price; confirm any date-specific or agreed pricing before sending.</p>
   </fieldset>
-  <label>Address<input required name="address"/></label><label>City<input name="city" defaultValue="Mesa"/></label><label>ZIP<input required name="zip"/></label>
+  <label>Address<input required name="address" value={customerDetails.address} onChange={event=>updateCustomer({address:event.target.value})}/></label><label>City<input name="city" value={customerDetails.city} onChange={event=>updateCustomer({city:event.target.value})}/></label><label>ZIP<input required name="zip" value={customerDetails.zip} onChange={event=>updateCustomer({zip:event.target.value})}/></label>
   <label>Rental subtotal<input name="subtotal" type="number" min="0" step="0.01" required readOnly={!override} value={override?subtotal:totals?(totals.itemSubtotal/100).toFixed(2):''} onChange={e=>setSubtotal(e.target.value)}/></label>
   <label className="toggle-row"><input name="overrideSubtotal" type="checkbox" value="true" checked={override} onChange={e=>{setSubtotal(((totals?.itemSubtotal??0)/100).toFixed(2));setOverride(e.target.checked);}}/>Override subtotal</label>
   <label>Discount<input required name="discount" type="number" min="0" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)}/></label>
