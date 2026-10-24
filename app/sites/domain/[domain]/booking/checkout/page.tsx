@@ -8,6 +8,7 @@ import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {TenantMetaInitiateCheckoutTracker} from "@/components/TenantMetaInitiateCheckoutTracker";
 import {TemporarySiteUnavailable} from "@/components/TemporarySiteUnavailable";
 import {loadPublishedBusinessWebsiteByDomain} from "@/lib/businessWebsite";
+import {browserGoogleMapsApiKey} from "@/lib/googleMapsKey";
 import {normalizeWebsiteDomain} from "@/lib/website";
 import {loadPublicBookingData} from "@/app/book/[businessSlug]/loadPublicBookingData";
 import {tenantMetadata} from "@/lib/publicTenantSeo";
@@ -52,6 +53,7 @@ export default async function CustomDomainBookingCheckoutPage({params,searchPara
  const embedded=query.embed==="1";
  const initialCartState=parseCartState(query.cartState);
  const initialDateState=parseDateState(query.dateState);
+ const googleMapsApiKey=browserGoogleMapsApiKey();
  const data=await loadPublicBookingData(bookingSlug);
  if(!data)notFound();
  const {settings,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,schedule}=data;
@@ -71,7 +73,7 @@ export default async function CustomDomainBookingCheckoutPage({params,searchPara
      <p>Review your party cart, confirm your event details, and finish booking.</p>
     </header>}
 
-    {rentalInventory.length?<PartyRentalBookingClient fullDayRentalMessage={data.fullDayRentalMessage} cancellationPolicy={data.cancellationPolicy} businessSlug={bookingSlug} businessName={businessName??"this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} timezone={settings.timezone??"America/Phoenix"} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={process.env.GOOGLE_MAPS_API_KEY?process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:undefined} initialPromotionCode={query.promotion} attributionSessionId={query.sv_at} initialCheckout catalogUrl="/booking" policyBasePath="" initialCartState={initialCartState} initialDateState={initialDateState}/>:<div className="booking-empty">No rental items are available for online booking yet.</div>}
+    {rentalInventory.length?<PartyRentalBookingClient fullDayRentalMessage={data.fullDayRentalMessage} cancellationPolicy={data.cancellationPolicy} businessSlug={bookingSlug} businessName={businessName??"this business"} inventory={rentalInventory} capacityByItem={rentalCapacity} blockedDates={rentalBlockedDates} relatedItems={rentalUpsells} schedule={schedule} timezone={settings.timezone??"America/Phoenix"} standardDurationMinutes={Number(settings.rental_duration_minutes??240)} standardRentalHours={Number(settings.standard_rental_hours??24)} allowMultiDay={Boolean(settings.allow_multi_day_rentals)} additionalDayPricingType={settings.additional_day_pricing_type??"full_price"} additionalDayDiscountPercent={Number(settings.additional_day_discount_percent??0)} additionalDayFlatRateCents={settings.additional_day_flat_rate_cents==null?null:Number(settings.additional_day_flat_rate_cents)} maxRentalDays={settings.max_rental_days==null?null:Number(settings.max_rental_days)} depositPercent={Number(settings.rental_deposit_percent??25)} onlinePaymentsReady={rentalOnlinePaymentsReady} googleMapsApiKey={googleMapsApiKey} initialPromotionCode={query.promotion} attributionSessionId={query.sv_at} initialCheckout catalogUrl="/booking" policyBasePath="" initialCartState={initialCartState} initialDateState={initialDateState}/>:<div className="booking-empty">No rental items are available for online booking yet.</div>}
    </section>
    {!embedded&&<footer><Link href="/privacy">Privacy Policy</Link> · <Link href="/terms">Terms of Service</Link></footer>}
   </main></>
