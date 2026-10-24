@@ -18,11 +18,13 @@ test("domain registration offers Google address autocomplete with manual fallbac
 test("public booking routes use a browser-restricted Google Maps key",async()=>{
  const helper=await fs.readFile("lib/googleMapsKey.ts","utf8");
  const domainBookingPage=await fs.readFile("app/sites/domain/[domain]/booking/page.tsx","utf8");
+ const domainCheckoutPage=await fs.readFile("app/sites/domain/[domain]/booking/checkout/page.tsx","utf8");
  const publicBookingPage=await fs.readFile("app/book/[businessSlug]/page.tsx","utf8");
  const checkoutPage=await fs.readFile("app/book/[businessSlug]/booking/page.tsx","utf8");
  assert.match(helper,/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/);
  assert.match(helper,/browserGoogleMapsApiKey/);
  assert.match(domainBookingPage,/browserGoogleMapsApiKey/);
+ assert.match(domainCheckoutPage,/browserGoogleMapsApiKey/);
  assert.match(publicBookingPage,/browserGoogleMapsApiKey/);
  assert.match(checkoutPage,/browserGoogleMapsApiKey/);
  const browserHelper=helper.match(/export function browserGoogleMapsApiKey\(\) \{([\s\S]*?)\n\}/)?.[1]??"";
