@@ -5,7 +5,7 @@ import {TenantMetaPixelPurchaseTracker} from "@/components/TenantMetaPixelPurcha
 import {TenantMetaPixel} from "@/components/TenantMetaPixel";
 import {GoogleAdsBookingConversion} from "@/components/GoogleAdsBookingConversion";
 import {normalizeGoogleAdsTagId} from "@/lib/googleTag";
-import {normalizeGoogleAdsConversionDestination} from "@/lib/googleAds";
+import {normalizeGoogleAdsConversionDestination,verifiedGoogleAdsPaidBooking} from "@/lib/googleAds";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -58,16 +58,18 @@ export default async function BookingSuccess({
     });
   }
 
-  const [businessResult, serviceResult, customerResult, jobResult] = await Promise.all([
+  const [businessResult, serviceResult, customerResult, jobResult, bookingResult] = await Promise.all([
     supabase.from("businesses").select("id,name,website_url").eq("id", submission.business_id).maybeSingle(),
     supabase.from("services").select("id,name").eq("id", submission.service_id).eq("business_id", submission.business_id).maybeSingle(),
     supabase.from("customers").select("id,first_name,last_name").eq("id", submission.customer_id).eq("business_id", submission.business_id).maybeSingle(),
     supabase.from("jobs").select("id,job_number,status,starts_at,ends_at,service_address,total_amount").eq("id", submission.job_id).eq("business_id", submission.business_id).maybeSingle(),
+    supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,paid_at").eq("job_id", submission.job_id).eq("business_id", submission.business_id).maybeSingle(),
   ]);
   if (businessResult.error) databaseFailure("business lookup failed", businessResult.error);
   if (serviceResult.error) databaseFailure("service lookup failed", serviceResult.error);
   if (customerResult.error) databaseFailure("customer lookup failed", customerResult.error);
   if (jobResult.error) databaseFailure("job lookup failed", jobResult.error);
+  if (bookingResult.error) databaseFailure("booking lookup failed", bookingResult.error);
   if (!businessResult.data || !serviceResult.data || !customerResult.data || !jobResult.data) {
     databaseFailure("one or more associated booking records are missing", {
       confirmation,
@@ -91,6 +93,7 @@ export default async function BookingSuccess({
   const googleAdsTagId=normalizeGoogleAdsTagId(websiteSettings?.google_ads_tag_id);
   const googleAdsBookingConversionDestination=normalizeGoogleAdsConversionDestination(websiteSettings?.google_ads_booking_conversion_destination,googleAdsTagId);
   const bookingTotalCents=Number.isSafeInteger(Math.round(Number(job.total_amount)*100))&&Number(job.total_amount)>=0?Math.round(Number(job.total_amount)*100):null;
+  const paidBooking=verifiedGoogleAdsPaidBooking(bookingResult.data);
   const { data: signedLogo } = settings.logo_path
     ? await supabase.storage.from("booking-branding").createSignedUrl(settings.logo_path, 3600)
     : { data: null };
@@ -108,7 +111,7 @@ export default async function BookingSuccess({
       <section className="public-booking-card booking-success">
         {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
         {job.status==="confirmed"&&<TenantMetaPixelPurchaseTracker bookingId={submission.id} businessSlug={businessSlug} contentIds={[service.id]} contentName={service.name} numItems={1} value={bookingTotalCents===null?undefined:bookingTotalCents/100} />}
-        {job.status==="confirmed"&&bookingTotalCents!==null&&<GoogleAdsBookingConversion bookingId={job.id} destination={googleAdsBookingConversionDestination} totalCents={bookingTotalCents} currency="USD"/>}
+        {paidBooking&&<GoogleAdsBookingConversion bookingId={paidBooking.bookingId} destination={googleAdsBookingConversionDestination} totalCents={paidBooking.totalCents} currency="USD"/>}
         {bookingLogo && <img className="booking-success-logo" src={bookingLogo} alt={`${business.name} logo`}/>}
         <div className="success-check" aria-hidden="true">✓</div>
         <small>Confirmation #{job.job_number}</small>

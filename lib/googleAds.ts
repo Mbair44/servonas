@@ -14,6 +14,15 @@ type GoogleAdsConversionOptions={
 type TenantGoogleAdsConversion=GoogleAdsConversionOptions & {sendTo:string};
 type GoogleAdsBookingConversion={bookingId:string;destination:string;value:number;currency?:string};
 export type GoogleAdsConversionPayload={send_to:string;value:number;currency:string;transaction_id:string};
+export type GoogleAdsPaidBooking={id?:unknown;status?:unknown;total_cents?:unknown;amount_paid_cents?:unknown;paid_at?:unknown};
+
+/** A purchase event must be backed by the same payment evidence as checkout. */
+export function verifiedGoogleAdsPaidBooking(booking:GoogleAdsPaidBooking|null|undefined):{bookingId:string;totalCents:number}|null{
+ if(!booking||booking.status!=="confirmed"||typeof booking.id!=="string"||!booking.id||typeof booking.paid_at!=="string"||!booking.paid_at)return null;
+ const totalCents=Number(booking.total_cents),amountPaidCents=Number(booking.amount_paid_cents);
+ if(!Number.isSafeInteger(totalCents)||totalCents<0||!Number.isFinite(amountPaidCents)||amountPaidCents<=0)return null;
+ return {bookingId:booking.id,totalCents};
+}
 
 export function normalizeGoogleAdsConversionDestination(value:unknown,tagId?:unknown):string|null{
  if(typeof value!=="string")return null;

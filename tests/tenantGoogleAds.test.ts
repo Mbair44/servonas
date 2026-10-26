@@ -2,7 +2,7 @@ import test,{afterEach} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {activateGoogleAdsTag,normalizeGoogleAdsTagId,isPlatformGoogleAdsPath,updateGoogleAdsConsent} from "../lib/googleTag.ts";
-import {buildGoogleAdsBookingConversionPayload,normalizeGoogleAdsConversionDestination,trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion} from "../lib/googleAds.ts";
+import {buildGoogleAdsBookingConversionPayload,normalizeGoogleAdsConversionDestination,trackGoogleAdsConversion,trackGoogleAdsBookingConversion,trackGoogleAdsSignupConversion,verifiedGoogleAdsPaidBooking} from "../lib/googleAds.ts";
 
 const csb="AW-18406171248",other="AW-12345678901";
 function browser(consent:string|null="granted",existing?:"gtag"|"ga4"|"gtm"){
@@ -90,6 +90,12 @@ test("booking conversion payload can be inspected without dispatching a Google e
  const destination=`${csb}/dJbiCJve5ZodEPDE38hE`;
  assert.deepEqual(buildGoogleAdsBookingConversionPayload({bookingId:"4d660171-7b03-4a31-83cd-a1d57da46443",destination,value:345,currency:"USD"}),{send_to:destination,value:345,currency:"USD",transaction_id:"4d660171-7b03-4a31-83cd-a1d57da46443"});
  assert.equal(buildGoogleAdsBookingConversionPayload({bookingId:"booking",destination:`${other}/label`,value:-1}),null);
+});
+
+test("legacy public-booking purchases require a confirmed paid booking and use its canonical ID and full total",()=>{
+ const paid={id:"4d660171-7b03-4a31-83cd-a1d57da46443",status:"confirmed",total_cents:34500,amount_paid_cents:10000,paid_at:"2026-10-26T12:00:00.000Z"};
+ assert.deepEqual(verifiedGoogleAdsPaidBooking(paid),{bookingId:paid.id,totalCents:34500});
+ for(const booking of [{...paid,amount_paid_cents:0},{...paid,paid_at:null},{...paid,status:"paid"},null])assert.equal(verifiedGoogleAdsPaidBooking(booking),null);
 });
 test("private/preview paths and platform tag on tenant paths never track",()=>{
  const b=browser();
