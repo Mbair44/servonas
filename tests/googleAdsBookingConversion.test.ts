@@ -44,7 +44,7 @@ test("rental success waits for webhook confirmation and diagnostic delivery rema
  assert.match(googleAds,/window\.localStorage\.getItem\(storageKey\)/);
 });
 
-test("initial server HTML contains one consent-denied tenant loader, and confirmed service bookings use their final job total",async()=>{
+test("initial server HTML contains one consent-denied tenant loader, and legacy service booking purchases are tenant-scoped and payment-verified",async()=>{
  const [tag,serviceSuccess]=await Promise.all([
   read("components/TenantGoogleAdsTag.tsx"),read("app/book/[businessSlug]/success/page.tsx"),
  ]);
@@ -55,8 +55,11 @@ test("initial server HTML contains one consent-denied tenant loader, and confirm
  assert.match(tag,/normalizeGoogleAdsTagId\(tagId\)/);
  assert.match(serviceSuccess,/select\("id,job_number,status,starts_at,ends_at,service_address,total_amount"\)/);
  assert.match(serviceSuccess,/normalizeGoogleAdsConversionDestination\(websiteSettings\?\.google_ads_booking_conversion_destination,googleAdsTagId\)/);
- assert.match(serviceSuccess,/job\.status==="confirmed"&&bookingTotalCents!==null/);
- assert.match(serviceSuccess,/<GoogleAdsBookingConversion bookingId=\{job\.id\} destination=\{googleAdsBookingConversionDestination\} totalCents=\{bookingTotalCents\} currency="USD"/);
+ assert.match(serviceSuccess,/from\("bookings"\)\.select\("id,status,total_cents,amount_paid_cents,paid_at"\)\.eq\("job_id", submission\.job_id\)\.eq\("business_id", submission\.business_id\)\.maybeSingle\(\)/);
+ assert.match(serviceSuccess,/verifiedGoogleAdsPaidBooking\(bookingResult\.data\)/);
+ assert.match(serviceSuccess,/bookingId=\{paidBooking\.bookingId\}/);
+ assert.match(serviceSuccess,/totalCents=\{paidBooking\.totalCents\}/);
+ assert.doesNotMatch(serviceSuccess,/bookingId=\{job\.id\}/);
 });
 
 test("tenant destination, settings validation, success rendering, Meta boundary, and click IDs stay isolated",async()=>{
@@ -72,7 +75,7 @@ test("tenant destination, settings validation, success rendering, Meta boundary,
  assert.match(page,/Google Ads Booking Conversion Destination/);
  assert.match(success,/normalizeGoogleAdsConversionDestination\(website\?\.google_ads_booking_conversion_destination,googleAdsTagId\)/);
  assert.match(success,/TenantMetaPixelPurchaseTracker/);
- assert.match(meta,/eventId:`purchase-\$\{bookingId\}`/);
+ assert.match(meta,/const eventId=`purchase-\$\{bookingId\}`/);
  for(const clickId of ["gclid","gbraid","wbraid"]){assert.match(attribution,new RegExp(clickId));}
  assert.match(tracker,/applyStoredAttribution/);
 });
