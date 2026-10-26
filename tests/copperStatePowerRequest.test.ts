@@ -6,6 +6,8 @@ const read=(path:string)=>readFileSync(new URL(`../${path}`,import.meta.url),"ut
 test("Copper State Bounce review offers an optional power question without a priced add-on",()=>{
  const source=read("components/PartyRentalBookingClient.tsx");
  assert.match(source,/Need power for your inflatable\?/);
+ assert.match(source,/Need power for your inflatable\? <small>Optional<\/small>/);
+ assert.match(source,/className="rental-power-options"/);
  assert.match(source,/I have access to electricity/);
  assert.match(source,/I need a generator \(\+\$150\)/);
  assert.match(source,/I&apos;m not sure/);
