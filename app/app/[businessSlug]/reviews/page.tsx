@@ -1,18 +1,18 @@
-import Link from "next/link";
 import {requireWorkspace} from "@/lib/workspace";
-import {canManageCustomers} from "@/lib/access";
+import {canManageBusiness} from "@/lib/access";
 import {WorkspaceNav} from "../WorkspaceNav";
-import {decideGoogleReviewMatch} from "./actions";
+import {GoogleReviewsDashboard} from "@/components/GoogleReviewsDashboard";
+import {decideGoogleReviewMatch,proposeGoogleReviewMatch,removeGoogleReviewMatch} from "./actions";
 
-export default async function ReviewsPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{status?:string}>}){
- const {businessSlug}=await params,{status}=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
- const query=supabase.from("google_reviews").select("id,reviewer_display_name,star_rating,review_text,review_created_at,google_review_url,business_google_locations(location_title),google_review_customer_matches(id,status,customer_id,customers(first_name,last_name))").eq("business_id",business.id).order("review_created_at",{ascending:false}).limit(200);
- const {data:reviews,error}=await query;if(error)console.error("Could not load Google reviews",{businessId:business.id,code:error.code});
- const filtered=(reviews??[]).filter((review:any)=>{
-  if(!status||status==="all")return true;
-  if(status==="unmatched")return !review.google_review_customer_matches?.length;
-  return review.google_review_customer_matches?.some((m:any)=>m.status===status);
- });
- const manage=canManageCustomers(role);
- return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content"><header className="page-header"><div><h1>Google Reviews</h1><p>Confirm customer links before they suppress future review requests.</p></div></header><p><Link href={`/app/${businessSlug}/reviews`}>All</Link> · <Link href={`/app/${businessSlug}/reviews?status=suggested`}>Suggested</Link> · <Link href={`/app/${businessSlug}/reviews?status=confirmed`}>Matched</Link> · <Link href={`/app/${businessSlug}/reviews?status=unmatched`}>Unmatched</Link></p>{filtered.map((review:any)=>{const match=review.google_review_customer_matches?.[0],customer=match?.customers;return <article className="workspace-panel" key={review.id}><h2>{review.reviewer_display_name} · {"★".repeat(review.star_rating??0)}</h2><p>{review.review_text||"No written review"}</p><small>{review.business_google_locations?.location_title||"Google location"} · {review.review_created_at?new Date(review.review_created_at).toLocaleDateString():"Date unavailable"}</small><p>{match?<>{match.status}: {customer?<Link href={`/app/${businessSlug}/customers/${match.customer_id}`}>{customer.first_name} {customer.last_name}</Link>:"customer"}</>:"Unmatched"}</p>{manage&&match?.status==="suggested"&&<p><form action={decideGoogleReviewMatch.bind(null,businessSlug,review.id,match.customer_id,"confirmed")}><button className="sv-button">Confirm match</button></form> <form action={decideGoogleReviewMatch.bind(null,businessSlug,review.id,match.customer_id,"rejected")}><button className="sv-button sv-secondary">Reject</button></form></p>}{review.google_review_url&&<a href={review.google_review_url} target="_blank">Open on Google</a>}</article>;})}{!filtered.length&&<section className="workspace-panel"><p>No reviews match this filter. Connect Google Business Profile and run a validated sync to populate this list.</p></section>}</section></main>;
+const pageSize=20;
+export default async function ReviewsPage({params,searchParams}:{params:Promise<{businessSlug:string}>;searchParams:Promise<{filter?:string;q?:string;page?:string}>}){
+ const {businessSlug}=await params,{filter:rawFilter,q:rawQuery,page:rawPage}=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
+ const filter=["all","suggested","matched","unmatched"].includes(rawFilter??"")?rawFilter??"all":"all",query=(rawQuery??"").trim().slice(0,100),page=Math.max(1,Number.parseInt(rawPage??"1",10)||1),manage=canManageBusiness(role);
+ let list=supabase.from("google_reviews").select("id,reviewer_display_name,star_rating,review_text,review_created_at,google_review_url,google_review_customer_matches(id,status,customer_id,customers(first_name,last_name,company_name))").eq("business_id",business.id).order("review_created_at",{ascending:false});
+ if(query)list=list.ilike("reviewer_display_name",`%${query.replaceAll("%","\\%").replaceAll("_","\\_")}%`);
+ const {data:allReviews,error}=await list.limit(500);if(error)console.error("Could not load Google reviews",{businessId:business.id,code:error.code});
+ const all=allReviews??[],metrics={total:all.length,suggested:all.filter((review:any)=>review.google_review_customer_matches?.some((match:any)=>match.status==="suggested")).length,confirmed:all.filter((review:any)=>review.google_review_customer_matches?.some((match:any)=>match.status==="confirmed")).length,unmatched:all.filter((review:any)=>!(review.google_review_customer_matches?.length)).length};
+ const filtered=all.filter((review:any)=>{const matches=review.google_review_customer_matches??[];if(filter==="all")return true;if(filter==="suggested")return matches.some((match:any)=>match.status==="suggested");if(filter==="matched")return matches.some((match:any)=>match.status==="confirmed");return !matches.length;});
+ const pages=Math.max(1,Math.ceil(filtered.length/pageSize)),current=Math.min(page,pages),reviews=filtered.slice((current-1)*pageSize,current*pageSize);
+ return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content reviews-dashboard"><header className="page-header"><div><h1>Google Reviews</h1><p>Match and confirm reviews to suppress only future review-request SMS for the correct customer.</p></div></header>{error?<section className="workspace-notice error">Reviews could not be loaded. Refresh and try again.</section>:<GoogleReviewsDashboard businessSlug={businessSlug} reviews={reviews as any} metrics={metrics} canManage={manage} page={current} pages={pages} filter={filter} query={query} proposeAction={proposeGoogleReviewMatch.bind(null,businessSlug)} decideAction={decideGoogleReviewMatch.bind(null,businessSlug)} removeAction={removeGoogleReviewMatch.bind(null,businessSlug)}/>}</section></main>;
 }
