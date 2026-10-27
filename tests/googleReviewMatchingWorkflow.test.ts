@@ -8,6 +8,7 @@ const customerSearch=read("../app/api/google-business/reviews/customers/[busines
 const page=read("../app/app/[businessSlug]/reviews/page.tsx");
 const dashboard=read("../components/GoogleReviewsDashboard.tsx");
 const migration=read("../supabase/migrations/20261027000200_google_review_match_audits.sql");
+const guardRepair=read("../supabase/migrations/20261027000300_fix_google_review_match_tenant_guard.sql");
 const trackingMigration=read("../supabase/migrations/20261020000100_google_review_tracking.sql");
 
 test("manual selection is tenant-scoped and requires a later explicit confirmation",()=>{
@@ -43,6 +44,8 @@ test("match changes are auditable and retain existing review-request suppression
  assert.match(migration,/owners and admins create review match audits/);
  assert.match(actions,/Could not record the review-match change/);
  assert.match(trackingMigration,/m\.status='confirmed'/);
+ assert.match(guardRepair,/if tg_table_name='google_review_customer_matches' then/);
+ assert.match(guardRepair,/elsif tg_table_name='customer_review_overrides' then/);
 });
 
 test("review dashboard includes status metrics, search, filters, compact actions, and pagination",()=>{
