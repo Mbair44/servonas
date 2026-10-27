@@ -267,6 +267,9 @@ export async function getGoogleBusinessProfileReviews(businessId:string):Promise
 }
 
 const reviewName=(value:string)=>value.toLocaleLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+export class GoogleReviewSyncConflictError extends Error{}
+export class GoogleReviewSyncCooldownError extends Error{}
+const manualReviewSyncCooldownMs=5*60*1000;
 
 /** Syncs the authoritative Google review feed. Suggestions are intentionally
  * non-suppressing: a staff member must confirm them in the dashboard. */
@@ -276,9 +279,16 @@ export async function syncGoogleBusinessReviews(businessId:string){
  if(!connection?.refresh_token||connection.status!=="connected"||!connection.google_account_id||!connection.google_location_id)throw new Error("Google Business Profile is not connected or needs reauthorization.");
  const {data:location,error:locationError}=await db.from("business_google_locations").upsert({business_id:businessId,google_account_id:connection.google_account_id,google_location_id:connection.google_location_id,is_active:true},{onConflict:"business_id,google_location_id"}).select("id").single();
  if(locationError||!location)throw new Error("Google review location storage is unavailable.");
- const {data:run}=await db.from("google_review_sync_runs").insert({business_id:businessId,google_location_id:location.id,status:"started"}).select("id").single();
+ const {data:latestSuccess}=await db.from("google_review_sync_runs").select("completed_at").eq("business_id",businessId).eq("status","succeeded").order("completed_at",{ascending:false}).limit(1).maybeSingle();
+ if(latestSuccess?.completed_at&&Date.now()-new Date(latestSuccess.completed_at).getTime()<manualReviewSyncCooldownMs)throw new GoogleReviewSyncCooldownError("Reviews were synced recently. Please wait a few minutes before trying again.");
+ const {data:run,error:runError}=await db.from("google_review_sync_runs").insert({business_id:businessId,google_location_id:location.id,status:"started"}).select("id").single();
+ if(runError){if(runError.code==="23505")throw new GoogleReviewSyncConflictError("A review sync is already in progress.");throw new Error("Google review sync could not be started.");}
  const startedAt=new Date().toISOString(); let seen=0;
+ let inserted=0,updated=0;
  try{
+  const {data:existingReviews,error:existingReviewsError}=await db.from("google_reviews").select("google_review_id").eq("business_id",businessId).eq("google_location_id",location.id);
+  if(existingReviewsError)throw new Error("Google review storage is unavailable.");
+  const existingIds=new Set((existingReviews??[]).map(review=>review.google_review_id));
   const accessToken=await refreshAccessToken(connection.refresh_token,{googleBusinessOperationId:`review-sync-${businessId}`,stage:"review_sync",businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,requestCounter:{current:0}});
   let pageToken="";
   do {
@@ -286,7 +296,7 @@ export async function syncGoogleBusinessReviews(businessId:string){
    const endpoint=`/v4/accounts/${encodeURIComponent(connection.google_account_id)}/locations/${encodeURIComponent(connection.google_location_id)}/reviews`;
    const page=await googleRequest<{reviews?:{reviewId?:string;reviewer?:{displayName?:string;profilePhotoUrl?:string};starRating?:string;comment?:string;createTime?:string;updateTime?:string;reviewReply?:{comment?:string;updateTime?:string};reviewUrl?:string}[];nextPageToken?:string}>({url:`https://mybusiness.googleapis.com${endpoint}?${query}`,accessToken,service:"mybusiness.googleapis.com",endpoint,context:{googleBusinessOperationId:`review-sync-${businessId}`,stage:"review_sync",businessId,accountId:connection.google_account_id,locationId:connection.google_location_id,requestCounter:{current:0}}});
    for(const review of page.reviews??[]){
-    if(!review.reviewId)continue; seen++;
+    if(!review.reviewId)continue; seen++;if(existingIds.has(review.reviewId))updated++;else{inserted++;existingIds.add(review.reviewId);}
     const {data:stored,error}=await db.from("google_reviews").upsert({business_id:businessId,google_location_id:location.id,google_review_id:review.reviewId,reviewer_display_name:review.reviewer?.displayName??"Google user",reviewer_profile_photo_url:review.reviewer?.profilePhotoUrl??null,star_rating:stars[review.starRating??""]??null,review_text:review.comment??"",review_created_at:review.createTime??null,review_updated_at:review.updateTime??review.createTime??null,reply_text:review.reviewReply?.comment??null,reply_updated_at:review.reviewReply?.updateTime??null,google_review_url:review.reviewUrl??null,is_available:true,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:"google_location_id,google_review_id"}).select("id,reviewer_display_name,review_created_at").single();
     if(error||!stored)throw new Error("Google review storage failed.");
     const {data:customers}=await db.from("customers").select("id,first_name,last_name").eq("business_id",businessId).eq("is_deleted",false);
@@ -296,11 +306,11 @@ export async function syncGoogleBusinessReviews(businessId:string){
    pageToken=page.nextPageToken??"";
   } while(pageToken);
   await db.from("google_reviews").update({is_available:false,updated_at:new Date().toISOString()}).eq("business_id",businessId).eq("google_location_id",location.id).lt("last_seen_at",startedAt);
-  await db.from("google_review_sync_runs").update({status:"succeeded",completed_at:new Date().toISOString(),records_seen:seen}).eq("id",run?.id??"");
-  return {ok:true,recordsSeen:seen};
+  await db.from("google_review_sync_runs").update({status:"succeeded",completed_at:new Date().toISOString(),records_seen:seen,records_inserted:inserted,records_updated:updated}).eq("id",run.id);
+  return {ok:true,recordsSeen:seen,recordsInserted:inserted,recordsUpdated:updated};
  }catch(error){
   const api=error instanceof GoogleBusinessApiError?error:null,permission=api?.httpStatus===401||api?.httpStatus===403;
-  await db.from("google_review_sync_runs").update({status:permission?"permissions_error":"failed",completed_at:new Date().toISOString(),records_seen:seen,error_code:api?.googleStatus??null,error_message:(error instanceof Error?error.message:"Review sync failed.").slice(0,1000)}).eq("id",run?.id??"");
+  await db.from("google_review_sync_runs").update({status:permission?"permissions_error":"failed",completed_at:new Date().toISOString(),records_seen:seen,records_inserted:inserted,records_updated:updated,error_code:api?.googleStatus??null,error_message:(error instanceof Error?error.message:"Review sync failed.").slice(0,1000)}).eq("id",run.id);
   throw error;
  }
 }
