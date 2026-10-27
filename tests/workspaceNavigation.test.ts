@@ -26,6 +26,7 @@ test("navigation uses grouped labels without changing routes",()=>{
  ]);
  assert.deepEqual(marketing.children?.map(item=>[item.label,item.href]),[
   ["Funnel","/app/acme/marketing/funnel"],
+  ["Smart Upsells","/app/acme/marketing/smart-upsells"],
   ["Traffic Timing","/app/acme/marketing/traffic-timing"],
   ["Discounts","/app/acme/marketing/discounts"],
   ["Promotions","/app/acme/marketing/promotions"],
@@ -75,4 +76,5 @@ test("Messages is a standalone navigation item for new and existing inbox links"
  assert.equal(messages.label,"Messages");assert.equal(messages.href,"/app/acme/messages");assert.equal(messages.children,undefined);
  for(const path of ["/app/acme/messages","/app/acme/customers/messages"]){assert.equal(routeIsActive(path,messages),true);assert.equal(activeNavigationGroup(path,items),undefined);}
  assert.equal(activeNavigationGroup("/app/acme/customers/123",items),"customers");
+ assert.equal(activeNavigationGroup("/app/acme/marketing/smart-upsells",items),"marketing");
 });
