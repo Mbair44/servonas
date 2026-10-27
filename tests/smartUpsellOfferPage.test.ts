@@ -24,6 +24,7 @@ test("server-side payment gate is disabled by default",()=>{
 test("public routes use token-only validation and domain ownership checks",()=>{
  const loader=read("lib/smartUpsellOfferPage.ts"),hosted=read("app/upsell/[token]/page.tsx"),domain=read("app/sites/domain/[domain]/upsell/[token]/page.tsx"),middleware=read("middleware.ts");
  assert.match(loader,/token_hash/);assert.match(loader,/smartUpsellTokenIsUsable/);assert.match(loader,/booking\.customer_id!==offer\.customer_id/);assert.match(loader,/booking\.rental_starts_at!==offer\.rental_starts_at/);assert.match(loader,/\.eq\("business_id",offer\.business_id\)/);assert.match(loader,/domain_status","connected"/);
+ assert.match(loader,/if\(offer\.status==="sent"\)try\{await db\.rpc/);assert.doesNotMatch(loader,/\.rpc\([^\n]+\)\.catch/);
  assert.match(hosted,/loadPublicSmartUpsellOffer/);assert.match(domain,/loadPublicSmartUpsellOffer\(db,\{token,domain/);assert.match(middleware,/path\.startsWith\("\/upsell\/"\)/);
 });
 
