@@ -28,6 +28,17 @@ async function requireMatchManager(slug:string){
  return workspace;
 }
 
+async function saveMatch(supabase:any,input:{businessId:string;reviewId:string;customerId:string;existingStatus?:string;values:Record<string,unknown>}){
+ const scope=supabase.from("google_review_customer_matches");
+ const {error}=input.existingStatus
+  ?await scope.update(input.values).eq("business_id",input.businessId).eq("review_id",input.reviewId).eq("customer_id",input.customerId)
+  :await scope.insert({business_id:input.businessId,review_id:input.reviewId,customer_id:input.customerId,...input.values});
+ if(error){
+  console.error("Google review match persistence failed",{code:error.code,message:error.message,details:error.details,businessId:input.businessId,reviewId:input.reviewId,customerId:input.customerId});
+  throw new Error("Could not save review match.");
+ }
+}
+
 export async function decideGoogleReviewMatch(slug:string,formData:FormData){
  const reviewId=required(formData,"reviewId"),customerId=required(formData,"customerId"),status: "confirmed"|"rejected"=formData.get("status")==="confirmed"?"confirmed":"rejected";
  if(!reviewId||!customerId)throw new Error("A review and customer are required.");
@@ -38,8 +49,7 @@ export async function decideGoogleReviewMatch(slug:string,formData:FormData){
   const {data:confirmed}=await supabase.from("google_review_customer_matches").select("customer_id").eq("business_id",business.id).eq("review_id",reviewId).eq("status","confirmed").maybeSingle();
   if(confirmed&&confirmed.customer_id!==customerId)throw new Error("Remove the existing confirmed match before confirming another customer.");
  }
- const {error}=await supabase.from("google_review_customer_matches").upsert({business_id:business.id,review_id:reviewId,customer_id:customerId,status,decided_by:user.id,decided_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:"review_id,customer_id"});
- if(error)throw new Error("Could not save review match.");
+ await saveMatch(supabase,{businessId:business.id,reviewId,customerId,existingStatus:existing?.status,values:{status,decided_by:user.id,decided_at:new Date().toISOString(),updated_at:new Date().toISOString()}});
  await audit(supabase,{businessId:business.id,reviewId,customerId,actorUserId:user.id,action:status,previousStatus:existing?.status,nextStatus:status});
  revalidatePath(`/app/${slug}/reviews`);
  revalidatePath(`/app/${slug}/customers/${customerId}`);
@@ -53,8 +63,7 @@ export async function proposeGoogleReviewMatch(slug:string,formData:FormData){
  const {data:confirmed}=await supabase.from("google_review_customer_matches").select("customer_id").eq("business_id",business.id).eq("review_id",reviewId).eq("status","confirmed").maybeSingle();
  if(confirmed)throw new Error("Remove the confirmed match before selecting another customer.");
  const {data:existing}=await supabase.from("google_review_customer_matches").select("status").eq("business_id",business.id).eq("review_id",reviewId).eq("customer_id",customerId).maybeSingle();
- const {error}=await supabase.from("google_review_customer_matches").upsert({business_id:business.id,review_id:reviewId,customer_id:customerId,status:"suggested",confidence:null,match_reason:{strategy:"manual_selection"},updated_at:new Date().toISOString()},{onConflict:"review_id,customer_id"});
- if(error)throw new Error("Could not propose review match.");
+ await saveMatch(supabase,{businessId:business.id,reviewId,customerId,existingStatus:existing?.status,values:{status:"suggested",confidence:null,match_reason:{strategy:"manual_selection"},updated_at:new Date().toISOString()}});
  await audit(supabase,{businessId:business.id,reviewId,customerId,actorUserId:user.id,action:"manually_proposed",previousStatus:existing?.status,nextStatus:"suggested"});
  revalidatePath(`/app/${slug}/reviews`);
 }
