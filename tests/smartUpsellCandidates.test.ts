@@ -10,6 +10,8 @@ const booking={id:"booking-a",business_id:"business-a",customer_id:"customer-a",
 test("candidate booking requires enabled settings, paid/confirmed status, explicit marketing SMS consent, send window, and lead time",()=>{
  const now=new Date("2027-01-01T17:00:00.000Z");
  assert.equal(bookingSendDue({booking,settings,timezone:"UTC",now,offerCount:0}).eligible,true);
+ assert.equal(bookingSendDue({booking,settings:{...settings,sendBeforeEventHours:66},timezone:"UTC",now:new Date("2026-12-30T17:00:00.000Z"),offerCount:0,dailyWindowMinutes:24*60}).reasons.includes("outside_send_lead_window"),true);
+ assert.equal(bookingSendDue({booking,settings:{...settings,sendBeforeEventHours:66},timezone:"UTC",now:new Date("2026-12-31T17:00:00.000Z"),offerCount:0,dailyWindowMinutes:24*60}).eligible,true);
  assert.equal(bookingSendDue({booking,settings:{...settings,enabled:false},timezone:"UTC",now,offerCount:0}).reasons.includes("smart_upsells_disabled"),true);
  assert.equal(bookingSendDue({booking:{...booking,customers:{phone_normalized:"+15555550123",sms_consent_status:"opted_out"}},settings,timezone:"UTC",now,offerCount:0}).reasons.includes("marketing_sms_consent_missing"),true);
  assert.equal(bookingSendDue({booking,settings,timezone:"UTC",now,offerCount:1}).reasons.includes("maximum_offers_reached"),true);
