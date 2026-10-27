@@ -37,6 +37,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
   ]},
   {id:"marketing",label:"Marketing",icon:"chart",children:[
    {id:"funnel",label:"Funnel",href:`${base}/marketing/funnel`},
+   {id:"smart-upsells",label:"Smart Upsells",href:`${base}/marketing/smart-upsells`},
    {id:"traffic-timing",label:"Traffic Timing",href:`${base}/marketing/traffic-timing`},
    {id:"discounts",label:"Discounts",href:`${base}/marketing/discounts`},
    {id:"promotions",label:"Promotions",href:`${base}/marketing/promotions`},
