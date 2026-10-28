@@ -19,6 +19,11 @@ test("giveaway lifecycle keeps the shared discount independent after closure",as
  const actions=await readFile(new URL("../app/app/[businessSlug]/marketing/giveaways/actions.ts",import.meta.url),"utf8");
  assert.match(actions,/status==="published"&&g\.discount_id/);assert.doesNotMatch(actions,/is_active:status==="published"/);
 });
+test("giveaway drafts can be edited to provide publishing requirements",async()=>{
+ const page=await readFile(new URL("../app/app/[businessSlug]/marketing/giveaways/page.tsx",import.meta.url),"utf8");
+ assert.match(page,/Edit draft/);assert.match(page,/saveGiveaway\.bind\(null,businessSlug,giveaway\.id\)/);
+ assert.match(page,/name="eligibilityRules" required/);assert.match(page,/name="officialRulesUrl"/);assert.match(page,/name="privacyUrl"/);
+});
 test("entry handling uses exclusive end time, Turnstile action and only emails inserted entries",async()=>{
  const route=await readFile(new URL("../app/api/giveaways/entry/route.ts",import.meta.url),"utf8"),form=await readFile(new URL("../components/GiveawayEntryForm.tsx",import.meta.url),"utf8"),seed=await readFile(new URL("../supabase/migrations/20261013000400_seed_csb_main_event_giveaway.sql",import.meta.url),"utf8");
  assert.match(route,/now>=new Date\(g\.entry_ends_at\)/);assert.match(route,/action:"giveaway_entry"/);assert.match(route,/if\(entry&&d\)/);assert.match(form,/action:"giveaway_entry"/);assert.match(seed,/'2026-10-31T07:00:00Z'/);assert.match(seed,/do nothing/);
