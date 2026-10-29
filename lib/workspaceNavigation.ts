@@ -20,6 +20,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
   {id:"messages",label:"Messages",href:`${base}/messages`,routePatterns:[`${base}/messages`,`${base}/customers/messages`]},
   {id:"customers",label:"Customers",children:[
    {id:"customer-list",label:"Customers",href:`${base}/customers`},
+   {id:"reviews",label:"Reviews",href:`${base}/reviews`},
    {id:"calls",label:"Calls",href:`${base}/calls`},
    {id:"customer-campaigns",label:"Campaigns",href:`${base}/customers/campaigns`},
   ]},
