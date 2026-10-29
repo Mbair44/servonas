@@ -50,6 +50,8 @@ test("match changes are auditable and retain existing review-request suppression
 
 test("review dashboard includes status metrics, search, filters, compact actions, and pagination",()=>{
  assert.match(page,/GoogleReviewsDashboard/);
+ assert.match(page,/GoogleReviewsSyncButton/);
+ assert.match(page,/googleConnection\?\.status==="connected"/);
  assert.match(dashboard,/Total reviews/);
  assert.match(dashboard,/Suggested matches/);
  assert.match(dashboard,/Confirmed matches/);
