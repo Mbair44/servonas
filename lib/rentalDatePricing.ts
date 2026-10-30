@@ -1,6 +1,6 @@
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {dateInTimeZone} from "./bookingTime.ts";
-import {applyRentalDatePrice,calculateRentalCalendarDays,resolveRentalPricingRules,resolveRentalDurationRules,rentalDurationAdjustment,type RentalDatePrice,type AdditionalDayPricingType} from "./rentalPricing.ts";
+import {applyRentalDatePrice,calculateRentalCalendarDays,resolveRentalPricingRules,resolveRentalDurationRules,rentalDurationAdjustment,type RentalDatePrice,type AdditionalDayPricingType,type RentalPricingRules} from "./rentalPricing.ts";
 
 export function rentalPricingDate(value:string|Date,timeZone:string){
  if(value instanceof Date)return dateInTimeZone(value,timeZone);
@@ -17,7 +17,7 @@ export async function resolveRentalDatePrice(db:SupabaseClient,input:{businessId
  return data as RentalDatePrice;
 }
 /** Canonical server preview entrypoint; also available to future public/admin UI. */
-export async function resolveRentalItemPrice(db:SupabaseClient,input:{businessId:string;rentalItemId:string;rentalDate:string|Date;rentalEndDate?:string|Date;additionalHours?:number;overnight?:boolean}){
+export async function resolveRentalItemPrice(db:SupabaseClient,input:{businessId:string;rentalItemId:string;rentalDate:string|Date;rentalEndDate?:string|Date;additionalHours?:number;overnight?:boolean;pricingRulesOverride?:RentalPricingRules}){
  const [{data:item,error:itemError},{data:settings,error:settingsError}]=await Promise.all([
   db.from("inventory_items").select("*").eq("id",input.rentalItemId).eq("business_id",input.businessId).eq("active",true).maybeSingle(),
   db.from("booking_settings").select("*").eq("business_id",input.businessId).maybeSingle(),
@@ -25,7 +25,7 @@ export async function resolveRentalItemPrice(db:SupabaseClient,input:{businessId
  if(itemError||settingsError||!item||!settings)throw new Error("Rental pricing is unavailable for this item.");
  const timeZone=settings.timezone??"America/Phoenix",rentalDate=rentalPricingDate(input.rentalDate,timeZone),endDate=rentalPricingDate(input.rentalEndDate??input.rentalDate,timeZone);
  const datePrice=await resolveRentalDatePrice(db,{...input,rentalDate,timeZone});
- const rules=resolveRentalPricingRules({standardRentalHours:Number(settings.standard_rental_hours??24),allowMultiDay:Boolean(settings.allow_multi_day_rentals),additionalDayPricingType:(settings.additional_day_pricing_type??"full_price") as AdditionalDayPricingType,additionalDayDiscountPercent:Number(settings.additional_day_discount_percent??0),additionalDayFlatRateCents:settings.additional_day_flat_rate_cents,maxRentalDays:settings.max_rental_days},item);
+ const rules=input.pricingRulesOverride??resolveRentalPricingRules({standardRentalHours:Number(settings.standard_rental_hours??24),allowMultiDay:Boolean(settings.allow_multi_day_rentals),additionalDayPricingType:(settings.additional_day_pricing_type??"full_price") as AdditionalDayPricingType,additionalDayDiscountPercent:Number(settings.additional_day_discount_percent??0),additionalDayFlatRateCents:settings.additional_day_flat_rate_cents,maxRentalDays:settings.max_rental_days},item);
  const price=applyRentalDatePrice(datePrice,calculateRentalCalendarDays(rentalDate,endDate),rules);
  const hours=input.additionalHours??0;if(!Number.isInteger(hours)||hours<0||hours>168)throw new Error("Choose valid additional rental hours.");
  const duration=rentalDurationAdjustment(resolveRentalDurationRules({standardRentalHours:rules.standardRentalHours,allowExtendedRental:Boolean(settings.allow_extended_rental),additionalHourPriceCents:Number(settings.additional_hour_price_cents??0),overnightAvailable:Boolean(settings.overnight_available),overnightPriceCents:Number(settings.overnight_price_cents??0)},item),hours,input.overnight===true);
