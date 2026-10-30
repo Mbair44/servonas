@@ -48,7 +48,7 @@ export async function checkJobSchedule({
       .eq("active", true).lte("start_time", startTime).gte("end_time", endTime).limit(1),
     supabase.from("booking_blackouts").select("starts_at,ends_at").eq("business_id", businessId)
       .lt("starts_at", candidateEnd.toISOString()).gt("ends_at", candidateStart.toISOString()),
-    supabase.from("booking_settings").select("minimum_notice_hours,maximum_days_ahead").eq("business_id", businessId).maybeSingle(),
+    supabase.from("booking_settings").select("minimum_notice_hours,maximum_days_ahead,enforce_minimum_notice_for_staff_job_updates").eq("business_id", businessId).maybeSingle(),
     technicianId
       ? supabase.from("technician_profiles").select("default_working_hours,technician_status,employee_id").eq("id", technicianId).eq("business_id", businessId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -79,7 +79,7 @@ export async function checkJobSchedule({
   const settings = settingsResult.data;
   if (settings) {
     const now = Date.now();
-    if (candidateStart.getTime() < now + Number(settings.minimum_notice_hours ?? 0) * 3_600_000) {
+    if (settings.enforce_minimum_notice_for_staff_job_updates !== false && candidateStart.getTime() < now + Number(settings.minimum_notice_hours ?? 0) * 3_600_000) {
       return { available: false, code: "BOOKING_LIMIT", message: "The requested time does not meet the minimum scheduling notice." };
     }
     if (candidateStart.getTime() > now + Number(settings.maximum_days_ahead ?? 365) * 86_400_000) {
