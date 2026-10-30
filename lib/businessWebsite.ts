@@ -104,7 +104,7 @@ const normalizeQueryResult=<T,>(result:PromiseSettledResult<{data:T|null;error:u
 export async function loadBusinessWebsiteData(db:SupabaseClient,settings:WebsiteRow,options:LoadBusinessWebsiteDataOptions={}):Promise<BusinessSiteData|null>{
  const {includeExternalReviews=false,cacheExternalReviews=false}=options;
  const businessId=String(settings.business_id);
- const [businessResult,servicesResult,rentalItemsResult,rentalCategoriesResult,hoursResult,territoriesResult,bookingResult,websiteOnboardingResult,promotionResult,locationPagesResult]=await Promise.allSettled([
+ const [businessResult,servicesResult,rentalItemsResult,rentalCategoriesResult,hoursResult,territoriesResult,bookingResult,websiteOnboardingResult,promotionResult,locationPagesResult,categoryPagesResult]=await Promise.allSettled([
   db.from("businesses").select("id,name,slug,phone,email,primary_color,address_line1,city,state,postal_code,industry_profile,industry_other").eq("id",businessId).eq("is_deleted",false).maybeSingle(),
   db.from("services").select("id,name,description,price_amount,price_label").eq("business_id",businessId).eq("active",true).eq("is_deleted",false).order("sort_order").order("name"),
   db.from("inventory_items").select("id,name,category,category_id,description,daily_price_cents,image_url,length_ft,width_ft,height_ft,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override").eq("business_id",businessId).eq("active",true),
@@ -115,6 +115,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   db.from("business_website_onboarding_states").select("source").eq("business_id",businessId).maybeSingle(),
   db.from("discounts").select("announcement_text").eq("business_id",businessId).eq("is_active",true).eq("announcement_enabled",true).or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`).or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order("created_at",{ascending:false}).limit(1).maybeSingle(),
   db.from("business_location_pages").select("slug,city,state").eq("business_id",businessId).eq("status","published").order("city"),
+  db.from("category_website_pages").select("category_id,slug,title").eq("business_id",businessId).eq("status","published").order("title"),
  ]);
  const {data:business}=normalizeQueryResult(businessResult,"businesses",businessId);
  const {data:services}=normalizeQueryResult(servicesResult,"services",businessId);
@@ -126,6 +127,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const {data:websiteOnboarding}=normalizeQueryResult(websiteOnboardingResult,"business_website_onboarding_states",businessId);
  const {data:promotion}=normalizeQueryResult(promotionResult,"discounts",businessId);
  const {data:locationPages}=normalizeQueryResult(locationPagesResult,"business_location_pages",businessId);
+ const {data:categoryPages}=normalizeQueryResult(categoryPagesResult,"category_website_pages",businessId);
  if(!business)return null;
  let signedLogo:{signedUrl?:string}|null=null;
  if(booking?.logo_path){
@@ -203,7 +205,7 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   },
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
   rentalItems:(rentalItems??[]).sort((left:any,right:any)=>{const a=rentalCategoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=rentalCategoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||String(a.name).localeCompare(String(b.name))||String(left.name).localeCompare(String(right.name));}).map((item:any)=>{const rules=resolveRentalPricingRules({standardRentalHours:Number(booking?.standard_rental_hours??24),allowMultiDay:Boolean(booking?.allow_multi_day_rentals),additionalDayPricingType:(booking?.additional_day_pricing_type??"full_price") as AdditionalDayPricingType,additionalDayDiscountPercent:Number(booking?.additional_day_discount_percent??0),additionalDayFlatRateCents:booking?.additional_day_flat_rate_cents==null?null:Number(booking.additional_day_flat_rate_cents),maxRentalDays:booking?.max_rental_days==null?null:Number(booking.max_rental_days)},item);return{id:item.id,name:item.name,category:item.category??null,description:item.description??null,dailyPriceCents:Number(item.daily_price_cents??0),imageUrl:item.image_url??null,lengthFt:item.length_ft==null?null:Number(item.length_ft),widthFt:item.width_ft==null?null:Number(item.width_ft),heightFt:item.height_ft==null?null:Number(item.height_ft),standardRentalHours:rules.standardRentalHours,multiDayMessage:rules.allowMultiDay?rentalPricingMessage(rules):null}}),
-  hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],locationPages:locationPages??[],
+  hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:areas.length?areas:fallbackArea?[fallbackArea]:[],locationPages:locationPages??[],categoryPages:(categoryPages??[]).filter((page:any)=>(rentalItems??[]).some((item:any)=>item.category_id===page.category_id)).map((page:any)=>({slug:page.slug,title:page.title})),
  };
 }
 
