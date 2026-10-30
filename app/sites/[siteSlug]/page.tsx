@@ -13,7 +13,7 @@ export async function generateMetadata({params}:{params:Promise<{siteSlug:string
  const {data:settings}=await db.from("business_website_settings").select("*").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!settings)return {};
  const site=await loadBusinessWebsiteData(db,settings);if(!site)return {};
- return {...tenantMetadata({settings,fallbackBase:`${publicSeoPlatformUrl}/sites/${encodeURIComponent(siteSlug)}`,path:"/",title:site.name,description:site.heroSubheading,index:hostedTenantRobots(settings).index}),icons:site.logoUrl?{icon:[{url:site.logoUrl}],shortcut:site.logoUrl,apple:site.logoUrl}:undefined};
+ return {...tenantMetadata({settings,fallbackBase:`${publicSeoPlatformUrl}/sites/${encodeURIComponent(siteSlug)}`,path:"/",title:site.seoTitle||site.name,description:site.seoDescription||site.heroSubheading,index:hostedTenantRobots(settings).index}),icons:site.logoUrl?{icon:[{url:site.logoUrl}],shortcut:site.logoUrl,apple:site.logoUrl}:undefined};
 }
 export default async function PublicBusinessSite({params}:{params:Promise<{siteSlug:string}>}){
  const {siteSlug}=await params,db=getSupabaseAdmin();if(!db)notFound();
