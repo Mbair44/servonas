@@ -12,7 +12,7 @@ import type {Metadata} from "next";
 import {tenantMetadata} from "@/lib/publicTenantSeo";
 import {TenantLandingSchema} from "@/components/TenantPublicSchema";
 import {categoryPageIsIndexable,indexableCategoryPages} from "@/lib/publicCategoryPages";
-import ThanksgivingPage from "@/app/thanksgiving/page";
+import {ThanksgivingLanding} from "@/components/ThanksgivingLanding";
 import {COPPER_STATE_BOUNCE_BUSINESS_ID} from "@/lib/thanksgivingRentalOffer";
 
 export const dynamic="force-dynamic";
@@ -32,7 +32,7 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
  const [record,db]=await Promise.all([loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]"),Promise.resolve(getSupabaseAdmin())]);
  if(!db||record.kind!=="ok")notFound();
  const site=record.site,businessId=record.settings.business_id;
- if(promotionSlug==="thanksgiving"&&businessId===COPPER_STATE_BOUNCE_BUSINESS_ID)return <ThanksgivingPage/>;
+ if(promotionSlug==="thanksgiving"&&businessId===COPPER_STATE_BOUNCE_BUSINESS_ID)return <ThanksgivingLanding bookingPath="/booking" websitePath="/"/>;
  const [{data:promotion},{data:categoryPage},{data:locationPage},{data:marketingPage},{data:nearbyPages},{data:categoryPages},{data:items}]=await Promise.all([
   db.from("promotions").select("*,discounts(*)").eq("business_id",businessId).ilike("slug",promotionSlug).eq("landing_page_enabled",true).maybeSingle(),
   db.from("category_website_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
