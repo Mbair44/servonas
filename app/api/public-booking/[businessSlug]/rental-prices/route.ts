@@ -1,8 +1,8 @@
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {resolveRentalItemPrice} from "@/lib/rentalDatePricing";
+import {resolveRentalDatePrice,resolveRentalItemPrice} from "@/lib/rentalDatePricing";
 import {applyRentalDatePrice} from "@/lib/rentalPricing";
-import {qualifiesForThanksgivingRentalOffer,thanksgivingOfferPricingRules} from "@/lib/thanksgivingRentalOffer";
+import {qualifiesForThanksgivingRentalOffer,thanksgivingOfferPricingRules,thanksgivingPricingDate} from "@/lib/thanksgivingRentalOffer";
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
  const {businessSlug}=await params,db=getSupabaseAdmin();
  if(!db)return NextResponse.json({error:"Pricing is temporarily unavailable."},{status:503});
@@ -14,7 +14,8 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
   const prices=await Promise.all(ids.map(async id=>{
    const rentalDate=String(body.rentalDate??""),rentalEndDate=String(body.rentalEndDate??body.rentalDate??"");
    const price=await resolveRentalItemPrice(db,{businessId:settings.business_id,rentalItemId:id as string,rentalDate,rentalEndDate,additionalHours:body.additionalHours??0,overnight:body.overnight===true});
-   const offerPrice=qualifiesForThanksgivingRentalOffer({offer:body.offer,businessId:settings.business_id,rentalDate,rentalEndDate,item:price.item})?applyRentalDatePrice(price.datePricingSnapshot,price.rentalDays,thanksgivingOfferPricingRules(price.rules)):price;
+   const qualifiesForOffer=qualifiesForThanksgivingRentalOffer({offer:body.offer,businessId:settings.business_id,rentalDate,rentalEndDate,item:price.item});
+   const offerPrice=qualifiesForOffer?applyRentalDatePrice(await resolveRentalDatePrice(db,{businessId:settings.business_id,rentalItemId:id as string,rentalDate:thanksgivingPricingDate(rentalDate),timeZone:"America/Phoenix"}),price.rentalDays,thanksgivingOfferPricingRules(price.rules)):price;
    // Internal rule IDs remain in server snapshots. Public callers only receive display metadata.
    return {rentalItemId:id,baseUnitPriceCents:offerPrice.dateAdjustedBasePriceCents,originalBasePriceCents:offerPrice.originalBasePriceCents,dateAdjustedBasePriceCents:offerPrice.dateAdjustedBasePriceCents,totalUnitPriceCents:offerPrice.totalUnitPriceCents,finalRentalPriceCents:offerPrice.totalUnitPriceCents+price.durationAdjustmentCents,rentalDays:offerPrice.rentalDays,multiDayAdjustmentCents:offerPrice.totalUnitPriceCents-offerPrice.dateAdjustedBasePriceCents,additionalDayUnitPriceCents:offerPrice.additionalDayUnitPriceCents,durationAdjustmentCents:price.durationAdjustmentCents,appliedDateRuleType:offerPrice.appliedDateRuleType,appliedDateRuleName:offerPrice.appliedDateRuleName,rentalDate:offerPrice.rentalDate};
   }));return NextResponse.json({prices},{headers:{"Cache-Control":"no-store"}});

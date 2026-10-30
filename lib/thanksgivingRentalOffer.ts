@@ -13,6 +13,10 @@ export function thanksgivingRentalWindow(year:number){
  return {delivery:dateValue(delivery),thanksgiving:dateValue(thanksgiving),pickup:dateValue(pickup)};
 }
 
+export function thanksgivingPricingDate(rentalDate:string){
+ return thanksgivingRentalWindow(Number(rentalDate.slice(0,4))).thanksgiving;
+}
+
 export function isThanksgivingInflatable(item:{name?:string|null;category?:string|null}){
  return /bounce|slide|combo|obstacle|inflatable/i.test(`${item.name??""} ${item.category??""}`);
 }
