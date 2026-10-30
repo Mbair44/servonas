@@ -104,7 +104,7 @@ export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, opti
 type TenantBookingFunnelTrackerProps = {
  businessSlug: string;
  initialSessionId?: string;
- landingType?: "website" | "promotion" | "location" | "category" | "inventory_item";
+ landingType?: "website" | "promotion" | "location" | "category" | "inventory_item" | "campaign";
  landingId?: string;
  landingLabel?: string;
  inventoryItemId?: string;
@@ -142,7 +142,7 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
     if (href.startsWith("tel:")) trackBookingFunnel(businessSlug, "phone_click", { metadata });
     else if (href.startsWith("sms:")) trackBookingFunnel(businessSlug, "sms_click", { metadata });
     else if (href.startsWith("mailto:")) trackBookingFunnel(businessSlug, "email_click", { metadata });
-    else if (isBookingUrl(new URL(target.href, location.href), businessSlug)){const promotionEvent=target.dataset.promotionEvent;trackBookingFunnel(businessSlug,promotionEvent==="promotion_primary_cta_clicked"?"promotion_primary_cta_clicked":promotionEvent==="promotion_item_selected"?"promotion_item_selected":"booking_cta_click",{inventoryItemId:target.dataset.inventoryItemId||undefined,metadata:{...metadata,promotion_id:landingId??null}});}
+    else if (isBookingUrl(new URL(target.href, location.href), businessSlug)){const promotionEvent=target.dataset.promotionEvent;trackBookingFunnel(businessSlug,promotionEvent==="promotion_primary_cta_clicked"?"promotion_primary_cta_clicked":promotionEvent==="promotion_item_selected"?"promotion_item_selected":"booking_cta_click",{inventoryItemId:target.dataset.inventoryItemId||undefined,metadata:{...metadata,promotion_id:landingId??null,landing_type:landingType,landing_label:landingLabel??null}});}
     else trackBookingFunnel(businessSlug, "link_click", { metadata });
     return;
    }
