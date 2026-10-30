@@ -78,7 +78,7 @@ export async function updateInboundSmsSettings(slug:string,formData:FormData){
  const inboundNumber=digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:null;
  const autoReply=text(formData,"autoReply"),emergencyReply=text(formData,"emergencyReply");
  if(!inboundNumber||!autoReply||!emergencyReply)redirect(`${target}?error=${encodeURIComponent("Enter a valid U.S. SMS number and both reply messages.")}#inbound-sms`);
- const {error}=await supabase.from("business_inbound_sms_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",inbound_number_e164:inboundNumber,auto_reply_enabled:formData.get("autoReplyEnabled")==="on",auto_reply_body:autoReply,emergency_reply_body:emergencyReply,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
+ const {error}=await supabase.from("business_inbound_sms_settings").upsert({business_id:business.id,enabled:formData.get("enabled")==="on",inbound_number_e164:inboundNumber,auto_reply_enabled:formData.get("autoReplyEnabled")==="on",email_alerts_enabled:formData.get("emailAlertsEnabled")==="on",auto_reply_body:autoReply,emergency_reply_body:emergencyReply,updated_at:new Date().toISOString(),updated_by:user.id},{onConflict:"business_id"});
  if(error){console.error("Inbound SMS settings update failed",{businessId:business.id,code:error.code});redirect(`${target}?error=${encodeURIComponent(error.code==="23505"?"That inbound number is already assigned to another workspace.":"Inbound SMS settings could not be saved. Apply the latest database migration first.")}#inbound-sms`);}
  revalidatePath(`/app/${slug}/settings`);
  redirect(`${target}?success=${encodeURIComponent("Inbound SMS settings saved.")}#inbound-sms`);

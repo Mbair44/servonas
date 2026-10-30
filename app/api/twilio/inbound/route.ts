@@ -5,6 +5,7 @@ import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
 import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
 import {recordTenantMessageUsage} from "@/lib/twilio/messageUsage";
+import {sendInboundSmsEmailAlert} from "@/lib/communications/inboundSmsEmailService";
 
 export const runtime="nodejs";
 
@@ -33,6 +34,17 @@ export async function POST(request:Request){
   if(timelineError) console.error("Inbound SMS timeline persistence failed",{businessId:result.business_id,messageSid:sid,code:timelineError.code});
  }
  if(!result.duplicate)console.info("Twilio inbound SMS received",{messageSid:sid,from,to,businessId:result.business_id,customerId:result.customer_id});
+ if(!result.duplicate){
+  const {data:alertSettings,error:alertSettingsError}=await db.from("business_inbound_sms_settings").select("email_alerts_enabled").eq("business_id",result.business_id).maybeSingle();
+  const {data:business,error:businessError}=alertSettings?.email_alerts_enabled?await db.from("businesses").select("name,email,slug").eq("id",result.business_id).maybeSingle():{data:null,error:null};
+  const {data:customer,error:customerError}=business?.email?await db.from("customers").select("first_name,last_name,company_name").eq("business_id",result.business_id).eq("id",result.customer_id).maybeSingle():{data:null,error:null};
+  if(alertSettingsError||businessError||customerError)console.error("Inbound SMS email alert lookup failed",{businessId:result.business_id,messageId:result.message_id,settingsCode:alertSettingsError?.code,businessCode:businessError?.code,customerCode:customerError?.code});
+  else if(alertSettings?.email_alerts_enabled&&business?.email){
+   const baseUrl=(process.env.NEXT_PUBLIC_APP_URL??process.env.NEXT_PUBLIC_SITE_URL??"https://servonas.com").replace(/\/$/,"");
+   const customerName=customer?.company_name||[customer?.first_name,customer?.last_name].filter(Boolean).join(" ")||from;
+   await sendInboundSmsEmailAlert({businessId:result.business_id,businessName:business.name,recipient:business.email,messageId:result.message_id,customerId:result.customer_id,customerName,fromPhone:from,body,inboxUrl:`${baseUrl}/app/${encodeURIComponent(business.slug)}/messages?customerId=${encodeURIComponent(result.customer_id)}&phone=${encodeURIComponent(from)}`});
+  }
+ }
  if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia:Number(params.get("NumMedia")||0),messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});return NextResponse.json({error:"Usage persistence failed"},{status:503});}}
  // Tenant replies are recorded without legacy parent-account auto sends.
  if(security.mode==="tenant"||result.duplicate)return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>',{headers:{"Content-Type":"text/xml"}});
