@@ -12,12 +12,15 @@ import type {Metadata} from "next";
 import {tenantMetadata} from "@/lib/publicTenantSeo";
 import {TenantLandingSchema} from "@/components/TenantPublicSchema";
 import {categoryPageIsIndexable,indexableCategoryPages} from "@/lib/publicCategoryPages";
+import ThanksgivingPage from "@/app/thanksgiving/page";
+import {COPPER_STATE_BOUNCE_BUSINESS_ID} from "@/lib/thanksgivingRentalOffer";
 
 export const dynamic="force-dynamic";
 
 export async function generateMetadata({params}:{params:Promise<{domain:string;promotionSlug:string}>}):Promise<Metadata>{
  const {domain,promotionSlug}=await params,db=getSupabaseAdmin();if(!db)return{};
  const normalized=domain.toLowerCase().replace(/^www\./,""),{data:website}=await db.from("business_website_settings").select("business_id,custom_domain,domain_status").or(`custom_domain.ilike.${normalized},custom_domain.ilike.www.${normalized}`).eq("status","published").maybeSingle();if(!website)return{};
+ if(promotionSlug==="thanksgiving"&&website.business_id===COPPER_STATE_BOUNCE_BUSINESS_ID)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:"/thanksgiving",title:"Thanksgiving Inflatable Rentals | Copper State Bounce",description:"Get your Copper State Bounce inflatable Wednesday and enjoy it through Friday for the one-day rental price."});
  const [location,category,promotion]=await Promise.all([db.from("business_location_pages").select("page_title,meta_description,og_title,og_description,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),db.from("category_website_pages").select("category_id,title,intro,seo_title,meta_description,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),db.from("promotions").select("headline,subheadline,slug").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","active").eq("landing_page_enabled",true).maybeSingle()]);
  const page=location.data;if(page)return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${page.slug}`,title:page.page_title,description:page.meta_description,openGraphTitle:page.og_title,openGraphDescription:page.og_description});
  const categoryPage=category.data;if(categoryPage){const {data:items}=await db.from("inventory_items").select("category_id").eq("business_id",website.business_id).eq("active",true).eq("category_id",categoryPage.category_id).limit(1);return tenantMetadata({settings:website,fallbackBase:`https://${domain}`,path:`/${categoryPage.slug}`,title:categoryPage.seo_title||categoryPage.title,description:categoryPage.meta_description||categoryPage.intro,index:categoryPageIsIndexable(categoryPage.category_id,items??[])});}
@@ -29,6 +32,7 @@ export default async function DomainLandingPage({params}:{params:Promise<{domain
  const [record,db]=await Promise.all([loadPublishedBusinessWebsiteByDomain(domain,"/sites/domain/[domain]"),Promise.resolve(getSupabaseAdmin())]);
  if(!db||record.kind!=="ok")notFound();
  const site=record.site,businessId=record.settings.business_id;
+ if(promotionSlug==="thanksgiving"&&businessId===COPPER_STATE_BOUNCE_BUSINESS_ID)return <ThanksgivingPage/>;
  const [{data:promotion},{data:categoryPage},{data:locationPage},{data:marketingPage},{data:nearbyPages},{data:categoryPages},{data:items}]=await Promise.all([
   db.from("promotions").select("*,discounts(*)").eq("business_id",businessId).ilike("slug",promotionSlug).eq("landing_page_enabled",true).maybeSingle(),
   db.from("category_website_pages").select("*").eq("business_id",businessId).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
