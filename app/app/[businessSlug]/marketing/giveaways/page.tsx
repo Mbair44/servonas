@@ -28,22 +28,27 @@ function GiveawayFields({giveaway,discounts}:{giveaway?:any;discounts:any[]}){
 
 export default async function Page({params}:{params:Promise<{businessSlug:string}>}){
  const {businessSlug}=await params,{supabase,business,role}=await requireWorkspace(businessSlug),edit=canManageBusiness(role);
- const [{data:rows},{data:discounts},{data:site}]=await Promise.all([
+ const [{data:rows},{data:discounts},{data:site},{data:entries}]=await Promise.all([
   supabase.from("event_giveaways").select("*").eq("business_id",business.id).order("created_at",{ascending:false}),
   supabase.from("discounts").select("id,name,code").eq("business_id",business.id),
   supabase.from("business_website_settings").select("custom_domain,domain_status,public_slug").eq("business_id",business.id).maybeSingle(),
+  supabase.from("event_giveaway_entries").select("id,giveaway_id,first_name,email,created_at").eq("business_id",business.id).order("created_at",{ascending:false}),
  ]);
  const origin=site?.domain_status==="connected"?`https://${site.custom_domain}`:`/sites/${site?.public_slug}`;
+ const entriesByGiveaway=new Map<string,any[]>();
+ for(const entry of entries??[])entriesByGiveaway.set(entry.giveaway_id,[...(entriesByGiveaway.get(entry.giveaway_id)??[]),entry]);
  return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content"><h1>Event giveaways</h1>
   {edit&&<details className="workspace-panel" open><summary>Create giveaway</summary><form action={saveGiveaway.bind(null,businessSlug,undefined)} className="discount-form-grid"><GiveawayFields discounts={discounts??[]}/><button className="sv-button">Save draft</button></form></details>}
   <div className="discount-grid">{rows?.map((giveaway:any)=>{
    const previewUrl=giveaway.status==="published"?`${origin}/giveaways/${giveaway.slug}`:`/app/${businessSlug}/marketing/giveaways/${giveaway.id}/preview`;
    const editValues={...giveaway,startsAt:localDateTime(giveaway.entry_starts_at,business.timezone??"America/Phoenix"),endsAt:localDateTime(giveaway.entry_ends_at,business.timezone??"America/Phoenix")};
-   return <article className="workspace-panel" key={giveaway.id}><h2>{giveaway.title}</h2><p>{giveaway.status} · {giveaway.prize}</p><a href={previewUrl} target={giveaway.status==="published"?"_blank":undefined}>Preview</a>
+   const giveawayEntries=entriesByGiveaway.get(giveaway.id)??[];
+   return <article className="workspace-panel" key={giveaway.id}><h2>{giveaway.title}</h2><p>{giveaway.status} · {giveaway.prize} · {giveawayEntries.length} {giveawayEntries.length===1?"entry":"entries"}</p><a href={previewUrl} target={giveaway.status==="published"?"_blank":undefined}>Preview</a>
     {edit&&giveaway.status!=="published"&&<details className="giveaway-edit"><summary>Edit draft</summary><form action={saveGiveaway.bind(null,businessSlug,giveaway.id)} className="discount-form-grid"><GiveawayFields giveaway={editValues} discounts={discounts??[]}/><button className="sv-button">Save changes</button></form></details>}
     {edit&&giveaway.status!=="published"&&<form action={setGiveawayStatus.bind(null,businessSlug,giveaway.id,"published")}><button className="sv-button">Publish</button></form>}
     {edit&&giveaway.status==="published"&&<form action={setGiveawayStatus.bind(null,businessSlug,giveaway.id,"closed")}><button className="sv-button sv-secondary">Close</button></form>}
-    <a href={`/api/giveaways/${businessSlug}/${giveaway.id}/qr?format=png`}>Download QR PNG</a></article>;
+    <a href={`/api/giveaways/${businessSlug}/${giveaway.id}/qr?format=png`}>Download QR PNG</a>
+    <details className="giveaway-edit"><summary>View entrants ({giveawayEntries.length})</summary><div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Entered</th></tr></thead><tbody>{giveawayEntries.length?giveawayEntries.map(entry=><tr key={entry.id}><td>{entry.first_name}</td><td><a href={`mailto:${entry.email}`}>{entry.email}</a></td><td>{new Date(entry.created_at).toLocaleString("en-US",{timeZone:business.timezone??"America/Phoenix",dateStyle:"medium",timeStyle:"short"})}</td></tr>):<tr><td colSpan={3}>No entries yet.</td></tr>}</tbody></table></div></details></article>;
   })}</div>
  </section></main>;
 }
