@@ -32,6 +32,7 @@ type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
 type RequestedOption = { inventoryItemId?: string; optionId?: string; choiceId?: string };
 type RequestedCustomerAddon = { catalogId?: string; quantity?: number };
+type RequestedThemedBanner = { bannerId?: string; inventoryItemId?: string };
 type CopperStatePowerNeed = "electricity" | "generator_request" | "unsure";
 const COPPER_STATE_BOUNCE_BUSINESS_ID = "cb25acc0-3623-4c06-9041-89a88f4ad6ed";
 
@@ -75,6 +76,8 @@ type CheckoutBody = {
   options?: RequestedOption[];
   customerCatalogAddons?: RequestedCustomerAddon[];
   customerAddonRequestKey?: string;
+  themedBannerSelections?: RequestedThemedBanner[];
+  themedBannerRequestKey?: string;
   attributionSessionId?: string;
   attribution?: unknown;
   additionalHours?: number;
@@ -200,6 +203,14 @@ export async function POST(request: Request) {
     if(items.some(item=>item.business_id&&item.business_id!==business?.id))return NextResponse.json({error:"Open this business’s booking page to reserve these rentals."},{status:400});
 
     const requestedCustomerAddons=Array.isArray(body.customerCatalogAddons)?body.customerCatalogAddons:[];
+    const requestedThemedBanners=Array.isArray(body.themedBannerSelections)?body.themedBannerSelections:[];
+    if(requestedThemedBanners.length>50)return NextResponse.json({error:"Too many themed banners were selected."},{status:400});
+    const themedBannerByInventory=new Map<string,string>();
+    for(const selection of requestedThemedBanners){
+      if(!hasText(selection.bannerId)||!hasText(selection.inventoryItemId)||!/^[-0-9a-f]{36}$/i.test(selection.bannerId)||!/^[-0-9a-f]{36}$/i.test(selection.inventoryItemId)||themedBannerByInventory.has(selection.inventoryItemId))return NextResponse.json({error:"One or more themed banner selections are invalid."},{status:400});
+      themedBannerByInventory.set(selection.inventoryItemId,selection.bannerId);
+    }
+    if([...themedBannerByInventory.keys()].some(id=>!requestedItems.some(item=>item.inventoryItemId===id)))return NextResponse.json({error:"A themed banner must be assigned to a selected rental."},{status:400});
     if(requestedCustomerAddons.length>20)return NextResponse.json({error:"Too many add-ons were selected."},{status:400});
     const customerAddonQuantities=new Map<string,number>();
     for(const requested of requestedCustomerAddons){
@@ -214,6 +225,13 @@ export async function POST(request: Request) {
     const eligibleCatalogAddonById=new Map<string,EligibleCatalogAddon>(eligibleCatalogAddons.map(addon=>[addon.id,addon]));
     const selectedCatalogAddons=[...customerAddonQuantities].map(([catalogId,quantity])=>({catalogId,quantity,addon:eligibleCatalogAddonById.get(catalogId)}));
     if(selectedCatalogAddons.some(selection=>!selection.addon||quantityExceeds(selection.quantity,selection.addon.max_customer_quantity)))return NextResponse.json({error:"One or more selected add-ons are no longer available. Review your booking and try again."},{status:409});
+    type EligibleThemedBanner={id:string;default_unit_price_cents:number;is_taxable:boolean;compatible_inventory_item_id:string};
+    const {data:themedBannerRows,error:themedBannerError}=requestedThemedBanners.length?await supabase.from("rental_themed_banners").select("id,job_addon_catalog!inner(default_unit_price_cents,is_taxable,is_active,customer_visible,visibility),rental_themed_banner_compatible_inventory!inner(inventory_item_id)").eq("business_id",business.id).in("id",[...new Set(requestedThemedBanners.map(item=>item.bannerId!))]):{data:[],error:null};
+    if(themedBannerError)return NextResponse.json({error:"Themed banner availability could not be verified. Please try again."},{status:503});
+    const eligibleThemedBanners:EligibleThemedBanner[]=(themedBannerRows??[]).flatMap((row:any)=>{const catalog=row.job_addon_catalog,compatibility=Array.isArray(row.rental_themed_banner_compatible_inventory)?row.rental_themed_banner_compatible_inventory:[row.rental_themed_banner_compatible_inventory];return catalog?.is_active&&catalog?.customer_visible&&catalog?.visibility==="public_future"?compatibility.filter(Boolean).map((entry:any)=>({id:row.id,default_unit_price_cents:Number(catalog.default_unit_price_cents),is_taxable:Boolean(catalog.is_taxable),compatible_inventory_item_id:entry.inventory_item_id})):[];});
+    const themedBannerById=new Map(eligibleThemedBanners.map(item=>[item.id,item]));
+    const selectedThemedBanners=requestedThemedBanners.map(selection=>({...selection,banner:themedBannerById.get(selection.bannerId!)}));
+    if(selectedThemedBanners.some(selection=>!selection.banner||selection.banner.compatible_inventory_item_id!==selection.inventoryItemId))return NextResponse.json({error:"One or more themed banners are no longer compatible with the selected rentals."},{status:409});
 
     const {data:configuredOptions,error:optionsError}=await supabase.from("inventory_item_booking_options").select("id,inventory_item_id,name,required,inventory_item_booking_option_choices(id,label,price_adjustment_cents)").eq("business_id",business!.id).in("inventory_item_id",ids);
     if(optionsError)return NextResponse.json({error:"Booking options could not be verified. Please try again."},{status:503});
@@ -253,7 +271,8 @@ export async function POST(request: Request) {
     const allocationByItem=new Map(bundleLineAllocations?.map(line=>[line.inventoryItemId,line.lineTotalCents]));
     const rentalTaxLines=pricedItems.map(item=>{const resolved=resolveRentalStripeTaxCode({itemTaxCode:item.tax_code,categoryTaxCode:(item.rental_inventory_categories as {tax_code?:string|null}|null)?.tax_code,businessDefaultTaxCode:billing?.default_stripe_tax_code});return {id:item.id,amountCents:allocationByItem.get(item.id)??(item.totalUnitPriceCents+item.optionAdjustmentCents+item.durationAdjustmentCents)*item.quantity+item.operator.chargeCents,taxable:item.is_taxable??taxSettings.defaultInvoiceItemTaxable,taxCode:resolved.taxCode,taxCodeSource:resolved.source};});
     const customerAddonTaxLines=selectedCatalogAddons.map(selection=>({id:`customer_addon:${selection.catalogId}`,amountCents:selection.quantity*Number(selection.addon!.default_unit_price_cents),taxable:Boolean(selection.addon!.is_taxable),taxCode:null,discountEligible:false}));
-    const taxLines=[...rentalTaxLines,...customerAddonTaxLines];
+    const themedBannerTaxLines=selectedThemedBanners.map(selection=>({id:`themed_banner:${selection.bannerId}:${selection.inventoryItemId}`,amountCents:Number(selection.banner!.default_unit_price_cents),taxable:Boolean(selection.banner!.is_taxable),taxCode:null,discountEligible:false}));
+    const taxLines=[...rentalTaxLines,...customerAddonTaxLines,...themedBannerTaxLines];
     let taxCalculation;
     try{
       taxCalculation=await calculateBookingTax({
@@ -297,7 +316,7 @@ export async function POST(request: Request) {
     const deliveryTaxLine=taxCalculation.snapshot.lines.find(line=>line.id==="delivery")!;
     const deliveryRuleSnapshot=deliveryQuote?{...deliveryQuote.snapshot.rule,taxable:deliveryTaxLine.taxable,taxCents:deliveryTaxLine.taxCents,taxRateBasisPoints:taxSettings.calculationMethod==="manual"?(taxSettings.taxEnabled&&!taxCustomer?.tax_exempt&&deliveryTaxLine.taxable?taxSettings.manualTaxRateBasisPoints:0):null,taxCalculationId:taxCalculation.snapshot.calculationId}:null;
     // Never create a reservation or payment until the customer has reviewed the authoritative amount.
-    if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,customerAddonQuote:selectedCatalogAddons.length>0,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
+    if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,customerAddonQuote:selectedCatalogAddons.length>0||selectedThemedBanners.length>0,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
     const powerRequestNote=business.id===COPPER_STATE_BOUNCE_BUSINESS_ID?copperStatePowerRequestNote(body.powerNeed):"";
     const bookingNotes=[body.notes?.trim(),powerRequestNote].filter(Boolean).join("\n");
     const reservationDetails={
@@ -317,6 +336,7 @@ export async function POST(request: Request) {
     };
     const addonPayload=selectedCatalogAddons.map(selection=>{const line=taxCalculation.snapshot.lines.find(item=>item.id===`customer_addon:${selection.catalogId}`);return {catalogId:selection.catalogId,quantity:selection.quantity,taxCents:line?.taxCents??0,taxRateBasisPoints:taxSettings.calculationMethod==="manual"&&line?.taxable?taxSettings.manualTaxRateBasisPoints:0};});
     const requestKey=hasText(body.customerAddonRequestKey)&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.customerAddonRequestKey)?body.customerAddonRequestKey:null;
+    const themedBannerRequestKey=hasText(body.themedBannerRequestKey)&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.themedBannerRequestKey)?body.themedBannerRequestKey:null;
     const { data, error: bookingError } = resolvedBundle?await supabase.rpc("create_bundle_booking",{
       p_business_id:business.id,p_bundle_id:body.bundleId!.trim(),p_items:requestedItems,p_line_allocations:bundleLineAllocations,
       p_details:{rentalDate:body.rentalDate,rentalEndDate:body.rentalEndDate,firstName:body.firstName!.trim(),lastName:body.lastName!.trim(),email:body.email!.trim(),phone:body.phone!.trim(),startTime:body.startTime,endTime:body.endTime,address:body.address!.trim(),city:body.city,zipCode:body.zipCode!.trim(),notes:bookingNotes},
@@ -339,6 +359,12 @@ export async function POST(request: Request) {
     const {data:bookingItems,error:bookingItemsError}=await supabase.from("booking_items").select("id,inventory_item_id,unit_price_cents,date_pricing_snapshot").eq("booking_id",booking.booking_id);
     if(bookingItemsError||!bookingItems||bookingItems.length!==pricedItems.length||(!resolvedBundle&&bookingItems.some(line=>{const price=pricedItems.find(item=>item.id===line.inventory_item_id);return !price||line.unit_price_cents!==price.totalUnitPriceCents||line.date_pricing_snapshot?.dateAdjustedBasePriceCents!==price.dateAdjustedBasePriceCents||line.date_pricing_snapshot?.originalBasePriceCents!==price.originalBasePriceCents||line.date_pricing_snapshot?.appliedDateRuleId!==price.appliedDateRuleId;}))){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const bookingItemByInventoryId=new Map(bookingItems.map(item=>[item.inventory_item_id,item.id]));
+    if(selectedThemedBanners.length){
+      const selections=selectedThemedBanners.map(selection=>({bannerId:selection.bannerId,bookingItemId:bookingItemByInventoryId.get(selection.inventoryItemId!),taxCents:taxCalculation.snapshot.lines.find(line=>line.id===`themed_banner:${selection.bannerId}:${selection.inventoryItemId}`)?.taxCents??0}));
+      if(selections.some(selection=>!selection.bookingItemId)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
+      const {error:bannerReservationError}=await supabase.rpc("add_public_themed_banners_to_booking",{p_booking_id:booking.booking_id,p_selections:selections,p_request_key:themedBannerRequestKey});
+      if(bannerReservationError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:/unavailable|reserved/i.test(bannerReservationError.message)?"That themed banner was just reserved. Choose another design and try again.":"The themed banner could not be reserved. Please try again."},{status:409});}
+    }
     const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({tax_snapshot:taxCalculation.snapshot.lines.find(line=>line.id===item.id),operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents,standard_rental_hours_snapshot:resolveRentalDurationRules(durationBusinessRules,item).standardRentalHours,additional_hours:item.additionalHours,overnight_selected:item.overnight,duration_adjustment_cents:item.durationAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
     if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
