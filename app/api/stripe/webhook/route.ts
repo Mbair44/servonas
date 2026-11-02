@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import {ensureRentalBookingJob,RentalBookingJobPersistenceError} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
+import {sendBookingPaymentReceiptEmail} from "@/lib/communications/bookingPaymentReceiptEmailService";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendRentalBookingConfirmationSms } from "@/lib/communications/rentalBookingConfirmationSms";
 import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
@@ -384,8 +385,8 @@ export async function POST(request: Request) {
           recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"payment_succeeded",eventKey:`${bookingId}:payment_succeeded`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe"},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
           recordBookingFunnelEvent(supabase,{businessId,sessionId:session.metadata?.attribution_session_id,event:"booking_confirmed",eventKey:`${bookingId}:booking_confirmed`,bookingId,inventoryItemId:session.metadata?.inventory_item_ids?.split(",")[0]??null,metadata:{payment_mode:"stripe"},bookingTotalCents:finalTotalCents,amountPaidCents,currency:String(session.currency??"usd").toUpperCase()}),
         ]);
-        const [emailResult,businessEmailResult]=await Promise.all([sendRentalBookingConfirmationEmail(bookingId,jobId),sendRentalBookingBusinessNotification(bookingId,jobId)]);
-        if(!emailResult.ok||!businessEmailResult.ok)console.error("Paid rental email delivery was incomplete",{bookingId,jobId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error});
+        const [emailResult,businessEmailResult,receiptEmailResult]=await Promise.all([sendRentalBookingConfirmationEmail(bookingId,jobId),sendRentalBookingBusinessNotification(bookingId,jobId),sendBookingPaymentReceiptEmail(bookingId,jobId)]);
+        if(!emailResult.ok||!businessEmailResult.ok||!receiptEmailResult.ok)console.error("Paid rental email delivery was incomplete",{bookingId,jobId,customerError:emailResult.ok?null:emailResult.error,businessError:businessEmailResult.ok?null:businessEmailResult.error,receiptError:receiptEmailResult.ok?null:receiptEmailResult.error});
         try{
           if(paymentIntentId){const paymentIntent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:["latest_charge"]},typeof event.account==="string"?{stripeAccount:event.account}:undefined);const charge=typeof paymentIntent.latest_charge==="object"?paymentIntent.latest_charge as Stripe.Charge:null;if(charge?.receipt_url)await supabase.from("bookings").update({stripe_receipt_url:charge.receipt_url}).eq("id",bookingId);}
           const smsResult=await sendRentalBookingConfirmationSms(bookingId,jobId);if(!smsResult.ok)console.error("Paid rental confirmation SMS was not delivered",{bookingId,businessId});

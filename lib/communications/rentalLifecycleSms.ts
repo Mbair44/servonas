@@ -17,7 +17,7 @@ export function rentalLifecycleSmsBody(type: LifecycleType, businessName: string
  return `${prefix}Payment received! We received your ${money(payment?.amountCents ?? 0)} payment for your ${items} rental.${payment?.balanceDueCents ? ` Remaining balance: ${money(payment.balanceDueCents)}.` : " Your rental is paid in full."} Thanks! Reply STOP to opt out.`;
 }
 
-export async function sendRentalLifecycleSms(input: { type: LifecycleType; bookingId?: string; jobId?: string; paymentId?: string }) {
+export async function sendRentalLifecycleSms(input: { type: LifecycleType; bookingId?: string; jobId?: string; paymentId?: string; forceResend?: boolean }) {
  const db = getSupabaseAdmin();
  if (!db) return { ok: false, error: "Supabase is unavailable." };
  let jobId = input.jobId, payment: { id: string; amount_cents: number; invoice_id: string | null } | null = null;
@@ -26,7 +26,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   if (error || !data) return { ok: true, skipped: true, reason: "payment_not_succeeded" };
   payment = data; jobId = jobId ?? data.job_id;
  }
- let bookingQuery = db.from("bookings").select("id,business_id,customer_id,job_id,status,sms_consent,booking_number,customers(phone_normalized,sms_consent_status),businesses(name),booking_items(rental_date,inventory_items(name))");
+ let bookingQuery = db.from("bookings").select("id,business_id,customer_id,job_id,status,sms_consent,booking_number,amount_paid_cents,balance_due_cents,customers(phone_normalized,sms_consent_status),businesses(name),booking_items(rental_date,inventory_items(name))");
  bookingQuery = input.bookingId ? bookingQuery.eq("id", input.bookingId) : bookingQuery.eq("job_id", jobId ?? "");
  const { data: booking, error: bookingError } = await bookingQuery.maybeSingle();
  if (bookingError || !booking || !booking.job_id || !["paid", "confirmed", "completed"].includes(booking.status)) return { ok: true, skipped: true, reason: "rental_booking_not_confirmed" };
@@ -34,7 +34,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
  if (!booking.sms_consent || !customer?.phone_normalized || customer.sms_consent_status !== "express") return { ok: true, skipped: true, reason: "sms_consent_not_current" };
  const { data: phoneConsent, error: consentError } = await db.from("customer_sms_consents").select("status").eq("business_id", booking.business_id).eq("phone_e164", customer.phone_normalized).maybeSingle();
  if (consentError || phoneConsent?.status !== "express") return { ok: true, skipped: true, reason: "sms_consent_not_current" };
- let balanceDueCents = 0, reviewUrl: string | undefined;
+ let balanceDueCents = input.type === "payment_receipt" && !payment ? Number(booking.balance_due_cents ?? 0) : 0, reviewUrl: string | undefined;
  if (input.type === "review_request") {
   const { data: website } = await db.from("business_website_settings").select("google_review_url").eq("business_id", booking.business_id).maybeSingle();
   reviewUrl = website?.google_review_url?.trim() || undefined;
@@ -44,7 +44,8 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   const { data: invoice } = await db.from("invoices").select("balance_due_cents").eq("id", payment.invoice_id).eq("business_id", booking.business_id).maybeSingle();
   balanceDueCents = Number(invoice?.balance_due_cents ?? 0);
  }
- const eventKey = input.type === "payment_receipt" ? `payment:${payment?.id ?? "missing"}` : `booking:${booking.id}`;
+ const receiptKey = payment?.id ? `payment:${payment.id}` : `booking:${booking.id}`;
+ const eventKey = input.type === "payment_receipt" ? `${receiptKey}${input.forceResend ? `:resend:${crypto.randomUUID()}` : ""}` : `booking:${booking.id}`;
  const event=input.type==="review_request"
   ?await db.rpc("claim_review_request_event",{p_job_id:booking.job_id,p_phone:customer.phone_normalized,p_event_key:eventKey}).maybeSingle()
   :await db.from("job_communication_events").insert({ job_id: booking.job_id, channel: "sms", template_key: input.type, event_key: eventKey, recipient_phone: customer.phone_normalized, status: "queued" }).select("id").single();
@@ -74,7 +75,8 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   }
   const rentalDate = first(booking.booking_items)?.rental_date ?? null;
   const rentalItemNames = (booking.booking_items ?? []).flatMap(row => { const name = first(row.inventory_items)?.name?.trim(); return name ? [name] : []; });
-  const body = rentalLifecycleSmsBody(input.type, business?.name ?? "Your rental business", rentalItemNames, rentalDate, payment ? { amountCents: Number(payment.amount_cents), balanceDueCents, reviewUrl } : input.type === "review_request" ? { amountCents: 0, balanceDueCents: 0, reviewUrl } : undefined);
+  const receiptPayment = payment ? { amountCents: Number(payment.amount_cents), balanceDueCents, reviewUrl } : input.type === "payment_receipt" ? { amountCents: Number(booking.amount_paid_cents ?? 0), balanceDueCents } : input.type === "review_request" ? { amountCents: 0, balanceDueCents: 0, reviewUrl } : undefined;
+  const body = rentalLifecycleSmsBody(input.type, business?.name ?? "Your rental business", rentalItemNames, rentalDate, receiptPayment);
   const sent = await sendTenantTwilioMessage({ businessId: booking.business_id, to: customer.phone_normalized, body, sourceType: `rental_${input.type}`, sourceId: eventId });
   await db.from("job_communication_events").update({ status: "sent", provider_message_id: sent.sid, sent_at: new Date().toISOString(), error_message: null,processing_started_at:null }).eq("id", eventId);
   if (input.type === "reminder" || input.type === "review_request") await db.from("bookings").update({ [input.type === "reminder" ? "reminder_sms_sent_at" : "review_sms_sent_at"]: new Date().toISOString() }).eq("id", booking.id);

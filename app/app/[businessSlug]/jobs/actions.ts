@@ -8,6 +8,8 @@ import { redirect } from "next/navigation";
 import { canManageCustomers } from "@/lib/access";
 import { JobNotificationService } from "@/lib/communications/jobNotificationService";
 import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
+import { sendInvoiceFinancialEmail } from "@/lib/communications/invoiceEmailService";
+import { sendBookingPaymentReceiptEmail } from "@/lib/communications/bookingPaymentReceiptEmailService";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
 import {bookingBalanceAfterDeliveryChange,bookingBalanceForTotal,jobFinancialTotalCents} from "@/lib/financial/bookingBalance";
 import { zonedDateTimeToUtc } from "@/lib/bookingTime";
@@ -446,6 +448,29 @@ export async function chargeCompletedJobCardOnFile(slug:string,jobId:string){
  if(!result.ok||result.action!=="paid")redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(result.error??"The card could not be charged. Confirm that the customer has an active card on file.")}`);
  revalidatePath(`/app/${slug}/jobs/${jobId}`);revalidatePath(`/app/${slug}/financials/scheduled-payments`);
  redirect(`/app/${slug}/jobs/${jobId}?success=Card+on+file+charged+successfully`);
+}
+
+export async function resendJobReceipt(slug: string, jobId: string) {
+ const { supabase, business, role } = await requireWorkspaceCapability(slug, "job_management");
+ if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const [{ data: job }, { data: booking }, { data: payments }] = await Promise.all([
+  supabase.from("jobs").select("id,customers!jobs_customer_tenant_fk(preferred_contact_method)").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle(),
+  supabase.from("bookings").select("id").eq("business_id", business.id).eq("job_id", jobId).maybeSingle(),
+  supabase.from("payments").select("id,invoice_id").eq("business_id", business.id).eq("job_id", jobId).eq("status", "succeeded").order("paid_at", { ascending: false }).limit(1),
+ ]);
+ if (!job) redirect(`/app/${slug}/jobs/${jobId}?error=Job+not+found`);
+ const customer = Array.isArray(job.customers) ? job.customers[0] : job.customers;
+ const channel = customer?.preferred_contact_method;
+ if (channel !== "email" && channel !== "sms") redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Set the customer’s contact preference to email or text before resending a receipt.")}`);
+ const payment = payments?.[0];
+ let result: { ok: boolean; skipped?: boolean; error?: string };
+ if (channel === "sms") result = await sendRentalLifecycleSms({ jobId, bookingId: booking?.id, paymentId: payment?.id, type: "payment_receipt", forceResend: true });
+ else if (payment?.invoice_id) result = await sendInvoiceFinancialEmail(payment.invoice_id, "receipt_sent", { paymentId: payment.id, forceResend: true });
+ else if (booking) result = await sendBookingPaymentReceiptEmail(booking.id, jobId, { forceResend: true });
+ else result = { ok: false, error: "No payment receipt is available for this job." };
+ if (!result.ok || result.skipped) redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(result.error || "The receipt could not be sent. Verify the customer’s selected contact details and text consent.")}`);
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);
+ redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(`Receipt resent by ${channel === "sms" ? "text message" : "email"}.`)}`);
 }
 
 export async function cancelJob(slug: string, jobId: string, formData: FormData) {
