@@ -35,6 +35,16 @@ test("website settings submit all 24 saved photo urls without resetting uploads"
  assert.match(actions,/slice\(0,24\)/);
 });
 
+test("website photo library persists uploads and removals immediately",async()=>{
+ const [manager,actions]=await Promise.all([read("components/WebsitePhotoManager.tsx"),read("app/app/[businessSlug]/settings/website/actions.ts")]);
+ assert.match(manager,/saveWebsitePhotosSafe/);
+ assert.match(manager,/await persistPhotos\(/);
+ assert.match(manager,/changes save to your website automatically/);
+ assert.match(actions,/export async function saveWebsitePhotos\(/);
+ assert.match(actions,/managedImageVariantPathsFromPublicUrl/);
+ assert.match(actions,/revalidatePath\(`\/sites\/\$\{existing\.public_slug\}`\)/);
+});
+
 test("large website photo sets stay contained in the design editor",async()=>{
  const [builder,styles]=await Promise.all([read("app/website-builder.css"),read("app/website.css")]);
  assert.match(builder,/\.website-step-design \.website-photo-manager\{min-width:0;max-width:100%\}/);

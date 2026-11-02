@@ -2,7 +2,7 @@
 
 import {useEffect, useMemo, useRef, useState,type ChangeEvent} from "react";
 import {createSupabaseBrowserClient} from "@/lib/supabaseBrowser";
-import {discardWebsiteAiPhotoSafe,generateWebsiteAiPhotoSafe,openWebsiteAiImageGeneratorSafe,prepareWebsitePhotoUpload,saveWebsiteAiPhotoSafe} from "@/app/app/[businessSlug]/settings/website/actions";
+import {discardWebsiteAiPhotoSafe,generateWebsiteAiPhotoSafe,openWebsiteAiImageGeneratorSafe,prepareWebsitePhotoUpload,saveWebsiteAiPhotoSafe,saveWebsitePhotosSafe} from "@/app/app/[businessSlug]/settings/website/actions";
 import {websiteAiImageTypes,type WebsiteAiImageType} from "@/lib/websiteAiImages";
 import {optimizeImageForUpload,validateOptimizableImage} from "@/lib/browserImageOptimizer";
 import {storageImageThumbUrl} from "@/lib/storageImageVariants";
@@ -45,7 +45,7 @@ function getUsage(index:number,photoCount:number){
 }
 
 export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=false}:{photos?:string[];motionStyle?:"static"|"ken_burns";disabled?:boolean}){
- const [items,setItems]=useState(photos),[pendingRemove,setPendingRemove]=useState<PhotoItem|null>(null),[selected,setSelected]=useState<string[]>([]),[previewIndex,setPreviewIndex]=useState<number|null>(null),[libraryOpen,setLibraryOpen]=useState(false),[uploading,setUploading]=useState(false),[uploadError,setUploadError]=useState(""),[uploadStates,setUploadStates]=useState<UploadState[]>([]),[aiOpen,setAiOpen]=useState(false),[aiType,setAiType]=useState<WebsiteAiImageType>("hero_banner"),[aiDescription,setAiDescription]=useState(""),[aiStatus,setAiStatus]=useState<AiStatus>("idle"),[aiError,setAiError]=useState(""),[aiDraft,setAiDraft]=useState<AiDraft|null>(null);
+ const [items,setItems]=useState(photos),[pendingRemove,setPendingRemove]=useState<PhotoItem|null>(null),[selected,setSelected]=useState<string[]>([]),[previewIndex,setPreviewIndex]=useState<number|null>(null),[libraryOpen,setLibraryOpen]=useState(false),[uploading,setUploading]=useState(false),[savingPhotos,setSavingPhotos]=useState(false),[uploadError,setUploadError]=useState(""),[saveMessage,setSaveMessage]=useState(""),[uploadStates,setUploadStates]=useState<UploadState[]>([]),[aiOpen,setAiOpen]=useState(false),[aiType,setAiType]=useState<WebsiteAiImageType>("hero_banner"),[aiDescription,setAiDescription]=useState(""),[aiStatus,setAiStatus]=useState<AiStatus>("idle"),[aiError,setAiError]=useState(""),[aiDraft,setAiDraft]=useState<AiDraft|null>(null);
  const lastSyncedPhotosRef=useRef(photos);
  useEffect(()=>{
   const nextKey=photos.join("\n"),lastKey=lastSyncedPhotosRef.current.join("\n");
@@ -63,7 +63,24 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
  const uploadSummary=uploadStates.length?`${uploadStates.filter(item=>item.status==="done").length} of ${uploadStates.length} uploaded`:"";
  const closePreview=()=>setPreviewIndex(null);
  const businessSlug=typeof window==="undefined"?"":decodeURIComponent(window.location.pathname.split("/")[2]??"");
- const removePhoto=(url:string)=>{setItems(current=>current.filter(item=>item!==url));setSelected(current=>current.filter(item=>item!==url));if(previewIndex!=null&&photoItems[previewIndex]?.url===url)setPreviewIndex(null);};
+ async function persistPhotos(nextItems:string[],message:string){
+  if(!businessSlug)throw new Error("The workspace could not be identified. Refresh and try again.");
+  setSavingPhotos(true);setSaveMessage("");
+  const result=await saveWebsitePhotosSafe(businessSlug,nextItems);
+  setSavingPhotos(false);
+  if(!result.ok)throw new Error(result.error);
+  lastSyncedPhotosRef.current=nextItems;
+  setItems(nextItems);setSaveMessage(message);
+ }
+ async function removePhoto(url:string){
+  const nextItems=items.filter(item=>item!==url);
+  try{
+   await persistPhotos(nextItems,"Photo removed and website saved.");
+   setSelected(current=>current.filter(item=>item!==url));
+   if(previewIndex!=null&&photoItems[previewIndex]?.url===url)setPreviewIndex(null);
+   setPendingRemove(null);
+  }catch(error){setUploadError(error instanceof Error?error.message:"The photo could not be removed. Please try again.");}
+ }
   async function openAiGenerator(){
    if(disabled||!businessSlug)return;
    setAiOpen(true);setAiError("");
@@ -91,8 +108,10 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
    setAiError(saved.error??"That photo could not be saved.");
    return;
   }
-  setItems(current=>[...new Set([...current,saved.url])].slice(0,MAX_UPLOAD_COUNT));
-  setAiDraft(null);setAiStatus("idle");setAiOpen(false);setAiDescription("");setAiType("hero_banner");
+  try{
+   await persistPhotos([...new Set([...items,saved.url])].slice(0,MAX_UPLOAD_COUNT),"Photo added and website saved.");
+   setAiDraft(null);setAiStatus("idle");setAiOpen(false);setAiDescription("");setAiType("hero_banner");
+  }catch(error){setAiStatus("ready");setAiError(error instanceof Error?error.message:"That AI photo could not be saved.");}
  }
   async function discardAiPhoto(){
    if(!aiDraft||!businessSlug)return setAiOpen(false);
@@ -132,7 +151,7 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
     uploaded.push(target.display.url);
     setUploadStates(current=>current.map((item,itemIndex)=>itemIndex===index?{...item,status:"done"}:item));
    }
-   setItems(current=>[...new Set([...current,...uploaded])].slice(0,MAX_UPLOAD_COUNT));
+   await persistPhotos([...new Set([...items,...uploaded])].slice(0,MAX_UPLOAD_COUNT),uploaded.length===1?"Photo added and website saved.":`${uploaded.length} photos added and website saved.`);
   }catch(error){
    const message=error instanceof Error?error.message:"The photos could not be uploaded. Please try again.";
    setUploadError(message);
@@ -146,7 +165,7 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
    <header>
     <button type="button" className="website-photo-summary-heading" onClick={()=>setLibraryOpen(true)}>
      <strong>Website photos · {items.length}</strong>
-     <span>Manage photos you&apos;ve uploaded to Servonas.</span>
+     <span>Add or remove photos here; changes save to your website automatically.</span>
     </button>
     <button type="button" className="website-photo-manage-link" onClick={()=>setLibraryOpen(true)} disabled={disabled}>Manage photos</button>
    </header>
@@ -170,11 +189,12 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
     </label>
    </div>
    <div className="website-photo-actions">
-    <label className="website-photo-upload">Upload photos<small>{uploading?`Uploading ${uploadStates.filter(item=>item.status==="done").length} of ${uploadStates.length} photos...`:"Drag photos here or choose files. Phone photos supported, including HEIC."}</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
-    <button type="button" className="website-photo-ai-button" onClick={()=>void openAiGenerator()} disabled={disabled||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
+    <label className="website-photo-upload">Upload photos<small>{uploading?`Uploading ${uploadStates.filter(item=>item.status==="done").length} of ${uploadStates.length} photos...`:savingPhotos?"Saving your changes...":"Drag photos here or choose files. Phone photos supported, including HEIC."}</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading||savingPhotos} onChange={event=>void upload(event)}/></label>
+    <button type="button" className="website-photo-ai-button" onClick={()=>void openAiGenerator()} disabled={disabled||savingPhotos||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
     <button type="button" className="text-button" onClick={()=>setLibraryOpen(true)}>Manage photos</button>
    </div>
    {uploadError&&<span className="website-photo-error" role="alert">{uploadError}</span>}
+   {saveMessage&&<span className="website-photo-progress" role="status">{saveMessage}</span>}
   </section>
 
   {libraryOpen&&<div className="website-photo-library-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!uploading)setLibraryOpen(false);}}>
@@ -182,11 +202,11 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
     <header className="website-photo-library-header">
      <div>
       <strong id="media-library-title">Media Library</strong>
-      <span>Manage photos you&apos;ve uploaded to Servonas.</span>
+      <span>Add or remove photos here; changes save to your website automatically.</span>
      </div>
      <div className="website-photo-library-header-actions">
-      <label className="website-photo-upload compact">Upload photos<small>Pick multiple photos from your phone or desktop.</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading} onChange={event=>void upload(event)}/></label>
-      <button type="button" className="website-photo-ai-button compact" onClick={()=>void openAiGenerator()} disabled={disabled||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
+      <label className="website-photo-upload compact">Upload photos<small>Pick multiple photos from your phone or desktop.</small><input type="file" accept="image/*,.heic,.heif" multiple disabled={disabled||uploading||savingPhotos} onChange={event=>void upload(event)}/></label>
+      <button type="button" className="website-photo-ai-button compact" onClick={()=>void openAiGenerator()} disabled={disabled||savingPhotos||items.length>=MAX_UPLOAD_COUNT}>Create with AI</button>
       <button type="button" className="text-button" onClick={()=>setSelected(current=>current.length===photoItems.length?[]:photoItems.map(item=>item.url))} disabled={!photoItems.length}>Select all</button>
       <button type="button" className="text-button danger" onClick={()=>{if(selectedItems.length)setPendingRemove(selectedItems[0]);}} disabled={!selectedItems.length}>Delete</button>
       <button type="button" className="website-photo-close" onClick={()=>setLibraryOpen(false)} aria-label="Close media library">×</button>
@@ -229,7 +249,7 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
     <img src={storageImageThumbUrl(pendingRemove.url)??pendingRemove.url} alt={`Photo ${pendingRemove.index+1} selected for deletion`} loading="lazy"/>
     <div>
      <button type="button" className="sv-button sv-secondary" onClick={()=>setPendingRemove(null)}>Keep photo</button>
-     <button type="button" className="sv-button sv-danger" onClick={()=>removePhoto(pendingRemove.url)}>Delete photo</button>
+     <button type="button" className="sv-button sv-danger" onClick={()=>void removePhoto(pendingRemove.url)} disabled={savingPhotos}>{savingPhotos?"Saving...":"Delete photo"}</button>
     </div>
    </section>
   </div>}

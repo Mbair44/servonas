@@ -398,6 +398,33 @@ export async function prepareWebsitePhotoUpload(slug:string,name:string,type:str
  };
 }
 
+export async function saveWebsitePhotos(slug:string,photoUrls:string[]){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"business_onboarding");
+ if(!canManageBusiness(role))throw new Error("Only owners and administrators can manage website photos.");
+ if(!Array.isArray(photoUrls))throw new Error("The photo list could not be saved. Refresh and try again.");
+ const nextPhotos=[...new Set(photoUrls.map(url=>String(url).trim()).filter(Boolean))].slice(0,24);
+ if(nextPhotos.some(url=>{try{return new URL(url).protocol!=="https:";}catch{return true;}}))throw new Error("Each website photo must use a secure URL.");
+ const {data:existing,error:existingError}=await supabase.from("business_website_settings").select("public_slug,photo_urls").eq("business_id",business.id).maybeSingle();
+ if(existingError)throw new Error("Website photos could not be verified. Please try again.");
+ if(!existing)throw new Error("Save your website settings once before adding photos.");
+ const {error}=await supabase.from("business_website_settings").update({photo_urls:nextPhotos,updated_by:user.id}).eq("business_id",business.id);
+ if(error)throw new Error("Website photos could not be saved. Please try again.");
+ const removedManagedPhotos=(existing.photo_urls??[]).filter((url:string)=>!nextPhotos.includes(url)).flatMap((url:string)=>managedImageVariantPathsFromPublicUrl(url,"website-assets"));
+ if(removedManagedPhotos.length){
+  const admin=getSupabaseAdmin();
+  await admin?.storage.from("website-assets").remove(removedManagedPhotos);
+ }
+ revalidatePath(`/app/${slug}/settings/website`);
+ revalidatePath(`/book/${existing.public_slug}`);
+ revalidatePath(`/sites/${existing.public_slug}`);
+ return {ok:true} as const;
+}
+
+export async function saveWebsitePhotosSafe(slug:string,photoUrls:string[]):Promise<{ok:true}|{ok:false;error:string}>{
+ try{return await saveWebsitePhotos(slug,photoUrls);}
+ catch(error){console.error("Website photo save failed",{slug,message:error instanceof Error?error.message:"unknown"});return {ok:false,error:error instanceof Error?error.message:"Website photos could not be saved. Please try again."};}
+}
+
 export async function openWebsiteAiImageGenerator(slug:string,section="website_photos"){
  const {business,user,role}=await requireWorkspaceCapability(slug,"business_onboarding");
  if(!canManageBusiness(role))throw new Error("Only owners and administrators can generate website photos.");
