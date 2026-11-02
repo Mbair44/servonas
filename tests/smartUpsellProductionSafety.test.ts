@@ -73,9 +73,9 @@ test("automatic tax is quoted from the delivery address and applied only from th
  assert.match(automaticTaxMigration,/automatic_tax_reconciled/);
 });
 
-test("daily scheduling covers the next 24-hour lead-time window without misleading tax-inclusive SMS",()=>{
+test("daily scheduling sends at the configured hour two calendar days before the event",()=>{
  const settings={enabled:true,sendBeforeEventHours:48,discountBasisPoints:5000,depositBasisPoints:5000,offerExpirationHours:24,maxOffersPerBooking:1,additionalDeliveryFeeCents:0,automaticSelection:true,minimumDiscountedPriceCents:null,smsSendWindowStartHour:0,smsSendWindowEndHour:23};
- const now=new Date("2026-10-21T16:00:00.000Z"),booking={id:"booking",business_id:"tenant",customer_id:"customer",status:"paid",rental_starts_at:"2026-10-24T12:00:00.000Z",rental_ends_at:"2026-10-24T16:00:00.000Z",customers:{phone:"+15555550100",sms_consent_status:"express"}};
+ const now=new Date("2026-10-22T00:00:00.000Z"),booking={id:"booking",business_id:"tenant",customer_id:"customer",status:"paid",rental_starts_at:"2026-10-24T12:00:00.000Z",rental_ends_at:"2026-10-24T16:00:00.000Z",customers:{phone:"+15555550100",sms_consent_status:"express"}};
  assert.equal(bookingSendDue({booking,settings,timezone:"UTC",now,offerCount:0,dailyWindowMinutes:24*60}).eligible,true);
  assert.equal(bookingSendDue({...{booking:{...booking,rental_starts_at:"2026-10-23T15:59:00.000Z"},settings,timezone:"UTC",now,offerCount:0},dailyWindowMinutes:24*60}).eligible,false);
  assert.match(vercel,/"path": "\/api\/cron\/smart-upsells"/);
