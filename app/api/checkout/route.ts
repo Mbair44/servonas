@@ -76,7 +76,7 @@ type CheckoutBody = {
   options?: RequestedOption[];
   customerCatalogAddons?: RequestedCustomerAddon[];
   customerAddonRequestKey?: string;
-  themedBannerSelections?: RequestedThemedBanner[];
+  themedBannerSelections?: RequestedThemedBanner[]|string;
   themedBannerRequestKey?: string;
   attributionSessionId?: string;
   attribution?: unknown;
@@ -203,7 +203,8 @@ export async function POST(request: Request) {
     if(items.some(item=>item.business_id&&item.business_id!==business?.id))return NextResponse.json({error:"Open this business’s booking page to reserve these rentals."},{status:400});
 
     const requestedCustomerAddons=Array.isArray(body.customerCatalogAddons)?body.customerCatalogAddons:[];
-    const requestedThemedBanners=Array.isArray(body.themedBannerSelections)?body.themedBannerSelections:[];
+    let requestedThemedBanners=Array.isArray(body.themedBannerSelections)?body.themedBannerSelections:[];
+    if(typeof body.themedBannerSelections==="string"){try{const parsed=JSON.parse(body.themedBannerSelections);requestedThemedBanners=Array.isArray(parsed)?parsed:[];}catch{return NextResponse.json({error:"One or more themed banner selections are invalid."},{status:400});}}
     if(requestedThemedBanners.length>50)return NextResponse.json({error:"Too many themed banners were selected."},{status:400});
     const themedBannerByInventory=new Map<string,string>();
     for(const selection of requestedThemedBanners){
