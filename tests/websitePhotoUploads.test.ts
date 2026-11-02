@@ -40,6 +40,8 @@ test("website photo library persists uploads and removals immediately",async()=>
  assert.match(manager,/saveWebsitePhotosSafe/);
  assert.match(manager,/await persistPhotos\(/);
  assert.match(manager,/changes save to your website automatically/);
+ assert.match(manager,/setHeroPhoto/);
+ assert.match(manager,/Set as hero image/);
  assert.match(actions,/export async function saveWebsitePhotos\(/);
  assert.match(actions,/managedImageVariantPathsFromPublicUrl/);
  assert.match(actions,/revalidatePath\(`\/sites\/\$\{existing\.public_slug\}`\)/);

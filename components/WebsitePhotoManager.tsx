@@ -81,6 +81,13 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
    setPendingRemove(null);
   }catch(error){setUploadError(error instanceof Error?error.message:"The photo could not be removed. Please try again.");}
  }
+ async function setHeroPhoto(url:string){
+  if(items[0]===url)return;
+  try{
+   await persistPhotos([url,...items.filter(item=>item!==url)],"Hero image updated and website saved.");
+   setPreviewIndex(0);
+  }catch(error){setUploadError(error instanceof Error?error.message:"The hero image could not be updated. Please try again.");}
+ }
   async function openAiGenerator(){
    if(disabled||!businessSlug)return;
    setAiOpen(true);setAiError("");
@@ -235,6 +242,7 @@ export function WebsitePhotoManager({photos=[],motionStyle="static",disabled=fal
     <div className="website-photo-preview-meta"><strong>Photo {previewPhoto.index+1}</strong><span>Filename, upload date, and dimensions can be added once those fields are modeled centrally.</span>{previewPhoto.usage&&<b className="website-photo-usage-badge">{previewPhoto.usage}</b>}</div>
     <div className="website-photo-preview-actions">
      <button type="button" className="sv-button sv-secondary" onClick={()=>setPreviewIndex(index=>index==null?null:Math.max(0,index-1))} disabled={previewIndex===0}>Previous</button>
+     <button type="button" className="sv-button sv-secondary" onClick={()=>void setHeroPhoto(previewPhoto.url)} disabled={disabled||savingPhotos||previewPhoto.index===0}>{savingPhotos?"Saving...":previewPhoto.index===0?"Current hero image":"Set as hero image"}</button>
      <button type="button" className="sv-button sv-secondary" onClick={()=>setSelected(current=>current.includes(previewPhoto.url)?current.filter(item=>item!==previewPhoto.url):[...current,previewPhoto.url])}>{selected.includes(previewPhoto.url)?"Deselect":"Select"}</button>
      <button type="button" className="sv-button sv-secondary" onClick={()=>setPreviewIndex(index=>index==null?null:Math.min(photoItems.length-1,index+1))} disabled={previewIndex===photoItems.length-1}>Next</button>
      <button type="button" className="sv-button sv-danger" onClick={()=>setPendingRemove(previewPhoto)} disabled={disabled}>Delete</button>
