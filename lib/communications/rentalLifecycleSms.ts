@@ -31,16 +31,16 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
  const { data: booking, error: bookingError } = await bookingQuery.maybeSingle();
  if (bookingError || !booking || !booking.job_id || !["paid", "confirmed", "completed"].includes(booking.status)) return { ok: true, skipped: true, reason: "rental_booking_not_confirmed" };
  const customer = first(booking.customers), business = first(booking.businesses);
- if (!booking.sms_consent || !customer?.phone_normalized || customer.sms_consent_status !== "express") return { ok: true, skipped: true, reason: "sms_consent_not_current" };
+ if (!customer?.phone_normalized || customer.sms_consent_status !== "express") return { ok: true, skipped: true, reason: "sms_consent_not_current" };
  const { data: phoneConsent, error: consentError } = await db.from("customer_sms_consents").select("status").eq("business_id", booking.business_id).eq("phone_e164", customer.phone_normalized).maybeSingle();
  if (consentError || phoneConsent?.status !== "express") return { ok: true, skipped: true, reason: "sms_consent_not_current" };
- let balanceDueCents = input.type === "payment_receipt" && !payment ? Number(booking.balance_due_cents ?? 0) : 0, reviewUrl: string | undefined;
+ let balanceDueCents = input.type === "payment_receipt" ? Number(booking.balance_due_cents ?? 0) : 0, reviewUrl: string | undefined;
  if (input.type === "review_request") {
   const { data: website } = await db.from("business_website_settings").select("google_review_url").eq("business_id", booking.business_id).maybeSingle();
   reviewUrl = website?.google_review_url?.trim() || undefined;
   if (!reviewUrl) return { ok: true, skipped: true, reason: "google_review_url_missing" };
  }
- if (payment?.invoice_id) {
+ if (payment?.invoice_id && input.type !== "payment_receipt") {
   const { data: invoice } = await db.from("invoices").select("balance_due_cents").eq("id", payment.invoice_id).eq("business_id", booking.business_id).maybeSingle();
   balanceDueCents = Number(invoice?.balance_due_cents ?? 0);
  }
@@ -75,7 +75,9 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   }
   const rentalDate = first(booking.booking_items)?.rental_date ?? null;
   const rentalItemNames = (booking.booking_items ?? []).flatMap(row => { const name = first(row.inventory_items)?.name?.trim(); return name ? [name] : []; });
-  const receiptPayment = payment ? { amountCents: Number(payment.amount_cents), balanceDueCents, reviewUrl } : input.type === "payment_receipt" ? { amountCents: Number(booking.amount_paid_cents ?? 0), balanceDueCents } : input.type === "review_request" ? { amountCents: 0, balanceDueCents: 0, reviewUrl } : undefined;
+  // A receipt is a current account summary, not merely the latest deposit or
+  // balance transaction. The canonical booking totals stay correct on retries.
+  const receiptPayment = input.type === "payment_receipt" ? { amountCents: Number(booking.amount_paid_cents ?? 0), balanceDueCents } : payment ? { amountCents: Number(payment.amount_cents), balanceDueCents, reviewUrl } : input.type === "review_request" ? { amountCents: 0, balanceDueCents: 0, reviewUrl } : undefined;
   const body = rentalLifecycleSmsBody(input.type, business?.name ?? "Your rental business", rentalItemNames, rentalDate, receiptPayment);
   const sent = await sendTenantTwilioMessage({ businessId: booking.business_id, to: customer.phone_normalized, body, sourceType: `rental_${input.type}`, sourceId: eventId });
   await db.from("job_communication_events").update({ status: "sent", provider_message_id: sent.sid, sent_at: new Date().toISOString(), error_message: null,processing_started_at:null }).eq("id", eventId);
