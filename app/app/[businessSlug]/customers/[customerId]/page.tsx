@@ -8,6 +8,7 @@ import {ServicePlanDrawer} from "@/components/ServicePlanDrawer";
 import {ScheduleServiceDrawer} from "@/components/ScheduleServiceDrawer";
 import {EditCustomerDrawer} from "@/components/EditCustomerDrawer";
 import {CustomerActionIcon} from "@/components/CustomerActionIcon";
+import {MapLocationLink} from "@/components/MapLocationLink";
 import {ServicePlanRowMenu} from "@/components/ServicePlanRowMenu";
 import {ServiceLocationDrawer} from "@/components/ServiceLocationDrawer";
 import {CustomerHvacEquipment} from "@/components/CustomerHvacEquipment";
@@ -121,7 +122,7 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
        <i className="location-svg" aria-hidden="true"><CustomerActionIcon name="location"/></i>
        <div>
         <strong>{primary.location_name||"Service location"}</strong>
-        <p>{primary.street_address}{primary.unit?`, ${primary.unit}`:""}<br/>{primary.city}, {primary.state} {primary.postal_code}</p>
+        <MapLocationLink address={[primary.street_address,primary.unit,primary.city,primary.state,primary.postal_code].filter(Boolean).join(", ")}><span>{primary.street_address}{primary.unit?`, ${primary.unit}`:""}<br/>{primary.city}, {primary.state} {primary.postal_code}</span></MapLocationLink>
         <span>{["verified","manual"].includes(String(primary.geocoding_status))?"✓ Address verified":String(primary.geocoding_status??"Address not verified")}</span>
        </div>
       </div>

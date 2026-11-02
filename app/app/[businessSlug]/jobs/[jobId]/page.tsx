@@ -14,6 +14,7 @@ import {resolveCurrentSmsConsent} from "@/lib/smsConsent";
 import {existingManageBookingUrl} from "@/lib/bookingManage/existingManageBookingUrl";
 import {jobMarketingSource,jobMarketingSourceLabels,jobMarketingSources} from "@/lib/jobMarketingSource";
 import {JobAddonsPanel} from "@/components/JobAddonsPanel";
+import {MapLocationLink} from "@/components/MapLocationLink";
 
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 const money = (value: number | null) => `$${Number(value ?? 0).toFixed(2)}`;
@@ -78,7 +79,7 @@ export default async function JobDetail({ params, searchParams }: { params: Prom
       <section className="workspace-panel job-summary"><div className="panel-title"><h2>Customer &amp; location</h2>{customer&&<Link href={`/app/${businessSlug}/customers/${customer.id}`}>View customer</Link>}</div><dl>
         <div><dt>Customer</dt><dd>{customer ? <Link href={`/app/${businessSlug}/customers/${customer.id}`}>{customer.company_name || `${customer.first_name} ${customer.last_name}`}</Link> : "Not assigned"}</dd></div>
         <div><dt>Phone</dt><dd>{customer?.phone ? <a href={`tel:${customer.phone}`}>{customer.phone}</a> : "Not set"}</dd></div><div><dt>Email</dt><dd>{customer?.email ? <a href={`mailto:${customer.email}`}>{customer.email}</a> : "Not set"}</dd></div>
-        <div><dt>Location</dt><dd>{location ? <>{location.location_name}<br/><span>{[location.street_address, location.unit, location.city, location.state, location.postal_code].filter(Boolean).join(", ")}</span></> : job.service_address || "Not set"}</dd></div>
+        <div><dt>Location</dt><dd>{location ? <>{location.location_name}<br/><MapLocationLink address={[location.street_address, location.unit, location.city, location.state, location.postal_code].filter(Boolean).join(", ")}/></> : <MapLocationLink address={job.service_address}/>}</dd></div>
       </dl><h2>Work details</h2><dl><div><dt>Service</dt><dd>{service?.name || "Custom work"}</dd></div><div><dt>Visit type</dt><dd>{job.is_return_visit?"Return visit":"Original visit"}</dd></div>{job.is_return_visit&&<div><dt>Return reason</dt><dd>{job.return_visit_reason||"Not provided"}</dd></div>}{job.return_visit_for_job_id&&<div><dt>Original job</dt><dd><Link href={`/app/${businessSlug}/jobs/${job.return_visit_for_job_id}`}>View original job</Link></dd></div>}<div><dt>Description</dt><dd>{job.description || "No description"}</dd></div></dl>
       </section>
       {deliveryBooking&&<BookingEquipmentProfitability db={supabase} businessId={business.id} bookingId={deliveryBooking.id} slug={businessSlug} jobId={jobId} canEdit={canEdit}/>}
