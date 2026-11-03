@@ -267,7 +267,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
   const attributionModel:AttributionModel=["first_touch","last_touch","last_non_direct"].includes(q.attributionModel??"")?q.attributionModel as AttributionModel:"last_touch";
   const previousWindowFrom = new Date(new Date(window.from).getTime() - (new Date(window.to).getTime() - new Date(window.from).getTime())).toISOString();
   const reportQueryStartedAt = Date.now();
-  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, visitorsResponse, metaResourceResult, offlineQrResponse] = await Promise.all([
+  const [eventsResponse, spendBySource, campaignSpendResponse, inventoryResponse, bookingItemsResponse, snapshotsResponse, bookingsResponse, previousEventsResponse, previousBookingsResponse, websiteResponse, bookingSettingsResponse, paymentResponse, websiteRequestsResponse, estimatesResponse, invoicesResponse, googleConnectionResponse, googleCampaignsResponse, sessionsResponse, visitorsResponse, metaResourceResult, offlineQrResponse, consentResponse] = await Promise.all([
     loadAllPages((from,to)=>supabase.from("booking_funnel_events").select("event_name,event_key,occurred_at,attribution_session_id,booking_id,customer_id,inventory_item_id,service_id,invoice_id,booking_total_cents,amount_paid_cents,currency,metadata,booking_attribution_sessions(utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,first_referrer,first_landing_url,first_landing_path,gclid,gbraid,wbraid,fbclid,device_type)").eq("business_id", business.id).gte("occurred_at", window.from).lt("occurred_at", window.to).order("occurred_at",{ascending:true}).order("event_key",{ascending:true}).range(from,to)),
     new MultiPlatformSpendProvider(supabase).getSpendBySource({ businessId: business.id, from: window.from, to: window.to }),
     supabase.from("business_ad_platform_daily_performance").select("provider,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend_amount,currency").eq("business_id", business.id).in("provider", ["meta","google_ads"]).gte("report_date", window.from.slice(0, 10)).lt("report_date", window.to.slice(0, 10)),
@@ -289,6 +289,7 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("booking_attribution_visitors").select("visitor_id,first_touch,last_touch,last_non_direct_touch").eq("business_id",business.id),
     loadMetaAttributionResources(supabase, business.id),
     supabase.rpc("offline_qr_campaign_report", {p_business_id:business.id,p_from:window.from,p_to:window.to}),
+    supabase.from("analytics_consent_observations").select("analytics_status,marketing_status,observation_kind,observed_at").eq("business_id",business.id).gte("observed_at",window.from).lt("observed_at",window.to),
   ]);
   const offlineQrRows = (offlineQrResponse.data ?? []) as Array<{campaign:string;visits:number;booking_page_visits:number;checkout_starts:number;completed_bookings:number;converted_sessions:number;booked_revenue_cents:number;cost_cents:number|null}>;
   // Payment-period reporting must include bookings created before this window.
@@ -297,6 +298,10 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,paid_at,created_at,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status)").eq("business_id", business.id).gt("amount_paid_cents", 0).gte("paid_at", window.from).lt("paid_at", window.to),
     supabase.from("bookings").select("id,status,total_cents,amount_paid_cents,paid_at,created_at,booking_attribution_snapshots(attribution_session_id,first_referrer,first_landing_url,first_landing_path,utm_source,utm_medium,utm_campaign,utm_content,utm_term,utm_id,gclid,gbraid,wbraid,fbclid,first_touch,last_touch,last_non_direct_touch,attribution_status)").eq("business_id", business.id).gt("amount_paid_cents", 0).gte("paid_at", previousWindowFrom).lt("paid_at", window.from),
   ]);
+  const consentCounts={accepted:0,rejected:0,not_selected:0,unavailable:0};
+  for(const row of (consentResponse.data??[]) as Array<{analytics_status?:keyof typeof consentCounts|null}>){const status=row.analytics_status;if(status&&status in consentCounts)consentCounts[status]++;}
+  const consentObservations=Object.values(consentCounts).reduce((sum,value)=>sum+value,0);
+  const consentRate=(value:number)=>consentObservations?value/consentObservations:null;
   const metaPerformanceRows = metaResourceResult.rows;
   const reportQueryDurationMs = Date.now() - reportQueryStartedAt;
   if (eventsResponse.error) {
@@ -346,6 +351,17 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
     booking_id: row.id,status: row.status,total_cents: row.total_cents,amount_paid_cents: row.amount_paid_cents??0,paid_at:row.paid_at??null,created_at:row.created_at??null,
     booking_attribution_snapshots: modelSnapshot(Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots,attributionModel) as AttributedBookingRow["booking_attribution_snapshots"],
   }));
+  // Paid_at plus a positive recorded payment is the sales source of truth.
+  // A booking is "known" only when its immutable snapshot has a consented,
+  // resolved acquisition touch; no source is inferred from consent status.
+  const paidAttributionCoverage=allAttributedPaidBookings.reduce((totals,{amount_paid_cents,booking_attribution_snapshots})=>{
+    const snapshot=(Array.isArray(booking_attribution_snapshots)?booking_attribution_snapshots[0]:booking_attribution_snapshots) as {attribution_status?:string|null}|null;
+    const known=Boolean(snapshot&&snapshot.attribution_status==="known");
+    const amount=Math.max(0,Number(amount_paid_cents??0));
+    totals.totalBookings++;totals.totalRevenueCents+=amount;
+    if(known){totals.knownBookings++;totals.knownRevenueCents+=amount;}else{totals.unknownBookings++;totals.unknownRevenueCents+=amount;}
+    return totals;
+  },{totalBookings:0,knownBookings:0,unknownBookings:0,totalRevenueCents:0,knownRevenueCents:0,unknownRevenueCents:0});
   const attributedPaidBookings=allAttributedPaidBookings.filter((row) => {
     const snapshot=Array.isArray(row.booking_attribution_snapshots)?row.booking_attribution_snapshots[0]:row.booking_attribution_snapshots;
     const session=snapshot?.attribution_session_id?sessionById.get(snapshot.attribution_session_id):null;
@@ -534,6 +550,25 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
         <a className="sv-button sv-secondary sv-small" href={`/app/${businessSlug}/marketing/funnel?${queryString({ range: "month", source })}`}>This month</a>
       </div>
       <p className="marketing-filter-note"><strong>{attributionModelLabels[attributionModel]}</strong> is the selected model. Each booking is counted once in this model; first-touch and last-touch totals are alternative views and are never combined. The report date range controls when the interaction happened.</p>
+    </section>
+
+    <section className="workspace-panel consent-coverage-panel">
+      <header><div><h2>Analytics Consent &amp; Tracking Coverage</h2><p>Aggregate consent/status observations in the selected dates. These are not unique visitors: a person can create more than one observation by revisiting or changing a choice.</p></div></header>
+      {consentResponse.error ? <p role="status">Consent coverage is unavailable until the consent reporting migration is applied.</p> : <>
+        <div className="consent-coverage-grid">
+          {[["Analytics accepted",consentCounts.accepted,"accepted"],["Analytics rejected",consentCounts.rejected,"rejected"],["No decision recorded",consentCounts.not_selected,"not_selected"],["Consent status unavailable",consentCounts.unavailable,"unavailable"]].map(([label,count,status])=><article key={String(status)}><span>{label}</span><strong>{count}</strong><small>{percent(consentRate(Number(count)))}</small><i aria-hidden="true"><b style={{width:`${(consentRate(Number(count))??0)*100}%`}}/></i></article>)}
+        </div>
+        <div className="consent-coverage-summary"><strong>Acceptance rate: {percent(consentRate(consentCounts.accepted))}</strong><strong>Rejection rate: {percent(consentRate(consentCounts.rejected))}</strong><span>{consentObservations ? `${consentCounts.rejected} of ${consentObservations} recorded consent/status observations rejected analytics. This may contribute to incomplete marketing attribution.` : "No consent observations have been recorded for this period. Historical decisions are not backfilled."}</span></div>
+      </>}
+      <p className="muted">Consent decisions, observed analytics sessions, and booked attribution are different measures. Marketing consent is not a separate preference in the current banner; personalized advertising remains disabled.</p>
+    </section>
+
+    <section className="workspace-panel attribution-coverage-panel">
+      <header><div><h2>Attribution Coverage</h2><p>Paid bookings are counted once by paid date using positive recorded payments. Unknown means the booking does not have a resolved, consented acquisition snapshot; it is not attributed from consent status.</p></div></header>
+      <dl className="marketing-kpi-grid">
+        {[["Total paid bookings",paidAttributionCoverage.totalBookings],["Paid bookings with known acquisition source",paidAttributionCoverage.knownBookings],["Paid bookings with unknown acquisition source",paidAttributionCoverage.unknownBookings],["Known attribution",percent(paidAttributionCoverage.totalBookings?paidAttributionCoverage.knownBookings/paidAttributionCoverage.totalBookings:null)],["Revenue with known attribution",money(paidAttributionCoverage.knownRevenueCents)],["Revenue without known attribution",money(paidAttributionCoverage.unknownRevenueCents)]].map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd><strong>{value}</strong></dd></div>)}
+      </dl>
+      <p className="muted">{paidAttributionCoverage.totalBookings?`${percent(paidAttributionCoverage.knownBookings/paidAttributionCoverage.totalBookings)} of paid bookings have a known acquisition source.`:"No paid bookings were recorded in this period."}</p>
     </section>
 
     <section className="workspace-panel">

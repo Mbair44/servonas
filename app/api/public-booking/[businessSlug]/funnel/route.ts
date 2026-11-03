@@ -117,6 +117,10 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
  const {businessSlug}=await params;
  diagnosticRequest(body,businessSlug,"received");
  if(!body||!validSessionId(body.sessionId)||!body.event||!allowed.has(body.event)){diagnosticRequest(body,businessSlug,"rejected",{reason:"invalid_payload"});return NextResponse.json({error:"Invalid analytics event."},{status:400});}
+ // The browser gate is the normal path; keep this server-side guard so a
+ // crafted request cannot turn a rejected or unavailable choice into
+ // first-party funnel tracking.
+ if(body.analyticsConsent!=="granted"){diagnosticRequest(body,businessSlug,"rejected",{reason:"analytics_consent_not_granted"});return diagnosticResponse("analytics_consent_not_granted");}
  const sessionId=body.sessionId as string,event=body.event as string;
  const visitorId=body.analyticsConsent==="granted"&&validSessionId(body.visitorId)?body.visitorId:null;
  const db=getSupabaseAdmin();if(!db){diagnosticRequest(body,businessSlug,"rejected",{reason:"admin_client_unavailable"});return diagnosticResponse("admin_client_unavailable");}

@@ -46,6 +46,6 @@ export function MarketingAnalytics(){
   document.addEventListener("click",click,true);return()=>document.removeEventListener("click",click,true);
  },[consent,pathname]);
  if(!ready||!analyticsEnabled||typeof window==="undefined"||!consentSurface()||consent)return null;
- const choose=(value:"granted"|"denied")=>{try{localStorage.setItem(CONSENT,value);}catch{return;}updateGoogleAdsConsent();window.dispatchEvent(new Event("servonas:analytics-consent-updated"));setConsent(value);};
+ const choose=(value:"granted"|"denied")=>{try{localStorage.setItem(CONSENT,value);}catch{return;}updateGoogleAdsConsent();window.dispatchEvent(new CustomEvent("servonas:analytics-consent-updated",{detail:{analyticsStatus:value==="granted"?"accepted":"rejected"}}));setConsent(value);};
  return <aside className="analytics-consent" role="region" aria-label="Analytics preferences"><div className="analytics-consent-copy"><strong>Help us improve this site?</strong><p>Optional analytics help us understand visits and bookings. Personalized advertising remains disabled. <a href="/privacy">Privacy details</a></p></div><div className="analytics-consent-actions"><button className="sv-button sv-secondary" onClick={()=>choose("denied")}>Not now</button><button className="sv-button" onClick={()=>choose("granted")}>Allow</button></div></aside>;
 }
