@@ -42,7 +42,12 @@ export async function addRentalItemsToBooking(db:AdminDb,input:{businessId:strin
  const additions=await Promise.all(input.items.map(async item=>{const inventoryItem=byId.get(item.inventoryItemId);if(!inventoryItem)throw new Error("One or more selected rentals are no longer available.");const price=applyRentalDatePrice(await resolveRentalDatePrice(db,{businessId:input.businessId,rentalItemId:item.inventoryItemId,rentalDate:localDate(start),timeZone:settings.timezone??"America/Phoenix"}),days,resolveRentalPricingRules(businessRules,inventoryItem));return{id:item.inventoryItemId,quantity:Number(item.quantity),rentalUnitPriceCents:price.totalUnitPriceCents,unitPriceCents:price.totalUnitPriceCents};}));
  let discountCents=Number(booking.discount_cents??0),discountSnapshot=booking.discount_snapshot??null;
  if(booking.discount_code){const promo=await validateRentalPromo(db,{businessId:input.businessId,customerId:booking.customer_id??undefined,code:booking.discount_code,items:[...existing,...additions]});if(promo.ok){discountCents=promo.discountCents;discountSnapshot=promo.snapshot;}else{discountCents=0;discountSnapshot=null;}}
- const requestedItems=input.items.map(item=>({...item,expectedRentalUnitPriceCents:additions.find(line=>line.id===item.inventoryItemId)!.unitPriceCents}));
+ // A staged amendment is an immutable quote. Its RPC compares this JSON value
+ // byte-for-byte with the held request, so do not append the browser-preview
+ // price field used by ordinary, non-staged changes.
+ const requestedItems=input.amendmentId
+  ?input.items.map(item=>({inventoryItemId:item.inventoryItemId,quantity:Number(item.quantity),...(item.options?.length?{options:item.options}:{})}))
+  :input.items.map(item=>({...item,expectedRentalUnitPriceCents:additions.find(line=>line.id===item.inventoryItemId)!.unitPriceCents}));
  if(smartUpsellSnapshot){
   const {data,error}=await db.rpc("add_rental_items_to_booking_tax_correct",{p_business_id:input.businessId,p_booking_id:input.bookingId,p_items:requestedItems,p_discount_cents:smartUpsellSnapshot.discount_cents??0,p_discount_snapshot:smartUpsellSnapshot.discount_snapshot??null,p_idempotency_key:input.idempotencyKey,p_change_source:input.changeSource??"customer_manage_booking",p_amendment_id:input.amendmentId??null,p_unit_price_overrides:smartUpsellSnapshot.unit_price_overrides??{}});
   if(error)throw new Error(error.message||"Could not update the Smart Upsell.");
