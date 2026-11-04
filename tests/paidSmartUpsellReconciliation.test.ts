@@ -6,12 +6,12 @@ const staged=readFileSync(new URL("../lib/bookingManage/stagedAmendments.ts",imp
 const additions=readFileSync(new URL("../lib/bookingManage/addRentalItems.ts",import.meta.url),"utf8");
 
 test("paid staged amendments remain compatible with the database's atomic claim",()=>{
- assert.match(staged,/status:"pending_payment",paid_at:amendment\.paid_at\?\?new Date\(\)\.toISOString\(\)/);
+ assert.match(staged,/status:"pending_payment",paid_at:amendment\.paid_at\?\?now\.toISOString\(\)/);
  assert.match(staged,/\.select\("id"\)\.maybeSingle\(\)/);
  assert.match(staged,/if\(claimError\|\|!claimed\)/);
  assert.match(staged,/\["pending_payment","payment_processing"\]\.includes\(amendment\.status\)/);
  assert.match(staged,/amendment\.status==="application_failed"&&paidBeforeExpiry/);
- assert.match(staged,/paid_at:amendment\.paid_at\?\?new Date\(\)\.toISOString\(\)/);
+ assert.match(staged,/const reconciliationExpiresAt=expiredAtReconciliation\?new Date\(now\.getTime\(\)\+15\*60_000\)\.toISOString\(\):amendment\.expires_at/);
 });
 
 test("staged additions send the immutable held item payload",()=>{
