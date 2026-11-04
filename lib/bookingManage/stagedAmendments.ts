@@ -33,15 +33,21 @@ export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:str
 /** Applies a paid staged amendment. Call only from the Stripe webhook/recovery worker. */
 export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentId:string;paymentReference:string|null;checkoutSessionId:string|null;amountPaidCents:number}){
  const {data:amendment,error:amendmentError}=await db.from("booking_amendments")
-  .select("id,business_id,booking_id,requested_items,idempotency_key,required_payment_cents,status,expires_at,pricing_snapshot")
+  .select("id,business_id,booking_id,requested_items,idempotency_key,required_payment_cents,status,expires_at,paid_at,pricing_snapshot")
   .eq("id",input.amendmentId).maybeSingle();
  if(amendmentError||!amendment)throw new Error("Staged booking amendment was not found.");
  const smartOfferId=typeof amendment.pricing_snapshot?.smart_upsell_offer_id==="string"?amendment.pricing_snapshot.smart_upsell_offer_id:null;
  if(amendment.status==="applied")return {applied:false,duplicate:true};
- if(amendment.status==="expired"||amendment.status==="cancelled"||new Date(amendment.expires_at)<=new Date())throw new Error("Staged booking amendment has expired.");
+ const paidBeforeExpiry=Boolean(amendment.paid_at&&new Date(amendment.paid_at).getTime()<=new Date(amendment.expires_at).getTime());
+ if(amendment.status==="expired"||amendment.status==="cancelled"||(new Date(amendment.expires_at)<=new Date()&&!paidBeforeExpiry))throw new Error("Staged booking amendment has expired.");
+ if(!["pending_payment","payment_processing"].includes(amendment.status)&&!(amendment.status==="application_failed"&&paidBeforeExpiry))throw new Error("Staged booking amendment is not eligible for payment reconciliation.");
  if(Number(input.amountPaidCents)!==Number(amendment.required_payment_cents))throw new Error("Staged amendment payment amount did not match.");
- const {error:claimError}=await db.from("booking_amendments").update({status:"payment_processing",paid_at:new Date().toISOString(),stripe_payment_intent_id:input.paymentReference,stripe_checkout_session_id:input.checkoutSessionId}).eq("id",amendment.id).in("status",["pending_payment","payment_processing"]);
- if(claimError)throw new Error("Staged amendment could not be claimed.");
+ // Keep the amendment in pending_payment until the database amendment RPC takes
+ // its own atomic `applying` claim. Some deployed versions of that RPC only
+ // accept pending_payment; moving it to payment_processing first strands a
+ // successful Stripe payment before its booking item can be added.
+ const {data:claimed,error:claimError}=await db.from("booking_amendments").update({status:"pending_payment",paid_at:amendment.paid_at??new Date().toISOString(),stripe_payment_intent_id:input.paymentReference,stripe_checkout_session_id:input.checkoutSessionId,failure_reason:null}).eq("id",amendment.id).in("status",["pending_payment","payment_processing","application_failed"]).select("id").maybeSingle();
+ if(claimError||!claimed)throw new Error("Staged amendment could not be claimed.");
  try{
   const {data:before}=await db.from("bookings").select("balance_charge_scheduled_for").eq("id",amendment.booking_id).eq("business_id",amendment.business_id).maybeSingle();
   if(Number(input.amountPaidCents)>0){const {error}=await db.rpc("apply_customer_balance_payment",{p_business_id:amendment.business_id,p_booking_id:amendment.booking_id,p_payment_reference:input.paymentReference??input.checkoutSessionId,p_amount_cents:input.amountPaidCents,p_checkout_session_id:input.checkoutSessionId});if(error)throw error;}
