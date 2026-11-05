@@ -50,7 +50,16 @@ export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentI
  // received on time but a prior application failed, grant only that paid
  // amendment a brief internal reconciliation window; it cannot reopen Checkout.
  const reconciliationExpiresAt=expiredAtReconciliation?new Date(now.getTime()+15*60_000).toISOString():amendment.expires_at;
- const {data:claimed,error:claimError}=await db.from("booking_amendments").update({status:"pending_payment",paid_at:amendment.paid_at??now.toISOString(),expires_at:reconciliationExpiresAt,stripe_payment_intent_id:input.paymentReference,stripe_checkout_session_id:input.checkoutSessionId,failure_reason:null}).eq("id",amendment.id).in("status",["pending_payment","payment_processing","application_failed"]).select("id").maybeSingle();
+ let pricingSnapshot=amendment.pricing_snapshot??{};
+ // Backfill the immutable line snapshot only for older Smart Upsells that have
+ // already paid and are being reconciled. The offer is tenant- and
+ // booking-scoped, so this cannot substitute a catalog item or price.
+ if(smartOfferId&&!Array.isArray(pricingSnapshot.added)){
+  const {data:offer,error:offerError}=await db.from("smart_upsell_offers").select("id,inventory_item_id,original_price_cents,discounted_price_cents").eq("id",smartOfferId).eq("business_id",amendment.business_id).eq("booking_id",amendment.booking_id).maybeSingle();
+  if(offerError||!offer)throw new Error("Smart Upsell price snapshot is unavailable.");
+  pricingSnapshot={...pricingSnapshot,added:[{id:offer.inventory_item_id,quantity:1,unitPriceCents:Number(offer.discounted_price_cents),baseUnitPriceCents:Number(offer.original_price_cents),additionalDayUnitPriceCents:Number(offer.original_price_cents),optionAdjustmentCents:0,optionSelections:[]}]};
+ }
+ const {data:claimed,error:claimError}=await db.from("booking_amendments").update({status:"pending_payment",paid_at:amendment.paid_at??now.toISOString(),expires_at:reconciliationExpiresAt,pricing_snapshot:pricingSnapshot,stripe_payment_intent_id:input.paymentReference,stripe_checkout_session_id:input.checkoutSessionId,failure_reason:null}).eq("id",amendment.id).in("status",["pending_payment","payment_processing","application_failed"]).select("id").maybeSingle();
  if(claimError||!claimed)throw new Error("Staged amendment could not be claimed.");
  try{
   const {data:before}=await db.from("bookings").select("balance_charge_scheduled_for").eq("id",amendment.booking_id).eq("business_id",amendment.business_id).maybeSingle();
