@@ -1,5 +1,6 @@
 import {hashSmartUpsellToken,prepareSmartUpsellPricing,smartUpsellTokenIsUsable,type SmartUpsellStatus} from "./smartUpsells.ts";
 import {isRestrictedSmartUpsellTestOffer,restrictedSmartUpsellTestConfig} from "./smartUpsellRestrictedTest.ts";
+import {listSmartUpsellAlternatives} from "./smartUpsellAlternatives";
 type AdminDb=any;
 
 /** Both server-only switches are required. Production remains off unless both are explicitly true. */
@@ -16,10 +17,16 @@ export function calculateSmartUpsellTaxCents(input:{discountedPriceCents:number;
 }
 
 /** Server-only: stage an existing amendment hold; booking lines commit only in the paid webhook. */
-export async function prepareSmartUpsellCheckout(db:AdminDb,input:{token:string;origin:string;now?:Date}){
+export async function prepareSmartUpsellCheckout(db:AdminDb,input:{token:string;origin:string;inventoryItemId?:string|null;now?:Date}){
  const now=input.now??new Date(),tokenHash=hashSmartUpsellToken(input.token);
- const {data:offer,error:offerError}=await db.from("smart_upsell_offers").select("*").eq("token_hash",tokenHash).maybeSingle();
+ const {data:loadedOffer,error:offerError}=await db.from("smart_upsell_offers").select("*").eq("token_hash",tokenHash).maybeSingle(); let offer=loadedOffer;
  if(offerError||!offer||!smartUpsellTokenIsUsable(offer,now)||!smartUpsellOfferCanBeginCheckout(offer,now))throw new Error("This special offer is no longer available.");
+ const featuredInventoryItemId=String(offer.offer_metadata?.featured_inventory_item_id??offer.inventory_item_id),selectedInventoryItemId=input.inventoryItemId??offer.inventory_item_id;
+ if(selectedInventoryItemId!==offer.inventory_item_id){
+  const alternative=(await listSmartUpsellAlternatives(db,{businessId:offer.business_id,bookingId:offer.booking_id,featuredInventoryItemId,rentalStartsAt:offer.rental_starts_at,rentalEndsAt:offer.rental_ends_at,now})).find(candidate=>candidate.inventoryItemId===selectedInventoryItemId);
+  if(!alternative)throw new Error("That inflatable is no longer available. Please choose another option.");
+  offer={...offer,inventory_item_id:alternative.inventoryItemId,original_price_cents:alternative.originalPriceCents,discount_cents:alternative.price.discountCents,discounted_price_cents:alternative.price.discountedPriceCents,additional_delivery_fee_cents:alternative.price.additionalDeliveryFeeCents,tax_cents:alternative.price.taxCents,deposit_cents:alternative.price.depositCents,remaining_balance_increment_cents:alternative.price.remainingBalanceIncrementCents,pricing_snapshot:alternative.price.pricingSnapshot,tax_snapshot:alternative.price.taxSnapshot,offer_metadata:{...(offer.offer_metadata??{}),featured_inventory_item_id:featuredInventoryItemId,selected_inventory_item_id:alternative.inventoryItemId,selection_type:"alternative"}};
+ }else if(!offer.offer_metadata?.featured_inventory_item_id){offer={...offer,offer_metadata:{...(offer.offer_metadata??{}),featured_inventory_item_id:offer.inventory_item_id,selected_inventory_item_id:offer.inventory_item_id,selection_type:"featured"}};}
  assertSmartUpsellCheckoutGate(offer);const restrictedTest=isRestrictedSmartUpsellTestOffer(offer),restrictedConfig=restrictedTest?restrictedSmartUpsellTestConfig():null;
  const [{data:booking},{data:item},{data:billing},{data:customer},{data:settings}]=await Promise.all([
   db.from("bookings").select("id,business_id,customer_id,status,rental_starts_at,rental_ends_at,subtotal_cents,discount_cents,discount_snapshot,tax_cents,delivery_fee_cents,total_cents,amount_paid_cents,balance_due_cents,balance_charge_scheduled_for,final_payment_authorized_at").eq("id",offer.booking_id).eq("business_id",offer.business_id).maybeSingle(),
@@ -45,7 +52,7 @@ export async function prepareSmartUpsellCheckout(db:AdminDb,input:{token:string;
  const pricingSnapshot={smart_upsell_offer_id:offer.id,discount_cents:Number(booking.discount_cents),discount_snapshot:booking.discount_snapshot??null,unit_price_overrides:{[offer.inventory_item_id]:Number(offer.discounted_price_cents)},added:[{id:offer.inventory_item_id,quantity:1,unitPriceCents:Number(offer.discounted_price_cents),baseUnitPriceCents:Number(offer.original_price_cents),additionalDayUnitPriceCents:Number(offer.original_price_cents),optionAdjustmentCents:0,optionSelections:[]}],offer_tax_cents:addedTax,automatic_tax_cents:automatic?addedTax:null,automatic_tax_snapshot:automatic?requoted!.taxSnapshot:null,offer_total_cents:addedSubtotal+addedTax,version:1};
  const {stageBookingItemAmendment}=await import("./bookingManage/stagedAmendments");
  const staged=await stageBookingItemAmendment(db,{businessId:offer.business_id,bookingId:offer.booking_id,items:[{inventoryItemId:offer.inventory_item_id,quantity:1}],pricingSnapshot,oldTotals,newTotals,depositPercent:50,amountPaidCents:Number(booking.amount_paid_cents),requiredPaymentCents:Number(offer.deposit_cents),idempotencyKey:`smart-upsell:${offer.id}`,expiresAt:new Date(Math.min(new Date(offer.expires_at).getTime(),now.getTime()+30*60_000)),successUrl:`${input.origin}/upsell/${input.token}?checkout=processing`,cancelUrl:`${input.origin}/upsell/${input.token}?checkout=cancelled`,stripeMetadata:{smart_upsell_offer_id:offer.id},restrictedTestStripeAccountId:restrictedConfig?.stripeAccountId});
- const {error:updateError}=await db.from("smart_upsell_offers").update({status:"checkout_pending",stripe_checkout_session_id:staged.checkoutSessionId??null,offer_metadata:{...(offer.offer_metadata??{}),amendment_id:staged.amendmentId}}).eq("id",offer.id).eq("business_id",offer.business_id).in("status",["pending","sent","viewed"]);
+ const {error:updateError}=await db.from("smart_upsell_offers").update({inventory_item_id:offer.inventory_item_id,original_price_cents:offer.original_price_cents,discount_cents:offer.discount_cents,discounted_price_cents:offer.discounted_price_cents,additional_delivery_fee_cents:offer.additional_delivery_fee_cents,tax_cents:offer.tax_cents,deposit_cents:offer.deposit_cents,remaining_balance_increment_cents:offer.remaining_balance_increment_cents,pricing_snapshot:offer.pricing_snapshot,tax_snapshot:offer.tax_snapshot,offer_metadata:{...(offer.offer_metadata??{}),amendment_id:staged.amendmentId},status:"checkout_pending",checkout_started_at:new Date().toISOString(),stripe_checkout_session_id:staged.checkoutSessionId??null}).eq("id",offer.id).eq("business_id",offer.business_id).in("status",["pending","sent","viewed"]);
  if(updateError)throw new Error("The Smart Upsell checkout could not be reserved.");
  return staged;
 }
