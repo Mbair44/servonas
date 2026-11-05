@@ -1,6 +1,6 @@
-import {rankSmartUpsellCandidates,type SmartUpsellCandidate} from "./smartUpsellCandidates";
-import {defaultSmartUpsellSettings,type SmartUpsellSettings} from "./smartUpsells";
-import {rentalWindowsOverlap} from "./rentalCalendarAvailability";
+import {rankSmartUpsellCandidates,type SmartUpsellCandidate} from "./smartUpsellCandidates.ts";
+import {defaultSmartUpsellSettings,type SmartUpsellSettings} from "./smartUpsells.ts";
+import {rentalWindowsOverlap} from "./rentalCalendarAvailability.ts";
 
 type Db=any;
 type Alternative=SmartUpsellCandidate & {imageUrl:string|null};

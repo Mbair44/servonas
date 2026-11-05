@@ -44,3 +44,8 @@ test("checkout remains single-redemption and webhook reconciliation remains idem
  const checkout=read("lib/smartUpsellCheckout.ts"),webhook=read("app/api/stripe/webhook/route.ts"),staged=read("lib/bookingManage/stagedAmendments.ts");
  assert.match(checkout,/smartUpsellTokenIsUsable/);assert.match(checkout,/\.in\("status",\["pending","sent","viewed"\]\)/);assert.match(webhook,/beginPaidRentalEvent/);assert.match(webhook,/applyPaidBookingItemAmendment/);assert.match(staged,/if\(amendment\.status==="applied"\)return \{applied:false,duplicate:true\}/);
 });
+
+test("one returned conditional claim binds competing selections before amendment staging",()=>{
+ const checkout=read("lib/smartUpsellCheckout.ts");
+ assert.match(checkout,/const \{data:claimedOffer,error:claimError\}/);assert.match(checkout,/\.select\("\*"\)\.maybeSingle\(\)/);assert.match(checkout,/if\(claimError\|\|!claimedOffer\)/);assert.match(checkout,/offer=claimedOffer/);assert.match(checkout,/const resuming=offer\?\.status==="checkout_pending"/);
+});

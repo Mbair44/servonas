@@ -2,7 +2,7 @@ import {hashSmartUpsellToken,smartUpsellTokenIsUsable,type SmartUpsellStatus} fr
 import {smartUpsellOfferCanBeginCheckout} from "./smartUpsellCheckout.ts";
 import {isRestrictedSmartUpsellTestOffer} from "./smartUpsellRestrictedTest.ts";
 import {normalizeWebsiteDomain} from "./website";
-import {listSmartUpsellAlternatives} from "./smartUpsellAlternatives";
+import {listSmartUpsellAlternatives} from "./smartUpsellAlternatives.ts";
 
 type Db=any;
 export type PublicSmartUpsellOffer={token:string;business:{name:string;phone:string|null;logoUrl:string|null;brandColor:string|null};item:{id:string;name:string;imageUrl:string|null};pricing:{originalPriceCents:number;discountedPriceCents:number;discountCents:number;depositCents:number;remainingBalanceIncrementCents:number;additionalDeliveryFeeCents:number;taxCents:number};alternatives:Array<{id:string;name:string;imageUrl:string|null;originalPriceCents:number;discountedPriceCents:number;depositCents:number}>;expiresAt:string;checkoutEligible:boolean;restrictedTestCheckout:boolean};
