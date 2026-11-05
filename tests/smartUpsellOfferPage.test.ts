@@ -33,3 +33,19 @@ test("customer page displays discounted total, deposit, balance, and a disabled-
  assert.match(page,/Regular price/);assert.match(page,/Your exclusive price/);assert.match(page,/Pay today/);assert.match(page,/Added to your remaining balance/);assert.match(page,/smartUpsellCheckoutPreparationEnabled/);assert.match(styles,/@media\(max-width:480px\)/);
  assert.match(route,/prepareSmartUpsellCheckout/);assert.doesNotMatch(route,/stripeClient|stageBookingItemAmendment|\.rpc\(/);
 });
+
+test("alternative selection is server-authorized, tenant scoped, and retains the existing checkout flow",()=>{
+ const page=read("components/SmartUpsellOfferPage.tsx"),loader=read("lib/smartUpsellOfferPage.ts"),alternatives=read("lib/smartUpsellAlternatives.ts"),checkout=read("lib/smartUpsellCheckout.ts"),route=read("app/api/smart-upsells/[token]/checkout/route.ts");
+ assert.match(page,/Looking for something different/);assert.match(page,/inventoryItemId/);assert.match(loader,/listSmartUpsellAlternatives/);assert.match(alternatives,/smart_upsell_eligible_inventory_items/);assert.match(alternatives,/smart_upsell_excluded_inventory_items/);assert.match(alternatives,/booking_amendment_inventory_holds/);assert.match(alternatives,/rankSmartUpsellCandidates/);
+ assert.match(checkout,/find\(candidate=>candidate\.inventoryItemId===selectedInventoryItemId\)/);assert.match(checkout,/That inflatable is no longer available/);assert.match(checkout,/idempotencyKey:`smart-upsell:\$\{offer\.id\}`/);assert.match(route,/request\.formData\(\)/);
+});
+
+test("checkout remains single-redemption and webhook reconciliation remains idempotent",()=>{
+ const checkout=read("lib/smartUpsellCheckout.ts"),webhook=read("app/api/stripe/webhook/route.ts"),staged=read("lib/bookingManage/stagedAmendments.ts");
+ assert.match(checkout,/smartUpsellTokenIsUsable/);assert.match(checkout,/\.in\("status",\["pending","sent","viewed"\]\)/);assert.match(webhook,/beginPaidRentalEvent/);assert.match(webhook,/applyPaidBookingItemAmendment/);assert.match(staged,/if\(amendment\.status==="applied"\)return \{applied:false,duplicate:true\}/);
+});
+
+test("one returned conditional claim binds competing selections before amendment staging",()=>{
+ const checkout=read("lib/smartUpsellCheckout.ts");
+ assert.match(checkout,/const \{data:claimedOffer,error:claimError\}/);assert.match(checkout,/\.select\("\*"\)\.maybeSingle\(\)/);assert.match(checkout,/if\(claimError\|\|!claimedOffer\)/);assert.match(checkout,/offer=claimedOffer/);assert.match(checkout,/const resuming=offer\?\.status==="checkout_pending"/);
+});
