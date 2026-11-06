@@ -25,6 +25,9 @@ function fixture(fail=false){
 test('action sends all rentals and staff consent in one tenant-scoped atomic call before job/payment',async()=>{
  const f=fixture();const result=await f.run();assert.ok(result.url);assert.equal(f.calls.length,1);assert.equal(f.calls[0].name,'create_assisted_rental_booking');assert.equal(f.calls[0].args.p_business_id,'tenant');assert.equal(f.calls[0].args.p_items.length,2);assert.equal(f.calls[0].args.p_details.deposit,20500);assert.equal(f.calls[0].args.p_details.smsConsent,true);assert.deepEqual(f.jobs,['booking']);assert.deepEqual(f.payments,['booking']);
 });
+test('action carries selected staff add-ons into the atomic booking request before the payment link',async()=>{
+ const f=fixture();f.form.set('staffAddons',JSON.stringify([{catalogId:'00000000-0000-4000-8000-000000000001',quantity:1}]));const result=await f.run();assert.ok(result.url);assert.equal(JSON.stringify(f.calls[0].args.p_details.staffAddons),JSON.stringify([{catalogId:'00000000-0000-4000-8000-000000000001',quantity:1}]));assert.deepEqual(f.payments,['booking']);
+});
 test('availability failure returns item name without redirect or payment and preserves submitted data',async()=>{const f=fixture(true);const before=Array.from(f.form.entries());const result=await f.run();assert.match(result.error,/Castle/);assert.equal(result.url,undefined);assert.deepEqual(f.jobs,[]);assert.deepEqual(f.payments,[]);assert.deepEqual(Array.from(f.form.entries()),before);});
 test('foreign item and malformed amount fail before any reservation',async()=>{const f=fixture();f.form.set('rentalItems',JSON.stringify([{inventoryItemId:'foreign',quantity:1,unitPriceCents:1}]));assert.ok((await f.run()).error);assert.equal(f.calls.length,0);});
 
