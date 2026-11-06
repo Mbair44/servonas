@@ -49,7 +49,8 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
  try{
   await ensureRentalBookingJob(db,created.booking_id);
   const request=await createRentalDepositPaymentRequest(created.booking_id);
-  return {url:`/app/${slug}/jobs?success=${encodeURIComponent(`Booking #${created.booking_number} held until ${new Date(request.expiresAt).toLocaleString()}. Payment link ${request.smsSent?"sent by SMS":"created"}.`)}`};
+  const holdMessage=request.expiresAt?`held until ${new Date(request.expiresAt).toLocaleString()}`:"kept open with no expiration";
+  return {url:`/app/${slug}/jobs?success=${encodeURIComponent(`Booking #${created.booking_number} ${holdMessage}. Payment link ${request.smsSent?"sent by SMS":"created"}.`)}`};
  }catch{
   return {error:`Booking #${created.booking_number} is held, but its payment link could not be completed. Retry this form to continue the same booking, or open Jobs to review it.`};
  }
