@@ -48,7 +48,7 @@ export default async function PublicBookingCheckoutPage({params,searchParams}:{p
   if(!isPartyRental)notFound();
 
   return (
-    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} initialSessionId={query.sv_at}/><main
+    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled} initialSessionId={query.sv_at}/><main
       className={`public-booking public-booking-checkout${embedded ? " embedded-booking" : ""}`}
       style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
     >

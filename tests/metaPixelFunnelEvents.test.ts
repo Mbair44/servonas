@@ -19,7 +19,7 @@ test("meta pixel helper defaults enabled sites to measurement while honoring exp
 test("Thanksgiving mounts the tenant pixel and booking tracker before the special landing",async()=>{
  const route=await read("app/sites/domain/[domain]/[promotionSlug]/page.tsx");
  assert.match(route,/promotionSlug==="thanksgiving"[\s\S]*?<TenantMetaPixel pixelId=\{site\.metaPixelId\} defaultMeasurementEnabled=\{Boolean\(site\.metaPixelDefaultMeasurementEnabled\)\}/);
- assert.match(route,/promotionSlug==="thanksgiving"[\s\S]*?<TenantBookingFunnelTracker businessSlug=\{site\.bookingSlug\} landingType="promotion" landingLabel="thanksgiving"/);
+ assert.match(route,/promotionSlug==="thanksgiving"[\s\S]*?<TenantBookingFunnelTracker businessSlug=\{site\.bookingSlug\} defaultMeasurementEnabled=\{Boolean\(site\.metaPixelDefaultMeasurementEnabled\)\} landingType="promotion" landingLabel="thanksgiving"/);
 });
 
 test("booking attribution survives regardless of analytics consent",async()=>{
