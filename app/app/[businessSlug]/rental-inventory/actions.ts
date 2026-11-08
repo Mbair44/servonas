@@ -147,6 +147,48 @@ export async function archiveRentalItem(slug:string,itemId:string){
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item deactivated."));
 }
 
+export async function saveThemedBanner(slug:string,data:FormData){
+ const {supabase,business}=await context(slug);
+ try{
+  const bannerId=text(data,"bannerId")||null,catalogId=text(data,"catalogId")||null,name=text(data,"name"),description=text(data,"description")||null,price=parseCurrencyToCents(text(data,"price")),quantity=Number(text(data,"physicalQuantity")),imageUrl=text(data,"imageUrl")||null,availableFrom=text(data,"availableFrom")||null,availableUntil=text(data,"availableUntil")||null,compatibleItemIds=[...new Set(data.getAll("compatibleItemId").map(String).filter(Boolean))];
+  if(!name||name.length>160||price===null||price<0||price>2147483647||!Number.isInteger(quantity)||quantity<1||quantity>10000)throw new Error("Enter a banner name, valid price, and quantity.");
+  if(imageUrl){try{if(new URL(imageUrl).protocol!=="https:")throw new Error();}catch{throw new Error("Banner image must be a secure HTTPS URL.");}}
+  if(availableFrom&&!datePattern.test(availableFrom)||availableUntil&&!datePattern.test(availableUntil)||availableFrom&&availableUntil&&availableUntil<availableFrom)throw new Error("Choose a valid banner availability date range.");
+  const {data:validItems}=compatibleItemIds.length?await supabase.from("inventory_items").select("id").eq("business_id",business.id).eq("active",true).in("id",compatibleItemIds):{data:[]};
+  if(!compatibleItemIds.length||(validItems??[]).length!==compatibleItemIds.length)throw new Error("Choose at least one active inflatable that can use this banner.");
+  let resolvedCatalogId=catalogId,resolvedBannerId=bannerId;
+  if(bannerId&&catalogId){
+   const {data:existing}=await supabase.from("rental_themed_banners").select("id,catalog_id").eq("id",bannerId).eq("business_id",business.id).maybeSingle();
+   if(!existing||existing.catalog_id!==catalogId)throw new Error("Banner not found.");
+   const {error:catalogError}=await supabase.from("job_addon_catalog").update({name,description,default_unit_price_cents:price,is_taxable:data.get("isTaxable")==="on",image_url:imageUrl,is_active:data.get("active")==="on",customer_visible:data.get("active")==="on",visibility:"public_future",max_customer_quantity:1,updated_at:new Date().toISOString()}).eq("id",catalogId).eq("business_id",business.id);
+   if(catalogError)throw new Error("Banner details could not be saved.");
+   const {error:bannerError}=await supabase.from("rental_themed_banners").update({physical_quantity:quantity,available_from:availableFrom,available_until:availableUntil,updated_at:new Date().toISOString()}).eq("id",bannerId).eq("business_id",business.id);
+   if(bannerError)throw new Error("Banner availability could not be saved.");
+  }else{
+   const {data:catalog,error:catalogError}=await supabase.from("job_addon_catalog").insert({business_id:business.id,name,description,default_unit_price_cents:price,is_taxable:data.get("isTaxable")==="on",image_url:imageUrl,is_active:data.get("active")==="on",customer_visible:data.get("active")==="on",visibility:"public_future",max_customer_quantity:1,compatibility_required:false}).select("id").single();
+   if(catalogError||!catalog)throw new Error(catalogError?.code==="23505"?"A banner with that name already exists.":"Banner details could not be saved. Apply the themed-banner migration first.");
+   resolvedCatalogId=catalog.id;
+   const {data:banner,error:bannerError}=await supabase.from("rental_themed_banners").insert({business_id:business.id,catalog_id:catalog.id,physical_quantity:quantity,available_from:availableFrom,available_until:availableUntil}).select("id").single();
+   if(bannerError||!banner){await supabase.from("job_addon_catalog").delete().eq("id",catalog.id).eq("business_id",business.id);throw new Error("Banner availability could not be saved. Apply the themed-banner migration first.");}
+   resolvedBannerId=banner.id;
+  }
+  const {error:removeError}=await supabase.from("rental_themed_banner_compatible_inventory").delete().eq("banner_id",resolvedBannerId!).eq("business_id",business.id);
+  if(removeError)throw new Error("Banner compatibility could not be saved.");
+  const {error:compatibilityError}=await supabase.from("rental_themed_banner_compatible_inventory").insert(compatibleItemIds.map(inventory_item_id=>({banner_id:resolvedBannerId,business_id:business.id,inventory_item_id})));
+  if(compatibilityError)throw new Error("Banner compatibility could not be saved.");
+ }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The banner could not be saved."));}
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Add-on banner saved."));
+}
+
+export async function archiveThemedBanner(slug:string,bannerId:string){
+ const {supabase,business}=await context(slug);
+ const {data:banner}=await supabase.from("rental_themed_banners").select("catalog_id").eq("id",bannerId).eq("business_id",business.id).maybeSingle();
+ if(!banner)redirect(path(slug,"error","Banner not found."));
+ const {error}=await supabase.from("job_addon_catalog").update({is_active:false,customer_visible:false,updated_at:new Date().toISOString()}).eq("id",banner.catalog_id).eq("business_id",business.id);
+ if(error)redirect(path(slug,"error","The banner could not be hidden."));
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Banner hidden from online booking."));
+}
+
 export async function saveRentalInventoryRequirements(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug),resourceIds=[...new Set(data.getAll("includedInventoryItemIds").map(String).filter(Boolean))];
  if(!resourceIds.length)redirect(path(slug,"error","Choose at least one physical inventory item for this rental."));
