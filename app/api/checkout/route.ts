@@ -25,7 +25,6 @@ import {WEB_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/
 import {resolveTenantCheckoutReturnOrigin} from "@/lib/tenantCheckoutOrigin";
 import {allocateBundleRevenue,resolveRentalBundle} from "@/lib/rentalBundleResolver";
 import {eligibleCustomerAddons} from "@/lib/customerAddonEligibility";
-import {customerCatalogAddonsUiEnabled} from "@/lib/customerCatalogAddonFeature";
 import {qualifiesForThanksgivingRentalOffer,thanksgivingOfferPricingRules,thanksgivingPricingDate} from "@/lib/thanksgivingRentalOffer";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
@@ -220,7 +219,7 @@ export async function POST(request: Request) {
       if(customerAddonQuantities.has(catalogId))return NextResponse.json({error:"The same add-on cannot be selected more than once."},{status:400});
       customerAddonQuantities.set(catalogId,Number(requested.quantity));
     }
-    if(customerAddonQuantities.size&&(!customerCatalogAddonsUiEnabled()||resolvedBundle))return NextResponse.json({error:"Catalog add-ons are not available for this reservation."},{status:400});
+    if(customerAddonQuantities.size&&resolvedBundle)return NextResponse.json({error:"Catalog add-ons are not available for this reservation."},{status:400});
     type EligibleCatalogAddon={id:string;default_unit_price_cents:number;is_taxable:boolean;max_customer_quantity:number};
     const eligibleCatalogAddons:EligibleCatalogAddon[]=customerAddonQuantities.size?await eligibleCustomerAddons(supabase,{businessId:business.id,rentalItemIds:requestedItems.map(item=>item.inventoryItemId),date:body.rentalDate!,startTime:body.startTime!,endTime:body.endTime!}) as EligibleCatalogAddon[]:[];
     const eligibleCatalogAddonById=new Map<string,EligibleCatalogAddon>(eligibleCatalogAddons.map(addon=>[addon.id,addon]));
