@@ -37,7 +37,9 @@ const stored = (slug: string, initialSessionId?: string): Stored => {
 const bookingPathFor = (slug: string) => `/book/${encodeURIComponent(slug)}`;
 const bookingCheckoutPathFor = (slug: string) => `${bookingPathFor(slug)}/booking`;
 const isBookingUrl = (url: URL, slug: string) => { const pathname = url.pathname.replace(/\/$/, "") || "/"; return pathname === bookingPathFor(slug) || pathname === bookingCheckoutPathFor(slug) || pathname === "/booking" || pathname === "/booking/checkout"; };
-const applyStoredAttribution = (url: URL, slug: string) => { if(!analyticsAllowed())return url; const state = stored(slug); if (!url.searchParams.has("sv_at")) url.searchParams.set("sv_at", state.sessionId); for (const [name, value] of Object.entries(state.attribution)) if (value && !url.searchParams.has(name)) url.searchParams.set(name, value); return url; };
+// Retaining ad click identifiers in booking URLs is independent of optional
+// first-party funnel analytics; this operation does not send a funnel event.
+const applyStoredAttribution = (url: URL, slug: string) => { const state = stored(slug); if (!url.searchParams.has("sv_at")) url.searchParams.set("sv_at", state.sessionId); for (const [name, value] of Object.entries(state.attribution)) if (value && !url.searchParams.has(name)) url.searchParams.set(name, value); return url; };
 const eventFingerprint = (event: BookingFunnelEvent, options: TrackBookingFunnelOptions) => JSON.stringify([event, typeof window === "undefined" ? "" : `${location.pathname}${location.search}`, options.inventoryItemId ?? null, options.serviceId ?? null, options.metadata ?? {}]);
 const shouldSkipEvent = (slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions) => {
  if (interactionEvents.has(event)) return false;
@@ -126,6 +128,12 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
   window.addEventListener("servonas:analytics-consent-updated",onConsent);
   return()=>window.removeEventListener("servonas:analytics-consent-updated",onConsent);
  },[businessSlug,landingId,landingLabel,landingType]);
+ useEffect(()=>{
+  const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(isBookingUrl(url,businessSlug))element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* Leave external URLs usable. */}});
+  rewrite();
+  const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});
+  return()=>observer.disconnect();
+ },[businessSlug,routeKey]);
  useEffect(() => {
   if (!analyticsEnabled) return;
   if (!analyticsAllowed()) return;
@@ -138,10 +146,6 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
    trackBookingFunnel(businessSlug, "landing_view", { metadata: { navigation_type: "spa" } });
   }
   if (pageTypeForPath(location.pathname) === "booking" && !isEmbeddedBooking()) trackBookingFunnel(businessSlug, "booking_started", { metadata: meaningfulMetadata(sessionStartedAt.current, "booking_started", null, { surface: "booking_page", entry: "route_load" }) });
-  const rewrite = (root: ParentNode = document) => root.querySelectorAll<HTMLAnchorElement | HTMLIFrameElement>("a[href],iframe[src]").forEach((element) => { const attribute = element instanceof HTMLAnchorElement ? "href" : "src", raw = element.getAttribute(attribute); if (!raw) return; try { const url = new URL(raw, location.href); if (isBookingUrl(url, businessSlug)) element.setAttribute(attribute, applyStoredAttribution(url, businessSlug).toString()); } catch { /* leave external URL usable */ } });
-  rewrite();
-  const observer = new MutationObserver(() => rewrite());
-  observer.observe(document.body, { childList: true, subtree: true });
   const seenForms = new Set<string>();
   try { window.sessionStorage.removeItem(formStartKey(businessSlug)); } catch { /* ignore storage failures */ }
   const onClick = (event: MouseEvent) => {
@@ -187,7 +191,6 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
   document.addEventListener("submit", onSubmit, true);
   writeSession(businessSlug,{ ...current, lastSessionSyncAt: Date.now() });
   return () => {
-   observer.disconnect();
    document.removeEventListener("click", onClick, true);
    document.removeEventListener("focusin", onFocusIn, true);
    document.removeEventListener("change", onChange, true);

@@ -66,7 +66,7 @@ async function queryPublicBookingData(businessSlug:string,promotionCode?:string,
           .eq("is_deleted", false)
           .order("sort_order")
           .order("name"),
-    supabase.from("business_website_settings").select("full_day_rental_message,meta_pixel_id,cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text").eq("business_id",settings.business_id).maybeSingle(),
+    supabase.from("business_website_settings").select("full_day_rental_message,meta_pixel_id,meta_pixel_default_measurement_enabled,cancellation_policy_enabled,cancellation_policy_text,require_cancellation_acknowledgment,weather_policy_text,rental_waiver_policy_text").eq("business_id",settings.business_id).maybeSingle(),
   ]);
   const schedule = Object.fromEntries(
     (hours ?? []).map((hour: any) => [
@@ -132,7 +132,7 @@ async function queryPublicBookingData(businessSlug:string,promotionCode?:string,
     }
   }
   const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
-  return {fullDayRentalMessage:websiteSettings?.full_day_rental_message,cancellationPolicy:websiteSettings,settings,services:services??[],schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalResourceCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
+  return {fullDayRentalMessage:websiteSettings?.full_day_rental_message,cancellationPolicy:websiteSettings,settings,services:services??[],schedule,businessName,bookingLogo,metaPixelId,metaPixelDefaultMeasurementEnabled:Boolean(websiteSettings?.meta_pixel_default_measurement_enabled),isPartyRental,rentalInventory,rentalCapacity,rentalResourceCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,rentalBlockedDatesByItem};
 }
 
 const loadCachedPublicBookingData=unstable_cache(queryPublicBookingData,["public-booking-page"],{revalidate:300,tags:["public-promotion-inventory"]});
