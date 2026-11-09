@@ -1,4 +1,4 @@
-export type CustomerCatalogAddon={id:string;name:string;description:string|null;imageUrl:string|null;unitPriceCents:number;maxQuantity:number};
+export type CustomerCatalogAddon={id:string;name:string;description:string|null;imageUrl:string|null;unitPriceCents:number;maxQuantity:number;isPowerGenerator?:boolean};
 
 export function pruneCustomerAddonQuantities(quantities:Record<string,number>,addons:CustomerCatalogAddon[]){
  const limits=new Map(addons.map(addon=>[addon.id,addon.maxQuantity]));

@@ -213,6 +213,11 @@ export async function POST(request: Request) {
       if(customerAddonQuantities.has(catalogId))return NextResponse.json({error:"The same add-on cannot be selected more than once."},{status:400});
       customerAddonQuantities.set(catalogId,Number(requested.quantity));
     }
+    if(body.powerNeed==="generator_request"){
+      const {data:generatorAddon,error:generatorError}=await supabase.from("job_addon_catalog").select("id").eq("business_id",business.id).eq("is_power_generator",true).eq("is_active",true).eq("customer_visible",true).eq("visibility","public_future").maybeSingle();
+      if(generatorError||!generatorAddon)return NextResponse.json({error:"A priced generator is not available for this booking. Please choose another power option."},{status:409});
+      customerAddonQuantities.set(generatorAddon.id,1);
+    }
     if(customerAddonQuantities.size&&resolvedBundle)return NextResponse.json({error:"Catalog add-ons are not available for this reservation."},{status:400});
     type EligibleCatalogAddon={id:string;default_unit_price_cents:number;is_taxable:boolean;max_customer_quantity:number};
     const eligibleCatalogAddons:EligibleCatalogAddon[]=customerAddonQuantities.size?await eligibleCustomerAddons(supabase,{businessId:business.id,rentalItemIds:requestedItems.map(item=>item.inventoryItemId),date:body.rentalDate!,startTime:body.startTime!,endTime:body.endTime!}) as EligibleCatalogAddon[]:[];
