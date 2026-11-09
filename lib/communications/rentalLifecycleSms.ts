@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendTenantTwilioMessage } from "@/lib/twilio/messageUsage";
 import {claimGoogleReviewRequestEligibility} from "@/lib/googleReviewEligibility";
 import {authoritativeBookingBalance} from "@/lib/financial/rentalCompletionBalance";
+import {powerReminder} from "@/lib/rentalPower";
 
 type LifecycleType = "reminder" | "technician_en_route" | "review_request" | "payment_receipt";
 type First<T> = T | T[] | null;
@@ -9,10 +10,10 @@ const first = <T,>(value: First<T>) => Array.isArray(value) ? value[0] ?? null :
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const date = (value: string | null | undefined) => value ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`)) : "your rental date";
 
-export function rentalLifecycleSmsBody(type: LifecycleType, businessName: string, rentalItemNames: string[], rentalDate: string | null, payment?: { amountCents: number; balanceDueCents: number; reviewUrl?: string; receiptUrl?: string }) {
+export function rentalLifecycleSmsBody(type: LifecycleType, businessName: string, rentalItemNames: string[], rentalDate: string | null, payment?: { amountCents: number; balanceDueCents: number; reviewUrl?: string; receiptUrl?: string },power?:{outlets:number|null;unconfigured:boolean;selection:string|null;generatorConfirmed:boolean}) {
  const items = new Intl.ListFormat("en-US", { style: "long", type: "conjunction" }).format(rentalItemNames) || "rental";
  const prefix = `${businessName}: `;
- if (type === "reminder") return `${prefix}🎉 Just a reminder that your ${items} rental is coming up on ${date(rentalDate)}. We’re excited to be part of your event! Questions? Just reply here. Reply STOP to opt out.`;
+ if (type === "reminder") {const reminder=power&&!(power.selection==="generator_request"&&power.generatorConfirmed)?powerReminder({totalOutlets:Number(power.outlets??0),hasUnconfiguredItems:power.unconfigured},power.selection):"";return `${prefix}🎉 Just a reminder that your ${items} rental is coming up on ${date(rentalDate)}.${reminder?` ${reminder}`:""} We’re excited to be part of your event! Questions? Just reply here. Reply STOP to opt out.`;}
  if (type === "technician_en_route") return `${prefix}🚚 We’re on the way with your ${items}! We’ll see you soon. Questions? Just reply here. Reply STOP to opt out.`;
  if (type === "review_request") return `${prefix}Thanks for choosing us! 🎉 We hope you had a great experience with your ${items}. We’d love your feedback: ${payment?.reviewUrl} Reply STOP to opt out.`;
  return `${prefix}Payment received! We received your ${money(payment?.amountCents ?? 0)} payment for your ${items} rental.${payment?.balanceDueCents ? ` Remaining balance: ${money(payment.balanceDueCents)}.` : " Your rental is paid in full."}${payment?.receiptUrl ? ` View your receipt and full charges: ${payment.receiptUrl}` : ""} Thanks! Reply STOP to opt out.`;
@@ -27,7 +28,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   if (error || !data) return { ok: true, skipped: true, reason: "payment_not_succeeded" };
   payment = data; jobId = jobId ?? data.job_id;
  }
- let bookingQuery = db.from("bookings").select("id,business_id,customer_id,job_id,status,sms_consent,booking_number,total_cents,amount_paid_cents,balance_due_cents,receipt_token,customers(phone_normalized,sms_consent_status),businesses(name),booking_items(rental_date,inventory_items(name))");
+ let bookingQuery = db.from("bookings").select("id,business_id,customer_id,job_id,status,sms_consent,booking_number,total_cents,amount_paid_cents,balance_due_cents,receipt_token,power_outlets_required,power_requirements_unconfigured,power_selection,generator_coverage_confirmed,customers(phone_normalized,sms_consent_status),businesses(name),booking_items(rental_date,inventory_items(name))");
  bookingQuery = input.bookingId ? bookingQuery.eq("id", input.bookingId) : bookingQuery.eq("job_id", jobId ?? "");
  const { data: booking, error: bookingError } = await bookingQuery.maybeSingle();
  if (bookingError || !booking || !booking.job_id || !["paid", "confirmed", "completed"].includes(booking.status)) return { ok: true, skipped: true, reason: "rental_booking_not_confirmed" };
@@ -80,7 +81,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   // A receipt is a current account summary, not merely the latest deposit or
   // balance transaction. The canonical booking totals stay correct on retries.
   const receiptPayment = input.type === "payment_receipt" ? { amountCents: Number(booking.amount_paid_cents ?? 0), balanceDueCents, receiptUrl } : payment ? { amountCents: Number(payment.amount_cents), balanceDueCents, reviewUrl } : input.type === "review_request" ? { amountCents: 0, balanceDueCents: 0, reviewUrl } : undefined;
-  const body = rentalLifecycleSmsBody(input.type, business?.name ?? "Your rental business", rentalItemNames, rentalDate, receiptPayment);
+  const body = rentalLifecycleSmsBody(input.type, business?.name ?? "Your rental business", rentalItemNames, rentalDate, receiptPayment,{outlets:booking.power_outlets_required,unconfigured:Boolean(booking.power_requirements_unconfigured),selection:booking.power_selection,generatorConfirmed:Boolean(booking.generator_coverage_confirmed)});
   const sent = await sendTenantTwilioMessage({ businessId: booking.business_id, to: customer.phone_normalized, body, sourceType: `rental_${input.type}`, sourceId: eventId });
   await db.from("job_communication_events").update({ status: "sent", provider_message_id: sent.sid, sent_at: new Date().toISOString(), error_message: null,processing_started_at:null }).eq("id", eventId);
   if (input.type === "reminder" || input.type === "review_request") await db.from("bookings").update({ [input.type === "reminder" ? "reminder_sms_sent_at" : "review_sms_sent_at"]: new Date().toISOString() }).eq("id", booking.id);

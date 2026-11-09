@@ -80,6 +80,7 @@ async function values(supabase:SupabaseClient,businessId:string,data:FormData){
  const taxableSetting=text(data,"taxableSetting")||"inherit",taxCode=text(data,"taxCode")||null;
  const lengthFt=optionalPositiveNumber(text(data,"lengthFt"),"length"),widthFt=optionalPositiveNumber(text(data,"widthFt"),"width"),heightFt=optionalPositiveNumber(text(data,"heightFt"),"height");
  const operatorMode=text(data,"operatorMode")||"none",operatorRateRaw=text(data,"operatorHourlyRate"),operatorRate=operatorRateRaw===""?null:Number(operatorRateRaw);
+ const outletsRaw=text(data,"powerOutletsRequired"),powerOutletsRequired=outletsRaw===""?0:Number(outletsRaw),powerInstructions=text(data,"powerInstructions")||null;
  if(!name||name.length>120)throw new Error("Enter a rental name up to 120 characters.");
  if(!Number.isFinite(price)||price<0||price>100000)throw new Error("Enter a valid daily rental price.");
  if(purchaseCost!==null&&(!Number.isFinite(purchaseCost)||purchaseCost<0||purchaseCost>10000000))throw new Error("Enter a valid purchase cost.");
@@ -88,13 +89,14 @@ async function values(supabase:SupabaseClient,businessId:string,data:FormData){
  if(!validStripeTaxCode(taxCode)||taxCode&&taxCode.length>100)throw new Error("Enter a valid Stripe Tax code beginning with txcd_.");
  if(!["none","optional","required"].includes(operatorMode))throw new Error("Choose a valid operator option.");
  if(operatorMode!=="none"&&(!Number.isFinite(operatorRate)||operatorRate===null||operatorRate<0||operatorRate>1000000))throw new Error("Enter a valid operator hourly rate.");
+ if(!Number.isInteger(powerOutletsRequired)||powerOutletsRequired<0||powerOutletsRequired>100)throw new Error("Electrical outlets required must be a whole number from 0 to 100.");
  const {data:category}=categoryId?await supabase.from("rental_inventory_categories").select("id,name").eq("id",categoryId).eq("business_id",businessId).maybeSingle():{data:null};
  if(categoryId&&!category)throw new Error("Choose a category that belongs to this business.");
  const overrideType=text(data,"additionalDayPricingTypeOverride"),overrideDiscount=text(data,"additionalDayDiscountPercentOverride"),overrideFlat=text(data,"additionalDayFlatRateOverride"),overrideHours=text(data,"standardRentalHoursOverride"),overrideMax=text(data,"maxRentalDaysOverride");
  const overrideTouched=data.get("usePricingOverride")==="on"||Boolean(overrideHours)||Boolean(overrideDiscount)||Boolean(overrideFlat)||Boolean(overrideMax)||overrideType!=="full_price"||data.get("allowMultiDayOverride")==="on";
  const useOverride=overrideTouched;
  if(useOverride&&(!["full_price","percentage_discount","flat_rate"].includes(overrideType)||!Number.isInteger(Number(overrideHours))||Number(overrideHours)<1||(overrideDiscount&&(Number(overrideDiscount)<0||Number(overrideDiscount)>100))||(overrideFlat&&Number(overrideFlat)<0)||(overrideMax&&Number(overrideMax)<1)))throw new Error("Review the item-specific rental pricing.");
- return {...profitabilityAssumptionsFromForm(data),name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),purchase_cost_cents:purchaseCost===null?null:Math.round(purchaseCost*100),stock_quantity:stock,length_ft:lengthFt,width_ft:widthFt,height_ft:heightFt,is_taxable:taxableSetting==="inherit"?null:taxableSetting==="taxable",tax_code:taxCode,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on",standard_rental_hours_override:useOverride?Number(overrideHours):null,allow_multi_day_override:useOverride?data.get("allowMultiDayOverride")==="on":null,additional_day_pricing_type_override:useOverride?overrideType:null,additional_day_discount_percent_override:useOverride&&overrideDiscount?Number(overrideDiscount):null,additional_day_flat_rate_cents_override:useOverride&&overrideFlat?Math.round(Number(overrideFlat)*100):null,max_rental_days_override:useOverride&&overrideMax?Number(overrideMax):null,operator_mode:operatorMode,operator_hourly_rate_cents:operatorMode==="none"?null:Math.round(operatorRate!*100),operator_default_selected:operatorMode==="required"?true:data.get("operatorDefaultSelected")==="on"};
+ return {...profitabilityAssumptionsFromForm(data),name,category_id:category?.id??null,category:category?.name??null,description:description||null,daily_price_cents:Math.round(price*100),purchase_cost_cents:purchaseCost===null?null:Math.round(purchaseCost*100),stock_quantity:stock,power_outlets_required:powerOutletsRequired,power_instructions:powerInstructions,length_ft:lengthFt,width_ft:widthFt,height_ft:heightFt,is_taxable:taxableSetting==="inherit"?null:taxableSetting==="taxable",tax_code:taxCode,allow_quantity:data.get("allowQuantity")==="on",active:data.get("active")==="on",standard_rental_hours_override:useOverride?Number(overrideHours):null,allow_multi_day_override:useOverride?data.get("allowMultiDayOverride")==="on":null,additional_day_pricing_type_override:useOverride?overrideType:null,additional_day_discount_percent_override:useOverride&&overrideDiscount?Number(overrideDiscount):null,additional_day_flat_rate_cents_override:useOverride&&overrideFlat?Math.round(Number(overrideFlat)*100):null,max_rental_days_override:useOverride&&overrideMax?Number(overrideMax):null,operator_mode:operatorMode,operator_hourly_rate_cents:operatorMode==="none"?null:Math.round(operatorRate!*100),operator_default_selected:operatorMode==="required"?true:data.get("operatorDefaultSelected")==="on"};
 }
 async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:string,data:FormData){
  const requested=[...new Set(data.getAll("relatedItemIds").map(String).filter(id=>id&&id!==itemId))];
@@ -127,6 +129,7 @@ export async function updateRentalItem(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
   const payload=await values(supabase,business.id,data),imagePath=directPath(data,"uploadedImagePath",business.id),receiptPath=directPath(data,"uploadedReceiptPath",business.id),admin=getSupabaseAdmin(),image=imagePath&&admin?admin.storage.from("inventory-images").getPublicUrl(imagePath).data.publicUrl:null;
+  if(text(data,"powerOutletsRequired")===""){delete (payload as {power_outlets_required?:number}).power_outlets_required;delete (payload as {power_instructions?:string|null}).power_instructions;}
   const {data:existing}=await supabase.from("inventory_items").select("purchase_receipt_path,image_url").eq("id",itemId).eq("business_id",business.id).maybeSingle();
   const removeReceipt=data.get("removePurchaseReceipt")==="on";
   const receiptFields=receiptPath?{purchase_receipt_path:receiptPath,purchase_receipt_name:text(data,"uploadedReceiptName")||null}:removeReceipt?{purchase_receipt_path:null,purchase_receipt_name:null}:{};
@@ -147,12 +150,20 @@ export async function archiveRentalItem(slug:string,itemId:string){
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item deactivated."));
 }
 
+export async function saveRentalPowerRequirements(slug:string,itemId:string,data:FormData){
+ const {supabase,business}=await context(slug),raw=text(data,"powerOutletsRequired"),outlets=Number(raw),instructions=text(data,"powerInstructions")||null;
+ if(!Number.isInteger(outlets)||outlets<0||outlets>100)redirect(path(slug,"error","Electrical outlets required must be a whole number from 0 to 100."));
+ const {error}=await supabase.from("inventory_items").update({power_outlets_required:outlets,power_instructions:instructions}).eq("id",itemId).eq("business_id",business.id);
+ if(error)redirect(path(slug,"error","Power requirements could not be saved. Apply the rental power requirements migration first."));
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Electrical requirements saved."));
+}
+
 export async function saveThemedBanner(slug:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const bannerId=text(data,"bannerId")||null,catalogId=text(data,"catalogId")||null,name=text(data,"name"),description=text(data,"description")||null,price=parseCurrencyToCents(text(data,"price")),quantity=Number(text(data,"physicalQuantity")),imageUrl=text(data,"imageUrl")||null,availableFrom=text(data,"availableFrom")||null,availableUntil=text(data,"availableUntil")||null,compatibleItemIds=[...new Set(data.getAll("compatibleItemId").map(String).filter(Boolean))];
+  const bannerId=text(data,"bannerId")||null,catalogId=text(data,"catalogId")||null,name=text(data,"name"),description=text(data,"description")||null,price=parseCurrencyToCents(text(data,"price")),quantity=Number(text(data,"physicalQuantity")),uploadedImagePath=directPath(data,"uploadedBannerImagePath",business.id),availableFrom=text(data,"availableFrom")||null,availableUntil=text(data,"availableUntil")||null,compatibleItemIds=[...new Set(data.getAll("compatibleItemId").map(String).filter(Boolean))];
+  const admin=getSupabaseAdmin(),imageUrl=uploadedImagePath&&admin?admin.storage.from("inventory-images").getPublicUrl(uploadedImagePath).data.publicUrl:null;
   if(!name||name.length>160||price===null||price<0||price>2147483647||!Number.isInteger(quantity)||quantity<1||quantity>10000)throw new Error("Enter a banner name, valid price, and quantity.");
-  if(imageUrl){try{if(new URL(imageUrl).protocol!=="https:")throw new Error();}catch{throw new Error("Banner image must be a secure HTTPS URL.");}}
   if(availableFrom&&!datePattern.test(availableFrom)||availableUntil&&!datePattern.test(availableUntil)||availableFrom&&availableUntil&&availableUntil<availableFrom)throw new Error("Choose a valid banner availability date range.");
   const {data:validItems}=compatibleItemIds.length?await supabase.from("inventory_items").select("id").eq("business_id",business.id).eq("active",true).in("id",compatibleItemIds):{data:[]};
   if(!compatibleItemIds.length||(validItems??[]).length!==compatibleItemIds.length)throw new Error("Choose at least one active inflatable that can use this banner.");
@@ -160,7 +171,7 @@ export async function saveThemedBanner(slug:string,data:FormData){
   if(bannerId&&catalogId){
    const {data:existing}=await supabase.from("rental_themed_banners").select("id,catalog_id").eq("id",bannerId).eq("business_id",business.id).maybeSingle();
    if(!existing||existing.catalog_id!==catalogId)throw new Error("Banner not found.");
-   const {error:catalogError}=await supabase.from("job_addon_catalog").update({name,description,default_unit_price_cents:price,is_taxable:data.get("isTaxable")==="on",image_url:imageUrl,is_active:data.get("active")==="on",customer_visible:data.get("active")==="on",visibility:"public_future",max_customer_quantity:1,updated_at:new Date().toISOString()}).eq("id",catalogId).eq("business_id",business.id);
+   const {error:catalogError}=await supabase.from("job_addon_catalog").update({name,description,default_unit_price_cents:price,is_taxable:data.get("isTaxable")==="on",...(imageUrl?{image_url:imageUrl}:{}),is_active:data.get("active")==="on",customer_visible:data.get("active")==="on",visibility:"public_future",max_customer_quantity:1,updated_at:new Date().toISOString()}).eq("id",catalogId).eq("business_id",business.id);
    if(catalogError)throw new Error("Banner details could not be saved.");
    const {error:bannerError}=await supabase.from("rental_themed_banners").update({physical_quantity:quantity,available_from:availableFrom,available_until:availableUntil,updated_at:new Date().toISOString()}).eq("id",bannerId).eq("business_id",business.id);
    if(bannerError)throw new Error("Banner availability could not be saved.");
