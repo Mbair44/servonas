@@ -26,6 +26,7 @@ import {resolveTenantCheckoutReturnOrigin} from "@/lib/tenantCheckoutOrigin";
 import {allocateBundleRevenue,resolveRentalBundle} from "@/lib/rentalBundleResolver";
 import {eligibleCustomerAddons} from "@/lib/customerAddonEligibility";
 import {qualifiesForThanksgivingRentalOffer,thanksgivingOfferPricingRules,thanksgivingPricingDate} from "@/lib/thanksgivingRentalOffer";
+import {rentalPowerRequirement} from "@/lib/rentalPower";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
@@ -33,13 +34,6 @@ type RequestedOption = { inventoryItemId?: string; optionId?: string; choiceId?:
 type RequestedCustomerAddon = { catalogId?: string; quantity?: number };
 type RequestedThemedBanner = { bannerId?: string; inventoryItemId?: string };
 type CopperStatePowerNeed = "electricity" | "generator_request" | "unsure";
-const COPPER_STATE_BOUNCE_BUSINESS_ID = "cb25acc0-3623-4c06-9041-89a88f4ad6ed";
-
-function copperStatePowerRequestNote(value: unknown): string {
-  if (value === "generator_request") return "Power request: Generator Rental requested (+$150). Availability and compatibility require confirmation; this request is not charged automatically.";
-  if (value === "unsure") return "Power follow-up required: customer is unsure whether electricity is available.";
-  return "";
-}
 type BundleSelections = { groupItems?: Record<string,string[]>; addonItems?: string[] };
 type CheckoutBody = {
   cancellationPolicyAccepted?:boolean|string;
@@ -193,7 +187,7 @@ export async function POST(request: Request) {
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
       .from("inventory_items")
-      .select("business_id,id,name,daily_price_cents,is_taxable,tax_code,category_id,rental_inventory_categories(tax_code),active,allow_quantity,stock_quantity,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
+      .select("business_id,id,name,daily_price_cents,is_taxable,tax_code,category_id,rental_inventory_categories(tax_code),active,allow_quantity,stock_quantity,power_outlets_required,power_instructions,standard_rental_hours_override,allow_multi_day_override,additional_day_pricing_type_override,additional_day_discount_percent_override,additional_day_flat_rate_cents_override,max_rental_days_override,operator_mode,operator_hourly_rate_cents,operator_default_selected,allow_extended_rental_override,additional_hour_price_cents_override,overnight_available_override,overnight_price_cents_override")
       .in("id", ids)
       .match(business?{business_id:business.id}:{})
       .eq("active", true);
@@ -317,7 +311,9 @@ export async function POST(request: Request) {
     const deliveryRuleSnapshot=deliveryQuote?{...deliveryQuote.snapshot.rule,taxable:deliveryTaxLine.taxable,taxCents:deliveryTaxLine.taxCents,taxRateBasisPoints:taxSettings.calculationMethod==="manual"?(taxSettings.taxEnabled&&!taxCustomer?.tax_exempt&&deliveryTaxLine.taxable?taxSettings.manualTaxRateBasisPoints:0):null,taxCalculationId:taxCalculation.snapshot.calculationId}:null;
     // Never create a reservation or payment until the customer has reviewed the authoritative amount.
     if(body.acceptedTotalCents!==totalCents||body.acceptedDepositCents!==depositCents)return NextResponse.json({requiresPriceReview:true,customerAddonQuote:selectedCatalogAddons.length>0||selectedThemedBanners.length>0,subtotalCents,discountCents,deliveryFeeCents,taxCents,totalCents,depositCents,remainingBalanceCents:taxCalculation.remainingBalanceCents,displayMode:taxSettings.displayMode});
-    const powerRequestNote=business.id===COPPER_STATE_BOUNCE_BUSINESS_ID?copperStatePowerRequestNote(body.powerNeed):"";
+    const powerRequirement=rentalPowerRequirement(orderedItems,requestedItems);
+    const powerSelection=(body.powerNeed==="electricity"||body.powerNeed==="generator_request"||body.powerNeed==="unsure")?body.powerNeed:null;
+    const powerRequestNote=(powerRequirement.totalOutlets>0||powerRequirement.hasUnconfiguredItems)?(powerSelection==="generator_request"?"Power request: Generator requested. Capacity requires staff confirmation and is not charged automatically.":powerSelection==="unsure"?"Power follow-up required: customer is unsure whether electricity is available.":powerRequirement.hasUnconfiguredItems?"Power review required: one or more selected rental items have no configured outlet requirement.":`Power requirement: ${powerRequirement.totalOutlets} electrical outlet${powerRequirement.totalOutlets===1?"":"s"} required.`):"";
     const bookingNotes=[body.notes?.trim(),powerRequestNote].filter(Boolean).join("\n");
     const reservationDetails={
       p_items: requestedItems,
@@ -368,6 +364,7 @@ export async function POST(request: Request) {
     const snapshots=await Promise.all(pricedItems.map(item=>supabase.from("booking_items").update({tax_snapshot:taxCalculation.snapshot.lines.find(line=>line.id===item.id),operator_selected:item.operator.selected,operator_mode_snapshot:item.operator.mode,operator_hourly_rate_cents:item.operator.selected?item.operator.rateCents:null,operator_billable_hours:item.operator.selected?item.operator.hours:null,operator_charge_cents:item.operator.chargeCents,option_selections:item.optionSelections,option_adjustment_cents:item.optionAdjustmentCents,standard_rental_hours_snapshot:resolveRentalDurationRules(durationBusinessRules,item).standardRentalHours,additional_hours:item.additionalHours,overnight_selected:item.overnight,duration_adjustment_cents:item.durationAdjustmentCents}).eq("id",bookingItemByInventoryId.get(item.id)!)));
     if(snapshots.some(result=>result.error)){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation could not be finalized. Please try again."},{status:500});}
     const {data:createdBooking}=business?await supabase.from("bookings").select("customer_id").eq("id",booking.booking_id).eq("business_id",business.id).single():{data:null};
+    await supabase.from("bookings").update({power_outlets_required:powerRequirement.hasUnconfiguredItems?null:powerRequirement.totalOutlets,power_requirements_unconfigured:powerRequirement.hasUnconfiguredItems,power_instructions:powerRequirement.instructions.join("\n")||null,power_selection:powerSelection,generator_coverage_confirmed:false}).eq("id",booking.booking_id).eq("business_id",business.id);
     if(business){
       const {error:consentError}=await supabase.rpc("record_web_booking_sms_consent",{p_booking_id:booking.booking_id,p_granted:smsConsent,p_disclosure:disclosure,p_disclosure_version:WEB_BOOKING_SMS_CONSENT_VERSION});
       if(consentError){await supabase.from("bookings").update({status:"expired"}).eq("id",booking.booking_id);await supabase.from("booking_items").update({status:"expired"}).eq("booking_id",booking.booking_id);return NextResponse.json({error:"The reservation consent record could not be saved. Please try again."},{status:500});}
