@@ -31,10 +31,10 @@ export default async function PublicBookingPage({
   const googleMapsApiKey=browserGoogleMapsApiKey();
   const data=await loadPublicBookingData(businessSlug,query.promotion,query.promotionId);
   if (!data) notFound();
-  const {settings,services,schedule,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
+  const {settings,services,schedule,businessName,bookingLogo,metaPixelId,metaPixelDefaultMeasurementEnabled,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
 
   return (
-    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} initialSessionId={query.sv_at}/><main
+    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled} initialSessionId={query.sv_at}/><main
       className={`public-booking${embedded ? " embedded-booking" : ""}`}
       style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
     >

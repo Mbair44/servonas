@@ -12,6 +12,13 @@ test("meta pixel migration adds tenant-scoped configuration to website settings"
  assert.match(sql,/\^\[0-9\]\{8,24\}\$/);
 });
 
+test("default Meta measurement is scoped to Copper State Bounce rather than enabled for every tenant",async()=>{
+ const sql=await read("supabase/migrations/20261107000200_meta_pixel_default_measurement.sql");
+ assert.match(sql,/meta_pixel_default_measurement_enabled boolean not null default false/);
+ assert.match(sql,/public_slug='copper-state-bounce'/);
+ assert.match(sql,/meta_pixel_id='2375527282981645'/);
+});
+
 test("website settings save flow validates and persists the Meta Pixel ID",async()=>{
  const [actions,page]=await Promise.all([
   read("app/app/[businessSlug]/settings/website/actions.ts"),
@@ -35,15 +42,15 @@ test("public website loader and shell keep Meta Pixel tenant scoped and preview-
  assert.match(loader,/const sanitizeMetaPixelId=/);
  assert.match(loader,/meta_pixel_id/);
  assert.match(loader,/metaPixelId:sanitizeMetaPixelId\(settings\.meta_pixel_id\)/);
- assert.match(site,/!preview&&site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
+ assert.match(site,/!preview&&site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\} defaultMeasurementEnabled=\{Boolean\(site\.metaPixelDefaultMeasurementEnabled\)\}\/>/);
  assert.match(component,/ANALYTICS_CONSENT_KEY/);
- assert.match(component,/if\(!allowed\|\|!normalizedPixelId\|\|pathBlocked\(pathname\?\?""\)\)return null;/);
+ assert.match(component,/consent!=="denied"&&\(consent==="granted"\|\|window\.__servonasMetaDefaultMeasurementEnabled===true\)/);
  assert.match(component,/ensureMetaPixelScript\(\)/);
  assert.match(component,/ensureMetaPixelStub\(\)/);
  assert.match(component,/fbq\("init",normalizedPixelId\)/);
  assert.match(component,/fbq\("track","PageView"\)/);
  assert.match(component,/__servonasMetaPixelPageViews/);
- assert.match(component,/reason:value==="granted"\?"consent_granted":"consent_not_granted"/);
+ assert.match(component,/reason:value==="denied"\?"consent_denied":value==="granted"\?"consent_granted":"default_measurement"/);
  assert.match(component,/action:"pageview_attempted"/);
  assert.match(component,/capiSent:false/);
 });
@@ -77,15 +84,15 @@ test("promotion and standalone booking routes mount only the resolved tenant pix
   read("app/book/[businessSlug]/booking/page.tsx"),
   read("app/book/[businessSlug]/loadPublicBookingData.ts"),
  ]);
- assert.match(domainPromotion,/site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\}\/>/);
+ assert.match(domainPromotion,/site\.metaPixelId&&<TenantMetaPixel pixelId=\{site\.metaPixelId\} defaultMeasurementEnabled=\{Boolean\(site\.metaPixelDefaultMeasurementEnabled\)\}\/>/);
  assert.match(hostedPromotion,/select\("business_id,meta_pixel_id,/);
- assert.match(hostedPromotion,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
+ assert.match(hostedPromotion,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\} defaultMeasurementEnabled=\{Boolean\(website\.meta_pixel_default_measurement_enabled\)\}\/>/);
  assert.match(loader,/from\("business_website_settings"\)\.select\("[^"\n]*\bmeta_pixel_id\b[^"\n]*"\)\.eq\("business_id",settings.business_id\)/);
- for(const route of [booking,checkout])assert.match(route,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\}\/>/);
+ for(const route of [booking,checkout])assert.match(route,/metaPixelId&&<TenantMetaPixel pixelId=\{metaPixelId\} defaultMeasurementEnabled=\{metaPixelDefaultMeasurementEnabled\}\/>/);
  for(const route of [domainPromotion,hostedPromotion,booking,checkout])assert.doesNotMatch(route,/2375527282981645/);
 });
 
-test("tenant meta pixel can initialize immediately after consent without a hard refresh",async()=>{
+test("tenant meta pixel initializes by default for enabled tenants, stops after opt-out, and dedupes later allow",async()=>{
  const [component,analytics,googleTag,helper]=await Promise.all([
   read("components/TenantMetaPixel.tsx"),
   read("components/MarketingAnalytics.tsx"),
@@ -95,13 +102,16 @@ test("tenant meta pixel can initialize immediately after consent without a hard 
  assert.match(helper,/export const ANALYTICS_CONSENT_KEY="servonas\.analytics_consent"/);
  assert.match(helper,/isServonasAnalyticsHost/);
  assert.match(helper,/isPublicAnalyticsConsentPath/);
- assert.match(component,/action:"consent_checked"/);
+ assert.match(component,/defaultMeasurementEnabled=false/);
+ assert.match(component,/const value=localStorage\.getItem\(CONSENT_KEY\),next=value!=="denied"&&\(value==="granted"\|\|defaultMeasurementEnabled\)/);
+ assert.match(component,/window\.__servonasMetaDefaultMeasurementEnabled=defaultMeasurementEnabled/);
  assert.match(component,/window\.addEventListener\("storage",update\)/);
  assert.match(component,/window\.setInterval\(update,250\)/);
  assert.match(component,/ensureMetaPixelScript\(\);\s+const fbq=ensureMetaPixelStub\(\);/s);
  assert.match(component,/if\(typeof fbq!=="function"\)return;/);
  assert.match(component,/fbq\("track","PageView"\)/);
- assert.match(analytics,/if\(!ready\|\|!analyticsEnabled\|\|typeof window==="undefined"\|\|!consentSurface\(\)\|\|consent\)return null;/);
+ assert.match(analytics,/Your privacy choices/);
+ assert.match(analytics,/Choose Not now to opt out/);
  assert.match(analytics,/const platform=\(\)=>isServonasAnalyticsHost\(location\.hostname\)/);
  assert.match(analytics,/const consentSurface=\(\)=>isPublicAnalyticsConsentPath\(location\.pathname\)/);
  assert.match(googleTag,/!isServonasAnalyticsHost\(location\.hostname\)\|\|!isPublicAnalyticsConsentPath\(location\.pathname\)/);

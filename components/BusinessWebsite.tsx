@@ -16,6 +16,7 @@ export type BusinessSiteData={
  bookingSlug?:string|null;
  customDomain?:string|null;
  metaPixelId?:string|null;
+ metaPixelDefaultMeasurementEnabled?:boolean;
  name:string;phone:string|null;email:string|null;logoUrl:string|null;industryProfile:string|null;websiteSource:string|null;template:"modern"|"traditional"|"bold";primaryColor:string;secondaryColor:string;floralFontStyle:"elegant"|"romantic"|"modern";floralAccentColor:string;floralBackgroundColor:string;floralPhotoLayout:"hero_right"|"hero_left"|"hero_full"|"gallery_first";
  heroHeading:string;heroSubheading:string;aboutText:string;instagramUrl:string|null;googleReviewUrl:string|null;googleRating:number|null;googleReviewCount:number|null;googleReviews:{author:string;rating:number;text:string;publishedAt?:string|null;fromGoogleProfile?:boolean}[];photoUrls:string[];photoMotionStyle:"static"|"ken_burns";requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
  seoTitle?:string|null;seoDescription?:string|null;
@@ -79,8 +80,8 @@ export function BusinessWebsite({site,requestAction,leadCaptureAction,preview=fa
  const gallerySection=site.photoUrls.length>2?<section className="business-site-section business-site-gallery"><header><span>Our work</span><h2>Recent service highlights</h2></header><div>{site.photoUrls.slice(2).map((url,index)=><img src={storageImageThumbUrl(url)??url} alt={`${site.name} project ${index+1}`} key={url} loading="lazy"/>)}</div></section>:null;
  const floralClass=site.websiteSource==="floral-event-website"?` floral-font-${site.floralFontStyle} floral-photos-${site.floralPhotoLayout}`:"";
  return <main className={`business-site template-${site.template}${isPest?" website-pest-control":""}${isDetailing?" website-car-detailing":""}${isPartyRental?" website-party-rental":""}${isChristmasLights?" website-christmas-lights":""}${industryPresentation?` ${industryPresentation.className}`:""}${floralClass}`} style={{"--site-primary":site.primaryColor,"--site-secondary":site.secondaryColor,"--site-accent":site.floralAccentColor,"--site-background":site.floralBackgroundColor} as React.CSSProperties}>
-  {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug}/>} 
-  {!preview&&site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId}/>}
+  {site.bookingSlug&&<TenantBookingFunnelTracker businessSlug={site.bookingSlug} defaultMeasurementEnabled={Boolean(site.metaPixelDefaultMeasurementEnabled)}/>}
+  {!preview&&site.metaPixelId&&<TenantMetaPixel pixelId={site.metaPixelId} defaultMeasurementEnabled={Boolean(site.metaPixelDefaultMeasurementEnabled)}/>}
   {site.leadCapturePopup.enabled&&<WebsiteLeadCapturePopup site={site} action={leadCaptureAction} preview={preview}/>}
   {preview&&<div className="business-site-preview-bar"><span>Preview mode — this is not the public website.</span><small>Close this tab to return to Servonas.</small></div>}
   {site.announcementText&&<div className="business-site-promotion">{site.announcementText}</div>}

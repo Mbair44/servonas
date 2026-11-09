@@ -5,6 +5,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { resolveBookingSession, validSessionId, type AttributionValues, type BookingFunnelEvent, type BookingSessionState } from "@/lib/bookingFunnel";
 import { publicBookingFunnelEnabled } from "@/lib/optionalAnalytics";
 
+declare global { interface Window { __servonasBookingFunnelDefaultMeasurementEnabled?: boolean; } }
+
 const key = (slug: string) => `servonas.booking-attribution.${slug}`;
 const dedupeKey = (slug: string) => `servonas.booking-funnel-dedupe.${slug}`;
 const debugKey = "servonas.booking-funnel-debug";
@@ -24,6 +26,12 @@ const formStartKey = (slug: string) => `servonas.booking-funnel-form-start.${slu
 const inMemorySessions = new Map<string, Stored>();
 const analyticsConsent=():"granted"|"denied"|"unset"|"unavailable"=>{try{const value=window.localStorage.getItem(analyticsConsentKey);return value==="granted"||value==="denied"?value:"unset";}catch{return "unavailable";}};
 const analyticsAllowed=()=>analyticsConsent()==="granted";
+/** Anonymous per-session reporting may be enabled per site. An explicit
+ * opt-out always wins; only explicit consent creates a cross-session ID. */
+const funnelMeasurementAllowed=()=>{
+ const consent=analyticsConsent();
+ return consent==="granted"||(consent==="unset"&&window.__servonasBookingFunnelDefaultMeasurementEnabled===true);
+};
 const readSession = (slug: string) => { try { return window.sessionStorage.getItem(key(slug)); } catch { return inMemorySessions.get(slug) ? JSON.stringify(inMemorySessions.get(slug)) : null; } };
 const writeSession = (slug: string, value: Stored) => { inMemorySessions.set(slug,value); try { window.sessionStorage.setItem(key(slug),JSON.stringify(value)); } catch { /* memory keeps this page's attribution when storage is blocked */ } };
 
@@ -37,7 +45,9 @@ const stored = (slug: string, initialSessionId?: string): Stored => {
 const bookingPathFor = (slug: string) => `/book/${encodeURIComponent(slug)}`;
 const bookingCheckoutPathFor = (slug: string) => `${bookingPathFor(slug)}/booking`;
 const isBookingUrl = (url: URL, slug: string) => { const pathname = url.pathname.replace(/\/$/, "") || "/"; return pathname === bookingPathFor(slug) || pathname === bookingCheckoutPathFor(slug) || pathname === "/booking" || pathname === "/booking/checkout"; };
-const applyStoredAttribution = (url: URL, slug: string) => { if(!analyticsAllowed())return url; const state = stored(slug); if (!url.searchParams.has("sv_at")) url.searchParams.set("sv_at", state.sessionId); for (const [name, value] of Object.entries(state.attribution)) if (value && !url.searchParams.has(name)) url.searchParams.set(name, value); return url; };
+// Retaining ad click identifiers in booking URLs is independent of optional
+// first-party funnel analytics; this operation does not send a funnel event.
+const applyStoredAttribution = (url: URL, slug: string) => { const state = stored(slug); if (!url.searchParams.has("sv_at")) url.searchParams.set("sv_at", state.sessionId); for (const [name, value] of Object.entries(state.attribution)) if (value && !url.searchParams.has(name)) url.searchParams.set(name, value); return url; };
 const eventFingerprint = (event: BookingFunnelEvent, options: TrackBookingFunnelOptions) => JSON.stringify([event, typeof window === "undefined" ? "" : `${location.pathname}${location.search}`, options.inventoryItemId ?? null, options.serviceId ?? null, options.metadata ?? {}]);
 const shouldSkipEvent = (slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions) => {
  if (interactionEvents.has(event)) return false;
@@ -54,7 +64,7 @@ const clientDiagnosticContext = (state: Stored) => ({
  utm: { source: state.attribution.utm_source ?? null, medium: state.attribution.utm_medium ?? null, campaign: state.attribution.utm_campaign ?? null, content: state.attribution.utm_content ?? null, term: state.attribution.utm_term ?? null },
  referrerHostname: safeReferrerHostname(),
  analyticsConsent: analyticsConsent(),
- firstPartyFunnelIndependentOfConsent: false,
+ firstPartyFunnelIndependentOfConsent: window.__servonasBookingFunnelDefaultMeasurementEnabled===true,
 });
 const deviceMetadata = (): Record<string, unknown> => { if (typeof window === "undefined") return {}; const ua = window.navigator.userAgent || ""; return { browser: /Chrome\//.test(ua) ? "chrome" : /Safari\//.test(ua) && !/Chrome\//.test(ua) ? "safari" : /Firefox\//.test(ua) ? "firefox" : /Edg\//.test(ua) ? "edge" : "other", operating_system: /iPhone|iPad|iPod/.test(ua) ? "ios" : /Android/.test(ua) ? "android" : /Mac OS X/.test(ua) ? "macos" : /Windows/.test(ua) ? "windows" : /Linux/.test(ua) ? "linux" : "other", device_type: /Mobile|Android|iPhone|iPad|iPod/.test(ua) ? "mobile" : "desktop" }; };
 const sanitizeLabel = (value: string | null | undefined, max = 80) => value?.replace(/\s+/g, " ").trim().slice(0, max) ?? "";
@@ -88,12 +98,12 @@ const payloadFor = (slug: string, event: BookingFunnelEvent, options: TrackBooki
 const postWithBeacon = (slug: string, event: BookingFunnelEvent, payload: ReturnType<typeof payloadFor>) => { if (typeof navigator.sendBeacon !== "function") return false; try { const sent = navigator.sendBeacon(`/api/public-booking/${encodeURIComponent(slug)}/funnel`, new Blob([JSON.stringify(payload)], { type: "application/json" })); logDebug(slug, event, sent ? "beacon_sent" : "beacon_rejected", { eventType: payload.metadata.timing_event_type ?? event, flushReason: payload.metadata.timing_flush_reason ?? null, sendMethod: "beacon" }); return sent; } catch { return false; } };
 export const shouldCountPageAsActive = (visibilityState: string, focused: boolean) => visibilityState === "visible" || focused;
 
-export function bookingAttributionSession(slug: string) { return typeof window === "undefined"||!analyticsAllowed() ? "" : stored(slug).sessionId; }
-export function bookingAttributionValues(slug: string): AttributionValues { return typeof window === "undefined"||!analyticsAllowed() ? {} : { ...stored(slug).attribution }; }
+export function bookingAttributionSession(slug: string) { return typeof window === "undefined"||!funnelMeasurementAllowed() ? "" : stored(slug).sessionId; }
+export function bookingAttributionValues(slug: string): AttributionValues { return typeof window === "undefined"||!funnelMeasurementAllowed() ? {} : { ...stored(slug).attribution }; }
 export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions = {}) {
  if (typeof window === "undefined") return;
  if (!analyticsEnabled) { logDebug(slug, event, "dispatch_skipped", { reason: "funnel_disabled" }); return; }
- if (!analyticsAllowed()) { logDebug(slug,event,"dispatch_skipped",{reason:"analytics_consent_not_granted"}); return; }
+ if (!funnelMeasurementAllowed()) { logDebug(slug,event,"dispatch_skipped",{reason:"analytics_consent_not_granted_or_default_measurement_disabled"}); return; }
  if (shouldSkipEvent(slug, event, options)) { logDebug(slug, event, "dispatch_skipped", { reason: "client_deduped" }); return; }
  const state = stored(slug), now = Date.now(), touchSession = event === "landing_page_view" || !state.lastSessionSyncAt || now - state.lastSessionSyncAt >= sessionTouchIntervalMs || Boolean(options.touchOnly);
  if (touchSession) writeSession(slug,{ ...state, lastSessionSyncAt: now });
@@ -105,6 +115,7 @@ export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, opti
 
 type TenantBookingFunnelTrackerProps = {
  businessSlug: string;
+ defaultMeasurementEnabled?: boolean;
  initialSessionId?: string;
  landingType?: "website" | "promotion" | "location" | "category" | "inventory_item" | "campaign";
  landingId?: string;
@@ -112,23 +123,30 @@ type TenantBookingFunnelTrackerProps = {
  inventoryItemId?: string;
 };
 
-export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, landingType = "website", landingId, landingLabel, inventoryItemId }: TenantBookingFunnelTrackerProps) {
+export function TenantBookingFunnelTracker({ businessSlug, defaultMeasurementEnabled = false, initialSessionId, landingType = "website", landingId, landingLabel, inventoryItemId }: TenantBookingFunnelTrackerProps) {
  const pathname = usePathname();
  const searchParams = useSearchParams();
  const routeKey = `${pathname || "/"}?${searchParams?.toString() || ""}`;
  const sent = useRef(false);
  const sessionStartedAt = useRef<number>(Date.now());
+ useEffect(()=>{window.__servonasBookingFunnelDefaultMeasurementEnabled=defaultMeasurementEnabled;},[defaultMeasurementEnabled]);
  useEffect(()=>{
   const report=(status:"accepted"|"rejected"|"not_selected"|"unavailable",kind:"decision"|"status_observed")=>{void fetch(`/api/public-booking/${encodeURIComponent(businessSlug)}/consent`,{method:"POST",headers:{"content-type":"application/json"},keepalive:true,credentials:"same-origin",body:JSON.stringify({analyticsStatus:status,kind})}).catch(()=>undefined);};
   const current=analyticsConsent();
   report(current==="granted"?"accepted":current==="denied"?"rejected":current==="unavailable"?"unavailable":"not_selected","status_observed");
-  const onConsent=(event:Event)=>{const status=(event as CustomEvent<{analyticsStatus?:string}>).detail?.analyticsStatus;const normalized=status==="accepted"?"accepted":status==="rejected"?"rejected":analyticsConsent()==="unavailable"?"unavailable":"not_selected";report(normalized,"decision");if(normalized==="accepted")trackBookingFunnel(businessSlug,"landing_page_view",{metadata:{landing_type:landingType,landing_id:landingId??null,landing_label:landingLabel??null,consent_granted_mid_page:true}});};
+  const onConsent=(event:Event)=>{const status=(event as CustomEvent<{analyticsStatus?:string}>).detail?.analyticsStatus;const normalized=status==="accepted"?"accepted":status==="rejected"?"rejected":analyticsConsent()==="unavailable"?"unavailable":"not_selected";report(normalized,"decision");if(normalized==="accepted"&&!sent.current)trackBookingFunnel(businessSlug,"landing_page_view",{metadata:{landing_type:landingType,landing_id:landingId??null,landing_label:landingLabel??null,consent_granted_mid_page:true}});};
   window.addEventListener("servonas:analytics-consent-updated",onConsent);
   return()=>window.removeEventListener("servonas:analytics-consent-updated",onConsent);
  },[businessSlug,landingId,landingLabel,landingType]);
+ useEffect(()=>{
+  const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(isBookingUrl(url,businessSlug))element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* Leave external URLs usable. */}});
+  rewrite();
+  const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});
+  return()=>observer.disconnect();
+ },[businessSlug,routeKey]);
  useEffect(() => {
   if (!analyticsEnabled) return;
-  if (!analyticsAllowed()) return;
+  if (!funnelMeasurementAllowed()) return;
   const current = stored(businessSlug, initialSessionId);
   if (!sent.current) {
    sent.current = true;
@@ -138,10 +156,6 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
    trackBookingFunnel(businessSlug, "landing_view", { metadata: { navigation_type: "spa" } });
   }
   if (pageTypeForPath(location.pathname) === "booking" && !isEmbeddedBooking()) trackBookingFunnel(businessSlug, "booking_started", { metadata: meaningfulMetadata(sessionStartedAt.current, "booking_started", null, { surface: "booking_page", entry: "route_load" }) });
-  const rewrite = (root: ParentNode = document) => root.querySelectorAll<HTMLAnchorElement | HTMLIFrameElement>("a[href],iframe[src]").forEach((element) => { const attribute = element instanceof HTMLAnchorElement ? "href" : "src", raw = element.getAttribute(attribute); if (!raw) return; try { const url = new URL(raw, location.href); if (isBookingUrl(url, businessSlug)) element.setAttribute(attribute, applyStoredAttribution(url, businessSlug).toString()); } catch { /* leave external URL usable */ } });
-  rewrite();
-  const observer = new MutationObserver(() => rewrite());
-  observer.observe(document.body, { childList: true, subtree: true });
   const seenForms = new Set<string>();
   try { window.sessionStorage.removeItem(formStartKey(businessSlug)); } catch { /* ignore storage failures */ }
   const onClick = (event: MouseEvent) => {
@@ -187,7 +201,6 @@ export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, lan
   document.addEventListener("submit", onSubmit, true);
   writeSession(businessSlug,{ ...current, lastSessionSyncAt: Date.now() });
   return () => {
-   observer.disconnect();
    document.removeEventListener("click", onClick, true);
    document.removeEventListener("focusin", onFocusIn, true);
    document.removeEventListener("change", onChange, true);
