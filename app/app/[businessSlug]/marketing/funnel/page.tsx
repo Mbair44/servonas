@@ -563,27 +563,6 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <p className="muted">Consent decisions, observed analytics sessions, and booked attribution are different measures. Marketing consent is not a separate preference in the current banner; personalized advertising remains disabled.</p>
     </section>
 
-    <section className="workspace-panel attribution-coverage-panel">
-      <header><div><h2>Attribution Coverage</h2><p>Paid bookings are counted once by paid date using positive recorded payments. Unknown means the booking does not have a resolved, consented acquisition snapshot; it is not attributed from consent status.</p></div></header>
-      <dl className="marketing-kpi-grid">
-        {[["Total paid bookings",paidAttributionCoverage.totalBookings],["Paid bookings with known acquisition source",paidAttributionCoverage.knownBookings],["Paid bookings with unknown acquisition source",paidAttributionCoverage.unknownBookings],["Known attribution",percent(paidAttributionCoverage.totalBookings?paidAttributionCoverage.knownBookings/paidAttributionCoverage.totalBookings:null)],["Revenue with known attribution",money(paidAttributionCoverage.knownRevenueCents)],["Revenue without known attribution",money(paidAttributionCoverage.unknownRevenueCents)]].map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd><strong>{value}</strong></dd></div>)}
-      </dl>
-      <p className="muted">{paidAttributionCoverage.totalBookings?`${percent(paidAttributionCoverage.knownBookings/paidAttributionCoverage.totalBookings)} of paid bookings have a known acquisition source.`:"No paid bookings were recorded in this period."}</p>
-    </section>
-
-    <section className="workspace-panel">
-      <h2>Offline QR campaigns</h2>
-      <p>Unique sessions arriving in the selected dates via offline / qr links, and their eventual booking outcomes. Reloads count once. Suspected bots are excluded. This section uses the arrival campaign; source, device and attribution-model filters above do not change it.</p>
-      <p>Booked revenue is the full confirmed booking value, including unpaid balances, excluding canceled and expired bookings. Conversion is the percentage of arrival sessions with a confirmed booking. Return is this cohort’s booked revenue divided by the campaign’s entire one-time cost.</p>
-      {offlineQrResponse.error ? <p role="status">Offline campaign reporting is unavailable. Apply the offline QR campaign reporting migration and refresh.</p> : offlineQrRows.length ? offlineQrRows.filter(row=>!campaign||row.campaign===campaign).map(row=><article key={row.campaign}>
-        <h3>{row.campaign}</h3>
-        <dl className="marketing-kpi-grid">
-          {[["Visits",row.visits],["Booking page visits",row.booking_page_visits],["Checkout starts",row.checkout_starts],["Completed bookings",row.completed_bookings],["Booked revenue",money(row.booked_revenue_cents)],["Conversion rate",row.visits?`${(100*row.converted_sessions/row.visits).toFixed(1)}%`:"—"],["One-time campaign cost",row.cost_cents===null?"Not recorded":money(row.cost_cents)],["Return on campaign spend",row.cost_cents?`${(row.booked_revenue_cents/row.cost_cents).toFixed(2)}×`:"—"]].map(([label,value])=><div key={label}><dt>{label}</dt><dd><strong>{value}</strong></dd></div>)}
-        </dl>
-      </article>) : <p>No offline QR campaign visits recorded for these dates.</p>}
-      <small>These are tagged website visits, not physical QR scans or unique people. Shared links also receive campaign credit. Use a wider date range to see the sign’s cumulative return.</small>
-    </section>
-
     <details className="workspace-panel marketing-attribution-note">
       <summary>Analytics diagnostics</summary>
       <p>Window: {window.from} to {window.to} ({business.timezone}). Business filter: {business.id}. Raw events: {rawEventCount}. Events after source filter: {events.length}. Sessions: {sessions.length}. Session-backed visits: {sessionVisitRows.length}. Latest event: {latestEventAt ?? "none"}. Query duration: {reportQueryDurationMs}ms.</p>
@@ -782,6 +761,27 @@ export default async function BookingFunnelPage({ params, searchParams }: { para
       <header><div><h2>Most-clicked rental items</h2><p>Understand exactly which rentals customers were interested in during the selected report window.</p></div></header>
       <div className="marketing-sources-table marketing-rental-items-table"><div><b>Rental item</b><b>Item clicks</b><b>Date picks / availability checks</b><b>Booking starts</b><b>Bookings</b><b>Revenue</b></div>{itemRows.map((item) => <div key={item.id}><span>{item.name}</span><span>{item.clicks}</span><span>{item.datePicks}</span><span>{item.bookingStarts}</span><span>{item.bookings}</span><span>{money(item.revenueCents)}</span></div>)}</div>
       <div className="marketing-rental-item-cards">{itemRows.map((item) => <article className="workspace-panel" key={`mobile-${item.id}`}><h3>{item.name}</h3><p>{item.clicks} clicks</p><p>{item.datePicks} date picks</p><p>{item.bookings} bookings</p><p>{money(item.revenueCents)} revenue</p></article>)}</div>
+    </section>
+
+    <section className="workspace-panel attribution-coverage-panel">
+      <header><div><h2>Attribution Coverage</h2><p>Paid bookings are counted once by paid date using positive recorded payments. Unknown means the booking does not have a resolved, consented acquisition snapshot; it is not attributed from consent status.</p></div></header>
+      <dl className="marketing-kpi-grid">
+        {[["Total paid bookings",paidAttributionCoverage.totalBookings],["Paid bookings with known acquisition source",paidAttributionCoverage.knownBookings],["Paid bookings with unknown acquisition source",paidAttributionCoverage.unknownBookings],["Known attribution",percent(paidAttributionCoverage.totalBookings?paidAttributionCoverage.knownBookings/paidAttributionCoverage.totalBookings:null)],["Revenue with known attribution",money(paidAttributionCoverage.knownRevenueCents)],["Revenue without known attribution",money(paidAttributionCoverage.unknownRevenueCents)]].map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd><strong>{value}</strong></dd></div>)}
+      </dl>
+      <p className="muted">{paidAttributionCoverage.totalBookings?`${percent(paidAttributionCoverage.knownBookings/paidAttributionCoverage.totalBookings)} of paid bookings have a known acquisition source.`:"No paid bookings were recorded in this period."}</p>
+    </section>
+
+    <section className="workspace-panel">
+      <h2>Offline QR campaigns</h2>
+      <p>Unique sessions arriving in the selected dates via offline / qr links, and their eventual booking outcomes. Reloads count once. Suspected bots are excluded. This section uses the arrival campaign; source, device and attribution-model filters above do not change it.</p>
+      <p>Booked revenue is the full confirmed booking value, including unpaid balances, excluding canceled and expired bookings. Conversion is the percentage of arrival sessions with a confirmed booking. Return is this cohort’s booked revenue divided by the campaign’s entire one-time cost.</p>
+      {offlineQrResponse.error ? <p role="status">Offline campaign reporting is unavailable. Apply the offline QR campaign reporting migration and refresh.</p> : offlineQrRows.length ? offlineQrRows.filter(row=>!campaign||row.campaign===campaign).map(row=><article key={row.campaign}>
+        <h3>{row.campaign}</h3>
+        <dl className="marketing-kpi-grid">
+          {[["Visits",row.visits],["Booking page visits",row.booking_page_visits],["Checkout starts",row.checkout_starts],["Completed bookings",row.completed_bookings],["Booked revenue",money(row.booked_revenue_cents)],["Conversion rate",row.visits?`${(100*row.converted_sessions/row.visits).toFixed(1)}%`:"—"],["One-time campaign cost",row.cost_cents===null?"Not recorded":money(row.cost_cents)],["Return on campaign spend",row.cost_cents?`${(row.booked_revenue_cents/row.cost_cents).toFixed(2)}×`:"—"]].map(([label,value])=><div key={label}><dt>{label}</dt><dd><strong>{value}</strong></dd></div>)}
+        </dl>
+      </article>) : <p>No offline QR campaign visits recorded for these dates.</p>}
+      <small>These are tagged website visits, not physical QR scans or unique people. Shared links also receive campaign credit. Use a wider date range to see the sign’s cumulative return.</small>
     </section>
   </section></main>;
 }
