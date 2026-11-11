@@ -26,7 +26,11 @@ export async function processCustomerMessageMedia(limit=25){
    const {data:account}=await db.from("business_twilio_accounts").select("twilio_subaccount_sid").eq("business_id",row.business_id).eq("provisioning_status","active").maybeSingle();
    if(!account?.twilio_subaccount_sid)throw new Error("tenant_account_unavailable");
    const token=await getSubaccountWebhookSecretResolver().getSubaccountAuthToken({businessId:row.business_id,subaccountSid:account.twilio_subaccount_sid});if(!token)throw new Error("tenant_credential_unavailable");
-   const client=getSubaccountTwilioHttpClient(account.twilio_subaccount_sid,token);if(!client.fetch)throw new Error("authenticated_media_client_unavailable");const response=await client.fetch(url.toString());
+   const client=getSubaccountTwilioHttpClient(account.twilio_subaccount_sid,token);if(!client.fetch)throw new Error("authenticated_media_client_unavailable");let response=await client.fetch(url.toString(),{redirect:"manual"});
+   // Twilio's Media API can redirect to a signed CDN object. Follow exactly one
+   // redirect only after validating the destination, and never forward tenant
+   // credentials beyond the authenticated API request.
+   if(response.status>=300&&response.status<400){const location=response.headers.get("location");if(!location)throw new Error("provider_media_redirect_missing");const redirected=new URL(location,url);if(redirected.protocol!=="https:"||!(redirected.hostname.endsWith("twilio.com")||redirected.hostname.endsWith("twiliocdn.com")))throw new Error("untrusted_media_redirect");response=await fetch(redirected,{cache:"no-store",redirect:"error"});}
    const contentType=(response.headers.get("content-type")??row.content_type).split(";")[0].toLowerCase(),length=Number(response.headers.get("content-length")??0);
    if(!response.ok||!allowedCustomerMedia(contentType,length||1))throw new Error(!response.ok?"provider_download_failed":"unsupported_or_oversized_media");
    const bytes=Buffer.from(await response.arrayBuffer());if(!allowedCustomerMedia(contentType,bytes.byteLength))throw new Error("unsupported_or_oversized_media");
