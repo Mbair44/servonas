@@ -1,4 +1,4 @@
-import {NextResponse} from "next/server";
+import {after,NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
 import {advanceMissedCallConversation} from "@/lib/missedCallRecovery";
@@ -6,6 +6,7 @@ import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
 import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
 import {recordTenantMessageUsage} from "@/lib/twilio/messageUsage";
 import {sendInboundSmsEmailAlert} from "@/lib/communications/inboundSmsEmailService";
+import {maxCustomerMediaAttachments,processCustomerMessageMedia,supportedCustomerMedia} from "@/lib/customerMessages/media";
 
 export const runtime="nodejs";
 
@@ -20,8 +21,11 @@ export async function POST(request:Request){
  const token=security.token;
  const webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
  if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});
- const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",body=params.get("Body")??"";
- const {data,error}=await db.rpc("process_inbound_sms",{p_provider_message_id:sid,p_from_phone:from,p_to_phone:to,p_body:body,...(security.mode==="tenant"?{p_business_id:security.businessId,p_account_sid:accountSid,p_opt_out_type:params.get("OptOutType")??""}:{})});
+ const sid=params.get("MessageSid")??params.get("SmsMessageSid")??"",from=params.get("From")??"",body=params.get("Body")??"",numMedia=Math.min(Math.max(Number(params.get("NumMedia")||0),0),maxCustomerMediaAttachments);
+ // Existing intake classification requires text. A private marker keeps its legacy
+ // record valid; the customer timeline itself retains the real (possibly blank) body.
+ const intakeBody=body||numMedia?body||"[MMS attachment]":body;
+ const {data,error}=await db.rpc("process_inbound_sms",{p_provider_message_id:sid,p_from_phone:from,p_to_phone:to,p_body:intakeBody,...(security.mode==="tenant"?{p_business_id:security.businessId,p_account_sid:accountSid,p_opt_out_type:params.get("OptOutType")??""}:{})});
  if(error){
   console.error("Inbound SMS processing failed",{code:error.code,message:error.message,sid,businessId:security.mode==="tenant"?security.businessId:null,from,to});
   return NextResponse.json({error:error.code==="P0002"?"Number not configured":"Processing failed"},{status:error.code==="P0002"?404:500});
@@ -30,8 +34,15 @@ export async function POST(request:Request){
  if(security.mode==="tenant"&&result.business_id!==security.businessId)return NextResponse.json({error:"Tenant mismatch"},{status:403});
  if(!result.duplicate){
   const receivedAt=new Date().toISOString();
-  const {error:timelineError}=await db.from("customer_messages").upsert({business_id:result.business_id,customer_id:result.customer_id,counterparty_phone_e164:from,direction:"inbound",provider:"twilio",provider_message_id:sid,body,status:"received",source_type:"inbound_sms",received_at:receivedAt,created_at:receivedAt,updated_at:receivedAt},{onConflict:"provider,provider_message_id"});
+  const {data:timeline,error:timelineError}=await db.from("customer_messages").upsert({business_id:result.business_id,customer_id:result.customer_id,counterparty_phone_e164:from,direction:"inbound",provider:"twilio",provider_message_id:sid,body,status:"received",source_type:"inbound_sms",received_at:receivedAt,created_at:receivedAt,updated_at:receivedAt},{onConflict:"provider,provider_message_id"}).select("id").single();
   if(timelineError) console.error("Inbound SMS timeline persistence failed",{businessId:result.business_id,messageSid:sid,code:timelineError.code});
+  else if(timeline&&numMedia){
+   const attachments=Array.from({length:numMedia},(_,ordinal)=>{const contentType=(params.get(`MediaContentType${ordinal}`)??"application/octet-stream").split(";")[0].toLowerCase();return{business_id:result.business_id,message_id:timeline.id,ordinal,direction:"inbound",content_type:supportedCustomerMedia.has(contentType)?contentType:"application/octet-stream",provider_media_url:params.get(`MediaUrl${ordinal}`),processing_status:"queued"};}).filter(row=>Boolean(row.provider_media_url));
+   if(attachments.length){const {error:mediaError}=await db.from("customer_message_attachments").upsert(attachments,{onConflict:"message_id,ordinal",ignoreDuplicates:true});if(mediaError)console.error("Inbound MMS queue persistence failed",{businessId:result.business_id,messageSid:sid,code:mediaError.code});}
+   // `after` is a tracked Next/Vercel post-response task, not an unobserved
+   // promise. The durable queue remains the source of truth if it is delayed.
+   if(attachments.length)after(async()=>{try{await processCustomerMessageMedia(Math.min(attachments.length,10));}catch(error){console.error("Inbound MMS fast worker failed",{messageSid:sid,name:error instanceof Error?error.name:"unknown"});}});
+  }
  }
  if(!result.duplicate)console.info("Twilio inbound SMS received",{messageSid:sid,from,to,businessId:result.business_id,customerId:result.customer_id});
  if(!result.duplicate){
@@ -45,7 +56,7 @@ export async function POST(request:Request){
    await sendInboundSmsEmailAlert({businessId:result.business_id,businessName:business.name,recipient:business.email,messageId:result.message_id,customerId:result.customer_id,customerName,fromPhone:from,body,inboxUrl:`${baseUrl}/app/${encodeURIComponent(business.slug)}/messages?customerId=${encodeURIComponent(result.customer_id)}&phone=${encodeURIComponent(from)}`});
   }
  }
- if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia:Number(params.get("NumMedia")||0),messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});return NextResponse.json({error:"Usage persistence failed"},{status:503});}}
+ if(security.mode==="tenant"&&security.businessId){try{await recordTenantMessageUsage({businessId:security.businessId,accountSid,messageSid:sid,direction:"inbound",status:params.get("SmsStatus")??"received",from,to,numSegments:Number(params.get("NumSegments")||1),numMedia,messagingServiceSid:params.get("MessagingServiceSid"),occurredAt:new Date().toISOString(),sourceType:"inbound_sms",sourceId:result.message_id});}catch(error){console.error("Tenant inbound usage capture failed",{businessId:security.businessId,errorName:error instanceof Error?error.name:"unknown"});return NextResponse.json({error:"Usage persistence failed"},{status:503});}}
  // Tenant replies are recorded without legacy parent-account auto sends.
  if(security.mode==="tenant"||result.duplicate)return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>',{headers:{"Content-Type":"text/xml"}});
  const recovery=await advanceMissedCallConversation(db,{businessId:result.business_id,customerId:result.customer_id,providerMessageId:sid,body});
