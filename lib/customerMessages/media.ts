@@ -1,6 +1,11 @@
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getSubaccountTwilioHttpClient} from "@/lib/twilio/twilioHttp";
 import {getSubaccountWebhookSecretResolver} from "@/lib/twilio/subaccountWebhookSecrets";
+import {mkdtemp,readFile,rm,writeFile} from "node:fs/promises";
+import {spawn} from "node:child_process";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import ffmpegPath from "ffmpeg-static";
 
 export const customerMessageMediaBucket="customer-message-media";
 export const supportedCustomerMedia=new Set(["image/jpeg","image/png","image/gif","video/mp4","video/3gpp"]);
@@ -12,6 +17,33 @@ export type MessageAttachment={id:string;message_id:string|null;ordinal:number;d
 export function allowedCustomerMedia(type:string,size:number){const normalized=type.toLowerCase(),limit=normalized.startsWith("video/")?maxCustomerVideoBytes:maxCustomerMediaBytes;return supportedCustomerMedia.has(normalized)&&Number.isInteger(size)&&size>0&&size<=limit;}
 const extension=(type:string)=>({"image/jpeg":"jpg","image/png":"png","image/gif":"gif","video/mp4":"mp4","video/3gpp":"3gp"}[type]??"bin");
 const retryAt=(attempts:number)=>new Date(Date.now()+Math.min(3_600_000,60_000*2**Math.min(attempts,6))).toISOString();
+
+/** Create a small H.264/AAC MP4 that Chrome, Safari, and mobile browsers can play.
+ * Originals remain private and are never replaced or made public. */
+async function browserVideoDerivative(source:Buffer){
+ const binary=ffmpegPath;if(!binary)throw new Error("video_transcoder_unavailable");
+ const directory=await mkdtemp(join(tmpdir(),"servonas-mms-")),input=join(directory,"source"),output=join(directory,"playback.mp4");
+ try{
+  await writeFile(input,source);
+  await new Promise<void>((resolve,reject)=>{const child=spawn(binary,["-hide_banner","-loglevel","error","-y","-i",input,"-t","120","-map","0:v:0?","-map","0:a:0?","-c:v","libx264","-preset","veryfast","-profile:v","baseline","-level","3.0","-pix_fmt","yuv420p","-b:v","420k","-maxrate","480k","-bufsize","960k","-c:a","aac","-b:a","48k","-movflags","+faststart",output]);child.stdout?.resume();child.stderr?.resume();child.once("error",reject);child.once("exit",code=>code===0?resolve():reject(new Error("video_transcode_failed")));});
+  const derivative=await readFile(output);if(!allowedCustomerMedia("video/mp4",derivative.byteLength))throw new Error("video_derivative_oversized");return derivative;
+ }finally{await rm(directory,{recursive:true,force:true});}
+}
+
+/** One-time-compatible recovery for video rows saved before playback derivatives
+ * existed. The current private object becomes the retained original. */
+async function backfillLegacyVideoPlayback(limit:number){
+ const db=getSupabaseAdmin();if(!db)throw new Error("MMS storage is unavailable.");
+ const {data:rows,error}=await db.from("customer_message_attachments").select("id,business_id,message_id,ordinal,storage_path,content_type").eq("processing_status","ready").like("content_type","video/%").is("original_storage_path",null).not("storage_path","is",null).order("processed_at",{ascending:true}).limit(Math.min(Math.max(limit,1),25));
+ if(error)throw new Error("MMS legacy video recovery is unavailable.");let processed=0,failed=0;
+ for(const row of rows??[]){
+  const claim=await db.from("customer_message_attachments").update({processing_status:"processing",updated_at:new Date().toISOString()}).eq("id",row.id).eq("processing_status","ready").is("original_storage_path",null).select("id").maybeSingle();if(!claim.data)continue;
+  const originalPath=row.storage_path!;
+  try{const source=await db.storage.from(customerMessageMediaBucket).download(originalPath);if(source.error||!source.data)throw new Error("private_storage_unavailable");const playback=await browserVideoDerivative(Buffer.from(await source.data.arrayBuffer())),playbackPath=`${row.business_id}/${row.message_id}/${row.ordinal}-${row.id}/playback.mp4`,upload=await db.storage.from(customerMessageMediaBucket).upload(playbackPath,playback,{contentType:"video/mp4",upsert:false});if(upload.error&&!/already exists/i.test(upload.error.message))throw new Error("private_storage_failed");await db.from("customer_message_attachments").update({storage_path:playbackPath,original_storage_path:originalPath,file_size_bytes:playback.byteLength,content_type:"video/mp4",processing_status:"ready",processed_at:new Date().toISOString(),updated_at:new Date().toISOString(),failure_reason:null}).eq("id",row.id).eq("business_id",row.business_id);processed++;}
+  catch(error){failed++;await db.from("customer_message_attachments").update({original_storage_path:originalPath,processing_status:"ready",failure_reason:(error instanceof Error?error.message:"video_transcode_failed").slice(0,120),updated_at:new Date().toISOString()}).eq("id",row.id).eq("business_id",row.business_id);}
+ }
+ return{processed,failed};
+}
 
 /** Downloads only Twilio-owned HTTPS media URLs; media is persisted privately. */
 export async function processCustomerMessageMedia(limit=25){
@@ -34,12 +66,14 @@ export async function processCustomerMessageMedia(limit=25){
    const contentType=(response.headers.get("content-type")??row.content_type).split(";")[0].toLowerCase(),length=Number(response.headers.get("content-length")??0);
    if(!response.ok||!allowedCustomerMedia(contentType,length||1))throw new Error(!response.ok?"provider_download_failed":"unsupported_or_oversized_media");
    const bytes=Buffer.from(await response.arrayBuffer());if(!allowedCustomerMedia(contentType,bytes.byteLength))throw new Error("unsupported_or_oversized_media");
-   const path=`${row.business_id}/${row.message_id}/${row.ordinal}-${row.id}.${extension(contentType)}`;
-   const upload=await db.storage.from(customerMessageMediaBucket).upload(path,bytes,{contentType,upsert:false});if(upload.error&& !/already exists/i.test(upload.error.message))throw new Error("private_storage_failed");
-   await db.from("customer_message_attachments").update({storage_path:path,file_size_bytes:bytes.byteLength,content_type:contentType,processing_status:"ready",provider_media_url:null,processed_at:new Date().toISOString(),updated_at:new Date().toISOString(),failure_reason:null}).eq("id",row.id).eq("business_id",row.business_id);
+   const basePath=`${row.business_id}/${row.message_id}/${row.ordinal}-${row.id}`,isVideo=contentType.startsWith("video/"),originalPath=isVideo?`${basePath}/original.${extension(contentType)}`:`${basePath}.${extension(contentType)}`;
+   const originalUpload=await db.storage.from(customerMessageMediaBucket).upload(originalPath,bytes,{contentType,upsert:false});if(originalUpload.error&& !/already exists/i.test(originalUpload.error.message))throw new Error("private_storage_failed");
+   const playback=isVideo?await browserVideoDerivative(bytes):bytes,playbackPath=isVideo?`${basePath}/playback.mp4`:originalPath,playbackType=isVideo?"video/mp4":contentType;
+   if(isVideo){const playbackUpload=await db.storage.from(customerMessageMediaBucket).upload(playbackPath,playback,{contentType:playbackType,upsert:false});if(playbackUpload.error&& !/already exists/i.test(playbackUpload.error.message))throw new Error("private_storage_failed");}
+   await db.from("customer_message_attachments").update({storage_path:playbackPath,original_storage_path:isVideo?originalPath:null,file_size_bytes:playback.byteLength,content_type:playbackType,processing_status:"ready",provider_media_url:null,processed_at:new Date().toISOString(),updated_at:new Date().toISOString(),failure_reason:null}).eq("id",row.id).eq("business_id",row.business_id);
   }catch(error){failed++;const reason=error instanceof Error?error.message:"media_processing_failed",attempts=Number(row.processing_attempts)+1;await db.from("customer_message_attachments").update({processing_status:"failed",processing_attempts:attempts,next_attempt_at:retryAt(attempts),failure_reason:reason.slice(0,120),updated_at:new Date().toISOString()}).eq("id",row.id).eq("business_id",row.business_id);}
  }
- return{processed,failed};
+ const legacy=await backfillLegacyVideoPlayback(limit);return{processed:processed+legacy.processed,failed:failed+legacy.failed};
 }
 
 export async function signedOutboundMediaUrls(businessId:string,attachmentIds:string[],body=""){

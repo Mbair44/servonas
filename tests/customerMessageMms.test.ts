@@ -11,7 +11,11 @@ test("inbound MMS is queued without waiting for downloads and keeps duplicate pr
 });
 test("MMS worker uses authenticated Twilio downloads and private storage",()=>{
  const source=readFileSync("lib/customerMessages/media.ts","utf8");
- assert.match(source,/getSubaccountTwilioHttpClient/);assert.match(source,/customer-message-media/);assert.match(source,/processing_status:"ready"/);assert.match(source,/queueHistoricalCustomerMessageMedia/);
+ assert.match(source,/getSubaccountTwilioHttpClient/);assert.match(source,/customer-message-media/);assert.match(source,/processing_status:"ready"/);assert.match(source,/queueHistoricalCustomerMessageMedia/);assert.match(source,/ffmpeg-static/);assert.match(source,/libx264/);assert.match(source,/original_storage_path/);
+});
+test("private playback endpoint supports browser byte-range video streaming",()=>{
+ const source=readFileSync("app/api/customer-message-media/[businessSlug]/[attachmentId]/route.ts","utf8");
+ assert.match(source,/Accept-Ranges/);assert.match(source,/Content-Range/);assert.match(source,/status:206/);
 });
 test("composer permits media-only sends and uses Twilio MediaUrl",()=>{
  const source=readFileSync("lib/twilio/messageUsage.ts","utf8");
