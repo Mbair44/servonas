@@ -22,13 +22,14 @@ test("workspace owners can complete a managed-domain registration with explicit 
 });
 
 test("managed registration automatically reconciles without duplicate purchasing",async()=>{
- const [actions,poller]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("components/ManagedDomainStatusPoller.tsx")]);
+ const [actions,poller,websiteFirstPanel]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("components/ManagedDomainStatusPoller.tsx"),read("components/WebsiteFirstLaunchDomainPanel.tsx")]);
  assert.match(actions,/getVercelDomainOrder\(order\.provider_order_id\)/);
  assert.match(actions,/addVercelProjectDomain\(domain\)/);
  assert.match(actions,/getVercelDomainStatus\(domain\)/);
  assert.match(poller,/syncManagedDomainRegistration/);
  assert.match(poller,/setTimeout\(poll,5000\)/);
  assert.match(poller,/attempts\.current>=40/);
+ assert.match(websiteFirstPanel,/<ManagedDomainStatusPoller businessSlug=\{businessSlug\} initialStatus=\{domainStatus\}\/>/);
 });
 
 test("existing-domain DNS connection remains separate",async()=>{
