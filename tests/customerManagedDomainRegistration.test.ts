@@ -17,6 +17,9 @@ test("workspace owners can complete a managed-domain registration with explicit 
  assert.match(actions,/getVercelDomainQuote\(domain\)/);
  assert.match(actions,/provider_order_missing/);
  assert.match(actions,/The previous request did not reach Vercel/);
+ assert.doesNotMatch(actions,/registrant_contact/);
+ assert.match(actions,/Legacy customer domain registration claim failed/);
+ assert.match(actions,/The domain registration could not be started\. Nothing was purchased/);
  assert.match(component,/Register \{domain\}/);
  assert.match(component,/first year is included/i);
  assert.match(component,/Due today/);
