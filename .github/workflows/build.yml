@@ -22,11 +22,20 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Rental photo cropping regression
+        run: pnpm dlx tsx@4.19.3 --test tests/rentalPhotoContain.test.ts
 
       - name: Build
         run: pnpm build
