@@ -197,6 +197,26 @@ async function managedDomainContextForLegacy(slug:string){
  return {...context,admin,domain};
 }
 
+type ManagedDomainOrderClaim={id:string;status:string;provider_order_id:string|null;purchase_confirmed_at:string|null};
+
+/**
+ * A registration claim is made before calling Vercel so two browser submits
+ * cannot buy the same domain. If that request dies before Vercel returns an
+ * order ID, first confirm the domain is still available before releasing it.
+ */
+async function releaseStaleUnsubmittedDomainClaim(input:{admin:NonNullable<ReturnType<typeof getSupabaseAdmin>>;userId:string;businessId:string;domain:string;order:ManagedDomainOrderClaim}){
+ const {admin,userId,businessId,domain,order}=input;
+ if(order.status!=="registration_pending"||order.provider_order_id||!order.purchase_confirmed_at)return false;
+ if(Date.now()-new Date(order.purchase_confirmed_at).getTime()<90_000)return false;
+ let quote:Awaited<ReturnType<typeof getVercelDomainQuote>>;
+ try{quote=await getVercelDomainQuote(domain);}catch{return false;}
+ if(!quote.available)return false;
+ const now=new Date().toISOString(),{data:released}=await admin.from("website_domain_orders").update({status:"available",purchase_confirmed_at:null,last_error_category:"provider_order_missing",updated_at:now,updated_by:userId}).eq("id",order.id).eq("status","registration_pending").is("provider_order_id",null).select("id").maybeSingle();
+ if(!released)return false;
+ await admin.from("business_website_onboarding_states").update({domain_request_status:"available",updated_at:now,updated_by:userId}).eq("business_id",businessId).eq("requested_domain",domain);
+ return true;
+}
+
 async function completeWebsiteFirstLaunchState(slug:string,businessId:string,supabase:any){
  const now=new Date().toISOString();
  const {error}=await supabase.from("business_website_onboarding_states").update({current_step:"completed",completed_at:now,updated_at:now}).eq("business_id",businessId);
@@ -281,7 +301,11 @@ export async function purchaseManagedDomainLegacy(slug:string,data:FormData){
  if(data.get("registrationTerms")!=="on"||data.get("renewalTerms")!=="on")redirect(target(slug,"error","Accept both confirmations before registering this domain.","domain",legacyManagedDomainExtra("details")));
  const {data:order}=await admin.from("website_domain_orders").select("id,status,provider_order_id,purchase_price,purchase_confirmed_at").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
  if(!order)redirect(target(slug,"error","Check availability before registering this domain.","domain",legacyManagedDomainExtra("details")));
- if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status))redirect(target(slug,"error","This domain already has a protected registration attempt. It was not purchased again.","domain",legacyManagedDomainExtra("registered")));
+ if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status)){
+  const released=await releaseStaleUnsubmittedDomainClaim({admin,userId:user.id,businessId:business.id,domain,order});
+  if(released)redirect(target(slug,"error","The previous request did not reach Vercel. The domain is still available; submit the registration again.","domain",legacyManagedDomainExtra("details")));
+  redirect(target(slug,"error","This domain already has a protected registration attempt. It was not purchased again.","domain",legacyManagedDomainExtra("registered")));
+ }
  const country=text(data,"country").toUpperCase(),rawPhone=text(data,"phone"),digits=rawPhone.replace(/\D/g,""),phone=country==="US"?(digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:rawPhone.startsWith("+")?`+${digits}`:rawPhone):rawPhone.startsWith("+")?`+${digits}`:rawPhone;
  const registrant={firstName:text(data,"firstName"),lastName:text(data,"lastName"),companyName:text(data,"companyName")||business.name,email:text(data,"email"),phone,address1:text(data,"address1"),address2:text(data,"address2")||undefined,city:text(data,"city"),state:text(data,"state"),zip:text(data,"zip"),country};
  if(!registrant.firstName||!registrant.lastName||!/^\S+@\S+\.\S+$/.test(registrant.email)||!/^\+[1-9]\d{7,14}$/.test(phone)||!registrant.address1||!registrant.city||!registrant.state||!registrant.zip||!/^[A-Z]{2}$/.test(country))redirect(target(slug,"error","Complete the registrant contact information. Phone formatting is handled automatically.","domain",legacyManagedDomainExtra("details")));
@@ -348,7 +372,11 @@ export async function purchaseManagedDomain(slug:string,data:FormData){
  if(data.get("registrationTerms")!=="on"||data.get("renewalTerms")!=="on")redirect(websiteFirstTarget(slug,"preview","error","Accept both confirmations before registering this domain.",{domainChoice:"need_domain",domainStage:"details"}));
  const {data:order}=await admin.from("website_domain_orders").select("id,status,provider_order_id,purchase_price,purchase_confirmed_at").eq("business_id",business.id).eq("domain_name",domain).maybeSingle();
  if(!order)redirect(websiteFirstTarget(slug,"preview","error","Check availability before registering this domain.",{domainChoice:"need_domain",domainStage:"details"}));
- if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status))redirect(websiteFirstTarget(slug,"preview","error","This domain already has a protected registration attempt. It was not purchased again.",{domainChoice:"need_domain",domainStage:"registered"}));
+ if(order.provider_order_id||["registration_pending","registered","connected"].includes(order.status)){
+  const released=await releaseStaleUnsubmittedDomainClaim({admin,userId:user.id,businessId:business.id,domain,order});
+  if(released)redirect(websiteFirstTarget(slug,"preview","error","The previous request did not reach Vercel. The domain is still available; submit the registration again.",{domainChoice:"need_domain",domainStage:"details"}));
+  redirect(websiteFirstTarget(slug,"preview","error","This domain already has a protected registration attempt. It was not purchased again.",{domainChoice:"need_domain",domainStage:"registered"}));
+ }
  const country=text(data,"country").toUpperCase(),rawPhone=text(data,"phone"),digits=rawPhone.replace(/\D/g,""),phone=country==="US"?(digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:rawPhone.startsWith("+")?`+${digits}`:rawPhone):rawPhone.startsWith("+")?`+${digits}`:rawPhone;
  const registrant:VercelRegistrant={firstName:text(data,"firstName"),lastName:text(data,"lastName"),companyName:text(data,"companyName")||undefined,email:text(data,"email"),phone,address1:text(data,"address1"),address2:text(data,"address2")||undefined,city:text(data,"city"),state:text(data,"state"),zip:text(data,"zip"),country};
  if(!registrant.firstName||!registrant.lastName||!/^\S+@\S+\.\S+$/.test(registrant.email)||!/^\+[1-9]\d{7,14}$/.test(phone)||!registrant.address1||!registrant.city||!registrant.state||!registrant.zip||!/^[A-Z]{2}$/.test(country))redirect(websiteFirstTarget(slug,"preview","error","Complete the registrant contact information. Phone formatting is handled automatically.",{domainChoice:"need_domain",domainStage:"details"}));
