@@ -25,6 +25,7 @@ test("Gilbert Water Heater Pro uses a tenant-scoped referral quote form and pers
  assert.match(form,/name="referralConsent"/);
  assert.match(form,/Get My Free Quote/);
  assert.match(form,/Your quote request has been received!/);
+ assert.match(action,/const isGilbertWaterHeaterWebsite=/);
  assert.match(action,/isGilbertWaterHeaterWebsite\(website\)/);
  assert.match(action,/requestVariant==="water_heater_quote"&&!isGilbertWaterHeaterWebsite\(website\)/);
  assert.match(action,/lead_metadata:isWaterHeaterQuote\?\{service_requested:serviceValue,urgency,zip_code:zipCode,referral_consent/);
