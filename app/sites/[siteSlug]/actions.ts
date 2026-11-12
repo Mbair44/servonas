@@ -11,6 +11,8 @@ import {normalizeWebsitePhone,waterHeaterQuoteErrors,websiteRequestErrors} from 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const values=(data:FormData,key:string)=>data.getAll(key).map(value=>String(value).trim()).filter(Boolean);
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const gilbertWaterHeaterPublicSlugs=new Set(["gilbert-water-heater-pro","gilbert-water-heather-pro"]);
+export const isGilbertWaterHeaterWebsite=(website:{public_slug?:unknown;custom_domain?:unknown})=>gilbertWaterHeaterPublicSlugs.has(String(website.public_slug??"").toLowerCase())||String(website.custom_domain??"").toLowerCase()==="gilbertwaterheaterpro.com";
 
 const popupState=(error?:string,success?:boolean,_couponCode?:string|null,successMessage?:string)=>({error,success,successMessage});
 const offerLabel=(popup:{discountType:string|null;discountValue:number|null;customOffer:string|null})=>{
@@ -59,9 +61,12 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
  const fail=(error:string,fieldErrors:Record<string,string>={}):WebsiteRequestState=>({error,fieldErrors,values:formValues});
  if(text(data,"companyWebsite"))return {success:"Thank you. The business will follow up shortly."};
  const db=getSupabaseAdmin();if(!db)return fail("Online requests are temporarily unavailable. Please call the business directly.");
- const {data:website}=await db.from("business_website_settings").select("id,business_id,request_service_enabled,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
+ const {data:website}=await db.from("business_website_settings").select("id,business_id,public_slug,custom_domain,request_service_enabled,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!website||!website.request_service_enabled)return fail("This website is not currently accepting online requests.");
- const requestVariant=text(data,"requestVariant"),name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),zipCode=text(data,"zipCode"),urgency=text(data,"urgency"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey"),isWaterHeaterQuote=requestVariant==="water_heater_quote";
+ const requestVariant=text(data,"requestVariant"),name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),zipCode=text(data,"zipCode"),urgency=text(data,"urgency"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey");
+ if(!["service","quote","christmas_quote","water_heater_quote"].includes(requestVariant))return fail("This request form is not available.");
+ if(requestVariant==="water_heater_quote"&&!isGilbertWaterHeaterWebsite(website))return fail("This quote form is not available for this website.");
+ const isWaterHeaterQuote=requestVariant==="water_heater_quote"&&isGilbertWaterHeaterWebsite(website);
  const christmasAreas=values(data,"decoratedAreas");
  const description=requestVariant==="christmas_quote"?[
   "Christmas lighting quote request",
