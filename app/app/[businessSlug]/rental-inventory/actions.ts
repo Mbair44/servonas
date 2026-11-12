@@ -8,7 +8,7 @@ import {canManageBusiness} from "@/lib/access";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {requireWorkspace} from "@/lib/workspace";
 import type {SupabaseClient} from "@supabase/supabase-js";
-import {buildImageVariantPaths,imageVariantCacheControl,managedImageVariantPathsFromPublicUrl} from "@/lib/storageImageVariants";
+import {buildImageVariantPaths,imageVariantCacheControl} from "@/lib/storageImageVariants";
 import {validStripeTaxCode} from "@/lib/stripeTaxCodes";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
@@ -107,19 +107,23 @@ async function replaceUpsells(supabase:SupabaseClient,businessId:string,itemId:s
  if(requested.length){const {error}=await supabase.from("rental_item_upsells").insert(requested.map((suggested_item_id,sort_order)=>({business_id:businessId,source_item_id:itemId,suggested_item_id,sort_order})));if(error)throw new Error("Upsell items could not be saved.");}
 }
 
-async function removeInventoryImageVariants(url:string|null|undefined){
- const paths=managedImageVariantPathsFromPublicUrl(url,"inventory-images");
- if(!paths.length)return;
- await getSupabaseAdmin()?.storage.from("inventory-images").remove(paths);
+const inventoryImageBucket="inventory-images";
+const storagePathFromGalleryUrl=(url:string,businessId:string)=>{try{const parsed=new URL(url),marker=`/storage/v1/object/public/${inventoryImageBucket}/`,index=parsed.pathname.indexOf(marker);if(index<0)return null;const storagePath=decodeURIComponent(parsed.pathname.slice(index+marker.length));return storagePath.startsWith(`${businessId}/`)&&new RegExp(`^[0-9a-f-]{36}/[0-9a-f-]{36}/v1/display\\.webp$`,"i").test(storagePath)?storagePath:"invalid";}catch{return "invalid";}};
+async function assertGalleryObjectsExist(businessId:string,urls:string[],legacyUrls:Set<string>){
+ const admin=getSupabaseAdmin();if(!admin)throw new Error("Rental photo storage is not configured.");
+ for(const url of urls){const storagePath=storagePathFromGalleryUrl(url,businessId);if(storagePath===null){if(!legacyUrls.has(url))throw new Error("Rental photos must be uploaded to this business.");continue;}if(storagePath==="invalid")throw new Error("Rental photo storage path is invalid.");const slash=storagePath.lastIndexOf("/"),folder=storagePath.slice(0,slash),name=storagePath.slice(slash+1),{data,error}=await admin.storage.from(inventoryImageBucket).list(folder,{limit:10,search:name});if(error||!(data??[]).some(object=>object.name===name))throw new Error("One or more rental photo uploads are missing. Upload them again before saving.");}
 }
+function galleryUrls(data:FormData){const raw=text(data,"rentalImageUrls");if(!raw)return null;let urls:unknown;try{urls=JSON.parse(raw);}catch{throw new Error("Rental photo data is invalid.");}if(!Array.isArray(urls)||urls.length>10||urls.some(url=>typeof url!=="string"||!url.trim()))throw new Error("A rental can have no more than 10 valid photos.");const values=urls.map(url=>(url as string).trim());if(new Set(values).size!==values.length)throw new Error("A rental gallery cannot contain duplicate photos.");return values;}
+async function saveGallery(supabase:SupabaseClient,businessId:string,itemId:string,data:FormData){const urls=galleryUrls(data);if(urls===null)return;const submittedId=text(data,"galleryInventoryItemId");if(submittedId&&submittedId!==itemId)throw new Error("Rental photo update did not match this inventory item.");const {data:current,error:currentError}=await supabase.from("inventory_items").select("image_url,image_urls,rental_item_images(image_url)").eq("id",itemId).eq("business_id",businessId).maybeSingle();if(currentError||!current)throw new Error("This rental is unavailable for photo updates.");const legacyUrls=new Set([current.image_url,...(current.image_urls??[]),...((current.rental_item_images??[]).map((image:{image_url:string})=>image.image_url))].filter((url):url is string=>typeof url==="string"&&storagePathFromGalleryUrl(url,businessId)===null));await assertGalleryObjectsExist(businessId,urls,legacyUrls);const expected=text(data,"galleryExpectedUpdatedAt")||null;const {error}=await supabase.rpc("replace_rental_item_images",{p_item_id:itemId,p_business_id:businessId,p_urls:urls,p_expected_updated_at:expected});if(error)throw new Error(error.message.includes("another editor")?"This rental was changed by another editor. Refresh before saving photos.":"Rental photos could not be saved.");}
 
 export async function createRentalItem(slug:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const payload=await values(supabase,business.id,data),imagePath=directPath(data,"uploadedImagePath",business.id),receiptPath=directPath(data,"uploadedReceiptPath",business.id),admin=getSupabaseAdmin(),image=imagePath&&admin?admin.storage.from("inventory-images").getPublicUrl(imagePath).data.publicUrl:null;
-  const {data:item,error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,image_url:image,purchase_receipt_path:receiptPath,purchase_receipt_name:text(data,"uploadedReceiptName")||null}).select("id").single();
+  const payload=await values(supabase,business.id,data),receiptPath=directPath(data,"uploadedReceiptPath",business.id),admin=getSupabaseAdmin();
+  const {data:item,error}=await supabase.from("inventory_items").insert({...payload,business_id:business.id,slug:`${slugify(payload.name)||"rental"}-${crypto.randomUUID().slice(0,8)}`,purchase_receipt_path:receiptPath,purchase_receipt_name:text(data,"uploadedReceiptName")||null}).select("id").single();
   if(error&&receiptPath){await admin?.storage.from("rental-purchase-receipts").remove([receiptPath]);}
   if(error||!item)throw new Error(error?.code==="23505"?"A rental with that identifier already exists.":"The rental item could not be added. Apply the rental inventory migration first.");
+  await saveGallery(supabase,business.id,item.id,data);
   await replaceUpsells(supabase,business.id,item.id,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be added."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item added."));
@@ -128,16 +132,16 @@ export async function createRentalItem(slug:string,data:FormData){
 export async function updateRentalItem(slug:string,itemId:string,data:FormData){
  const {supabase,business}=await context(slug);
  try{
-  const payload=await values(supabase,business.id,data),imagePath=directPath(data,"uploadedImagePath",business.id),receiptPath=directPath(data,"uploadedReceiptPath",business.id),admin=getSupabaseAdmin(),image=imagePath&&admin?admin.storage.from("inventory-images").getPublicUrl(imagePath).data.publicUrl:null;
+  const payload=await values(supabase,business.id,data),receiptPath=directPath(data,"uploadedReceiptPath",business.id),admin=getSupabaseAdmin();
   if(text(data,"powerOutletsRequired")===""){delete (payload as {power_outlets_required?:number}).power_outlets_required;delete (payload as {power_instructions?:string|null}).power_instructions;}
   const {data:existing}=await supabase.from("inventory_items").select("purchase_receipt_path,image_url").eq("id",itemId).eq("business_id",business.id).maybeSingle();
   const removeReceipt=data.get("removePurchaseReceipt")==="on";
   const receiptFields=receiptPath?{purchase_receipt_path:receiptPath,purchase_receipt_name:text(data,"uploadedReceiptName")||null}:removeReceipt?{purchase_receipt_path:null,purchase_receipt_name:null}:{};
-  const {error}=await supabase.from("inventory_items").update({...payload,...(image?{image_url:image}:{}),...receiptFields}).eq("id",itemId).eq("business_id",business.id);
+  await saveGallery(supabase,business.id,itemId,data);
+  const {error}=await supabase.from("inventory_items").update({...payload,...receiptFields}).eq("id",itemId).eq("business_id",business.id);
   if(error&&receiptPath)await admin?.storage.from("rental-purchase-receipts").remove([receiptPath]);
   if(error)throw new Error("The rental item could not be updated.");
   if((receiptPath||removeReceipt)&&existing?.purchase_receipt_path&&existing.purchase_receipt_path!==receiptPath)await admin?.storage.from("rental-purchase-receipts").remove([existing.purchase_receipt_path]);
-  if(image&&existing?.image_url&&existing.image_url!==image)await removeInventoryImageVariants(existing.image_url);
   await replaceUpsells(supabase,business.id,itemId,data);
  }catch(error){redirect(path(slug,"error",error instanceof Error?error.message:"The rental item could not be updated."));}
  revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book`);redirect(path(slug,"success","Rental item updated."));
