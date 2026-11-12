@@ -2,6 +2,7 @@ import {changeManagedDomainRequest,checkManagedDomainAvailability,checkWebsiteDo
 import {AutoSubmitManagedDomainAvailability} from "./AutoSubmitManagedDomainAvailability";
 import {DomainAvailabilitySubmit} from "./DomainAvailabilitySubmit";
 import {ManagedDomainCustomerSetup} from "./ManagedDomainCustomerSetup";
+import {ManagedDomainStatusPoller} from "./ManagedDomainStatusPoller";
 import {PublishCelebrationSubmit} from "./PublishCelebrationSubmit";
 
 type Order={status:string;customer_purchase_price:number|null;customer_renewal_price:number|null;currency:string|null;provider_order_id:string|null;availability_checked_at:string|null;last_error_category:string|null}|null;
@@ -91,6 +92,7 @@ export function WebsiteFirstLaunchDomainPanel({businessSlug,businessSlugDisplay,
      <div><dt>Today</dt><dd>$0</dd></div>
      <div><dt>Renews at</dt><dd>{money(domainOrder?.customer_renewal_price??null,domainOrder?.currency??"USD")}/year</dd></div>
     </dl>
+   <ManagedDomainStatusPoller businessSlug={businessSlug} initialStatus={domainStatus}/>
     {!websitePublished&&<form action={completeWebsiteFirstLaunch.bind(null,businessSlug)}><input type="hidden" name="choice" value="managed_domain"/><PublishCelebrationSubmit label="Publish My Website — Free →" celebratingLabel="Launching your website…"/></form>}
    </div>}
   </div>}
