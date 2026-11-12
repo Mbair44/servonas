@@ -20,3 +20,16 @@ export function websiteRequestErrors(input:{name:string;phone:string;email:strin
  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.requestKey))errors.form="Refresh the page and try again.";
  return errors;
 }
+
+export function waterHeaterQuoteErrors(input:{name:string;phone:string;email:string;zipCode:string;serviceId:string;urgency:string;requestKey:string;referralConsent:string}){
+ const errors:Record<string,string>={};
+ if(!input.name||input.name.length>200)errors.name="Enter your full name.";
+ if(input.phone.replace(/\D/g,"").length<10)errors.phone="Enter a valid phone number.";
+ if(input.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email))errors.email="Enter a valid email address.";
+ if(!/^\d{5}(?:-\d{4})?$/.test(input.zipCode))errors.zipCode="Enter a valid ZIP code.";
+ if(!["water_heater_replace","water_heater_repair","water_heater_not_sure"].includes(input.serviceId))errors.serviceId="Choose a water heater service.";
+ if(!["as_soon_as_possible","within_few_days","just_researching"].includes(input.urgency))errors.urgency="Choose when you need help.";
+ if(input.referralConsent!=="agreed")errors.referralConsent="You must agree before we can connect you with a contractor.";
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.requestKey))errors.form="Refresh the page and try again.";
+ return errors;
+}
