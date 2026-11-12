@@ -37,6 +37,12 @@ jobs:
       - name: Rental photo cropping regression
         run: pnpm dlx tsx@4.19.3 --test tests/rentalPhotoContain.test.ts
 
+      - name: Rental gallery regression suite
+        run: pnpm dlx tsx@4.19.3 --test tests/rentalGalleryAdmin.test.ts tests/rentalGalleryRlsContract.test.ts tests/rentalImageStorageSafety.test.ts
+
+      - name: Full test suite
+        run: pnpm test
+
       - name: Build
         run: pnpm build
         env:

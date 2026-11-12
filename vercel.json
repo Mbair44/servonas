@@ -4,6 +4,7 @@
     { "path": "/api/cron/messages", "schedule": "0 16 * * *" },
     { "path": "/api/cron/customer-message-media", "schedule": "* * * * *" },
     { "path": "/api/cron/customer-message-media-cleanup", "schedule": "10 16 * * *" },
+    { "path": "/api/cron/rental-image-cleanup", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/financial", "schedule": "15 16 * * *" },
     { "path": "/api/cron/google-ads-spend", "schedule": "30 16 * * *" },
     { "path": "/api/cron/meta-ads-spend", "schedule": "45 16 * * *" },
