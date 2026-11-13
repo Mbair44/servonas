@@ -17,6 +17,7 @@ test("renders Google verification only for the configured tenant settings",()=>{
  const unconfigured=tenantMetadata({settings:{},fallbackBase:"https://other.example",path:"/",title:"Other"});
  assert.deepEqual(configured.verification,{google:token});
  assert.equal(unconfigured.verification,undefined);
+ assert.deepEqual(configured.keywords,[]);
 });
 
 test("public website code reads the tenant setting and no longer hard-codes a domain token",async()=>{
