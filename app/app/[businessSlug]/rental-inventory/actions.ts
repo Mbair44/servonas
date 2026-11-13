@@ -27,6 +27,15 @@ export async function updateRentalProfitabilitySettings(slug:string,data:FormDat
  revalidatePath(`/app/${slug}/rental-inventory`);redirect(path(slug,"success","Operating-cost assumptions saved for future completed rentals."));
 }
 
+export async function saveGeneratorSettings(slug:string,data:FormData){
+ const {supabase,business}=await context(slug),price=parseCurrencyToCents(text(data,"price")),description=text(data,"description")||null;
+ if(price===null||price<0||price>2147483647)redirect(path(slug,"error","Enter a valid generator price."));
+ if(description&&description.length>1000)redirect(path(slug,"error","Keep the generator description under 1,000 characters."));
+ const {error}=await supabase.from("job_addon_catalog").update({default_unit_price_cents:price,description,is_taxable:data.get("isTaxable")==="on",is_active:data.get("active")==="on",customer_visible:data.get("active")==="on",visibility:"public_future",max_customer_quantity:1,compatibility_required:false,updated_at:new Date().toISOString()}).eq("business_id",business.id).eq("is_power_generator",true);
+ if(error)redirect(path(slug,"error","Generator settings could not be saved. Apply the paid generator add-on migration first."));
+ revalidatePath(`/app/${slug}/rental-inventory`);revalidatePath(`/book/${slug}`);redirect(path(slug,"success","Generator settings saved."));
+}
+
 function eachDate(startDate:string,endDate:string){
  const dates:string[]=[];
  const start=new Date(`${startDate}T12:00:00Z`),end=new Date(`${endDate}T12:00:00Z`);

@@ -1,6 +1,7 @@
 import {hashSmartUpsellToken,prepareSmartUpsellPricing,smartUpsellTokenIsUsable,type SmartUpsellStatus} from "./smartUpsells.ts";
 import {isRestrictedSmartUpsellTestOffer,restrictedSmartUpsellTestConfig} from "./smartUpsellRestrictedTest.ts";
 import {listSmartUpsellAlternatives} from "./smartUpsellAlternatives.ts";
+import {sendSmartUpsellBusinessNotification} from "./communications/smartUpsellEmailService";
 type AdminDb=any;
 
 /** Both server-only switches are required. Production remains off unless both are explicitly true. */
@@ -63,7 +64,10 @@ export async function prepareSmartUpsellCheckout(db:AdminDb,input:{token:string;
  }
  const {stageBookingItemAmendment}=await import("./bookingManage/stagedAmendments");
  const staged=await stageBookingItemAmendment(db,{businessId:offer.business_id,bookingId:offer.booking_id,items:[{inventoryItemId:offer.inventory_item_id,quantity:1}],pricingSnapshot,oldTotals,newTotals,depositPercent:50,amountPaidCents:Number(booking.amount_paid_cents),requiredPaymentCents:Number(offer.deposit_cents),idempotencyKey:`smart-upsell:${offer.id}`,expiresAt:new Date(Math.min(new Date(offer.expires_at).getTime(),now.getTime()+30*60_000)),successUrl:`${input.origin}/upsell/${input.token}?checkout=processing`,cancelUrl:`${input.origin}/upsell/${input.token}?checkout=cancelled`,stripeMetadata:{smart_upsell_offer_id:offer.id},restrictedTestStripeAccountId:restrictedConfig?.stripeAccountId});
- const {data:recordedOffer,error:updateError}=await db.from("smart_upsell_offers").update({offer_metadata:{...(offer.offer_metadata??{}),amendment_id:staged.amendmentId},stripe_checkout_session_id:staged.checkoutSessionId??null}).eq("id",offer.id).eq("business_id",offer.business_id).eq("status","checkout_pending").select("id").maybeSingle();
+ const {data:recordedOffer,error:updateError}=await db.from("smart_upsell_offers").update({offer_metadata:{...(offer.offer_metadata??{}),amendment_id:staged.amendmentId},stripe_checkout_session_id:staged.checkoutSessionId??null}).eq("id",offer.id).eq("business_id",offer.business_id).in("status",staged.checkoutUrl?["checkout_pending"]:["accepted"]).select("id").maybeSingle();
  if(updateError||!recordedOffer)throw new Error("The Smart Upsell checkout was staged but could not be recorded.");
+ // A zero-deposit offer is applied synchronously and never produces a Stripe
+ // webhook, so notify the business here after the accepted offer is recorded.
+ if(!staged.checkoutUrl){const notification=await sendSmartUpsellBusinessNotification({businessId:offer.business_id,bookingId:offer.booking_id,offerId:offer.id,amendmentId:staged.amendmentId,amountPaidCents:0});if(!notification.ok)console.error("Smart Upsell business notification email was not delivered",{bookingId:offer.booking_id,businessId:offer.business_id,offerId:offer.id,error:notification.error});}
  return staged;
 }
