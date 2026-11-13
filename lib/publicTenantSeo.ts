@@ -26,11 +26,11 @@ export function hostedTenantRobots(settings:TenantSeoSettings){
 export function tenantMetadata(input:{settings:TenantSeoSettings;fallbackBase:string;path:string;title:string;description?:string|null;index?:boolean;openGraphTitle?:string|null;openGraphDescription?:string|null}):Metadata{
  const canonical=tenantCanonicalUrl(input.settings,input.path,input.fallbackBase),index=input.index??true;
  const google=googleSiteVerificationToken(input.settings.google_site_verification_token);
- return {title:input.title,description:input.description??undefined,alternates:{canonical},openGraph:{title:input.openGraphTitle??input.title,description:input.openGraphDescription??input.description??undefined,url:canonical,type:"website"},robots:{index,follow:true},...(google?{verification:{google}}:{})};
+ return {title:input.title,description:input.description??undefined,keywords:[],alternates:{canonical},openGraph:{title:input.openGraphTitle??input.title,description:input.openGraphDescription??input.description??undefined,url:canonical,type:"website"},robots:{index,follow:true},...(google?{verification:{google}}:{})};
 }
 
 export async function loadTenantSeoByPublicSlug(db:SupabaseClient,publicSlug:string){
- const {data}=await db.from("business_website_settings").select("business_id,public_slug,custom_domain,domain_status").ilike("public_slug",publicSlug).eq("status","published").maybeSingle();
+ const {data}=await db.from("business_website_settings").select("business_id,public_slug,custom_domain,domain_status,google_site_verification_token").ilike("public_slug",publicSlug).eq("status","published").maybeSingle();
  return data as (TenantSeoSettings&{business_id:string})|null;
 }
 
