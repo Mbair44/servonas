@@ -12,7 +12,7 @@ const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const values=(data:FormData,key:string)=>data.getAll(key).map(value=>String(value).trim()).filter(Boolean);
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const gilbertWaterHeaterPublicSlugs=new Set(["gilbert-water-heater-pro","gilbert-water-heather-pro"]);
-export const isGilbertWaterHeaterWebsite=(website:{public_slug?:unknown;custom_domain?:unknown})=>gilbertWaterHeaterPublicSlugs.has(String(website.public_slug??"").toLowerCase())||String(website.custom_domain??"").toLowerCase()==="gilbertwaterheaterpro.com";
+const isGilbertWaterHeaterWebsite=(website:{public_slug?:unknown;custom_domain?:unknown})=>gilbertWaterHeaterPublicSlugs.has(String(website.public_slug??"").toLowerCase())||String(website.custom_domain??"").toLowerCase()==="gilbertwaterheaterpro.com";
 
 const popupState=(error?:string,success?:boolean,_couponCode?:string|null,successMessage?:string)=>({error,success,successMessage});
 const offerLabel=(popup:{discountType:string|null;discountValue:number|null;customOffer:string|null})=>{
