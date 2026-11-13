@@ -6,11 +6,13 @@ import type {WebsiteRequestState} from "@/components/WebsiteRequestForm";
 import {sendWebsiteRequestBusinessNotification} from "@/lib/communications/websiteRequestEmailService";
 import {sendWebsiteLeadCaptureEmail} from "@/lib/communications/websiteLeadCaptureEmailService";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
-import {normalizeWebsitePhone,websiteRequestErrors} from "@/lib/website";
+import {normalizeWebsitePhone,waterHeaterQuoteErrors,websiteRequestErrors} from "@/lib/website";
 
 const text=(data:FormData,key:string)=>String(data.get(key)??"").trim();
 const values=(data:FormData,key:string)=>data.getAll(key).map(value=>String(value).trim()).filter(Boolean);
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const gilbertWaterHeaterPublicSlugs=new Set(["gilbert-water-heater-pro","gilbert-water-heather-pro"]);
+const isGilbertWaterHeaterWebsite=(website:{public_slug?:unknown;custom_domain?:unknown})=>gilbertWaterHeaterPublicSlugs.has(String(website.public_slug??"").toLowerCase())||String(website.custom_domain??"").toLowerCase()==="gilbertwaterheaterpro.com";
 
 const popupState=(error?:string,success?:boolean,_couponCode?:string|null,successMessage?:string)=>({error,success,successMessage});
 const offerLabel=(popup:{discountType:string|null;discountValue:number|null;customOffer:string|null})=>{
@@ -59,9 +61,12 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
  const fail=(error:string,fieldErrors:Record<string,string>={}):WebsiteRequestState=>({error,fieldErrors,values:formValues});
  if(text(data,"companyWebsite"))return {success:"Thank you. The business will follow up shortly."};
  const db=getSupabaseAdmin();if(!db)return fail("Online requests are temporarily unavailable. Please call the business directly.");
- const {data:website}=await db.from("business_website_settings").select("id,business_id,request_service_enabled,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
+ const {data:website}=await db.from("business_website_settings").select("id,business_id,public_slug,custom_domain,request_service_enabled,businesses(name,email,owner_user_id)").ilike("public_slug",siteSlug).eq("status","published").maybeSingle();
  if(!website||!website.request_service_enabled)return fail("This website is not currently accepting online requests.");
- const requestVariant=text(data,"requestVariant"),name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey");
+ const requestVariant=text(data,"requestVariant"),name=text(data,"name"),phone=normalizeWebsitePhone(text(data,"phone")),email=text(data,"email").toLowerCase(),address=text(data,"address"),zipCode=text(data,"zipCode"),urgency=text(data,"urgency"),preferredAt=text(data,"preferredAt"),serviceValue=text(data,"serviceId"),requestKey=text(data,"requestKey");
+ if(!["service","quote","christmas_quote","water_heater_quote"].includes(requestVariant))return fail("This request form is not available.");
+ if(requestVariant==="water_heater_quote"&&!isGilbertWaterHeaterWebsite(website))return fail("This quote form is not available for this website.");
+ const isWaterHeaterQuote=requestVariant==="water_heater_quote"&&isGilbertWaterHeaterWebsite(website);
  const christmasAreas=values(data,"decoratedAreas");
  const description=requestVariant==="christmas_quote"?[
   "Christmas lighting quote request",
@@ -84,15 +89,21 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
   ].filter(Boolean).join(", ")}`:null,
   text(data,"projectNotes")?`Project notes: ${text(data,"projectNotes")}`:null,
   "Photo uploads requested: follow up with customer to collect property photos.",
+ ].filter(Boolean).join("\n"):isWaterHeaterQuote?[
+  "Water heater quote request",
+  `Service requested: ${serviceValue.replace("water_heater_","").replaceAll("_"," ")}`,
+  `Urgency: ${urgency.replaceAll("_"," ")}`,
+  zipCode?`ZIP code: ${zipCode}`:null,
+  text(data,"description")?`Additional details: ${text(data,"description")}`:null,
  ].filter(Boolean).join("\n"):text(data,"description");
- const fieldErrors=websiteRequestErrors({name,phone,email,address,description,requestKey});
+ const fieldErrors=isWaterHeaterQuote?waterHeaterQuoteErrors({name,phone,email,zipCode,serviceId:serviceValue,urgency,requestKey,referralConsent:text(data,"referralConsent")}):websiteRequestErrors({name,phone,email,address,description,requestKey});
  if(requestVariant==="christmas_quote"){
   if(!christmasAreas.length)fieldErrors.decoratedAreas="Choose at least one area or select the design-help option.";
   if(!text(data,"lightingPreference"))fieldErrors.lightingPreference="Choose a lighting preference.";
   if(!text(data,"installationTiming"))fieldErrors.installationTiming="Choose preferred timing.";
  }
  let serviceId:string|null=null;
- if(serviceValue&&serviceValue!=="other"){
+ if(!isWaterHeaterQuote&&serviceValue&&serviceValue!=="other"){
   const {data:service}=await db.from("services").select("id").eq("business_id",website.business_id).eq("id",serviceValue).eq("active",true).eq("is_deleted",false).maybeSingle();
   if(!service)fieldErrors.serviceId="Choose an available service.";else serviceId=service.id;
  }
@@ -125,7 +136,10 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
   const {error}=await db.from("customers").update({first_name:firstName,last_name:lastName||undefined,email:email||customer.email,phone:phone||customer.phone,updated_at:new Date().toISOString()}).eq("business_id",website.business_id).eq("id",customer.id);
   if(error)console.warn("Website customer refresh failed",{businessId:website.business_id,customerId:customer.id,code:error.code});
  }
- const {data:request,error}=await db.from("website_service_requests").insert({business_id:website.business_id,website_id:website.id,customer_id:customer.id,service_id:serviceId,request_key:requestKey,customer_name:name,phone,email:email||null,service_address:address,description,preferred_at:preferredAt||null,submitted_ip_hash:ipHash}).select("id").single();
+ const referralConsentText="I agree that Gilbert Water Heater Pro may share my request and contact information with an independent licensed plumbing contractor so they can contact me about my requested quote.";
+ const referralConsentVersion="gilbert-water-heater-referral-v1";
+ const submittedAt=new Date().toISOString();
+ const {data:request,error}=await db.from("website_service_requests").insert({business_id:website.business_id,website_id:website.id,customer_id:customer.id,service_id:serviceId,request_key:requestKey,customer_name:name,phone,email:email||null,service_address:isWaterHeaterQuote?null:address,service_zip:isWaterHeaterQuote?zipCode:null,description,preferred_at:preferredAt||null,lead_metadata:isWaterHeaterQuote?{service_requested:serviceValue,urgency,zip_code:zipCode,referral_consent:{granted:true,recorded_at:submittedAt,text:referralConsentText,version:referralConsentVersion}}:{},submitted_ip_hash:ipHash}).select("id").single();
  if(error||!request){if(error?.code==="23505")return {success:"Your request was already received. The business will follow up shortly."};console.error("Website request creation failed",{businessId:website.business_id,code:error?.code});return fail("Your request could not be saved. Please call the business directly.");}
  const business=Array.isArray(website.businesses)?website.businesses[0]:website.businesses;
  const {data:ownerProfile}=business?.owner_user_id?await db.from("profiles").select("email").eq("id",business.owner_user_id).maybeSingle():{data:null};
@@ -134,7 +148,7 @@ export async function submitWebsiteRequest(siteSlug:string,_state:WebsiteRequest
   console.error("Website consultation notification email failed",{businessId:website.business_id,requestId:request.id,provider:"resend",reason:"recipient_not_configured"});
  }else{
   const serviceName=serviceId?(await db.from("services").select("name").eq("business_id",website.business_id).eq("id",serviceId).maybeSingle()).data?.name:null;
-  await sendWebsiteRequestBusinessNotification({businessId:website.business_id,requestId:request.id,businessName:business?.name||"Service business",recipient,customerName:name,customerPhone:phone,customerEmail:email||null,serviceName,serviceAddress:address,description,preferredAt:preferredAt||null});
+  await sendWebsiteRequestBusinessNotification({businessId:website.business_id,requestId:request.id,businessName:business?.name||"Service business",recipient,customerName:name,customerPhone:phone,customerEmail:email||null,serviceName:isWaterHeaterQuote?serviceValue.replace("water_heater_","").replaceAll("_"," "):serviceName,serviceAddress:isWaterHeaterQuote?`ZIP code: ${zipCode}`:address,description,preferredAt:preferredAt||null});
  }
  return {success:"The business received your request and will follow up using the contact information you provided."};
 }

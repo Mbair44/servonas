@@ -65,6 +65,15 @@ test("HVAC and plumbing demos include industry-specific photography",async()=>{
  assert.match(plumbing,/\/images\/plumbing-professional-at-work\.png/);
 });
 
+test("plumbing websites place the service request form in the hero",async()=>{
+ const [site,styles]=await Promise.all([read("components/BusinessWebsite.tsx"),read("app/website.css")]);
+ assert.match(site,/plumbingHeroRequest=site\.websiteSource==="plumbing-website"/);
+ assert.match(site,/business-site-hero-request/);
+ assert.match(site,/!plumbingHeroRequest&&<div id="request-service">/);
+ assert.match(styles,/website-plumbing \.business-site-hero\.has-hero-request/);
+ assert.match(styles,/business-site-hero-request \.business-site-request-form/);
+});
+
 test("floral and event design has a complete website-first landing and demo flow",async()=>{
  const config=await read("lib/websiteFirstConfig.ts");
  const landing=await read("app/floral-event-website/page.tsx");

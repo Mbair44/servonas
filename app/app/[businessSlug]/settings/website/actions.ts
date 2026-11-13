@@ -324,7 +324,11 @@ export async function purchaseManagedDomainLegacy(slug:string,data:FormData){
  if(!quote.available)redirect(target(slug,"error","The domain is no longer available and was not registered.","domain",legacyManagedDomainExtra("search")));
  if(quote.purchasePrice>standardDomainLimit())redirect(target(slug,"error","This is now a premium domain and is not included. Nothing was registered.","domain",legacyManagedDomainExtra("search")));
  if(Number(order.purchase_price)!==quote.purchasePrice)redirect(target(slug,"error","The domain price changed. Check availability again before registering.","domain",legacyManagedDomainExtra("search")));
- const claimed=await admin.from("website_domain_orders").update({status:"registration_pending",purchase_confirmed_at:new Date().toISOString(),updated_at:new Date().toISOString(),updated_by:user.id,registrant_contact:{...registrant,phone}}).eq("id",order.id).is("provider_order_id",null).in("status",["available","failed","premium_review","unavailable"]).select("id").maybeSingle();
+ const claimed=await admin.from("website_domain_orders").update({status:"registration_pending",purchase_confirmed_at:new Date().toISOString(),updated_at:new Date().toISOString(),updated_by:user.id}).eq("id",order.id).is("provider_order_id",null).in("status",["available","failed","premium_review","unavailable"]).select("id").maybeSingle();
+ if(claimed.error){
+  console.error("Legacy customer domain registration claim failed",{businessId:business.id,code:claimed.error.code});
+  redirect(target(slug,"error","The domain registration could not be started. Nothing was purchased. Try again shortly.","domain",legacyManagedDomainExtra("details")));
+ }
  if(!claimed.data)redirect(target(slug,"error","Another registration attempt already started. Servonas will check its status automatically.","domain",legacyManagedDomainExtra("registered")));
  try{
   const purchased=await buyVercelDomain(domain,quote.purchasePrice,{firstName:registrant.firstName,lastName:registrant.lastName,email:registrant.email,phone,address1:registrant.address1,address2:registrant.address2,city:registrant.city,state:registrant.state,zip:registrant.zip,country:registrant.country,companyName:registrant.companyName} satisfies VercelRegistrant);
