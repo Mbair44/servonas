@@ -28,7 +28,9 @@ test("public website code reads the tenant setting and no longer hard-codes a do
   readFile("supabase/migrations/20261113000100_google_site_verification.sql","utf8"),
  ]);
  assert.doesNotMatch(domainPage,/FNv8kUeUvE5WSUBFw4MCcDVkVCpN0H8zXITzmLMK1Vc/);
- assert.match(settingsPage,/name="googleSiteVerificationToken"/);
+ assert.match(settingsPage,/<h2>Google Search Console Verification<\/h2>/);
+ assert.equal((settingsPage.match(/name="googleSiteVerificationToken"/g)??[]).length,1);
  assert.match(action,/google_site_verification_token:googleSiteVerificationToken/);
+ assert.match(action,/canManageBusiness\(role\)/);
  assert.match(migration,/google_site_verification_token/);
 });
