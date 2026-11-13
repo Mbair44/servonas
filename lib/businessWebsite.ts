@@ -212,14 +212,14 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  };
 }
 
-const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,seo_title,seo_description,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
+const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,seo_title,seo_description,google_site_verification_token,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
 const legacyPublicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
 const loadCachedGoogleBusinessProfileReviews=unstable_cache(async(businessId:string)=>getGoogleBusinessProfileReviews(businessId),["public-google-business-profile-reviews"],{revalidate:300});
 
-const isMissingPhotoMotionStyleColumnError=(error:unknown)=>{
+const isMissingNewWebsiteSettingsColumnError=(error:unknown)=>{
  const value=error as {code?:string;message?:string;details?:string;hint?:string}|null;
  const message=`${value?.message??value?.details??value?.hint??""}`;
- return value?.code==="42703"&&/photo_motion_style/i.test(message);
+ return value?.code==="42703"&&/(photo_motion_style|google_site_verification_token)/i.test(message);
 };
 
 async function queryWebsiteSettingsByDomain(
@@ -242,7 +242,7 @@ async function queryWebsiteSettingsByDomain(
   table:"business_website_settings",
  });
  if(primaryResult.kind==="ok")return primaryResult;
- if(!isMissingPhotoMotionStyleColumnError(primaryResult.failure))return primaryResult;
+ if(!isMissingNewWebsiteSettingsColumnError(primaryResult.failure))return primaryResult;
 
  logDomainLookupOutcome("warn",{
   domain:context.domain,
@@ -250,7 +250,7 @@ async function queryWebsiteSettingsByDomain(
   operation:`${context.operation}_legacy_retry`,
   table:"business_website_settings",
   statusOrCode:primaryResult.failure.code??primaryResult.failure.status,
-  message:"Retrying domain lookup without photo_motion_style because the column is missing.",
+  message:"Retrying domain lookup without a newer website-settings column because the column is missing.",
   elapsedMs:primaryResult.elapsedMs,
   response:"503",
   attempt:primaryResult.attemptCount,
