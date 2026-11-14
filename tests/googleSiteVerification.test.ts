@@ -21,16 +21,23 @@ test("renders Google verification only for the configured tenant settings",()=>{
 });
 
 test("public website code reads the tenant setting and no longer hard-codes a domain token",async()=>{
- const [domainPage,settingsPage,action,migration]=await Promise.all([
+ const [domainPage,settingsPage,action,migration,repairMigration,builderStyles]=await Promise.all([
   readFile("app/sites/domain/[domain]/page.tsx","utf8"),
   readFile("app/app/[businessSlug]/settings/website/page.tsx","utf8"),
   readFile("app/app/[businessSlug]/settings/website/actions.ts","utf8"),
   readFile("supabase/migrations/20261113000100_google_site_verification.sql","utf8"),
+  readFile("supabase/migrations/20261114000100_fix_google_site_verification_constraint.sql","utf8"),
+  readFile("app/website-builder.css","utf8"),
  ]);
  assert.doesNotMatch(domainPage,/FNv8kUeUvE5WSUBFw4MCcDVkVCpN0H8zXITzmLMK1Vc/);
  assert.match(settingsPage,/<h2>Google Search Console Verification<\/h2>/);
  assert.equal((settingsPage.match(/name="googleSiteVerificationToken"/g)??[]).length,1);
+ assert.match(settingsPage,/website-search-console-section/);
+ assert.match(builderStyles,/website-step-features \.website-guided-form>\.website-search-console-section/);
  assert.match(action,/google_site_verification_token:googleSiteVerificationToken/);
  assert.match(action,/canManageBusiness\(role\)/);
  assert.match(migration,/google_site_verification_token/);
+ assert.match(migration,/char_length\(google_site_verification_token\) between 8 and 256/);
+ assert.match(repairMigration,/char_length\(google_site_verification_token\) between 8 and 256/);
+ assert.doesNotMatch(migration,/\{8,256\}/);
 });
