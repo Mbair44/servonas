@@ -3,7 +3,9 @@ export type CustomerMessage = {
  direction:"inbound"|"outbound"; body:string; status:string; source_type:string;
  read_at:string|null; created_at:string; sent_at:string|null; received_at:string|null;
  provider_message_id:string|null;
+ attachments?:CustomerMessageAttachment[];
 };
+export type CustomerMessageAttachment={id:string;ordinal:number;direction:"inbound"|"outbound";content_type:string;file_size_bytes:number|null;processing_status:"queued"|"processing"|"ready"|"failed"|"uploaded";failure_reason:string|null;};
 export type Contact = {id:string;first_name:string|null;last_name:string|null;company_name:string|null};
 export const normalizePhone=(phone:string)=>{const digits=phone.replace(/\D/g,"");return digits.length===10?`+1${digits}`:`+${digits}`;};
 export const messageTime=(message:CustomerMessage)=>message.sent_at??message.received_at??message.created_at;

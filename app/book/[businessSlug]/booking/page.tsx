@@ -44,11 +44,11 @@ export default async function PublicBookingCheckoutPage({params,searchParams}:{p
   const initialDateState=parseDateState(query.dateState);
   const data=await loadPublicBookingData(businessSlug);
   if(!data)notFound();
-  const {settings,businessName,bookingLogo,metaPixelId,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,schedule}=data;
+  const {settings,businessName,bookingLogo,metaPixelId,metaPixelDefaultMeasurementEnabled,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates,schedule}=data;
   if(!isPartyRental)notFound();
 
   return (
-    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} initialSessionId={query.sv_at}/><main
+    <>{metaPixelId&&<TenantMetaPixel pixelId={metaPixelId} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={businessSlug} defaultMeasurementEnabled={metaPixelDefaultMeasurementEnabled} initialSessionId={query.sv_at}/><main
       className={`public-booking public-booking-checkout${embedded ? " embedded-booking" : ""}`}
       style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}
     >

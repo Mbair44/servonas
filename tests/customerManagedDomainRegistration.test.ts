@@ -13,6 +13,13 @@ test("workspace owners can complete a managed-domain registration with explicit 
  assert.match(actions,/renewalTerms/);
  assert.doesNotMatch(actions,/text\(data,"confirmation"\)!==`REGISTER \$\{domain\}`/);
  assert.match(actions,/\.eq\("status","available"\)\.is\("provider_order_id",null\)/);
+ assert.match(actions,/releaseStaleUnsubmittedDomainClaim/);
+ assert.match(actions,/getVercelDomainQuote\(domain\)/);
+ assert.match(actions,/provider_order_missing/);
+ assert.match(actions,/The previous request did not reach Vercel/);
+ assert.doesNotMatch(actions,/registrant_contact/);
+ assert.match(actions,/Legacy customer domain registration claim failed/);
+ assert.match(actions,/The domain registration could not be started\. Nothing was purchased/);
  assert.match(component,/Register \{domain\}/);
  assert.match(component,/first year is included/i);
  assert.match(component,/Due today/);
@@ -22,13 +29,14 @@ test("workspace owners can complete a managed-domain registration with explicit 
 });
 
 test("managed registration automatically reconciles without duplicate purchasing",async()=>{
- const [actions,poller]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("components/ManagedDomainStatusPoller.tsx")]);
+ const [actions,poller,websiteFirstPanel]=await Promise.all([read("app/app/[businessSlug]/settings/website/actions.ts"),read("components/ManagedDomainStatusPoller.tsx"),read("components/WebsiteFirstLaunchDomainPanel.tsx")]);
  assert.match(actions,/getVercelDomainOrder\(order\.provider_order_id\)/);
  assert.match(actions,/addVercelProjectDomain\(domain\)/);
  assert.match(actions,/getVercelDomainStatus\(domain\)/);
  assert.match(poller,/syncManagedDomainRegistration/);
  assert.match(poller,/setTimeout\(poll,5000\)/);
  assert.match(poller,/attempts\.current>=40/);
+ assert.match(websiteFirstPanel,/<ManagedDomainStatusPoller businessSlug=\{businessSlug\} initialStatus=\{domainStatus\}\/>/);
 });
 
 test("existing-domain DNS connection remains separate",async()=>{

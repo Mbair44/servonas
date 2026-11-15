@@ -25,6 +25,10 @@ test("financial migration preserves historical tax and blocks automatic tax",()=
  assert.match(migration,/auth\.role\(\) <> 'service_role'/);
  assert.match(migration,/booking_change_audit/);
 });
+test("tax-correct reconciliation uses returned booking-item IDs for immutable overrides",()=>{
+ const fix=fs.readFileSync("supabase/migrations/20261106000100_fix_smart_upsell_immutable_price_override.sql","utf8");
+ assert.match(fix,/add_rental_items_to_booking_tax_correct/);assert.match(fix,/row->>''booking_item_id''/);assert.match(fix,/row->>''id''/);assert.match(fix,/Expected immutable price override implementation was not found/);
+});
 test("checkout prepares only internally consistent live offers",()=>{
  const base={status:"sent" as const,expires_at:new Date(Date.now()+60_000).toISOString(),discounted_price_cents:9250,additional_delivery_fee_cents:0,tax_cents:0,deposit_cents:4625,remaining_balance_increment_cents:4625};
  assert.equal(smartUpsellOfferCanBeginCheckout(base),true);

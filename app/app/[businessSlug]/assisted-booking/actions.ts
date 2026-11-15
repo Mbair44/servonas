@@ -17,7 +17,9 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
   const {data:inventory,error:inventoryError}=await supabase.from("inventory_items").select("id,name,daily_price_cents,allow_quantity,stock_quantity").eq("business_id",business.id).eq("active",true);
   if(inventoryError)throw new Error("Rental inventory could not be loaded.");
   const lines=normalizeAssistedRentalLines(JSON.parse(text(form,"rentalItems")) as AssistedRentalLine[],inventory??[]);
-  const amounts={discount:assistedMoneyCents(text(form,"discount")),delivery:assistedMoneyCents(text(form,"delivery")),tax:assistedMoneyCents(text(form,"tax")),deposit:assistedMoneyCents(text(form,"deposit")),...(text(form,"overrideSubtotal")==="true"?{subtotalOverride:assistedMoneyCents(text(form,"subtotal"))}:{})};
+  const staffAddons=JSON.parse(text(form,"staffAddons")||"[]");
+  if(!Array.isArray(staffAddons))throw new Error("Booking add-ons are invalid.");
+  const amounts={discount:assistedMoneyCents(text(form,"discount")),delivery:assistedMoneyCents(text(form,"delivery")),tax:assistedMoneyCents(text(form,"tax")),deposit:assistedMoneyCents(text(form,"deposit")),staffAddons,...(text(form,"overrideSubtotal")==="true"?{subtotalOverride:assistedMoneyCents(text(form,"subtotal"))}:{})};
   const totals=assistedRentalTotals(lines,amounts);if(totals.deposit<=0)throw new Error("Enter a deposit greater than zero to create a payment link.");
   const date=text(form,"rentalDate"),requestKey=text(form,"requestKey");
   let first=text(form,"firstName"),last=text(form,"lastName"),email=text(form,"email"),phone=text(form,"phone");
@@ -49,7 +51,8 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
  try{
   await ensureRentalBookingJob(db,created.booking_id);
   const request=await createRentalDepositPaymentRequest(created.booking_id);
-  return {url:`/app/${slug}/jobs?success=${encodeURIComponent(`Booking #${created.booking_number} held until ${new Date(request.expiresAt).toLocaleString()}. Payment link ${request.smsSent?"sent by SMS":"created"}.`)}`};
+  const holdMessage=request.expiresAt?`held until ${new Date(request.expiresAt).toLocaleString()}`:"kept open with no expiration";
+  return {url:`/app/${slug}/jobs?success=${encodeURIComponent(`Booking #${created.booking_number} ${holdMessage}. Payment link ${request.smsSent?"sent by SMS":"created"}.`)}`};
  }catch{
   return {error:`Booking #${created.booking_number} is held, but its payment link could not be completed. Retry this form to continue the same booking, or open Jobs to review it.`};
  }

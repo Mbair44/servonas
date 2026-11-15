@@ -75,7 +75,7 @@ export async function applyPaidBookingItemAmendment(db:AdminDb,input:{amendmentI
    const {error:referenceError}=await db.from("smart_upsell_offers").update({stripe_checkout_session_id:input.checkoutSessionId,stripe_payment_intent_id:input.paymentReference}).eq("id",smartOfferId).eq("business_id",amendment.business_id);
    if(referenceError)throw new Error("Smart Upsell payment reference could not be recorded.");
   }
-  return {applied:true,duplicate:false,result};
+  return {applied:true,duplicate:false,result,smartUpsell:smartOfferId?{offerId:smartOfferId,businessId:amendment.business_id,bookingId:amendment.booking_id,amendmentId:amendment.id}:null};
  }catch(error){
   await db.from("booking_amendments").update({status:"application_failed",failure_reason:error instanceof Error?error.message.slice(0,500):"application failed"}).eq("id",amendment.id);
   throw error;

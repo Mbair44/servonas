@@ -7,10 +7,10 @@ export async function POST(request:Request,{params}:{params:Promise<{token:strin
  const {token}=await params,access=await resolveBookingManageToken(token),db=getSupabaseAdmin(),key=process.env.STRIPE_SECRET_KEY;
  if(!access||!db||!key)return NextResponse.json({error:"This payment link is unavailable."},{status:404});
  const body=await request.json().catch(()=>null),authorizeFutureBalance=body?.authorizeFutureBalance===true;
- const {data:b,error}=await db.from("bookings").select("id,business_id,booking_number,balance_due_cents,deposit_cents,amount_paid_cents,total_cents,payment_request_expires_at,status").eq("id",access.booking_id).eq("business_id",access.business_id).maybeSingle();
+ const {data:b,error}=await db.from("bookings").select("id,business_id,booking_number,balance_due_cents,deposit_cents,amount_paid_cents,total_cents,payment_request_expires_at,payment_request_never_expires,status").eq("id",access.booking_id).eq("business_id",access.business_id).maybeSingle();
  if(error||!b)return NextResponse.json({error:"This booking cannot accept payments."},{status:404});
- const requestDeposit=b.status==="pending_payment"&&b.payment_request_expires_at!=null;
- if(requestDeposit&&new Date(b.payment_request_expires_at!)<=new Date())return NextResponse.json({error:"This payment request has expired."},{status:409});
+ const requestDeposit=b.status==="pending_payment"&&(b.payment_request_expires_at!=null||b.payment_request_never_expires===true);
+ if(requestDeposit&&b.payment_request_expires_at&&new Date(b.payment_request_expires_at)<=new Date())return NextResponse.json({error:"This payment request has expired."},{status:409});
  if(requestDeposit&&!authorizeFutureBalance)return NextResponse.json({error:"Please authorize the remaining-balance charge before paying your deposit."},{status:409});
  const amount=requestDeposit?Math.max(0,Number(b.deposit_cents)-Number(b.amount_paid_cents)):Number(b.balance_due_cents);
  if(amount<=0)return NextResponse.json({error:"No balance is due."},{status:409});

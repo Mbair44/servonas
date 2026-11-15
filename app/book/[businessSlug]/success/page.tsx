@@ -88,7 +88,7 @@ export default async function BookingSuccess({
     databaseFailure("confirmed job is missing appointment times", { confirmation, jobId: job.id });
   }
   const status = job.status === "confirmed" ? "Confirmed" : "Pending confirmation";
-  const {data:websiteSettings}=await supabase.from("business_website_settings").select("meta_pixel_id,google_ads_tag_id,google_ads_booking_conversion_destination").eq("business_id",submission.business_id).maybeSingle();
+  const {data:websiteSettings}=await supabase.from("business_website_settings").select("meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,google_ads_booking_conversion_destination").eq("business_id",submission.business_id).maybeSingle();
   const metaPixelId=typeof websiteSettings?.meta_pixel_id==="string"&&/^[0-9]{8,24}$/.test(websiteSettings.meta_pixel_id.trim())?websiteSettings.meta_pixel_id.trim():null;
   const googleAdsTagId=normalizeGoogleAdsTagId(websiteSettings?.google_ads_tag_id);
   const googleAdsBookingConversionDestination=normalizeGoogleAdsConversionDestination(websiteSettings?.google_ads_booking_conversion_destination,googleAdsTagId);
@@ -109,7 +109,7 @@ export default async function BookingSuccess({
   return (
     <main className="public-booking" style={{ "--booking-brand": settings.brand_color } as React.CSSProperties}>
       <section className="public-booking-card booking-success">
-        {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId}/>}
+        {metaPixelId&&<TenantMetaPixel pixelId={metaPixelId} defaultMeasurementEnabled={Boolean(websiteSettings?.meta_pixel_default_measurement_enabled)}/>}
         {job.status==="confirmed"&&<TenantMetaPixelPurchaseTracker bookingId={submission.id} businessSlug={businessSlug} contentIds={[service.id]} contentName={service.name} numItems={1} value={bookingTotalCents===null?undefined:bookingTotalCents/100} />}
         {paidBooking&&<GoogleAdsBookingConversion bookingId={paidBooking.bookingId} destination={googleAdsBookingConversionDestination} totalCents={paidBooking.totalCents} currency="USD"/>}
         {bookingLogo && <img className="booking-success-logo" src={bookingLogo} alt={`${business.name} logo`}/>}

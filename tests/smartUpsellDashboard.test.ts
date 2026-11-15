@@ -18,6 +18,13 @@ test("accepted revenue uses the acceptance period rather than offer creation",()
  const summary=summarizeSmartUpsells([{status:"accepted",created_at:"2026-09-30T12:00:00Z",sent_at:"2026-09-30T12:00:00Z",accepted_at:"2026-10-02T12:00:00Z",discounted_price_cents:9250,additional_delivery_fee_cents:0,deposit_cents:4625,remaining_balance_increment_cents:4625}],{from:"2026-10-01T00:00:00Z",to:"2026-10-03T00:00:00Z"});
  assert.equal(summary.eligibleBookings,0);assert.equal(summary.bookedRevenueCents,9250);assert.equal(summary.acceptedOffers,1);
 });
+test("featured and alternative conversions are mutually exclusive and still total one redemption",()=>{
+ const summary=summarizeSmartUpsells([
+  {status:"accepted",created_at:"2026-10-01",accepted_at:"2026-10-01",discounted_price_cents:5000,additional_delivery_fee_cents:0,deposit_cents:2500,remaining_balance_increment_cents:2500,offer_metadata:{selection_type:"featured"}},
+  {status:"accepted",created_at:"2026-10-01",accepted_at:"2026-10-01",discounted_price_cents:6000,additional_delivery_fee_cents:0,deposit_cents:3000,remaining_balance_increment_cents:3000,offer_metadata:{selection_type:"alternative"}},
+ ]);
+ assert.equal(summary.featuredConversions,1);assert.equal(summary.alternativeConversions,1);assert.equal(summary.acceptedOffers,2);assert.equal(summary.bookedRevenueCents,11000);
+});
 test("conversion rates and empty state avoid misleading division",()=>{assert.equal(smartUpsellRate(1,0),null);assert.equal(smartUpsellRate(0,3),0);assert.equal(smartUpsellRate(2,4),.5);});
 test("reporting range retains the tenant timezone and has stable bounds",()=>{
  const range=smartUpsellRange({range:"7d",timezone:"America/Phoenix",now:new Date("2026-10-17T18:00:00Z")});

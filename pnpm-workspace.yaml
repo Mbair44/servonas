@@ -1,3 +1,6 @@
 allowBuilds:
+  # The private MMS worker needs the platform FFmpeg binary to make
+  # browser-compatible derivatives; this runs only at build/install time.
+  ffmpeg-static: true
   sharp: set this to true or false
   unrs-resolver: set this to true or false

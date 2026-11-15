@@ -40,7 +40,7 @@ export default async function CustomDomainBookingPage({params,searchParams}:{par
  const {settings,services,schedule,businessName,bookingLogo,isPartyRental,rentalInventory,rentalCapacity,rentalUpsells,rentalOnlinePaymentsReady,rentalBlockedDates}=data;
 
  return (
-  <>{record.kind==="ok"&&record.site.metaPixelId&&<TenantMetaPixel pixelId={record.site.metaPixelId}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={bookingSlug} initialSessionId={query.sv_at}/><main className={`public-booking${embedded?" embedded-booking":""}`} style={{"--booking-brand":settings.brand_color} as React.CSSProperties}>
+  <>{record.kind==="ok"&&record.site.metaPixelId&&<TenantMetaPixel pixelId={record.site.metaPixelId} defaultMeasurementEnabled={Boolean(record.site.metaPixelDefaultMeasurementEnabled)}/>} {embedded&&<EmbeddedBookingBridge/>}<TenantBookingFunnelTracker businessSlug={bookingSlug} defaultMeasurementEnabled={Boolean(record.kind==="ok"&&record.site.metaPixelDefaultMeasurementEnabled)} initialSessionId={query.sv_at}/><main className={`public-booking${embedded?" embedded-booking":""}`} style={{"--booking-brand":settings.brand_color} as React.CSSProperties}>
    <section className="public-booking-card">
     {!embedded&&<header>
      {bookingLogo?<img src={bookingLogo} alt={`${businessName??"Business"} logo`}/>:<div className="booking-mark">{businessName?.slice(0,1)}</div>}

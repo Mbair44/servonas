@@ -1,14 +1,12 @@
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {eligibleCustomerAddons} from "@/lib/customerAddonEligibility";
-import {customerCatalogAddonsUiEnabled} from "@/lib/customerCatalogAddonFeature";
 
 const uuid=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const date=/^\d{4}-\d{2}-\d{2}$/;
 const time=/^\d{2}:\d{2}$/;
 
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
- if(!customerCatalogAddonsUiEnabled())return NextResponse.json({error:"Not found."},{status:404});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Add-ons are temporarily unavailable."},{status:503});
  try{
   const {businessSlug}=await params,body=await request.json(),rentalItemIds=Array.isArray(body.rentalItemIds)?body.rentalItemIds:[];
@@ -21,6 +19,6 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
   const {data:banners,error:bannerError}=await db.from("rental_themed_banners").select("id,available_from,available_until,physical_quantity,job_addon_catalog!inner(name,description,image_url,default_unit_price_cents,is_active,customer_visible,visibility),rental_themed_banner_compatible_inventory!inner(inventory_item_id)").eq("business_id",settings.business_id).lte("available_from",body.date).or(`available_from.is.null,available_until.is.null,available_until.gte.${body.date}`);
   if(bannerError)throw bannerError;
   const themedBanners=(banners??[]).flatMap((banner:any)=>{const catalog=banner.job_addon_catalog,compatible=Array.isArray(banner.rental_themed_banner_compatible_inventory)?banner.rental_themed_banner_compatible_inventory:[banner.rental_themed_banner_compatible_inventory];return catalog?.is_active&&catalog?.customer_visible&&catalog?.visibility==="public_future"?compatible.filter((entry:any)=>rentalItemIds.includes(entry.inventory_item_id)).map((entry:any)=>({id:banner.id,name:catalog.name,description:catalog.description??null,imageUrl:catalog.image_url??null,unitPriceCents:Number(catalog.default_unit_price_cents),inventoryItemId:entry.inventory_item_id})):[];});
-  return NextResponse.json({addons:addons.map((addon:any)=>({id:addon.id,name:addon.name,description:addon.description??null,imageUrl:addon.image_url??null,unitPriceCents:Number(addon.default_unit_price_cents),maxQuantity:Math.max(1,Number(addon.max_customer_quantity??1))})),themedBanners},{headers:{"Cache-Control":"no-store"}});
+  return NextResponse.json({addons:addons.map((addon:any)=>({id:addon.id,name:addon.name,description:addon.description??null,imageUrl:addon.image_url??null,unitPriceCents:Number(addon.default_unit_price_cents),maxQuantity:Math.max(1,Number(addon.max_customer_quantity??1)),isPowerGenerator:addon.is_power_generator===true})),themedBanners},{headers:{"Cache-Control":"no-store"}});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Add-ons could not be loaded."},{status:400});}
 }

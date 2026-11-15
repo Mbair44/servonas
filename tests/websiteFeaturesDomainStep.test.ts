@@ -59,3 +59,9 @@ test("managed pilot domains do not expose DNS setup",async()=>{
  assert.match(managed,/Check Availability →/);
  assert.doesNotMatch(managed,/Connect your DNS/);
 });
+
+test("domain setup remains visible after the inserted hours-and-areas step",async()=>{
+ const styles=await read("app/website-builder.css");
+ assert.match(styles,/\.website-step-domain \.website-guided-form>\.website-setting-section:nth-child\(8\)\{display:grid!important\}/);
+ assert.doesNotMatch(styles,/\.website-step-domain \.website-guided-form>\.website-setting-section:nth-child\(7\)\{display:grid!important\}/);
+});
