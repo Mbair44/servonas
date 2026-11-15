@@ -17,6 +17,12 @@ export type LocalGrowthPlan={
 };
 export type LocalGrowthGoogleAdsStatus="disconnected"|"setup_incomplete"|"connected";
 
+/** A saved OAuth connection must not be presented as disconnected while
+ * account/profile discovery is still running or waiting to retry. */
+export function hasActiveGoogleBusinessConnection(status:unknown){
+ return typeof status==="string"&&["connected","oauth_connected","account_discovery_pending","account_discovery_rate_limited"].includes(status);
+}
+
 export function buildLocalGrowthPlan(input:{
  businessSlug:string;
  city:string;

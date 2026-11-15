@@ -4,7 +4,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { canManageBusiness } from "@/lib/access";
 import { buildLocalSeoReport, type LocalSeoLocationInput } from "@/lib/localSeo";
 import {findLocationPage,normalizedLocationKey,locationOpportunityAction} from "@/lib/locationPageIdentity";
-import {buildLocalGrowthPlan} from "@/lib/localSeoGrowth";
+import {buildLocalGrowthPlan,hasActiveGoogleBusinessConnection} from "@/lib/localSeoGrowth";
 import {addLocalSeoLocation,buildLocationPage,saveLocalSeoDraft,selectSearchConsoleProperty,updateLocalSeoRecommendationState} from "./actions";
 import {ensureSearchConsoleProperties,normalizeSearchConsoleUrl,propertyMatchesDomain,syncSearchConsole} from "@/lib/googleSearchConsole";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
@@ -143,13 +143,14 @@ export default async function LocalSeoPage({
     ...(inventory ?? []).map((item) => ({ id: item.id, name: item.name, description: item.description, price_amount: item.daily_price_cents != null ? Number(item.daily_price_cents) / 100 : null, price_label: item.daily_price_cents != null ? `$${(Number(item.daily_price_cents) / 100).toFixed(0)} / day` : null, bookingCount90d: 0, imageUrl: item.image_url, active: item.active })),
   ];
   const reviewSnippets = unansweredReviews.slice(0, 3).map((review) => ({ author: review.author, text: review.text, locationLabel: locations.find((entry) => review.text.toLowerCase().includes(entry.name.split(",")[0]!.toLowerCase()))?.name ?? null }));
+  const googleBusinessConnectionActive=hasActiveGoogleBusinessConnection(googleConnection?.status);
   const report = buildLocalSeoReport({
     businessName: business.name,
     phone: business.phone ?? null,
     websiteBasePath: websiteBase,
     serviceAreas,
     websiteStatus: website?.status === "published" ? "published" : website ? "draft" : "missing",
-    googleBusinessConnected: googleConnection?.status === "connected",
+    googleBusinessConnected: googleBusinessConnectionActive,
     googleBusinessLocationTitle: googleConnection?.location_title ?? null,
     googleBusinessSupportsServices: googleConnection?.status === "connected",
     services: allServices,
@@ -215,7 +216,7 @@ export default async function LocalSeoPage({
           const organic=organicRows.reduce((sum:any,row:any)=>({clicks:sum.clicks+Number(row.clicks??0),impressions:sum.impressions+Number(row.impressions??0),positionTotal:sum.positionTotal+Number(row.position??0)*Number(row.impressions??0)}),{clicks:0,impressions:0,positionTotal:0});
           const topQueries=[...organicRows].sort((a:any,b:any)=>Number(b.impressions??0)-Number(a.impressions??0)).slice(0,5);
           const googleAdsStatus=googleAdsConnection?.status==="connected"&&googleAdsConnection.google_ads_customer_id?"connected":googleAdsConnection?"setup_incomplete":"disconnected";
-          const growth=buildLocalGrowthPlan({businessSlug,city,pageUrl:normalizedPageUrl,pageLive:website?.status==="published",metadataReady:Boolean(page.page_title&&page.meta_description),sitemapReady:website?.status==="published",internallyLinked:serviceAreaSupported,serviceAreaSupported,googleBusinessConnected:["connected","account_discovery_rate_limited"].includes(googleConnection?.status??""),googleAdsStatus,locationPromotionExists:(googleAdGroups??[]).some(group=>group.status==="published"&&String(group.destination_url??"").replace(/\/$/,"")===normalizedPageUrl),trackingReady:website?.status==="published"});
+          const growth=buildLocalGrowthPlan({businessSlug,city,pageUrl:normalizedPageUrl,pageLive:website?.status==="published",metadataReady:Boolean(page.page_title&&page.meta_description),sitemapReady:website?.status==="published",internallyLinked:serviceAreaSupported,serviceAreaSupported,googleBusinessConnected:googleBusinessConnectionActive,googleAdsStatus,locationPromotionExists:(googleAdGroups??[]).some(group=>group.status==="published"&&String(group.destination_url??"").replace(/\/$/,"")===normalizedPageUrl),trackingReady:website?.status==="published"});
           return <article className="local-seo-card location-opportunity-card local-growth-card priority-healthy" id={`location-${city.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`} key={location.id}>
             <span className="local-seo-badge">Location page published</span><h3>Grow {city}</h3><p>Your page is live. Now let&apos;s help local customers find it.</p>
             {searchConsoleState?.status==="connected"?<div className="local-seo-health-list"><strong>Google Search — Last 28 days</strong>{organicRows.length?<><article><span>Times shown on Google</span><span>{organic.impressions}</span></article><article><span>Visits from Google</span><span>{organic.clicks}</span></article><article><span>Click rate</span><span>{organic.impressions?`${Math.round(organic.clicks/organic.impressions*100)}%`:"—"}</span></article><article><span>Average result position</span><span>{organic.impressions?(organic.positionTotal/organic.impressions).toFixed(1):"—"}</span></article>{topQueries.length?<article><span>Top searches</span><span>{topQueries.map((row:any)=>row.query).filter(Boolean).join(" · ")}</span></article>:null}</>:<article><span>Search activity</span><span>{currentSearchRows.length?"Google has not reported search activity for this page yet.":"Google is still collecting search data for this page."}</span></article>}</div>:null}

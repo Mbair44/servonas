@@ -6,7 +6,7 @@ import {canManageBusiness} from "@/lib/access";
 import {normalizeGoogleAdsTagId} from "@/lib/googleTag";
 import {normalizeGoogleAdsConversionDestination} from "@/lib/googleAds";
 import {requireWorkspaceCapability} from "@/lib/workspace";
-import {normalizeWebsiteDomain,validWebsiteColor,validWebsiteSlug,websiteTemplates} from "@/lib/website";
+import {normalizeGoogleSiteVerificationToken,normalizeWebsiteDomain,validWebsiteColor,validWebsiteSlug,websiteTemplates} from "@/lib/website";
 import {addVercelProjectDomain,buyVercelDomain,domainRetailPrice,getVercelDomainOrder,getVercelDomainQuote,getVercelDomainStatus,vercelDomainErrorDetails,vercelStandardDomainMaximumPrice,verifyVercelProjectDomain,type VercelRegistrant} from "@/lib/vercelDomains";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {findGoogleBusinessPlace,resolveGoogleBusinessPlaceId} from "@/lib/googleBusinessPlace";
@@ -602,6 +602,9 @@ export async function saveWebsiteSettings(slug:string,data:FormData){
   if(leadCapturePopupExpiresAt&&Number.isNaN(new Date(leadCapturePopupExpiresAt).getTime()))redirect(target(slug,"error","Choose a valid popup expiration date."));
   if(leadCapturePopupMinimumSubtotal!==null&&leadCapturePopupMinimumSubtotal<0)redirect(target(slug,"error","Choose a valid popup minimum purchase amount."));
  }
+ const rawGoogleSiteVerificationToken=text(data,"googleSiteVerificationToken");
+ const googleSiteVerificationToken=normalizeGoogleSiteVerificationToken(rawGoogleSiteVerificationToken);
+ if(rawGoogleSiteVerificationToken&&!googleSiteVerificationToken)redirect(target(slug,"error","Paste only a valid Google Search Console verification token, not the full meta tag."));
  const rawGoogleAdsTagId=text(data,"googleAdsTagId");
  const googleAdsTagId=normalizeGoogleAdsTagId(rawGoogleAdsTagId);
  if(rawGoogleAdsTagId&&!googleAdsTagId)redirect(target(slug,"error","Use a valid Google Ads Tag ID in the format AW- followed by numbers."));
