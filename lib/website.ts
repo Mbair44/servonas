@@ -10,6 +10,10 @@ export function normalizeWebsitePhone(value:string){
  const digits=value.replace(/\D/g,"");
  return digits.length===10?`+1${digits}`:digits.length===11&&digits.startsWith("1")?`+${digits}`:value.trim();
 }
+export function normalizeGoogleSiteVerificationToken(value:string){
+ const token=value.trim();
+ return /^[A-Za-z0-9_-]{8,256}$/.test(token)?token:null;
+}
 export function websiteRequestErrors(input:{name:string;phone:string;email:string;address:string;description:string;requestKey:string}){
  const errors:Record<string,string>={};
  if(!input.name||input.name.length>200)errors.name="Enter your name.";

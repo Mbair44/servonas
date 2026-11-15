@@ -14,13 +14,16 @@ test("water heater quote validation accepts optional email and rejects incomplet
 });
 
 test("Gilbert Water Heater Pro uses a tenant-scoped referral quote form and persists structured consent",async()=>{
- const [site,form,action,migration]=await Promise.all([read("components/BusinessWebsite.tsx"),read("components/WebsiteRequestForm.tsx"),read("app/sites/[siteSlug]/actions.ts"),read("supabase/migrations/20261112000200_website_request_referral_metadata.sql")]);
+ const [site,form,styles,action,migration]=await Promise.all([read("components/BusinessWebsite.tsx"),read("components/WebsiteRequestForm.tsx"),read("app/website.css"),read("app/sites/[siteSlug]/actions.ts"),read("supabase/migrations/20261112000200_website_request_referral_metadata.sql")]);
  assert.match(site,/isGilbertWaterHeaterPro=site\.customDomain==="gilbertwaterheaterpro\.com"/);
  assert.match(site,/gilbert-water-heather-pro/);
  assert.match(site,/variant=\{isGilbertWaterHeaterPro\?"water_heater_quote"/);
  assert.match(site,/Water Heater Replacement in Gilbert, AZ/);
  assert.match(form,/name="zipCode"/);
  assert.match(form,/placeholder="e\.g\., 85296"/);
+ assert.match(form,/business-site-field-label">Email <small>Optional<\/small>/);
+ assert.match(form,/business-site-field-label">Additional details <small>Optional<\/small>/);
+ assert.match(styles,/\.business-site-field-label\{display:flex;align-items:baseline/);
  assert.match(form,/name="urgency"/);
  assert.match(form,/name="referralConsent"/);
  assert.match(form,/Get My Free Quote/);
