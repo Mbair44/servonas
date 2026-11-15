@@ -21,7 +21,7 @@ export function WebsitePhotoSlideshow({ photos, businessName, startAt = 0, motio
   if (!photos.length) return null;
   return <div className={`business-site-photo-slideshow${kenBurnsEnabled ? " ken-burns-enabled" : ""}`} role="region" aria-roledescription="carousel" aria-label={`${businessName} photo gallery`} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}>
     <div className="business-site-photo-track" style={{ transform: `translateX(-${index * 100}%)` }}>
-      {photos.map((url, photoIndex) => <img className={kenBurnsEnabled && index === photoIndex ? "ken-burns-active" : undefined} src={url} alt={`${businessName} service photo ${photoIndex + 1}`} loading={photoIndex === index ? "eager" : "lazy"} key={`${url}-${photoIndex}`}/>) }
+      {photos.map((url, photoIndex) => <img className={kenBurnsEnabled && index === photoIndex ? "ken-burns-active" : undefined} src={url} alt={`${businessName} photo`} loading={photoIndex === index ? "eager" : "lazy"} key={`${url}-${photoIndex}`}/>) }
     </div>
     {photos.length > 1 && <nav aria-label="Choose website photo">{photos.map((_, photoIndex) => <button type="button" className={index === photoIndex ? "active" : ""} aria-label={`Show photo ${photoIndex + 1}`} aria-current={index === photoIndex ? "true" : undefined} onClick={() => setIndex(photoIndex)} key={photoIndex}/>)}</nav>}
   </div>;

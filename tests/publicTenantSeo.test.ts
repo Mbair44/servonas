@@ -21,10 +21,19 @@ test("custom domains canonicalize hosted tenant pages and mark hosted duplicates
  assert.deepEqual(hostedTenantRobots({}),{index:true,follow:true});
 });
 
+test("homepage schema accepts only public tenant facts",async()=>{
+ const schemas=await read("lib/publicTenantSchema.ts");
+ assert.match(schemas,/publicSeoServiceAreas/);
+ assert.match(schemas,/publicAddress/);
+ assert.match(schemas,/OpeningHoursSpecification/);
+ assert.match(schemas,/publicUrl\(business\.logoUrl\)/);
+ assert.match(schemas,/const address=business\.publicAddress/);
+});
+
 test("public SEO routes include categories and active landing pages, block transaction routes, and render schemas",async()=>{
- const [sitemap,robots,domain,hosted,schemas,booking]=await Promise.all([read("app/sitemap.xml/route.ts"),read("app/robots.txt/route.ts"),read("app/sites/domain/[domain]/[promotionSlug]/page.tsx"),read("app/sites/[siteSlug]/[promotionSlug]/page.tsx"),read("components/TenantPublicSchema.tsx"),read("app/sites/domain/[domain]/booking/page.tsx")]);
+ const [sitemap,robots,domain,hosted,schemas,landingSchemas,booking]=await Promise.all([read("app/sitemap.xml/route.ts"),read("app/robots.txt/route.ts"),read("app/sites/domain/[domain]/[promotionSlug]/page.tsx"),read("app/sites/[siteSlug]/[promotionSlug]/page.tsx"),read("lib/publicTenantSchema.ts"),read("components/TenantPublicSchema.tsx"),read("app/sites/domain/[domain]/booking/page.tsx")]);
  assert.match(sitemap,/category_website_pages/);assert.match(sitemap,/promotions/);assert.match(sitemap,/status","active"/);assert.match(sitemap,/landing_page_enabled/);
  assert.match(robots,/Disallow: \/manage-booking\//);assert.match(robots,/Disallow: \/booking/);assert.match(robots,/Sitemap:/);
  assert.match(domain,/TenantLandingSchema type="WebPage"/);assert.match(domain,/TenantLandingSchema type="CollectionPage"/);assert.match(hosted,/hostedTenantRobots/);
- assert.match(schemas,/LocalBusiness/);assert.match(schemas,/WebSite/);assert.match(schemas,/BreadcrumbList/);assert.match(booking,/index:false/);
+ assert.match(schemas,/LocalBusiness/);assert.match(schemas,/areaServed/);assert.match(schemas,/OpeningHoursSpecification/);assert.match(landingSchemas,/BreadcrumbList/);assert.match(booking,/index:false/);
 });

@@ -6,6 +6,7 @@ import {getGoogleBusinessProfileReviews} from "@/lib/googleBusinessProfile";
 import {rentalPricingMessage,resolveRentalPricingRules,type AdditionalDayPricingType} from "@/lib/rentalPricing";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {normalizeWebsiteDomain} from "@/lib/website";
+import {normalizePublicSeoServiceAreas} from "@/lib/publicSeoServiceAreas";
 
 type WebsiteRow=Record<string,any>;
 type LoadBusinessWebsiteDataOptions={includeExternalReviews?:boolean;cacheExternalReviews?:boolean};
@@ -176,11 +177,11 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
  const popupEnabled=Boolean(settings.lead_capture_popup_enabled);
  const popupDiscountType=settings.lead_capture_popup_discount_type==="percentage"||settings.lead_capture_popup_discount_type==="custom"?"percentage"===settings.lead_capture_popup_discount_type?"percentage":"custom":"fixed";
  return {
-  bookingSlug,customDomain,name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
+  bookingSlug,customDomain,name:business.name,phone:business.phone,email:business.email,logoUrl:signedLogo?.signedUrl??booking?.logo_url??null,publicAddress:settings.public_address_enabled&&business.address_line1&&business.city&&business.state?{streetAddress:business.address_line1,addressLocality:business.city,addressRegion:business.state,postalCode:business.postal_code??null,addressCountry:"US"}:null,industryProfile:business.industry_profile,websiteSource:websiteOnboarding?.source??null,
   metaPixelId:sanitizeMetaPixelId(settings.meta_pixel_id),metaPixelDefaultMeasurementEnabled:Boolean(settings.meta_pixel_default_measurement_enabled),
   template:settings.template_key??"modern",primaryColor:settings.primary_color??booking?.brand_color??business.primary_color??"#1769f5",secondaryColor:settings.secondary_color??"#0b1733",floralFontStyle:settings.floral_font_style??"elegant",floralAccentColor:settings.floral_accent_color??"#b85c7c",floralBackgroundColor:settings.floral_background_color??"#fffafc",floralPhotoLayout:settings.floral_photo_layout??"hero_right",
   heroHeading:isGilbertWaterHeaterPro?"Water Heater Replacement in Gilbert, AZ":settings.hero_heading??(isJunkRemoval?"Got Junk? We’ll Make It Disappear.":isChristmasLights?"Professional Christmas Light Installation Without the Hassle":`${business.name} keeps your home or business running smoothly.`),
-  heroSubheading:isGilbertWaterHeaterPro?"Need a new water heater in Gilbert, AZ? Request a free, no-obligation quote and get connected with an independent licensed plumbing contractor serving your area.":settings.hero_subheading??(isJunkRemoval?"Furniture, appliances, yard debris, garage cleanouts, and more. Tell us what needs to go and we’ll take care of the heavy lifting.":isChristmasLights?"We design, install, maintain, and remove your Christmas lights so you can enjoy the season without climbing a ladder.":"Reliable local service, clear communication, and a team that is ready when you need help."),
+  heroSubheading:isGilbertWaterHeaterPro?"Need a water heater replacement in Gilbert, AZ? Get connected with a local licensed plumbing contractor for a free, no-obligation quote.":settings.hero_subheading??(isJunkRemoval?"Furniture, appliances, yard debris, garage cleanouts, and more. Tell us what needs to go and we’ll take care of the heavy lifting.":isChristmasLights?"We design, install, maintain, and remove your Christmas lights so you can enjoy the season without climbing a ladder.":"Reliable local service, clear communication, and a team that is ready when you need help."),
   seoTitle:isGilbertWaterHeaterPro?"Water Heater Replacement Gilbert AZ | Gilbert Water Heater Pro":settings.seo_title??null,seoDescription:isGilbertWaterHeaterPro?"Need a water heater replacement in Gilbert, AZ? Get connected with a local licensed plumbing contractor for a free, no-obligation quote.":settings.seo_description??null,
   fullDayRentalMessage:settings.full_day_rental_message,
   cancellationPolicy:{cancellation_policy_enabled:settings.cancellation_policy_enabled,cancellation_policy_text:settings.cancellation_policy_text,require_cancellation_acknowledgment:settings.require_cancellation_acknowledgment},
@@ -208,18 +209,18 @@ export async function loadBusinessWebsiteData(db:SupabaseClient,settings:Website
   },
   services:(services??[]).map((service:any)=>({...service,price_amount:service.price_amount===null?null:Number(service.price_amount)})),
   rentalItems:(rentalItems??[]).sort((left:any,right:any)=>{const a=rentalCategoryOrder.get(left.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:left.category||"Other rentals"},b=rentalCategoryOrder.get(right.category_id)??{rank:Number.MAX_SAFE_INTEGER,name:right.category||"Other rentals"};return a.rank-b.rank||String(a.name).localeCompare(String(b.name))||String(left.name).localeCompare(String(right.name));}).map((item:any)=>{const rules=resolveRentalPricingRules({standardRentalHours:Number(booking?.standard_rental_hours??24),allowMultiDay:Boolean(booking?.allow_multi_day_rentals),additionalDayPricingType:(booking?.additional_day_pricing_type??"full_price") as AdditionalDayPricingType,additionalDayDiscountPercent:Number(booking?.additional_day_discount_percent??0),additionalDayFlatRateCents:booking?.additional_day_flat_rate_cents==null?null:Number(booking.additional_day_flat_rate_cents),maxRentalDays:booking?.max_rental_days==null?null:Number(booking.max_rental_days)},item);return{id:item.id,name:item.name,category:item.category??null,description:item.description??null,dailyPriceCents:Number(item.daily_price_cents??0),imageUrl:item.image_url??null,lengthFt:item.length_ft==null?null:Number(item.length_ft),widthFt:item.width_ft==null?null:Number(item.width_ft),heightFt:item.height_ft==null?null:Number(item.height_ft),standardRentalHours:rules.standardRentalHours,multiDayMessage:rules.allowMultiDay?rentalPricingMessage(rules):null}}),
-  hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:isGilbertWaterHeaterPro?[...new Set(areas.filter(area=>!/water heater|repair|replace|install/i.test(area)))].length?[...new Set(areas.filter(area=>!/water heater|repair|replace|install/i.test(area)))]:[fallbackArea||"Gilbert, AZ"]:areas.length?areas:fallbackArea?[fallbackArea]:[],locationPages:locationPages??[],categoryPages:(categoryPages??[]).filter((page:any)=>(rentalItems??[]).some((item:any)=>item.category_id===page.category_id)).map((page:any)=>({slug:page.slug,title:page.title})),
+  hours:(hours??[]).map((hour:any)=>({weekday:Number(hour.weekday),start:hour.start_time,end:hour.end_time})),serviceAreas:isGilbertWaterHeaterPro?[...new Set(areas.filter(area=>!/water heater|repair|replace|install/i.test(area)))].length?[...new Set(areas.filter(area=>!/water heater|repair|replace|install/i.test(area)))]:[fallbackArea||"Gilbert, AZ"]:areas.length?areas:fallbackArea?[fallbackArea]:[],publicSeoServiceAreas:normalizePublicSeoServiceAreas(settings.public_seo_service_areas),locationPages:locationPages??[],categoryPages:(categoryPages??[]).filter((page:any)=>(rentalItems??[]).some((item:any)=>item.category_id===page.category_id)).map((page:any)=>({slug:page.slug,title:page.title})),
  };
 }
 
-const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,seo_title,seo_description,google_site_verification_token,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
+const publicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,seo_title,seo_description,google_site_verification_token,google_place_id,google_review_url,google_reviews,photo_urls,photo_motion_style,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,public_address_enabled,public_seo_service_areas,meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
 const legacyPublicWebsiteSettingsSelect="business_id,public_slug,status,template_key,primary_color,secondary_color,hero_heading,hero_subheading,about_text,google_place_id,google_review_url,google_reviews,photo_urls,request_service_enabled,booking_enabled,instagram_url,custom_domain,domain_status,meta_pixel_id,meta_pixel_default_measurement_enabled,google_ads_tag_id,floral_font_style,floral_accent_color,floral_background_color,floral_photo_layout,lead_capture_popup_enabled,lead_capture_popup_headline,lead_capture_popup_body,lead_capture_popup_discount_type,lead_capture_popup_discount_value,lead_capture_popup_custom_offer,lead_capture_popup_coupon_code,lead_capture_popup_cta_text,lead_capture_popup_delay_seconds,lead_capture_popup_expires_at,lead_capture_popup_service_id,lead_capture_popup_inventory_item_id,lead_capture_popup_minimum_subtotal_cents,lead_capture_popup_success_message,lead_capture_popup_disclosure,updated_at";
 const loadCachedGoogleBusinessProfileReviews=unstable_cache(async(businessId:string)=>getGoogleBusinessProfileReviews(businessId),["public-google-business-profile-reviews"],{revalidate:300});
 
-const isMissingNewWebsiteSettingsColumnError=(error:unknown)=>{
+const isMissingPhotoMotionStyleColumnError=(error:unknown)=>{
  const value=error as {code?:string;message?:string;details?:string;hint?:string}|null;
  const message=`${value?.message??value?.details??value?.hint??""}`;
- return value?.code==="42703"&&/(photo_motion_style|google_site_verification_token)/i.test(message);
+ return value?.code==="42703"&&/photo_motion_style/i.test(message);
 };
 
 async function queryWebsiteSettingsByDomain(
@@ -242,7 +243,7 @@ async function queryWebsiteSettingsByDomain(
   table:"business_website_settings",
  });
  if(primaryResult.kind==="ok")return primaryResult;
- if(!isMissingNewWebsiteSettingsColumnError(primaryResult.failure))return primaryResult;
+ if(!isMissingPhotoMotionStyleColumnError(primaryResult.failure))return primaryResult;
 
  logDomainLookupOutcome("warn",{
   domain:context.domain,
@@ -250,7 +251,7 @@ async function queryWebsiteSettingsByDomain(
   operation:`${context.operation}_legacy_retry`,
   table:"business_website_settings",
   statusOrCode:primaryResult.failure.code??primaryResult.failure.status,
-  message:"Retrying domain lookup without a newer website-settings column because the column is missing.",
+  message:"Retrying domain lookup without photo_motion_style because the column is missing.",
   elapsedMs:primaryResult.elapsedMs,
   response:"503",
   attempt:primaryResult.attemptCount,

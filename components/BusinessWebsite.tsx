@@ -17,10 +17,10 @@ export type BusinessSiteData={
  customDomain?:string|null;
  metaPixelId?:string|null;
  metaPixelDefaultMeasurementEnabled?:boolean;
- name:string;phone:string|null;email:string|null;logoUrl:string|null;industryProfile:string|null;websiteSource:string|null;template:"modern"|"traditional"|"bold";primaryColor:string;secondaryColor:string;floralFontStyle:"elegant"|"romantic"|"modern";floralAccentColor:string;floralBackgroundColor:string;floralPhotoLayout:"hero_right"|"hero_left"|"hero_full"|"gallery_first";
+ name:string;phone:string|null;email:string|null;logoUrl:string|null;publicAddress?:{streetAddress:string;addressLocality:string;addressRegion:string;postalCode?:string|null;addressCountry?:string}|null;industryProfile:string|null;websiteSource:string|null;template:"modern"|"traditional"|"bold";primaryColor:string;secondaryColor:string;floralFontStyle:"elegant"|"romantic"|"modern";floralAccentColor:string;floralBackgroundColor:string;floralPhotoLayout:"hero_right"|"hero_left"|"hero_full"|"gallery_first";
  heroHeading:string;heroSubheading:string;aboutText:string;instagramUrl:string|null;googleReviewUrl:string|null;googleRating:number|null;googleReviewCount:number|null;googleReviews:{author:string;rating:number;text:string;publishedAt?:string|null;fromGoogleProfile?:boolean}[];photoUrls:string[];photoMotionStyle:"static"|"ken_burns";requestEnabled:boolean;bookingEnabled:boolean;bookingUrl:string|null;
  seoTitle?:string|null;seoDescription?:string|null;
- services:BusinessSiteService[];rentalItems:BusinessSiteRentalItem[];hours:{weekday:number;start:string;end:string}[];serviceAreas:string[];locationPages?:Array<{slug:string;city:string;state:string|null}>;categoryPages?:Array<{slug:string;title:string}>;
+ services:BusinessSiteService[];rentalItems:BusinessSiteRentalItem[];hours:{weekday:number;start:string;end:string}[];serviceAreas:string[];publicSeoServiceAreas?:Array<{city:string;state:string}>;locationPages?:Array<{slug:string;city:string;state:string|null}>;categoryPages?:Array<{slug:string;title:string}>;
  announcementText:string|null;
  leadCapturePopup:{
   enabled:boolean;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
-import {buildLocalGrowthPlan} from "../lib/localSeoGrowth.ts";
+import {buildLocalGrowthPlan,hasActiveGoogleBusinessConnection} from "../lib/localSeoGrowth.ts";
 
 const base={businessSlug:"copper-state-bounce",city:"Gilbert",pageUrl:"https://copperstatebounce.com/gilbert-az-bounce-house-rentals",pageLive:true,metadataReady:true,sitemapReady:true,internallyLinked:true,serviceAreaSupported:true,googleBusinessConnected:false,googleAdsStatus:"disconnected" as const,locationPromotionExists:false,trackingReady:true};
 
@@ -10,6 +10,12 @@ test("published location pages recommend Google Business Profile first",()=>{
  assert.equal(plan.primary?.id,"google_business");
  assert.equal(plan.primary?.actionLabel,"Connect Google Business Profile");
  assert.equal(plan.steps.find(step=>step.id==="google_discovery")?.status,"complete");
+});
+
+test("saved Google Business OAuth connections do not prompt an unnecessary reconnect",()=>{
+ for(const status of ["connected","oauth_connected","account_discovery_pending","account_discovery_rate_limited"])assert.equal(hasActiveGoogleBusinessConnection(status),true);
+ assert.equal(hasActiveGoogleBusinessConnection("disconnected"),false);
+ assert.equal(hasActiveGoogleBusinessConnection(null),false);
 });
 
 test("the next action advances from discovery to a city promotion",()=>{
