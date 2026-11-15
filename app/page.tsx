@@ -49,9 +49,9 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
     <div className="home-hero-copy">
      <span className="sv-kicker">Service business management software</span>
      <h1>Run your entire service business from <span>first call to final payment.</span></h1>
-     <p>Servonas brings customers, estimates, jobs, scheduling, field teams, online booking, websites, communication, invoices, and payments together in one connected platform.</p>
+     <p>For owner-led HVAC, plumbing, lawn, and cleaning crews: one system for customers, work orders, scheduling, routes, online booking, invoices, and payments—without double entry.</p>
      <div className="sv-actions"><Link className="sv-button home-primary-cta" data-acquisition-signup data-acquisition-primary-cta data-acquisition-location="home_hero_primary" href="/signup?source=servonas.com">Start Free <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" data-acquisition-demo data-acquisition-secondary-cta data-acquisition-location="home_hero_demo" href="/demo">See Servonas in action</Link></div>
-     <div className="home-proof"><span>✓ Built for service businesses</span><span>✓ Office and field tools</span><span>✓ Booking through payment</span></div>
+     <div className="home-proof"><span>✓ One flat price, everything included</span><span>✓ Route optimization that plans the day</span><span>✓ Works on any phone—no special hardware</span></div>
     </div>
 
     <div className="home-product-preview" aria-label="Example Servonas dispatch workspace">
@@ -78,8 +78,13 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
   </div></section>
 
   <section className="sv-section home-capabilities"><div className="sv-container">
-   <div className="sv-heading"><span className="sv-kicker">Your operation in one place</span><h2>Everything your office and field team need to stay in sync.</h2><p>Each part of Servonas shares the same customer, location, job, employee, and billing information—so your team can act without re-entering data.</p></div>
+   <div className="sv-heading"><span className="sv-kicker">Your operation in one place</span><h2>Everything your office and field team need to stay in sync.</h2><p>Each part of Servonas shares the same customer, location, work order, employee, and billing information—so your team can act without double entry or manual spreadsheets.</p></div>
    <div className="home-capability-grid">{capabilities.map(item=><article key={item.title}><i><CapabilityIcon name={item.icon}/></i><div><h3>{item.title}</h3><p>{item.description}</p></div></article>)}</div>
+  </div></section>
+
+  <section className="home-objections"><div className="sv-container">
+   <div className="sv-heading"><span className="sv-kicker">Built around the questions small crews ask</span><h2>No surprise add-ons. No new hardware. No pressure to pay before you&apos;re ready.</h2></div>
+   <div><article><h3>One flat price, everything included</h3><p>Core office and field tools live in one plan instead of being sold back to you feature by feature.</p></article><article><h3>Works on any phone</h3><p>Your team can use Servonas in the field without buying special devices or iPad minis.</p></article><article><h3>Free while we build</h3><p>Early access is free. You&apos;ll get advance notice and a choice before any billing begins.</p></article></div>
   </div></section>
 
   <section className="home-operations"><div className="sv-container home-operations-grid">
@@ -102,6 +107,8 @@ export default async function HomePage({searchParams}:{searchParams:Promise<Reco
    <div className="sv-heading"><span className="sv-kicker">Made for businesses on the move</span><h2>Designed around real service days.</h2><p>Ideal for teams that visit customer locations, manage recurring work, and need the office and field to operate as one.</p></div>
    <div>{["HVAC","Plumbing","Electrical","Pest control","Lawn & landscape","Cleaning services","Pool service","Party rentals","Equipment rentals","Mobile service teams"].map(name=><span key={name}>{name}</span>)}</div>
   </div></section>
+
+  <section className="home-fit"><div className="sv-container"><strong>Best fit for owner-led service crews that dispatch work in the field.</strong><p>Not designed for enterprise teams that need a sales-led rollout, custom procurement, or a complex multi-system implementation.</p></div></section>
 
   <section className="home-final-cta"><div className="sv-container">
    <div><span className="sv-kicker">Ready to run a clearer operation?</span><h2>Build your service business on Servonas.</h2><p>Create your workspace, add your team, and start organizing customers and field work in one place.</p></div>
