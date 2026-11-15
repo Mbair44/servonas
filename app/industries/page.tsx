@@ -1,4 +1,11 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata={
+ title:"Industries — Service Business Software for Rentals, Trades & Teams",
+ description:"Explore Servonas software for pest control, cleaning, landscaping, party rentals, home services, mobile teams, and appointment businesses.",
+};
+
 const industries=[
 ["Pest control","Recurring treatments, route-aware dispatch, field technicians, invoicing, and payments.","/industries/pest-control"],
 ["Junk removal","Turn Facebook and Google traffic into quote requests for cleanouts, bulky-item pickup, and haul-away jobs.","/junk-removal-website"],
