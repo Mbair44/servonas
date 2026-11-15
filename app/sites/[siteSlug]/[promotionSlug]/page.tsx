@@ -31,7 +31,7 @@ export default async function PublicLandingPage({params}:{params:Promise<{siteSl
   db.from("marketing_pages").select("*").eq("business_id",website.business_id).ilike("slug",promotionSlug).eq("status","published").maybeSingle(),
   db.from("business_location_pages").select("slug,city,state").eq("business_id",website.business_id).eq("status","published").neq("slug",promotionSlug).limit(6),
   db.from("category_website_pages").select("category_id,slug,title").eq("business_id",website.business_id).eq("status","published"),
-  db.from("businesses").select("name,primary_color,phone,industry_profile").eq("id",website.business_id).single(),
+  db.from("businesses").select("name,primary_color,phone,email,industry_profile").eq("id",website.business_id).single(),
   db.from("inventory_items").select("id,name,category,description,daily_price_cents,image_url,category_id").eq("business_id",website.business_id).eq("active",true),
   db.from("services").select("id,name,description").eq("business_id",website.business_id).eq("active",true).eq("is_deleted",false).order("sort_order"),
  db.from("booking_settings").select("logo_url,brand_color,enabled").eq("business_id",website.business_id).maybeSingle(),

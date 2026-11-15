@@ -1,9 +1,10 @@
-type Business={name:string;phone?:string|null;email?:string|null};
+import {tenantHomepageSchema,type PublicBusinessSchema} from "@/lib/publicTenantSchema";
+export {tenantHomepageSchema,type PublicBusinessSchema} from "@/lib/publicTenantSchema";
 const json=(value:unknown)=>JSON.stringify(value).replace(/</g,"\\u003c");
 
-export function TenantHomepageSchema({business,url}:{business:Business;url:string}){
- const graph=[{"@context":"https://schema.org","@type":"LocalBusiness",name:business.name,url,telephone:business.phone??undefined,email:business.email??undefined},{"@context":"https://schema.org","@type":"WebSite",name:business.name,url}];
- return <script type="application/ld+json" dangerouslySetInnerHTML={{__html:json({"@context":"https://schema.org","@graph":graph.map(({["@context"]:_,...entry})=>entry)})}}/>;
+export function TenantHomepageSchema({business,url}:{business:PublicBusinessSchema;url:string}){
+ const graph=tenantHomepageSchema(business,url);
+ return <script type="application/ld+json" dangerouslySetInnerHTML={{__html:json(graph)}}/>;
 }
 
 export function TenantLandingSchema({type,name,url,homeUrl}:{type:"CollectionPage"|"WebPage";name:string;url:string;homeUrl:string}){
