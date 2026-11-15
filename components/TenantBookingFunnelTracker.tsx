@@ -139,7 +139,7 @@ export function TenantBookingFunnelTracker({ businessSlug, defaultMeasurementEna
   return()=>window.removeEventListener("servonas:analytics-consent-updated",onConsent);
  },[businessSlug,landingId,landingLabel,landingType]);
  useEffect(()=>{
-  const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement|HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(isBookingUrl(url,businessSlug))element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* Leave external URLs usable. */}});
+  const rewrite=(root:ParentNode=document)=>root.querySelectorAll<HTMLAnchorElement | HTMLIFrameElement>("a[href],iframe[src]").forEach(element=>{const attribute=element instanceof HTMLAnchorElement?"href":"src",raw=element.getAttribute(attribute);if(!raw)return;try{const url=new URL(raw,location.href);if(isBookingUrl(url,businessSlug))element.setAttribute(attribute,applyStoredAttribution(url,businessSlug).toString());}catch{/* Leave external URLs usable. */}});
   rewrite();
   const observer=new MutationObserver(()=>rewrite());observer.observe(document.body,{childList:true,subtree:true});
   return()=>observer.disconnect();
