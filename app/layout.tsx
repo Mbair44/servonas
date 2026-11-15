@@ -53,7 +53,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
   const accountName=employee?.preferred_name?.trim()||profile?.full_name?.trim()||String(user?.user_metadata?.full_name??"").trim()||user?.email?.split("@")[0]||"Account";
   const accountEmail=profile?.email||user?.email||"";
-  const organizationSchema={"@context":"https://schema.org","@type":"Organization",name:"Servonas",url:"https://servonas.com",logo:"https://servonas.com/servonas-logo.svg",description:"Field service management software for owner-led service businesses."};
+  // Comma-separated, company-owned profile URLs. Do not add personal or unverified profiles.
+  const sameAs=(process.env.SERVONAS_ORGANIZATION_SAME_AS??"").split(",").map(url=>url.trim()).filter(url=>/^https:\/\//.test(url));
+  const organizationSchema={"@context":"https://schema.org","@type":"Organization",name:"Servonas",url:"https://servonas.com",logo:"https://servonas.com/servonas-logo.svg",description:"Field service management software for owner-led service businesses.",sameAs:sameAs.length>=3?sameAs:undefined};
   return <html lang="en"><body>
     <script type="application/ld+json" dangerouslySetInnerHTML={{__html:JSON.stringify(organizationSchema)}} />
     <PhoneInputFormatter/>
