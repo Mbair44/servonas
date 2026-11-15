@@ -11,9 +11,11 @@ import {MarketingAnalytics} from "@/components/MarketingAnalytics";
 import {ConsentAwareGoogleTag} from "@/components/ConsentAwareGoogleTag";
 import {HeaderSignupLink} from "@/components/HeaderSignupLink";
 import {NotificationBell} from "@/components/NotificationBell";
+import type { Metadata } from "next";
 
-export const metadata = {
-  title: "Servonas | The Operating System for Service Businesses",
+export const metadata: Metadata = {
+  metadataBase: new URL("https://servonas.com"),
+  title: {default:"Servonas | Field Service Software for Owner-Led Crews",template:"%s | Servonas"},
   description: "Run customers, recurring service plans, scheduling, dispatch, technicians, online booking, invoices, and payments from one field-service platform.",
   keywords: ["field service management software", "service business software", "route optimization", "dispatch software", "recurring service software", "online booking"],
   icons: {
@@ -21,6 +23,8 @@ export const metadata = {
     shortcut: "/icon.svg",
     apple: [{url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png"}],
   },
+  openGraph: {type:"website",siteName:"Servonas",title:"Servonas | Field Service Software for Owner-Led Crews",description:"One connected system for customers, work orders, dispatch, online booking, invoices, and payments.",images:[{url:"/servonas-logo.svg",width:512,height:512,alt:"Servonas"}]},
+  twitter: {card:"summary",title:"Servonas | Field Service Software for Owner-Led Crews",description:"One connected system for customers, work orders, dispatch, online booking, invoices, and payments.",images:["/servonas-logo.svg"]},
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -49,7 +53,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
   const accountName=employee?.preferred_name?.trim()||profile?.full_name?.trim()||String(user?.user_metadata?.full_name??"").trim()||user?.email?.split("@")[0]||"Account";
   const accountEmail=profile?.email||user?.email||"";
+  const organizationSchema={"@context":"https://schema.org","@type":"Organization",name:"Servonas",url:"https://servonas.com",logo:"https://servonas.com/servonas-logo.svg",description:"Field service management software for owner-led service businesses."};
   return <html lang="en"><body>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:JSON.stringify(organizationSchema)}} />
     <PhoneInputFormatter/>
     <MarketingAnalytics/>
     <ConsentAwareGoogleTag/>
@@ -61,10 +67,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     </div></header>}
     {children}
     {!barePublicShell&&<footer className="sv-footer"><div className="sv-container sv-footer-grid">
-      <div><img className="sv-footer-logo" src="/servonas-logo-light.svg" alt="Servonas"/><p>The operating system for modern service businesses.</p></div>
-      <div><h3>Product</h3><Link href="/features">Features</Link><Link href="/pricing">Pricing</Link><Link href="/demo">Demo</Link></div>
+      <div><img className="sv-footer-logo" src="/servonas-logo-light.svg" alt="Servonas"/><p>One system for customers, work orders, routes, and payments.</p></div>
+      <div><h3>Product</h3><Link href="/features">Features</Link><Link href="/pricing">Pricing</Link><Link href="/vs/jobber">Compare with Jobber</Link><Link href="/demo">Demo</Link></div>
       <div><h3>Solutions</h3><Link href="/industries">Rentals</Link><Link href="/industries">Appointments</Link><Link href="/industries">Field services</Link></div>
-      <div><h3>Company</h3><Link href="/contact">Contact</Link><Link href="/onboarding">Create your business</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div>
+      <div><h3>Company</h3><Link href="/about">About</Link><Link href="/contact">Contact</Link><Link href="/onboarding">Create your business</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div>
     </div><div className="sv-container sv-footer-bottom">© {new Date().getFullYear()} Servonas. Built for businesses that keep the world moving.</div></footer>}
   </body></html>;
 }

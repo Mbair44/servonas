@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+export const metadata: Metadata={title:"Servonas Features - Scheduling, Dispatch, Booking and Invoicing for Service Businesses",description:"Explore Servonas features for work orders, scheduling, route-aware dispatch, online booking, invoicing, payments, and field teams."};
 const groups=[
 ["Booking & sales",["Online booking","Live availability","Quotes and deposits","Coupons and refunds","Multi-item checkout"]],
 ["Operations",["Scheduling","Blocked dates","Quantity inventory","Delivery windows","Admin dashboard"]],

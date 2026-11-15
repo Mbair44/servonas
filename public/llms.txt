@@ -1,0 +1,5 @@
+# Servonas
+
+Servonas is field service management software for owner-led HVAC, plumbing, lawn, cleaning, and similar service crews. It connects customers, work orders, scheduling, route-aware dispatch, online booking, invoices, and payments.
+
+Key pages: /features, /pricing, /industries, /demo, /contact, /vs/jobber, /vs/housecall-pro, and /vs/spreadsheets.

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+export const metadata: Metadata={title:"Servonas Pricing - Field Service Software from $40/month | Free Early Access",description:"Field service software from $40/month for owner-led crews. Get scheduling, dispatch, booking, invoicing, payments, and more—free during early access."};
 
 function PricingIcon({name,className}:{name:"starter"|"growth"|"pro"|"website"|"contract"|"ownership"|"support"|"service"|"spark"|"founding"|"cta";className?:string}){
  const cls=className?`pricing-icon ${className}`:"pricing-icon";
@@ -50,7 +52,14 @@ const assurances=[
 ];
 
 export default function Pricing(){
+ const faqSchema={"@context":"https://schema.org","@type":"FAQPage",mainEntity:[
+  {"@type":"Question",name:"Is everything included in one price?",acceptedAnswer:{"@type":"Answer",text:"Yes. Servonas plans include the core office and field tools without per-feature add-ons."}},
+  {"@type":"Question",name:"Do I need special hardware?",acceptedAnswer:{"@type":"Answer",text:"No. Servonas works on the phones your field team already uses."}},
+  {"@type":"Question",name:"How long is early access free?",acceptedAnswer:{"@type":"Answer",text:"Early access is free while we build and improve Servonas. We will give advance notice before paid billing begins."}}
+ ]};
+ const productSchema={"@context":"https://schema.org","@type":"Product",name:"Servonas",description:"Field service software for owner-led service businesses.",offers:[40,75,125].map(price=>({"@type":"Offer",priceCurrency:"USD",price,priceSpecification:{"@type":"UnitPriceSpecification",priceCurrency:"USD",price,unitText:"MONTH"}}))};
  return <main className="pricing-page">
+  <script type="application/ld+json" dangerouslySetInnerHTML={{__html:JSON.stringify(faqSchema)}}/><script type="application/ld+json" dangerouslySetInnerHTML={{__html:JSON.stringify(productSchema)}}/>
   <section className="pricing-hero"><div className="sv-container">
    <h1>Simple pricing.<br/>Powerful everything.</h1>
    <p>Everything you need to run and grow your service business—in one platform.</p>
@@ -104,8 +113,10 @@ export default function Pricing(){
    <details><summary>When will you start charging?</summary><p>We have not set a paid launch date. Founding companies will be notified well in advance and can choose a plan before charges begin.</p></details>
    <details><summary>What if I only want Servonas to maintain my website?</summary><p>We&apos;re planning a website-maintenance-only option at <strong>$29/month</strong> after early access. Right now, it&apos;s still <strong>free during Early Access</strong>, and we&apos;ll notify you well before any website-maintenance billing begins.</p></details>
    <details><summary>Can I change plans later?</summary><p>Yes. You’ll be able to move between plans as your business and team grow.</p></details>
+   <details><summary>Is everything included in one price?</summary><p>Yes. Servonas plans include the core office and field tools in one price instead of charging feature by feature.</p></details>
+   <details><summary>Do I need special hardware?</summary><p>No. Servonas works on the phones your field team already uses—no special hardware or iPad minis required.</p></details>
   </div></div></section>
 
-  <section className="pricing-bottom-cta"><div className="sv-container"><i aria-hidden="true"><PricingIcon name="cta"/></i><div><h2>Ready to see Servonas in action?</h2><p>Start your free early access today—no credit card required.</p></div><Link className="sv-button" href="/signup">Start Free Early Access</Link></div></section>
+  <section className="pricing-bottom-cta"><div className="sv-container"><i aria-hidden="true"><PricingIcon name="cta"/></i><div><h2>Ready to see Servonas in action?</h2><p>Start your free early access today—no credit card required. Compare <Link href="/vs/jobber">Servonas and Jobber</Link>, <Link href="/vs/housecall-pro">Housecall Pro</Link>, or <Link href="/vs/spreadsheets">spreadsheets</Link>.</p></div><Link className="sv-button" href="/signup">Start Free Early Access</Link></div></section>
  </main>;
 }
