@@ -14,6 +14,8 @@ test("gallery saves verify tenant-scoped storage objects and retain only attache
  assert.match(source,/storage\.from\(inventoryImageBucket\)\.list\(folder/);
  assert.match(source,/One or more rental photo uploads are missing/);
  assert.match(source,/legacyUrls\.has\(url\)/);
+ assert.match(source,/if\(legacyUrls\.has\(url\)\)continue;const storagePath/);
+ assert.match(source,/storagePath===null\|\|storagePath==="invalid"/);
  assert.match(source,/new Set\(values\)\.size!==values\.length/);
  assert.match(source,/urls\.length>10/);
 });
