@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { mobileSuccessEnvelopeSchema, isoDateSchema, isoDateTimeSchema, requestIdSchema, uuidSchema } from "./common.js";
-import { workspaceSchema } from "./access.js";
+import { mobileSuccessEnvelopeSchema, isoDateSchema, isoDateTimeSchema, requestIdSchema, uuidSchema } from "./common.ts";
+import { workspaceSchema } from "./access.ts";
 
 export const jobStatusSchema = z.enum([
   "draft", "pending", "confirmed", "scheduled", "dispatched", "en_route",

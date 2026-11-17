@@ -15,7 +15,10 @@
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
-    "paths": { "@/*": ["./*"] }
+    "paths": {
+      "@/*": ["./*"],
+      "@servonas/shared": ["./packages/shared/src/index.ts"]
+    }
   },
   "include": [
     "next-env.d.ts",

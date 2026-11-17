@@ -1,3 +1,3 @@
-export * from "./mobile-api/common.js";
-export * from "./mobile-api/access.js";
-export * from "./mobile-api/contracts.js";
+export * from "./mobile-api/common.ts";
+export * from "./mobile-api/access.ts";
+export * from "./mobile-api/contracts.ts";
