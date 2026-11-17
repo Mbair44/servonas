@@ -147,9 +147,19 @@ test("booked-sales migration retains creation-date totals and excludes canceled 
  const sql=await readFile(new URL("../supabase/migrations/20261013000500_sales_performance_booked_sales.sql",import.meta.url),"utf8");
  assert.match(sql,/b\.created_at at time zone v_timezone/);assert.match(sql,/sum\(b\.total_cents\)/);assert.match(sql,/j\.is_deleted or j\.status='canceled'/);assert.doesNotMatch(sql,/public\.payments|public\.invoices/);
 });
+test("booked sales records accepted Smart Upsells on their applied date without double counting their booking",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20261117000100_sales_performance_smart_upsells.sql",import.meta.url),"utf8");
+ assert.match(sql,/accepted_smart_upsells/);assert.match(sql,/amendment\.status='applied'/);assert.match(sql,/offer\.status='accepted'/);assert.match(sql,/amendment\.applied_at/);
+ assert.match(sql,/booking\.total_cents-coalesce\(upsells\.value_cents,0\)/);assert.match(sql,/union all/);assert.match(sql,/0::bigint as booking_count/);
+ assert.match(sql,/job\.is_deleted or job\.status='canceled'/);assert.doesNotMatch(sql,/public\.payments|public\.invoices/);
+});
 test("booked sales handles deposits, discounts, and events in another month through canonical booking totals",()=>{
  const rows=[{booking_date:"2026-09-02",booking_value_cents:17500,booking_count:1},{booking_date:"2026-10-01",booking_value_cents:30000,booking_count:1}];
  assert.deepEqual(bookingValueMetrics(rows,{start:"2026-09-01",end:"2026-09-30"}),{bookingValueCents:17500,bookingCount:1,averageCents:17500});
+});
+test("smart upsell rows raise booked sales without changing average booking value",()=>{
+ const metrics=bookingValueMetrics([{booking_date:"2026-09-10",booking_value_cents:22500,booking_count:1},{booking_date:"2026-09-12",booking_value_cents:11250,booking_count:0}],selected);
+ assert.deepEqual(metrics,{bookingValueCents:33750,bookingCount:1,averageCents:22500});
 });
 test("sales and revenue trend exposes persisted legend toggles, markers, and accessible tooltips",async()=>{
  const chart=await readFile(new URL("../components/SalesRevenueTrend.tsx",import.meta.url),"utf8"),dashboard=await readFile(new URL("../components/SalesPerformance.tsx",import.meta.url),"utf8");
