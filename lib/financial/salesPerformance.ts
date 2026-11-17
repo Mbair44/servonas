@@ -81,6 +81,7 @@ export type CategoryWeight={category:string;cents:number};
 export type ItemWeight={category:string;item:string;cents:number};
 export type SalesReceipt={date:string;cents:number;customerKey:string|null;weights:CategoryWeight[];itemWeights?:ItemWeight[]};
 export type BookingValueDay={booking_date:string;booking_value_cents:number;booking_count:number};
+export type BookedAttributionDay={booking_date:string;new_booked_cents:number;smart_upsell_cents:number;booking_count:number;incomplete_booking_count:number};
 export function normalizeSalesReceipts(value:unknown):SalesReceipt[]{
  if(value&&typeof value==='object'&&!Array.isArray(value)&&'sales_performance_details' in value)value=(value as {sales_performance_details?:unknown}).sales_performance_details;
  if(Array.isArray(value)&&value.length===1&&value[0]&&typeof value[0]==='object'&&'sales_performance_details' in value[0])value=(value[0] as {sales_performance_details?:unknown}).sales_performance_details;
@@ -137,4 +138,9 @@ export function bookingValueMetrics(days:BookingValueDay[],range:SalesRange){
   if(count){bookingBaseValueCents+=value;bookingCount+=count;}
  }
  return {bookingValueCents,bookingCount,averageCents:bookingCount?bookingBaseValueCents/bookingCount:null};
+}
+export function bookedAttributionMetrics(days:BookedAttributionDay[],range:SalesRange){
+ let newBookedCents=0,smartUpsellCents=0,bookingCount=0,incompleteBookingCount=0;
+ for(const day of days){if(day.booking_date<range.start||day.booking_date>range.end)continue;newBookedCents+=Math.max(0,Number(day.new_booked_cents)||0);smartUpsellCents+=Math.max(0,Number(day.smart_upsell_cents)||0);bookingCount+=Math.max(0,Math.trunc(Number(day.booking_count)||0));incompleteBookingCount+=Math.max(0,Math.trunc(Number(day.incomplete_booking_count)||0));}
+ return {newBookedCents,smartUpsellCents,totalBookedSalesCents:newBookedCents+smartUpsellCents,bookingCount,incompleteBookingCount,averageNewBookingCents:bookingCount?newBookedCents/bookingCount:null};
 }
