@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { uuidSchema } from "./common.js";
+import { uuidSchema } from "./common.ts";
 
 /** Tenant membership is distinct from an employee's field-service eligibility. */
 export const membershipRoleSchema = z.enum(["owner", "admin", "manager", "staff"]);
