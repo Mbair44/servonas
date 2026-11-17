@@ -123,13 +123,18 @@ export function allocateItemRevenue(cents:number,weights:ItemWeight[]):ItemWeigh
  const remainder=cents-shares.reduce((sum,share)=>sum+share.cents,0);for(let index=0;index<remainder;index++)shares[index%shares.length].cents++;
  return shares.map(({category,item,cents})=>({category,item,cents}));
 }
-/** Average final stored booking total, independent of payment collection. */
+/**
+ * Booked sales include Smart Upsells on the day their paid amendment was applied.
+ * Those rows have no newly created booking, so exclude them from Average Booking
+ * Value while retaining them in the booked-sales total.
+ */
 export function bookingValueMetrics(days:BookingValueDay[],range:SalesRange){
- let bookingValueCents=0,bookingCount=0;
+ let bookingValueCents=0,bookingBaseValueCents=0,bookingCount=0;
  for(const day of days){
   if(day.booking_date<range.start||day.booking_date>range.end)continue;
-  bookingValueCents+=Math.max(0,Number(day.booking_value_cents)||0);
-  bookingCount+=Math.max(0,Math.trunc(Number(day.booking_count)||0));
+  const value=Math.max(0,Number(day.booking_value_cents)||0),count=Math.max(0,Math.trunc(Number(day.booking_count)||0));
+  bookingValueCents+=value;
+  if(count){bookingBaseValueCents+=value;bookingCount+=count;}
  }
- return {bookingValueCents,bookingCount,averageCents:bookingCount?bookingValueCents/bookingCount:null};
+ return {bookingValueCents,bookingCount,averageCents:bookingCount?bookingBaseValueCents/bookingCount:null};
 }

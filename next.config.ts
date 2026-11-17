@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Keep Vercel's serverless tracing rooted at the production Next.js app.
+  // The Expo and shared workspaces are siblings, not web deployment inputs.
+  outputFileTracingRoot: __dirname,
   experimental: {
     serverActions: {
       // Rental inventory can include an 8 MB photo and a 10 MB receipt in the

@@ -5,3 +5,10 @@ node_modules
 *.log
 .pnpm-store/
 .pnpm-store/
+
+# Expo / React Native build artifacts
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/node_modules/
+apps/mobile/ios/
+apps/mobile/android/
