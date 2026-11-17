@@ -16,8 +16,8 @@ Clean project baseline with:
 4. Run:
 
 ```bash
-npm install
-npm run dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
 Open the URL printed in Terminal, usually `http://localhost:3000`.
@@ -32,6 +32,30 @@ Routes:
 ## Database
 
 The required SQL scripts are in `supabase/`. The project assumes the schema, live availability function, and public booking function have already been run in Supabase.
+
+## Development workspaces
+
+This repository uses pnpm workspaces. The production Next.js application is the
+repository root; the legacy `servonas/` directory is intentionally excluded.
+
+Run the web app:
+
+```bash
+pnpm dev
+```
+
+Run the Expo mobile foundation:
+
+```bash
+pnpm mobile
+# or: pnpm mobile:ios
+```
+
+See [Mobile development](docs/mobile-development.md) for prerequisites and
+mobile-specific commands. pnpm is the supported package manager for this
+repository. `package-lock.json` remains temporarily for workflow compatibility
+and must not be updated; it will be removed only in a separately approved
+cleanup after dependent workflows have been confirmed.
 # NRS-Rentals
 # Google Ads signup conversion
 

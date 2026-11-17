@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Servonas",
+    "slug": "servonas",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "servonas",
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.servonas.mobile"
+    }
+  }
+}

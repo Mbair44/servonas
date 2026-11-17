@@ -1,3 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# The legacy Next.js application in ./servonas is intentionally not a workspace
+# package. The production web app remains the repository root package.
+
 allowBuilds:
   # The private MMS worker needs the platform FFmpeg binary to make
   # browser-compatible derivatives; this runs only at build/install time.
