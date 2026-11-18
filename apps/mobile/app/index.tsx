@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Button, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { mobileMe } from "../lib/api";
 import { preferences, type Experience } from "../lib/preferences";
 import { allowedExperiences, selectedExperience, selectedWorkspace } from "../lib/navigation";
-import { clearForAccountChange, clearForWorkspaceChange, mobileMeQueryKey, refreshAuthorizedWorkspaces } from "../lib/queryState";
+import { clearForAccountChange, clearForExperienceChange, clearForWorkspaceChange, mobileMeQueryKey, refreshAuthorizedWorkspaces } from "../lib/queryState";
 
 export default function FoundationScreen() {
   const [session, setSession] = useState<any>();
@@ -16,6 +17,7 @@ export default function FoundationScreen() {
   const [savedWorkspace, setSavedWorkspace] = useState<string | null>(null);
   const [savedExperience, setSavedExperience] = useState<string | null>(null);
   const client = useQueryClient();
+  const router = useRouter();
 
   useEffect(() => {
     Promise.all([supabase.auth.getSession(), preferences.workspace(), preferences.experience()]).then(([{ data }, workspace, experience]) => {
@@ -77,8 +79,13 @@ export default function FoundationScreen() {
   };
   const switchExperience = async (value: Experience) => {
     if (!experiences.includes(value)) return;
+    if (value !== experience) clearForExperienceChange(client);
     setSavedExperience(value);
     await preferences.setExperience(value);
+  };
+  const openExperience = () => {
+    if (experience === "office") router.push({ pathname: "/office/[businessId]", params: { businessId: workspace.id } });
+    if (experience === "technician") router.push({ pathname: "/technician/[businessId]", params: { businessId: workspace.id } });
   };
   const homeLabel = experience === "office"
     ? "Office experience selected."
@@ -105,6 +112,7 @@ export default function FoundationScreen() {
       })}</View> : <Text style={styles.body}>No office or technician experience is assigned to this workspace.</Text>}
       <Text style={styles.body}>{homeLabel}</Text>
       <Text style={styles.body}>Connection verified: {workspaces.length} workspace(s)</Text>
+      {experience && <Pressable accessibilityRole="button" onPress={openExperience} style={styles.openDashboard}><Text style={styles.openDashboardText}>Open {experience} home</Text></Pressable>}
       <Button title="Refresh" onPress={() => me.refetch()} />
       <Button title="Sign out" onPress={async () => { clearForAccountChange(client); await preferences.clear(); await supabase.auth.signOut(); }} />
     </ScrollView>
@@ -142,4 +150,6 @@ const styles = StyleSheet.create({
   choiceSelected: { borderColor: "#2563eb", backgroundColor: "#dbeafe" },
   choiceText: { fontSize: 16 },
   choiceTextSelected: { fontWeight: "700", color: "#1d4ed8" },
+  openDashboard: { alignItems: "center", backgroundColor: "#2563eb", borderRadius: 10, justifyContent: "center", minHeight: 48, marginTop: 8 },
+  openDashboardText: { color: "#fff", fontSize: 16, fontWeight: "700" },
 });
