@@ -32,7 +32,7 @@ export function AssistedRentalBookingForm({slug,items,customers,addons,disclosur
   const rentalSubtotal=override?assistedMoneyCents(subtotal):lines.reduce((sum,line)=>sum+line.unitPriceCents*line.quantity,0);
   totals=assistedRentalTotals(lines,{discount:assistedMoneyCents(discount),delivery:assistedMoneyCents(delivery),tax:assistedMoneyCents(tax),deposit:0,subtotalOverride:rentalSubtotal+addonSubtotal});
  }catch{/* Invalid/incomplete input remains visible for correction, never submitted as zero. */}
- const depositValue=depositOverride?deposit:totals?(Math.round(totals.total*depositPercent/100)/100).toFixed(2):'';
+ const zeroTotal=totals?.total===0,depositValue=zeroTotal?'0.00':depositOverride?deposit:totals?(Math.round(totals.total*depositPercent/100)/100).toFixed(2):'';
  return <form className="booking-settings-form" onSubmit={async event=>{
   event.preventDefault();if(submitting.current)return;
   submitting.current=true;setPending(true);setError('');
@@ -70,10 +70,10 @@ export function AssistedRentalBookingForm({slug,items,customers,addons,disclosur
   <label>Delivery<input required name="delivery" type="number" min="0" step="0.01" value={delivery} onChange={e=>setDelivery(e.target.value)}/></label>
   <label>Tax<input required name="tax" type="number" min="0" step="0.01" value={tax} onChange={e=>setTax(e.target.value)}/></label>
   <label>Total<input readOnly value={totals?money(totals.total):'Check amounts'}/><small>Rental subtotal − discount + delivery + tax.</small></label>
-  <label>Deposit due<input required name="deposit" type="number" min="0.01" step="0.01" readOnly={!depositOverride} value={depositValue} onChange={e=>setDeposit(e.target.value)}/><small>{depositPercent}% of the full booking total unless overridden.</small></label>
-  <label className="toggle-row"><input type="checkbox" checked={depositOverride} onChange={e=>{setDeposit(depositValue);setDepositOverride(e.target.checked);}}/>Override deposit</label>
+  <label>Deposit due<input required name="deposit" type="number" min="0" step="0.01" readOnly={zeroTotal||!depositOverride} value={depositValue} onChange={e=>setDeposit(e.target.value)}/><small>{zeroTotal?"No deposit is required for a $0 booking.":`${depositPercent}% of the full booking total unless overridden.`}</small></label>
+  <label className="toggle-row"><input type="checkbox" disabled={zeroTotal} checked={depositOverride} onChange={e=>{setDeposit(depositValue);setDepositOverride(e.target.checked);}}/>Override deposit</label>
   {error&&<p className="workspace-notice error wide" role="alert">{error}</p>}
-  <button className="button" disabled={pending||!totals||!rows.length||rows.some(row=>!row.id)}>{pending?'Creating booking…':'Create & Send Payment Link'}</button>
+  <button className="button" disabled={pending||!totals||!rows.length||rows.some(row=>!row.id)}>{pending?'Creating booking…':zeroTotal?'Create & Confirm Booking':'Create & Send Payment Link'}</button>
   <Link href={`/app/${slug}/jobs`}>Cancel</Link>
  </form>;
 }

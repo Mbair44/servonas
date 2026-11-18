@@ -4,8 +4,8 @@ import { z } from "zod";
 export const mobileApiVersion = "v1" as const;
 export const mobileApiPaths = {
   me: "/api/v1/mobile/me",
-  ownerManagerDashboard: "/api/v1/mobile/businesses/:businessId/dashboard",
-  technicianHome: "/api/v1/mobile/businesses/:businessId/technician-home",
+  ownerManagerDashboard: "/api/v1/mobile/businesses/:businessId/owner-home",
+  technicianHome: "/api/v1/mobile/businesses/:businessId/employee-home",
   jobDetail: "/api/v1/mobile/businesses/:businessId/jobs/:jobId",
   transitionJobStatus: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/status",
   addJobNote: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/notes",
