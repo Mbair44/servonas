@@ -14,6 +14,7 @@ import {hasIndustryCapability} from "@/lib/industryCapabilities";
 import {poolChemistryFields} from "@/lib/poolService";
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
+const uuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 async function technicianJob(jobId: string) {
   const supabase = await createSupabaseServerClient();
@@ -32,14 +33,20 @@ async function technicianJob(jobId: string) {
 export async function transitionTechnicianJob(jobId: string, formData: FormData) {
   const { supabase, job } = await technicianJob(jobId);
   const status = text(formData, "status");
+  const requestId = text(formData, "requestId");
   const requestedReturn = text(formData, "returnTo");
   const returnTo = requestedReturn.startsWith("/tech/route") ? requestedReturn : `/tech/jobs/${jobId}`;
   const redirectWith = (kind: "error" | "success", message: string) =>
     `${returnTo}${returnTo.includes("?") ? "&" : "?"}${kind}=${encodeURIComponent(message)}`;
   const currentStatus = String(job.status) as JobStatus;
+  if (!uuid(requestId)) redirect(redirectWith("error", "This form expired. Refresh and try again."));
   if (status === "in_progress" && currentStatus !== "arrived") {
+    if (currentStatus === status) redirect(redirectWith("success", "Job status updated."));
     redirect(redirectWith("error", "Start Job is only available after your location confirms you have arrived."));
   }
+  // A repeated post may arrive after the original request committed. Do not
+  // re-run the post-transition integrations in that case.
+  if (currentStatus === status) redirect(redirectWith("success", "Job status updated."));
   if (!jobStatuses.includes(status as JobStatus) || !canTransitionJob(currentStatus, status as JobStatus)) {
     redirect(redirectWith("error", "This job changed since the page loaded. Refresh and try the action shown."));
   }
@@ -50,9 +57,11 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
       if(poolLog?.status!=="completed")redirect(redirectWith("error","Complete the Pool Service chemistry and service log before completing this recurring visit."));
     }
   }
-  // A repeated tap may arrive after the first request has already succeeded.
-  if (currentStatus === status) redirect(redirectWith("success", "Job status updated."));
-  const { error } = await supabase.rpc("transition_assigned_job_status", { p_job_id: jobId, p_status: status });
+  const { error } = await supabase.rpc("transition_assigned_job_status_v2", {
+    p_job_id: jobId,
+    p_status: status,
+    p_request_id: requestId,
+  });
   if (error) {
     console.error("Technician status transition failed", {
       code: error.code,
@@ -65,7 +74,9 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
     });
     const message = error.code === "42501"
       ? "This job is no longer assigned to your technician account."
-      : error.code === "23514"
+      : error.code === "23505"
+        ? "This submission conflicts with an earlier request. Refresh and try again."
+        : error.code === "23514"
         ? "This job changed since the page loaded. Refresh and try again."
         : "The job status could not be updated. Refresh and try again.";
     redirect(redirectWith("error", message));
@@ -86,8 +97,14 @@ export async function transitionTechnicianJob(jobId: string, formData: FormData)
 export async function addTechnicianNote(jobId: string, formData: FormData) {
   const { supabase } = await technicianJob(jobId);
   const note = text(formData, "note");
+  const requestId = text(formData, "requestId");
+  if (!uuid(requestId)) redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent("This form expired. Refresh and try again.")}`);
   if (!note || note.length > 4000) redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent("Enter a note under 4,000 characters.")}`);
-  const { error } = await supabase.rpc("append_assigned_job_note", { p_job_id: jobId, p_note: note });
+  const { error } = await supabase.rpc("append_assigned_job_note_v2", {
+    p_job_id: jobId,
+    p_note: note,
+    p_request_id: requestId,
+  });
   if (error) {
     console.error("Technician note append failed", { code: error.code, jobId });
     redirect(`/tech/jobs/${jobId}?error=${encodeURIComponent("The note could not be added.")}`);
