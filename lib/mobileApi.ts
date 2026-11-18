@@ -8,7 +8,13 @@ type MobileErrorCode =
   | "UNSUPPORTED_VERSION" | "SERVICE_UNAVAILABLE" | "INTERNAL_ERROR";
 
 type MembershipRow = { business_id: string; role: string; businesses: { id: string; name: string } | null };
-type MembershipQueryRow = Omit<MembershipRow, "businesses"> & { businesses: { id: string; name: string }[] | null };
+type MembershipQueryRow = Omit<MembershipRow, "businesses"> & {
+  // PostgREST embeds the referenced business as an object for the
+  // business_members.business_id -> businesses.id many-to-one relation.
+  // Keep the array form tolerated for compatibility with explicit relation
+  // overrides, but do not discard the normal object-shaped response.
+  businesses: { id: string; name: string } | { id: string; name: string }[] | null;
+};
 type TechnicianRow = { business_id: string; id: string; employee_id: string | null; is_active: boolean; is_technician: boolean; can_be_assigned_jobs: boolean };
 type EmployeeRow = { business_id: string; id: string; auth_user_id: string | null; is_active: boolean };
 
@@ -118,8 +124,11 @@ export function projectMobileWorkspaces(
   return { workspaces, techniciansByBusinessId };
 }
 
-function normalizeMemberships(rows: MembershipQueryRow[]): MembershipRow[] {
-  return rows.map((row) => ({ ...row, businesses: row.businesses?.[0] ?? null }));
+export function normalizeMobileMemberships(rows: MembershipQueryRow[]): MembershipRow[] {
+  return rows.map((row) => ({
+    ...row,
+    businesses: Array.isArray(row.businesses) ? row.businesses[0] ?? null : row.businesses,
+  }));
 }
 
 export async function createMobileAuthorizationContext(request: Request): Promise<MobileAuthorizationContext> {
@@ -141,7 +150,7 @@ export async function createMobileAuthorizationContext(request: Request): Promis
     throw new MobileApiError("SERVICE_UNAVAILABLE", "Mobile authorization is temporarily unavailable.", 503, true);
   }
   const { workspaces, techniciansByBusinessId } = projectMobileWorkspaces(
-    normalizeMemberships((membershipsResult.data ?? []) as MembershipQueryRow[]),
+    normalizeMobileMemberships((membershipsResult.data ?? []) as MembershipQueryRow[]),
     (techniciansResult.data ?? []) as TechnicianRow[],
     (employeesResult.data ?? []) as EmployeeRow[],
     user.id,
