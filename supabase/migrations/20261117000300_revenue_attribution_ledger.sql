@@ -103,17 +103,17 @@ begin
    from public.booking_amendments a join public.smart_upsell_offers o on o.id::text=a.pricing_snapshot->>'smart_upsell_offer_id' and o.business_id=a.business_id
    where a.business_id=p_business_id and a.status='applied' and a.applied_at is not null and o.status='accepted'
  ), rows as (
-   select (b.created_at at time zone v_timezone)::date day,greatest(0,b.total_cents-coalesce(s.total_cents,0))::bigint new_cents,0::bigint smart_cents,1::bigint bookings,0::bigint incomplete
+   select (b.created_at at time zone v_timezone)::date as booking_date,greatest(0,b.total_cents-coalesce(s.total_cents,0))::bigint new_cents,0::bigint smart_cents,1::bigint bookings,0::bigint incomplete
    from public.bookings b left join (select business_id,booking_id,sum(amount_cents)::bigint total_cents from accepted_smart where amount_cents is not null group by business_id,booking_id) s on s.business_id=b.business_id and s.booking_id=b.id
    where b.business_id=p_business_id and b.status in ('confirmed','paid','completed') and b.created_at>=(p_from::timestamp at time zone v_timezone) and b.created_at<((p_through+1)::timestamp at time zone v_timezone)
      and not exists(select 1 from public.booking_amendments a where a.booking_id=b.id and a.business_id=b.business_id and a.status='applied' and not(a.pricing_snapshot?'smart_upsell_offer_id'))
      and not exists(select 1 from accepted_smart invalid where invalid.booking_id=b.id and invalid.amount_cents is null)
    union all
-   select (s.applied_at at time zone v_timezone)::date,0::bigint,s.amount_cents,0::bigint,0::bigint from accepted_smart s where s.amount_cents is not null and s.applied_at>=(p_from::timestamp at time zone v_timezone) and s.applied_at<((p_through+1)::timestamp at time zone v_timezone)
+   select (s.applied_at at time zone v_timezone)::date as booking_date,0::bigint,s.amount_cents,0::bigint,0::bigint from accepted_smart s where s.amount_cents is not null and s.applied_at>=(p_from::timestamp at time zone v_timezone) and s.applied_at<((p_through+1)::timestamp at time zone v_timezone)
    union all
-   select (b.created_at at time zone v_timezone)::date,0::bigint,0::bigint,0::bigint,1::bigint from public.bookings b where b.business_id=p_business_id and b.created_at>=(p_from::timestamp at time zone v_timezone) and b.created_at<((p_through+1)::timestamp at time zone v_timezone)
+   select (b.created_at at time zone v_timezone)::date as booking_date,0::bigint,0::bigint,0::bigint,1::bigint from public.bookings b where b.business_id=p_business_id and b.created_at>=(p_from::timestamp at time zone v_timezone) and b.created_at<((p_through+1)::timestamp at time zone v_timezone)
      and exists(select 1 from public.booking_amendments a where a.booking_id=b.id and a.business_id=b.business_id and a.status='applied' and not(a.pricing_snapshot?'smart_upsell_offer_id'))
- ) select rows.day,sum(rows.new_cents)::bigint,sum(rows.smart_cents)::bigint,sum(rows.bookings)::bigint,sum(rows.incomplete)::bigint from rows group by rows.day order by rows.day;
+ ) select rows.booking_date,sum(rows.new_cents)::bigint,sum(rows.smart_cents)::bigint,sum(rows.bookings)::bigint,sum(rows.incomplete)::bigint from rows group by rows.booking_date order by rows.booking_date;
 end;$$;
 
 revoke all on function public.reconcile_revenue_events(uuid,integer) from public;
