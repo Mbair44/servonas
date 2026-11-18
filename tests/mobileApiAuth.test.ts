@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   MobileApiError,
   mobileCapabilitiesFor,
+  normalizeMobileMemberships,
   parseMobileBearerToken,
   projectMobileWorkspaces,
   requireMobileWorkspace,
@@ -23,6 +24,16 @@ test("projects multiple current memberships and never treats staff as a technici
   assert.equal(projected.workspaces.length, 2);
   assert.deepEqual(projected.workspaces[0].availableCapabilities, []);
   assert.deepEqual(projected.workspaces[1].availableCapabilities, ["operational_dashboard"]);
+});
+
+test("keeps the PostgREST many-to-one business object when normalizing memberships", () => {
+  const normalized = normalizeMobileMemberships([
+    { business_id: ids.businessA, role: "owner", businesses: { id: ids.businessA, name: "A" } },
+  ]);
+  assert.deepEqual(normalized, [
+    { business_id: ids.businessA, role: "owner", businesses: { id: ids.businessA, name: "A" } },
+  ]);
+  assert.equal(projectMobileWorkspaces(normalized, [], [], ids.user).workspaces.length, 1);
 });
 
 test("returns no workspaces for an authenticated user with no current memberships", () => {
