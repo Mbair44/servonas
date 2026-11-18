@@ -10,7 +10,7 @@ import {
 } from "../lib/mobileApi.ts";
 
 const ids = { user: "u-1", businessA: "00000000-0000-4000-8000-000000000001", businessB: "00000000-0000-4000-8000-000000000002", employee: "00000000-0000-4000-8000-000000000003", technician: "00000000-0000-4000-8000-000000000004" };
-const memberships = [{ business_id: ids.businessA, role: "staff", businesses: { id: ids.businessA, name: "A" } }, { business_id: ids.businessB, role: "manager", businesses: { id: ids.businessB, name: "B" } }];
+const memberships = [{ business_id: ids.businessA, user_id: ids.user, role: "staff", businesses: { id: ids.businessA, name: "A" } }, { business_id: ids.businessB, user_id: ids.user, role: "manager", businesses: { id: ids.businessB, name: "B" } }];
 
 test("rejects missing and malformed mobile bearer credentials", () => {
   for (const value of [null, "Basic abc", "Bearer", "Bearer one two"]) {
@@ -28,10 +28,10 @@ test("projects multiple current memberships and never treats staff as a technici
 
 test("keeps the PostgREST many-to-one business object when normalizing memberships", () => {
   const normalized = normalizeMobileMemberships([
-    { business_id: ids.businessA, role: "owner", businesses: { id: ids.businessA, name: "A" } },
+    { business_id: ids.businessA, user_id: ids.user, role: "owner", businesses: { id: ids.businessA, name: "A" } },
   ]);
   assert.deepEqual(normalized, [
-    { business_id: ids.businessA, role: "owner", businesses: { id: ids.businessA, name: "A" } },
+    { business_id: ids.businessA, user_id: ids.user, role: "owner", businesses: { id: ids.businessA, name: "A" } },
   ]);
   assert.equal(projectMobileWorkspaces(normalized, [], [], ids.user).workspaces.length, 1);
 });
@@ -57,8 +57,11 @@ test("projects role capabilities without platform-admin email bypass", () => {
   assert.deepEqual(mobileCapabilitiesFor("staff", false), []);
 });
 
-test("excludes removed and invalid tenant memberships from the mobile projection", () => {
-  const projected = projectMobileWorkspaces([{ business_id: ids.businessA, role: "platform_admin", businesses: { id: ids.businessA, name: "Ignored" } }], [], [], ids.user);
+test("excludes removed, unauthorized, and invalid tenant memberships from the mobile projection", () => {
+  const projected = projectMobileWorkspaces([
+    { business_id: ids.businessA, user_id: "different-user", role: "owner", businesses: { id: ids.businessA, name: "Unauthorized" } },
+    { business_id: ids.businessB, user_id: ids.user, role: "platform_admin", businesses: { id: ids.businessB, name: "Ignored" } },
+  ], [], [], ids.user);
   assert.deepEqual(projected.workspaces, []);
 });
 
