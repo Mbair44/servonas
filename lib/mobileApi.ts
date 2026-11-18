@@ -7,7 +7,7 @@ type MobileErrorCode =
   | "CONFLICT" | "PRECONDITION_FAILED" | "RATE_LIMITED" | "REQUEST_TOO_LARGE"
   | "UNSUPPORTED_VERSION" | "SERVICE_UNAVAILABLE" | "INTERNAL_ERROR";
 
-type MembershipRow = { business_id: string; user_id: string; role: string; businesses: { id: string; name: string } | null };
+type MembershipRow = { business_id: string; user_id: string; role: string; businesses: { id: string; name: string; is_deleted?: boolean } | null };
 type MembershipQueryRow = Omit<MembershipRow, "businesses"> & {
   // PostgREST embeds the referenced business as an object for the
   // business_members.business_id -> businesses.id many-to-one relation.
@@ -113,7 +113,7 @@ export function projectMobileWorkspaces(
     // The query below is already constrained by user_id. Retain this check in
     // the projection so an accidental query change cannot expose another
     // member's tenant through the mobile API.
-    if (membership.user_id !== userId || !membershipRoles.has(membership.role as MembershipRole) || !membership.businesses) continue;
+    if (membership.user_id !== userId || !membershipRoles.has(membership.role as MembershipRole) || !membership.businesses || membership.businesses.is_deleted) continue;
     const membershipRole = membership.role as MembershipRole;
     const technicianEligible = techniciansByBusinessId.has(membership.business_id);
     workspaces.push({
@@ -139,7 +139,7 @@ export async function createMobileAuthorizationContext(request: Request): Promis
   const user = await verifyMobileBearerToken(accessToken);
   const supabase = createMobileRlsClient(accessToken);
   const [membershipsResult, techniciansResult, employeesResult] = await Promise.all([
-    supabase.from("business_members").select("business_id,user_id,role,businesses(id,name)").eq("user_id", user.id),
+    supabase.from("business_members").select("business_id,user_id,role,businesses!inner(id,name,is_deleted)").eq("user_id", user.id).eq("businesses.is_deleted", false),
     supabase.from("technician_profiles").select("business_id,id,employee_id,is_active,is_technician,can_be_assigned_jobs").eq("member_user_id", user.id),
     supabase.from("employees").select("business_id,id,auth_user_id,is_active").eq("auth_user_id", user.id),
   ]);

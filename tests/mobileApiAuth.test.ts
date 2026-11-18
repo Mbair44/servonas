@@ -61,6 +61,7 @@ test("excludes removed, unauthorized, and invalid tenant memberships from the mo
   const projected = projectMobileWorkspaces([
     { business_id: ids.businessA, user_id: "different-user", role: "owner", businesses: { id: ids.businessA, name: "Unauthorized" } },
     { business_id: ids.businessB, user_id: ids.user, role: "platform_admin", businesses: { id: ids.businessB, name: "Ignored" } },
+    { business_id: ids.businessA, user_id: ids.user, role: "owner", businesses: { id: ids.businessA, name: "Deleted", is_deleted: true } },
   ], [], [], ids.user);
   assert.deepEqual(projected.workspaces, []);
 });
