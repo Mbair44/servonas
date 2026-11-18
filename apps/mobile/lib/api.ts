@@ -1,0 +1,5 @@
+import { meResponseSchema, type MeResponse } from "@servonas/shared";
+import { supabase } from "./supabase";
+export class MobileApiError extends Error{constructor(public status:number,message:string){super(message)}}
+const baseUrl=process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/,"");
+export async function mobileMe(signal?:AbortSignal):Promise<MeResponse["data"]>{if(!baseUrl)throw new MobileApiError(0,"Mobile API URL is not configured.");const {data:{session}}=await supabase.auth.getSession();if(!session)throw new MobileApiError(401,"Your session has expired.");let response:Response;try{response=await fetch(`${baseUrl}/api/v1/mobile/me`,{headers:{Authorization:`Bearer ${session.access_token}`},signal});}catch{throw new MobileApiError(0,"Network unavailable. Check your connection and try again.");}const body:unknown=await response.json().catch(()=>null);if(!response.ok)throw new MobileApiError(response.status,(body as any)?.error?.message||"Unable to load your workspace.");return meResponseSchema.parse(body).data;}
