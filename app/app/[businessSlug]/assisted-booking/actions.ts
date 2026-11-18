@@ -4,6 +4,7 @@ import {canManageCustomers} from "@/lib/access";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {createRentalDepositPaymentRequest} from "@/lib/communications/rentalPaymentRequest";
+import {sendRentalBookingConfirmationSms} from "@/lib/communications/rentalBookingConfirmationSms";
 import {STAFF_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
 import {assistedMoneyCents,assistedRentalTotals,normalizeAssistedRentalLines,type AssistedRentalLine} from "@/lib/assistedRentalItems";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
@@ -12,7 +13,7 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
  if(!canManageCustomers(role)||business.industry_profile!=="party_rental")return {error:"Not authorized."};
  // Elevated RPC is used only after workspace authorization and explicit tenant validation.
  const db=getSupabaseAdmin();if(!db)return {error:"Booking service is unavailable."};
- let created:{booking_id:string;booking_number:number}|null=null;
+ let created:{booking_id:string;booking_number:number}|null=null,zeroTotal=false;
  try{
   const {data:inventory,error:inventoryError}=await supabase.from("inventory_items").select("id,name,daily_price_cents,allow_quantity,stock_quantity").eq("business_id",business.id).eq("active",true);
   if(inventoryError)throw new Error("Rental inventory could not be loaded.");
@@ -20,7 +21,7 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
   const staffAddons=JSON.parse(text(form,"staffAddons")||"[]");
   if(!Array.isArray(staffAddons))throw new Error("Booking add-ons are invalid.");
   const amounts={discount:assistedMoneyCents(text(form,"discount")),delivery:assistedMoneyCents(text(form,"delivery")),tax:assistedMoneyCents(text(form,"tax")),deposit:assistedMoneyCents(text(form,"deposit")),staffAddons,...(text(form,"overrideSubtotal")==="true"?{subtotalOverride:assistedMoneyCents(text(form,"subtotal"))}:{})};
-  const totals=assistedRentalTotals(lines,amounts);if(totals.deposit<=0)throw new Error("Enter a deposit greater than zero to create a payment link.");
+  const totals=assistedRentalTotals(lines,amounts);zeroTotal=totals.total===0;if(totals.total<0||totals.deposit<0||(zeroTotal&&totals.deposit!==0)||(!zeroTotal&&totals.deposit<=0))throw new Error(zeroTotal?"A free booking must have a $0 deposit.":"Enter a deposit greater than zero to create a payment link.");
   const date=text(form,"rentalDate"),requestKey=text(form,"requestKey");
   let first=text(form,"firstName"),last=text(form,"lastName"),email=text(form,"email"),phone=text(form,"phone");
   const customerId=text(form,"existingCustomer");
@@ -49,7 +50,11 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
   }
  }catch(error){return {error:error instanceof Error?error.message:"Booking could not be created."};}
  try{
-  await ensureRentalBookingJob(db,created.booking_id);
+  const jobId=await ensureRentalBookingJob(db,created.booking_id);
+  if(zeroTotal){
+   await sendRentalBookingConfirmationSms(created.booking_id,jobId);
+   return {url:`/app/${slug}/jobs?success=${encodeURIComponent(`Booking #${created.booking_number} is confirmed.${text(form,"smsConsent")==="true"?" Confirmation text sent.":""}`)}`};
+  }
   const request=await createRentalDepositPaymentRequest(created.booking_id);
   const holdMessage=request.expiresAt?`held until ${new Date(request.expiresAt).toLocaleString()}`:"kept open with no expiration";
   return {url:`/app/${slug}/jobs?success=${encodeURIComponent(`Booking #${created.booking_number} ${holdMessage}. Payment link ${request.smsSent?"sent by SMS":"created"}.`)}`};
