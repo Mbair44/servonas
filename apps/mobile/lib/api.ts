@@ -16,6 +16,21 @@ import {
 import { supabase } from "./supabase";
 export class MobileApiError extends Error{constructor(public status:number,message:string){super(message)}}
 const baseUrl=process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/,"");
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Gives support a non-sensitive contract reference without ever displaying a
+ * bearer token, response body, note content, or customer data on the device.
+ */
+function invalidResponseMessage(body:unknown,error:unknown,kind:"mobile"|"note"){
+  const reference=body&&typeof body==="object"&&uuid.test(String((body as {requestId?:unknown}).requestId??""))
+    ? String((body as {requestId:string}).requestId) : null;
+  const issue=error&&typeof error==="object"&&Array.isArray((error as {issues?:unknown}).issues)
+    ? (error as {issues:{path?:unknown}[]}).issues[0] : null;
+  const path=Array.isArray(issue?.path)&&issue.path.every(segment=>typeof segment==="string"||typeof segment==="number")
+    ? issue.path.join(".") : null;
+  return `Servonas returned an invalid ${kind} response${path?` (${path})`:""}.${reference?` Reference: ${reference}.`:" Please try again."}`;
+}
 
 async function mobileGet<T>(path:string,schema:{parse:(value:unknown)=>{data:T}},signal?:AbortSignal):Promise<T>{
   if(!baseUrl)throw new MobileApiError(0,"Mobile API URL is not configured.");
@@ -26,7 +41,7 @@ async function mobileGet<T>(path:string,schema:{parse:(value:unknown)=>{data:T}}
   catch{throw new MobileApiError(0,"Network unavailable. Check your connection and try again.");}
   const body:unknown=await response.json().catch(()=>null);
   if(!response.ok)throw new MobileApiError(response.status,(body as any)?.error?.message||"Unable to load mobile data.");
-  try{return schema.parse(body).data;}catch{throw new MobileApiError(0,"Servonas returned an invalid mobile response. Please try again.");}
+  try{return schema.parse(body).data;}catch(error){throw new MobileApiError(0,invalidResponseMessage(body,error,"mobile"));}
 }
 
 export async function mobileMe(signal?:AbortSignal):Promise<MeResponse["data"]>{return mobileGet("/api/v1/mobile/me",meResponseSchema,signal);}
@@ -51,5 +66,5 @@ export async function addJobNote(businessId:string,jobId:string,input:AddJobNote
   const body:unknown=await response.json().catch(()=>null);
   if(!response.ok)throw new MobileApiError(response.status,(body as any)?.error?.message||"Unable to add note.");
   try{return addJobNoteResponseSchema.parse(body).data;}
-  catch{throw new MobileApiError(0,"Servonas returned an invalid note response. Please try again.");}
+  catch(error){throw new MobileApiError(0,invalidResponseMessage(body,error,"note"));}
 }
