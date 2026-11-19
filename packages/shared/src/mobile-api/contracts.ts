@@ -131,7 +131,7 @@ export const jobDetailDataSchema = z.object({
     serviceAddress: z.string().trim().min(1).max(1000).nullable(),
   }).strict(),
   assignment: z.object({
-    role: assignmentRoleSchema,
+    role: assignmentRoleSchema.nullable(),
     allowedActions: z.array(technicianJobActionSchema).max(10),
   }).strict(),
   notes: z.array(z.object({

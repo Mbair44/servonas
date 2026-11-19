@@ -14,6 +14,15 @@ test("mobile note route uses bearer authorization, assignment scope, and the har
   assert.doesNotMatch(route, /getSupabaseAdmin|service.role|processCompletedJobBilling|stripe|twilio|transition_assigned_job_status/i);
 });
 
+test("job detail resolves a verified dual-role assignment without granting office-only users technician actions", async () => {
+  const route = await read("app/api/v1/mobile/businesses/[businessId]/jobs/[jobId]/route.ts");
+  assert.match(route, /office&&context\.techniciansByBusinessId\.has\(businessId\)/);
+  assert.match(route, /assignment=await requireMobileJobAssignment\(context,businessId,jobId\)/);
+  assert.match(route, /role=assignment\?\.assignmentRole\?\?null/);
+  assert.match(route, /allowedActions=assignment\?\["add_note"\]:\[\]/);
+  assert.match(route, /if\(!\(error instanceof MobileApiError&&error\.code==="FORBIDDEN"\)\)throw error/);
+});
+
 test("native note composer keeps a request UUID through an explicit retry and invalidates only the current job", async () => {
   const screen = await read("apps/mobile/app/(protected)/jobs/[businessId]/[jobId].tsx");
   assert.match(screen, /noteRequestId\.current\?\?=noteRequestUuid\(\)/);
