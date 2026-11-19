@@ -11,6 +11,8 @@ test("mobile note route uses bearer authorization, assignment scope, and the har
   assert.match(route, /append_assigned_job_note_v2/);
   assert.match(route, /p_request_id:parsed\.data\.idempotencyKey/);
   assert.match(route, /error\.code==="23505"/);
+  assert.match(route, /mobile_note_rpc_failed/);
+  assert.match(route, /\{requestId,code:error\.code\?\?null,businessId,jobId,userId:context\.user\.id\}/);
   assert.doesNotMatch(route, /getSupabaseAdmin|service.role|processCompletedJobBilling|stripe|twilio|transition_assigned_job_status/i);
 });
 
