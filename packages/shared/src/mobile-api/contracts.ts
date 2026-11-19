@@ -164,6 +164,18 @@ export const addJobNoteRequestSchema = z.object({
 export const addJobNoteDataSchema = z.object({jobId: uuidSchema,noteId: uuidSchema}).strict();
 export const addJobNoteResponseSchema = mobileSuccessEnvelopeSchema(addJobNoteDataSchema);
 
+export const mobileCursorSchema=z.string().min(1).max(512);
+export const mobileConversationKeySchema=z.string().regex(/^(customer:[0-9a-fA-F-]{36}|phone:\+[1-9]\d{7,14})$/);
+export const mobileMessageDirectionSchema=z.enum(["inbound","outbound"]);
+export const mobileAttachmentSchema=z.object({id:uuidSchema,contentType:z.string().trim().min(1).max(100),fileSizeBytes:z.number().int().nonnegative().nullable(),processingStatus:z.enum(["queued","processing","ready","failed","uploaded"])}).strict();
+export const mobileConversationSummarySchema=z.object({key:mobileConversationKeySchema,displayName:z.string().trim().min(1).max(300),phoneNumber:z.string().regex(/^\+[1-9]\d{7,14}$/),latestPreview:z.string().max(1600),latestAt:isoDateTimeSchema,unreadCount:z.number().int().nonnegative(),latestDirection:mobileMessageDirectionSchema}).strict();
+export const mobileConversationListQuerySchema=z.object({cursor:mobileCursorSchema.optional(),limit:z.coerce.number().int().min(1).max(50).default(25)}).strict();
+export const mobileConversationListDataSchema=z.object({workspace:workspaceSchema,items:z.array(mobileConversationSummarySchema).max(50),nextCursor:mobileCursorSchema.nullable()}).strict();
+export const mobileConversationListResponseSchema=mobileSuccessEnvelopeSchema(mobileConversationListDataSchema);
+export const mobileConversationMessageSchema=z.object({id:uuidSchema,direction:mobileMessageDirectionSchema,body:z.string().max(1600),status:z.string().trim().min(1).max(100),occurredAt:isoDateTimeSchema,attachments:z.array(mobileAttachmentSchema).max(10)}).strict();
+export const mobileConversationMessagesDataSchema=z.object({workspace:workspaceSchema,key:mobileConversationKeySchema,items:z.array(mobileConversationMessageSchema).max(100),nextCursor:mobileCursorSchema.nullable()}).strict();
+export const mobileConversationMessagesResponseSchema=mobileSuccessEnvelopeSchema(mobileConversationMessagesDataSchema);
+
 export const foregroundLocationRequestSchema = z.object({
   latitude: z.number().finite().min(-90).max(90),
   longitude: z.number().finite().min(-180).max(180),
@@ -195,4 +207,8 @@ export type TransitionJobStatusRequest = z.infer<typeof transitionJobStatusReque
 export type AddJobNoteRequest = z.infer<typeof addJobNoteRequestSchema>;
 export type AddJobNoteData = z.infer<typeof addJobNoteDataSchema>;
 export type AddJobNoteResponse = z.infer<typeof addJobNoteResponseSchema>;
+export type MobileConversationSummary=z.infer<typeof mobileConversationSummarySchema>;
+export type MobileConversationListData=z.infer<typeof mobileConversationListDataSchema>;
+export type MobileConversationMessage=z.infer<typeof mobileConversationMessageSchema>;
+export type MobileConversationMessagesData=z.infer<typeof mobileConversationMessagesDataSchema>;
 export type ForegroundLocationRequest = z.infer<typeof foregroundLocationRequestSchema>;

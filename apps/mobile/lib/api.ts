@@ -12,6 +12,8 @@ import {
   type MobileJobsListData,
   type MobileJobsRange,
   mobileJobsListResponseSchema,
+  mobileConversationListResponseSchema,mobileConversationMessagesResponseSchema,
+  type MobileConversationListData,type MobileConversationMessagesData,
 } from "@servonas/shared";
 import { supabase } from "./supabase";
 export class MobileApiError extends Error{constructor(public status:number,message:string){super(message)}}
@@ -34,6 +36,8 @@ export async function ownerManagerHome(businessId:string,signal?:AbortSignal):Pr
 export async function technicianHome(businessId:string,signal?:AbortSignal):Promise<TechnicianHomeData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/employee-home`,technicianHomeResponseSchema,signal);}
 export async function mobileJobs(businessId:string,range:MobileJobsRange,signal?:AbortSignal):Promise<MobileJobsListData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/jobs?range=${range}&limit=100`,mobileJobsListResponseSchema,signal);}
 export async function jobDetail(businessId:string,jobId:string,signal?:AbortSignal):Promise<JobDetailData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/jobs/${encodeURIComponent(jobId)}`,jobDetailResponseSchema,signal);}
+export async function conversations(businessId:string,cursor?:string,signal?:AbortSignal):Promise<MobileConversationListData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/conversations?limit=25${cursor?`&cursor=${encodeURIComponent(cursor)}`:""}`,mobileConversationListResponseSchema,signal);}
+export async function conversationMessages(businessId:string,key:string,cursor?:string,signal?:AbortSignal):Promise<MobileConversationMessagesData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/conversations/${encodeURIComponent(key)}/messages?limit=50${cursor?`&cursor=${encodeURIComponent(cursor)}`:""}`,mobileConversationMessagesResponseSchema,signal);}
 export async function addJobNote(businessId:string,jobId:string,input:AddJobNoteRequest){
   if(!baseUrl)throw new MobileApiError(0,"Mobile API URL is not configured.");
   const {data:{session}}=await supabase.auth.getSession();
