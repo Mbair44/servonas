@@ -25,6 +25,8 @@ test("job detail resolves a verified dual-role assignment without granting offic
 
 test("native note composer keeps a request UUID through an explicit retry and invalidates only the current job", async () => {
   const screen = await read("apps/mobile/app/(protected)/jobs/[businessId]/[jobId].tsx");
+  assert.match(screen, /import \* as Crypto from "expo-crypto"/);
+  assert.match(screen, /return Crypto\.randomUUID\(\)/);
   assert.match(screen, /noteRequestId\.current\?\?=noteRequestUuid\(\)/);
   assert.match(screen, /retry:false/);
   assert.match(screen, /invalidateQueries\(\{queryKey:detailKey\}\)/);
