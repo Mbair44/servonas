@@ -120,6 +120,12 @@ export const jobDetailDataSchema = z.object({
     role: assignmentRoleSchema,
     allowedActions: z.array(technicianJobActionSchema).max(10),
   }).strict(),
+  notes: z.array(z.object({
+    id: uuidSchema,
+    body: z.string().trim().min(1).max(4000),
+    authorName: z.string().trim().min(1).max(200),
+    createdAt: isoDateTimeSchema,
+  }).strict()).max(100),
 }).strict().superRefine((response, ctx) => {
   const actions = new Set(response.assignment.allowedActions);
   if (actions.size !== response.assignment.allowedActions.length) {
@@ -141,6 +147,8 @@ export const addJobNoteRequestSchema = z.object({
   body: z.string().trim().min(1).max(4000),
   idempotencyKey: uuidSchema,
 }).strict();
+export const addJobNoteDataSchema = z.object({jobId: uuidSchema,noteId: uuidSchema}).strict();
+export const addJobNoteResponseSchema = mobileSuccessEnvelopeSchema(addJobNoteDataSchema);
 
 export const foregroundLocationRequestSchema = z.object({
   latitude: z.number().finite().min(-90).max(90),
@@ -169,4 +177,6 @@ export type JobDetailData = z.infer<typeof jobDetailDataSchema>;
 export type JobDetailResponse = z.infer<typeof jobDetailResponseSchema>;
 export type TransitionJobStatusRequest = z.infer<typeof transitionJobStatusRequestSchema>;
 export type AddJobNoteRequest = z.infer<typeof addJobNoteRequestSchema>;
+export type AddJobNoteData = z.infer<typeof addJobNoteDataSchema>;
+export type AddJobNoteResponse = z.infer<typeof addJobNoteResponseSchema>;
 export type ForegroundLocationRequest = z.infer<typeof foregroundLocationRequestSchema>;
