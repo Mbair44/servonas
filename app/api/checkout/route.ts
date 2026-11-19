@@ -9,7 +9,6 @@ import {DEFAULT_WEATHER_POLICY,DEFAULT_RENTAL_WAIVER_POLICY} from "@/lib/rentalP
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import {stripePaymentsReady} from "@/lib/stripeConnect";
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {ensureRentalBookingJob} from "@/lib/rentalBookingJob";
 import {sendRentalBookingBusinessNotification,sendRentalBookingConfirmationEmail} from "@/lib/communications/rentalBookingEmailService";
@@ -27,6 +26,7 @@ import {allocateBundleRevenue,resolveRentalBundle} from "@/lib/rentalBundleResol
 import {eligibleCustomerAddons} from "@/lib/customerAddonEligibility";
 import {qualifiesForThanksgivingRentalOffer,thanksgivingOfferPricingRules,thanksgivingPricingDate} from "@/lib/thanksgivingRentalOffer";
 import {rentalPowerRequirement} from "@/lib/rentalPower";
+import {rentalPublicPaymentPolicy} from "@/lib/rentalPaymentPolicy";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
@@ -175,14 +175,20 @@ export async function POST(request: Request) {
       if(blackoutError)return NextResponse.json({error:"The selected time could not be verified. Please try again."},{status:500});
       if(blackout?.length)return NextResponse.json({error:"That date or time is blocked by the business. Please choose another time."},{status:409});
     }
-    const {data:paymentAccount}=business?await supabase.from("business_payment_accounts")
+    const {data:paymentAccount,error:paymentAccountError}=business?await supabase.from("business_payment_accounts")
       .select("provider_account_id,onboarding_status,charges_enabled,payouts_enabled")
       .eq("business_id",business.id).eq("provider","stripe").maybeSingle():{data:null};
     const configuredDepositPercent=business?Number(publicBooking?.rental_deposit_percent??25):25;
-    const depositPercent=Math.min(100,Math.max(0,Number.isFinite(configuredDepositPercent)?configuredDepositPercent:25));
-    const onlinePaymentsReady=business
-      ? Boolean(depositPercent>0&&stripeKey&&paymentAccount?.provider_account_id&&stripePaymentsReady(paymentAccount))
-      : Boolean(stripeKey);
+    const paymentPolicy=rentalPublicPaymentPolicy({
+      depositPercent:configuredDepositPercent,
+      stripeSecretConfigured:Boolean(stripeKey),
+      paymentAccount:paymentAccount?.provider_account_id?paymentAccount:null,
+    });
+    const depositPercent=paymentPolicy.depositPercent;
+    if(paymentPolicy.requiresOnlineDeposit&&(paymentAccountError||!paymentPolicy.onlinePaymentsReady)){
+      return NextResponse.json({error:"Online payment is temporarily unavailable for this rental business. Please contact the business to complete your reservation."},{status:503});
+    }
+    const onlinePaymentsReady=paymentPolicy.onlinePaymentsReady;
 
     const ids = requestedItems.map((item) => item.inventoryItemId);
     const { data: items, error: itemError } = await supabase
