@@ -7,6 +7,7 @@ import {
   jobDetailResponseSchema,
   meResponseSchema,
   mobileErrorEnvelopeSchema,
+  mobileJobsListResponseSchema,
   ownerManagerDashboardResponseSchema,
   paginationQuerySchema,
   transitionJobStatusRequestSchema,
@@ -103,6 +104,14 @@ test("validates mutation inputs, timestamps, and foreground consent", () => {
   assert.equal(addJobNoteResponseSchema.safeParse({ data: { jobId: ids.job, noteId: ids.request }, requestId: ids.request }).success, true);
   assert.equal(foregroundLocationRequestSchema.safeParse({ latitude: 33.4, longitude: -111.8, accuracyMeters: 12, capturedAt: "2026-11-16T18:45:00Z", foregroundConsent: true, idempotencyKey: ids.request }).success, true);
   assert.equal(foregroundLocationRequestSchema.safeParse({ latitude: 33.4, longitude: -111.8, accuracyMeters: 12, capturedAt: "not-a-date", foregroundConsent: false, idempotencyKey: ids.request }).success, false);
+});
+
+test("validates bounded, timezone-aware mobile job-list responses", () => {
+  assert.equal(mobileJobsListResponseSchema.safeParse({
+    data: { workspace: { ...primaryWorkspace, membershipRole: "staff", technicianEligible: true, availableCapabilities: ["assigned_jobs_read"] }, timezone: "America/Phoenix", range: "upcoming", items: [], truncated: false },
+    requestId: ids.request,
+  }).success, true);
+  assert.equal(mobileJobsListResponseSchema.safeParse({ data: { workspace: primaryWorkspace, timezone: "", range: "future", items: [] }, requestId: ids.request }).success, false);
 });
 
 test("keeps error and pagination conventions strict for future-compatible clients", () => {
