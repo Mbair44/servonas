@@ -34,3 +34,11 @@ test("native note composer keeps a request UUID through an explicit retry and in
   assert.match(screen, /allowedActions\.includes\("add_note"\)/);
   assert.doesNotMatch(screen, /transition_status|processCompletedJobBilling|stripe|twilio/i);
 });
+
+test("mobile API contract errors expose only a safe field path and request reference", async () => {
+  const api = await read("apps/mobile/lib/api.ts");
+  assert.match(api, /function invalidResponseMessage/);
+  assert.match(api, /issue\.path\.join\("\."\)/);
+  assert.match(api, /Reference: \$\{reference\}/);
+  assert.doesNotMatch(api, /console\.(?:log|warn|error)\([^)]*(?:access_token|refresh_token|body)/);
+});
