@@ -3,10 +3,10 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
 import {calculateClosedMessagingPeriods,reconcileTenantMessageUsage} from "@/lib/twilio/messageUsage";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
+import {isAuthorizedCronRequest} from "@/lib/cronAuth";
 export const runtime="nodejs";
 export async function GET(request:Request){
- const expected=process.env.CRON_SECRET,provided=request.headers.get("authorization");
- if(!expected||provided!==`Bearer ${expected}`)return NextResponse.json({error:"Unauthorized"},{status:401});
+ if(!isAuthorizedCronRequest(request))return NextResponse.json({error:"Unauthorized"},{status:401});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
  const {data:expiredPaymentRequests,error:expirationError}=await db.rpc("expire_due_assisted_payment_requests",{p_limit:100});if(expirationError)console.error("Assisted payment-request expiration failed",{code:expirationError.code});
  const today=new Date().toISOString().slice(0,10);

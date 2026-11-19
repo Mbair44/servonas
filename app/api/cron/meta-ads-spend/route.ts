@@ -1,10 +1,11 @@
 import {NextResponse} from "next/server";
 import {syncMetaAdsPerformance} from "@/lib/metaAdsManagement";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+import {isAuthorizedCronRequest} from "@/lib/cronAuth";
 
 export const runtime="nodejs";
 export async function GET(request:Request){
- if(!process.env.CRON_SECRET||request.headers.get("authorization")!==`Bearer ${process.env.CRON_SECRET}`)return NextResponse.json({error:"Unauthorized"},{status:401});
+ if(!isAuthorizedCronRequest(request))return NextResponse.json({error:"Unauthorized"},{status:401});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
  const {data:connections,error:connectionError}=await db.from("business_ad_platform_connections").select("business_id").eq("provider","meta").not("external_account_id","is",null).not("status","in","(disconnected,authorization_expired)");
  if(connectionError)return NextResponse.json({error:"Meta Ads connections unavailable"},{status:500});
