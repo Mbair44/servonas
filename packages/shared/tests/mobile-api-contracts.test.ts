@@ -8,6 +8,8 @@ import {
   meResponseSchema,
   mobileErrorEnvelopeSchema,
   mobileJobsListResponseSchema,
+  mobileConversationListResponseSchema,
+  mobileConversationMessagesResponseSchema,
   ownerManagerDashboardResponseSchema,
   paginationQuerySchema,
   transitionJobStatusRequestSchema,
@@ -119,4 +121,11 @@ test("keeps error and pagination conventions strict for future-compatible client
   assert.equal(mobileErrorEnvelopeSchema.safeParse({ error: { code: "RATE_LIMITED", message: "Slow down.", requestId: ids.request, retryable: true, unexpected: "no" } }).success, false);
   assert.deepEqual(paginationQuerySchema.parse({ limit: "25" }), { limit: 25 });
   assert.equal(paginationQuerySchema.safeParse({ limit: 101 }).success, false);
+});
+
+test("validates read-only office conversation contracts and rejects malformed keys",()=>{
+ const conversation={key:`customer:${ids.customer}`,displayName:"Jordan Customer",phoneNumber:"+15551234567",latestPreview:"Hello",latestAt:"2026-11-19T22:00:00Z",latestDirection:"inbound",unreadCount:1};
+ assert.equal(mobileConversationListResponseSchema.safeParse({data:{workspace:primaryWorkspace,items:[conversation],nextCursor:null},requestId:ids.request}).success,true);
+ assert.equal(mobileConversationListResponseSchema.safeParse({data:{workspace:primaryWorkspace,items:[{...conversation,key:"customer:not-a-uuid"}],nextCursor:null},requestId:ids.request}).success,false);
+ assert.equal(mobileConversationMessagesResponseSchema.safeParse({data:{workspace:primaryWorkspace,key:conversation.key,items:[{id:ids.request,direction:"outbound",body:"Reply",status:"sent",occurredAt:"2026-11-19T22:00:00Z",attachments:[]}],nextCursor:null},requestId:ids.request}).success,true);
 });

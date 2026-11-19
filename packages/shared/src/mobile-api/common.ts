@@ -11,6 +11,9 @@ export const mobileApiPaths = {
   transitionJobStatus: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/status",
   addJobNote: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/notes",
   foregroundLocation: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/location",
+  conversations: "/api/v1/mobile/businesses/:businessId/conversations",
+  conversationMessages: "/api/v1/mobile/businesses/:businessId/conversations/:conversationKey/messages",
+  conversationMedia: "/api/v1/mobile/businesses/:businessId/conversation-media/:attachmentId",
 } as const;
 
 export const uuidSchema = z.uuid();
