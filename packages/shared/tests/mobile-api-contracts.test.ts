@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   addJobNoteRequestSchema,
+  addJobNoteResponseSchema,
   foregroundLocationRequestSchema,
   jobDetailResponseSchema,
   meResponseSchema,
@@ -90,6 +91,7 @@ test("allows primary but not helper lifecycle actions", () => {
       customer: { id: ids.customer, displayName: "Jordan Customer", phone: "+15551234567" },
       service: { id: ids.service, name: "Filter service" }, serviceAddress: "1 Main St",
     },
+    notes: [],
   };
   assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: "primary", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, true);
   assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: "helper", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, false);
@@ -98,6 +100,7 @@ test("allows primary but not helper lifecycle actions", () => {
 test("validates mutation inputs, timestamps, and foreground consent", () => {
   assert.equal(transitionJobStatusRequestSchema.safeParse({ status: "completed", idempotencyKey: ids.request, expectedCurrentStatus: "in_progress" }).success, true);
   assert.equal(addJobNoteRequestSchema.safeParse({ body: "", idempotencyKey: ids.request }).success, false);
+  assert.equal(addJobNoteResponseSchema.safeParse({ data: { jobId: ids.job, noteId: ids.request }, requestId: ids.request }).success, true);
   assert.equal(foregroundLocationRequestSchema.safeParse({ latitude: 33.4, longitude: -111.8, accuracyMeters: 12, capturedAt: "2026-11-16T18:45:00Z", foregroundConsent: true, idempotencyKey: ids.request }).success, true);
   assert.equal(foregroundLocationRequestSchema.safeParse({ latitude: 33.4, longitude: -111.8, accuracyMeters: 12, capturedAt: "not-a-date", foregroundConsent: false, idempotencyKey: ids.request }).success, false);
 });
