@@ -1,9 +1,10 @@
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {syncGoogleAdsSpend} from "@/lib/googleAdsSpendSync";
+import {isAuthorizedCronRequest} from "@/lib/cronAuth";
 export const runtime="nodejs";
 export async function GET(request:Request){
- if(!process.env.CRON_SECRET||request.headers.get("authorization")!==`Bearer ${process.env.CRON_SECRET}`)return NextResponse.json({error:"Unauthorized"},{status:401});
+ if(!isAuthorizedCronRequest(request))return NextResponse.json({error:"Unauthorized"},{status:401});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
  const {data,error}=await db.from("business_google_ads_connections").select("business_id,google_ads_customer_id,status").not("google_ads_customer_id","is",null).neq("status","disconnected");
  if(error)return NextResponse.json({error:"Google Ads connections unavailable"},{status:500});

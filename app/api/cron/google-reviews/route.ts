@@ -1,11 +1,12 @@
 import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {syncGoogleBusinessReviews} from "@/lib/googleBusinessProfile";
+import {isAuthorizedCronRequest} from "@/lib/cronAuth";
 
 // Deliberately opt-in: deploy the schema and validate Google scope/quota before
 // setting GOOGLE_REVIEW_SYNC_ENABLED=true and scheduling this endpoint.
 export async function GET(request:Request){
- if(process.env.CRON_SECRET&&request.headers.get("authorization")!==`Bearer ${process.env.CRON_SECRET}`)return NextResponse.json({error:"Unauthorized"},{status:401});
+ if(!isAuthorizedCronRequest(request))return NextResponse.json({error:"Unauthorized"},{status:401});
  if(process.env.GOOGLE_REVIEW_SYNC_ENABLED!=="true")return NextResponse.json({ok:true,disabled:true});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Supabase unavailable"},{status:503});
  const {data:connections,error}=await db.from("business_google_profile_connections").select("business_id").eq("status","connected");

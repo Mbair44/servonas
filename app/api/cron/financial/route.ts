@@ -3,10 +3,10 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailService";
 import {calculateClosedMessagingPeriods,reconcileTenantMessageUsage} from "@/lib/twilio/messageUsage";
 import {processCompletedJobBilling} from "@/lib/financial/recurringBilling";
+import {isAuthorizedCronRequest} from "@/lib/cronAuth";
 export const runtime="nodejs";
 export async function GET(request:Request){
- const expected=process.env.CRON_SECRET,provided=request.headers.get("authorization");
- if(!expected||provided!==`Bearer ${expected}`)return NextResponse.json({error:"Unauthorized"},{status:401});
+ if(!isAuthorizedCronRequest(request))return NextResponse.json({error:"Unauthorized"},{status:401});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
  const revenueAttribution={inserted:0,issues:0,error:undefined as string|undefined};
  try{const {data,error:attributionError}=await db.rpc("reconcile_revenue_events",{p_business_id:null,p_limit:1000});if(attributionError)throw attributionError;revenueAttribution.inserted=Number(data?.inserted??0);revenueAttribution.issues=Number(data?.issues??0);}catch(error){revenueAttribution.error="Revenue attribution reconciliation failed";console.error("Revenue attribution reconciliation failed",{errorName:error instanceof Error?error.name:"unknown"});}

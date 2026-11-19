@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendRentalLifecycleSms } from "@/lib/communications/rentalLifecycleSms";
 import {sendFleetRegistrationReminders} from "@/lib/communications/fleetRegistrationEmailService";
+import {isAuthorizedCronRequest} from "@/lib/cronAuth";
 
 function phoenixDate(offsetDays: number) {
   const now = new Date();
@@ -11,8 +12,7 @@ function phoenixDate(offsetDays: number) {
   return date.toISOString().slice(0, 10);
 }
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isAuthorizedCronRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const supabase = getSupabaseAdmin(); if (!supabase) return NextResponse.json({ error: "Supabase unavailable" }, { status: 503 });
   const tomorrow = phoenixDate(1), yesterday = phoenixDate(-1);
   const [reminders, reviews, pendingReviewEvents] = await Promise.all([
