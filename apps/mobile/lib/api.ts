@@ -9,6 +9,9 @@ import {
   type OwnerManagerDashboardData,
   type TechnicianHomeData,
   type AddJobNoteRequest,
+  type MobileJobsListData,
+  type MobileJobsRange,
+  mobileJobsListResponseSchema,
 } from "@servonas/shared";
 import { supabase } from "./supabase";
 export class MobileApiError extends Error{constructor(public status:number,message:string){super(message)}}
@@ -29,6 +32,7 @@ async function mobileGet<T>(path:string,schema:{parse:(value:unknown)=>{data:T}}
 export async function mobileMe(signal?:AbortSignal):Promise<MeResponse["data"]>{return mobileGet("/api/v1/mobile/me",meResponseSchema,signal);}
 export async function ownerManagerHome(businessId:string,signal?:AbortSignal):Promise<OwnerManagerDashboardData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/owner-home`,ownerManagerDashboardResponseSchema,signal);}
 export async function technicianHome(businessId:string,signal?:AbortSignal):Promise<TechnicianHomeData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/employee-home`,technicianHomeResponseSchema,signal);}
+export async function mobileJobs(businessId:string,range:MobileJobsRange,signal?:AbortSignal):Promise<MobileJobsListData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/jobs?range=${range}&limit=100`,mobileJobsListResponseSchema,signal);}
 export async function jobDetail(businessId:string,jobId:string,signal?:AbortSignal):Promise<JobDetailData>{return mobileGet(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/jobs/${encodeURIComponent(jobId)}`,jobDetailResponseSchema,signal);}
 export async function addJobNote(businessId:string,jobId:string,input:AddJobNoteRequest){
   if(!baseUrl)throw new MobileApiError(0,"Mobile API URL is not configured.");

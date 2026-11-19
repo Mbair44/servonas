@@ -9,6 +9,17 @@ export function localDayBounds(timezone: string, now = new Date()) {
   return { date, start: zonedDateTimeToUtc(date, "00:00", timezone).toISOString(), end: zonedDateTimeToUtc(next, "00:00", timezone).toISOString() };
 }
 
+export function mobileJobRangeBounds(timezone: string, range: "today" | "upcoming" | "past", now = new Date()) {
+  const today = localDayBounds(timezone, now);
+  if (range === "today") return { start: today.start, end: today.end, ascending: true };
+  if (range === "upcoming") {
+    const endDate = addDays(today.date, 31);
+    return { start: today.end, end: zonedDateTimeToUtc(endDate, "00:00", timezone).toISOString(), ascending: true };
+  }
+  const startDate = addDays(today.date, -30);
+  return { start: zonedDateTimeToUtc(startDate, "00:00", timezone).toISOString(), end: today.start, ascending: false };
+}
+
 export function summary(row: any, assignmentRole: "primary" | "helper" = "primary") {
   const customer = relation(row.customers), service = relation(row.services), location = relation(row.service_locations);
   return { id: row.id, businessId: row.business_id, jobNumber: Number(row.job_number), title: row.title, status: row.status, priority: row.priority,

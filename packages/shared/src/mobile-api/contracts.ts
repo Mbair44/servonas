@@ -94,6 +94,19 @@ export const technicianHomeDataSchema = z.object({
 });
 export const technicianHomeResponseSchema = mobileSuccessEnvelopeSchema(technicianHomeDataSchema);
 
+export const mobileJobsRangeSchema = z.enum(["today", "upcoming", "past"]);
+export const mobileJobsQuerySchema = z.object({
+  range: mobileJobsRangeSchema.default("today"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+}).strict();
+export const mobileJobsListDataSchema = z.object({
+  workspace: workspaceSchema,
+  timezone: z.string().trim().min(1).max(100),
+  range: mobileJobsRangeSchema,
+  items: z.array(assignedJobSummarySchema).max(100),
+}).strict();
+export const mobileJobsListResponseSchema = mobileSuccessEnvelopeSchema(mobileJobsListDataSchema);
+
 export const jobDetailDataSchema = z.object({
   workspace: workspaceSchema,
   job: z.object({
@@ -173,6 +186,8 @@ export type OwnerManagerDashboardData = z.infer<typeof ownerManagerDashboardData
 export type OwnerManagerDashboardResponse = z.infer<typeof ownerManagerDashboardResponseSchema>;
 export type TechnicianHomeData = z.infer<typeof technicianHomeDataSchema>;
 export type TechnicianHomeResponse = z.infer<typeof technicianHomeResponseSchema>;
+export type MobileJobsRange = z.infer<typeof mobileJobsRangeSchema>;
+export type MobileJobsListData = z.infer<typeof mobileJobsListDataSchema>;
 export type JobDetailData = z.infer<typeof jobDetailDataSchema>;
 export type JobDetailResponse = z.infer<typeof jobDetailResponseSchema>;
 export type TransitionJobStatusRequest = z.infer<typeof transitionJobStatusRequestSchema>;
