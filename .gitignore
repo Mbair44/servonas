@@ -5,6 +5,7 @@ node_modules
 *.log
 .pnpm-store/
 .pnpm-store/
+.vercel
 
 # Expo / React Native build artifacts
 apps/mobile/.expo/
