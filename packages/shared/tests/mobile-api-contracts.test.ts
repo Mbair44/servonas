@@ -108,7 +108,7 @@ test("validates mutation inputs, timestamps, and foreground consent", () => {
 
 test("validates bounded, timezone-aware mobile job-list responses", () => {
   assert.equal(mobileJobsListResponseSchema.safeParse({
-    data: { workspace: { ...primaryWorkspace, membershipRole: "staff", technicianEligible: true, availableCapabilities: ["assigned_jobs_read"] }, timezone: "America/Phoenix", range: "upcoming", items: [] },
+    data: { workspace: { ...primaryWorkspace, membershipRole: "staff", technicianEligible: true, availableCapabilities: ["assigned_jobs_read"] }, timezone: "America/Phoenix", range: "upcoming", items: [], truncated: false },
     requestId: ids.request,
   }).success, true);
   assert.equal(mobileJobsListResponseSchema.safeParse({ data: { workspace: primaryWorkspace, timezone: "", range: "future", items: [] }, requestId: ids.request }).success, false);

@@ -104,6 +104,7 @@ export const mobileJobsListDataSchema = z.object({
   timezone: z.string().trim().min(1).max(100),
   range: mobileJobsRangeSchema,
   items: z.array(assignedJobSummarySchema).max(100),
+  truncated: z.boolean(),
 }).strict();
 export const mobileJobsListResponseSchema = mobileSuccessEnvelopeSchema(mobileJobsListDataSchema);
 

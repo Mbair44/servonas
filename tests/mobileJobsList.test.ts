@@ -13,6 +13,8 @@ test("mobile jobs list uses server-side tenant, office, technician, and business
   assert.match(route, /mobileJobRangeBounds\(business\.timezone,query\.data\.range\)/);
   assert.match(route, /\.eq\("job_assignments\.is_active",true\)/);
   assert.match(route, /\.order\("starts_at"/);
+  assert.match(route, /\.limit\(query\.data\.limit\+1\)/);
+  assert.match(route, /truncated=.*length>query\.data\.limit/);
   assert.doesNotMatch(route, /stripe|payment|invoice|twilio|sms|transition_assigned_job_status/i);
 });
 
@@ -27,4 +29,6 @@ test("native office and technician job screens expose all bounded ranges with te
     assert.match(screen, /mobileJobs\(businessId,range,signal\)/);
   }
   assert.match(technician, /technicianEligible/);
+  assert.match(technician, /Showing the first 100/);
+  assert.match(office, /Showing the first 100/);
 });
