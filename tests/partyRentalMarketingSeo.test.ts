@@ -35,6 +35,8 @@ test("party-rental software landing has distinct metadata, visible FAQs, canonic
 test("marketing sitemap includes party-rental pages while host-aware tenant logic remains intact",async()=>{
  const sitemap=await read("app/sitemap.xml/route.ts");
  assert.match(sitemap,/"party-rental-software"/);
+ assert.match(sitemap,/"bounce-house-rental-software"/);
+ assert.match(sitemap,/"inflatable-rental-software"/);
  assert.match(sitemap,/"industries\/event-party-rentals"/);
  assert.match(sitemap,/"event-party-rentals-website"/);
  assert.match(sitemap,/host===platformHost/);
