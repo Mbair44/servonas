@@ -53,3 +53,25 @@ end;
 $$;
 revoke all on function public.set_employee_mobile_notification_preference(uuid,uuid,boolean) from public;
 grant execute on function public.set_employee_mobile_notification_preference(uuid,uuid,boolean) to authenticated;
+
+create or replace function public.register_mobile_device(p_business_id uuid,p_expo_push_token text)
+returns uuid language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_id uuid;
+begin
+ if auth.uid() is null or not public.is_business_member(p_business_id) then raise exception 'Permission denied' using errcode='42501'; end if;
+ if exists(select 1 from public.mobile_device_registrations where expo_push_token=p_expo_push_token and user_id<>auth.uid()) then raise exception 'Device token belongs to another account' using errcode='42501'; end if;
+ insert into public.mobile_device_registrations(business_id,user_id,expo_push_token,is_active,updated_at,deactivated_at)
+ values(p_business_id,auth.uid(),p_expo_push_token,true,now(),null)
+ on conflict(business_id,user_id,expo_push_token) do update set is_active=true,updated_at=now(),deactivated_at=null
+ returning id into v_id;
+ return v_id;
+end;$$;
+create or replace function public.deactivate_mobile_devices(p_business_id uuid,p_expo_push_token text default null)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+ if auth.uid() is null or not public.is_business_member(p_business_id) then raise exception 'Permission denied' using errcode='42501'; end if;
+ update public.mobile_device_registrations set is_active=false,deactivated_at=now(),updated_at=now()
+ where business_id=p_business_id and user_id=auth.uid() and is_active and (p_expo_push_token is null or expo_push_token=p_expo_push_token);
+end;$$;
+revoke all on function public.register_mobile_device(uuid,text),public.deactivate_mobile_devices(uuid,text) from public;
+grant execute on function public.register_mobile_device(uuid,text),public.deactivate_mobile_devices(uuid,text) to authenticated;
