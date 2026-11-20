@@ -14,6 +14,8 @@ export const mobileApiPaths = {
   conversations: "/api/v1/mobile/businesses/:businessId/conversations",
   conversationMessages: "/api/v1/mobile/businesses/:businessId/conversations/:conversationKey/messages",
   conversationMedia: "/api/v1/mobile/businesses/:businessId/conversation-media/:attachmentId",
+  conversationAttachmentUpload: "/api/v1/mobile/businesses/:businessId/conversation-attachments",
+  markConversationRead: "/api/v1/mobile/businesses/:businessId/conversations/:conversationKey/read",
 } as const;
 
 export const uuidSchema = z.uuid();
