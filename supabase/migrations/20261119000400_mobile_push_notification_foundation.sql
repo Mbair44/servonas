@@ -98,3 +98,36 @@ begin
 end;$$;
 revoke all on function public.enqueue_inbound_message_push_intents(uuid,uuid) from public;
 grant execute on function public.enqueue_inbound_message_push_intents(uuid,uuid) to service_role;
+
+create or replace function public.claim_inbound_message_push_outbox(p_limit integer,p_lease_owner text)
+returns setof public.inbound_message_push_outbox language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+ if p_limit<1 or p_limit>100 or length(trim(p_lease_owner))<8 then raise exception 'Invalid claim request' using errcode='22023'; end if;
+ return query with candidates as (
+  select id from public.inbound_message_push_outbox
+  where (status in ('pending','retryable_failure') and next_attempt_at<=now())
+     or (status='processing' and lease_expires_at<now())
+  order by next_attempt_at,created_at for update skip locked limit p_limit
+ ) update public.inbound_message_push_outbox o
+ set status='processing',lease_owner=p_lease_owner,lease_expires_at=now()+interval '5 minutes',updated_at=now()
+ from candidates where o.id=candidates.id returning o.*;
+end;$$;
+revoke all on function public.claim_inbound_message_push_outbox(integer,text) from public;
+grant execute on function public.claim_inbound_message_push_outbox(integer,text) to service_role;
+
+create or replace function public.reconcile_recent_inbound_message_push_intents(p_limit integer)
+returns integer language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_count integer;
+begin
+ if p_limit<1 or p_limit>100 then raise exception 'Invalid reconciliation limit' using errcode='22023'; end if;
+ with recent as (select m.business_id,m.id from public.customer_messages m where m.direction='inbound' and m.provider='twilio' and m.created_at>=now()-interval '10 minutes' order by m.created_at limit p_limit)
+ insert into public.inbound_message_push_outbox(business_id,message_id,device_registration_id)
+ select r.business_id,r.id,d.id from recent r join public.mobile_device_registrations d on d.business_id=r.business_id and d.is_active
+ join public.employees e on e.business_id=d.business_id and e.auth_user_id=d.user_id and e.is_active
+ join public.employee_mobile_notification_preferences p on p.business_id=e.business_id and p.employee_id=e.id and p.receive_incoming_text_notifications
+ join public.business_members bm on bm.business_id=d.business_id and bm.user_id=d.user_id and bm.role in ('owner','admin','manager')
+ on conflict(business_id,message_id,device_registration_id) do nothing;
+ get diagnostics v_count=row_count;return v_count;
+end;$$;
+revoke all on function public.reconcile_recent_inbound_message_push_intents(integer) from public;
+grant execute on function public.reconcile_recent_inbound_message_push_intents(integer) to service_role;
