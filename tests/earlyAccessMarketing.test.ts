@@ -5,7 +5,15 @@ const read=(file:string)=>readFile(new URL(`../${file}`,import.meta.url),"utf8")
 
 test("early-access route collects consent and is not indexed",async()=>{
  const [page,form]=await Promise.all([read("app/early-access/page.tsx"),read("app/early-access/EarlyAccessForm.tsx")]);
- assert.match(page,/index:false/);assert.match(page,/does not guarantee immediate access/);assert.match(form,/name="consent"/);assert.match(form,/InflatableOffice/);assert.match(form,/I don&apos;t use software yet/);
+ assert.match(page,/index:false/);assert.match(page,/Less busywork\. More bookings/);assert.match(page,/No commitment to join/);assert.match(form,/name="consent"/);assert.match(form,/InflatableOffice/);assert.match(form,/I don&apos;t use software yet/);assert.match(form,/City <small>Optional/);assert.match(form,/State <small>Optional/);
+});
+
+test("location is optional through validation, storage migration, dashboard, and notification",async()=>{
+ const [validation,migration,dashboard,route]=await Promise.all([read("lib/earlyAccess.ts"),read("supabase/migrations/20261120000200_early_access_optional_location.sql"),read("app/app/admin/early-access/page.tsx"),read("app/api/early-access/route.ts")]);
+ assert.match(validation,/businessCity=value\(input\.businessCity,120\)\|\|null/);
+ assert.doesNotMatch(validation,/!businessCity\|\|!businessState/);
+ assert.match(migration,/alter column business_city drop not null/);assert.match(migration,/alter column business_state drop not null/);
+ assert.match(dashboard,/Location not provided/);assert.match(route,/Location: \$\{\[lead\.business_city,lead\.business_state\]/);
 });
 test("public lead API only persists approved fields and keeps persistence ahead of notification",async()=>{
  const route=await read("app/api/early-access/route.ts");

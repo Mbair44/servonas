@@ -9,8 +9,8 @@ const value=(input:unknown,max:number)=>typeof input==="string"?input.trim().sli
 const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function parseEarlyAccessLead(input:Record<string,unknown>){
- const contactName=value(input.contactName,120),businessName=value(input.businessName,160),email=value(input.email,254).toLowerCase(),businessCity=value(input.businessCity,120),businessState=value(input.businessState,80),currentSoftware=value(input.currentSoftware,64);
- if(!contactName||!businessName||!businessCity||!businessState||!emailPattern.test(email)||!EARLY_ACCESS_SOFTWARE.includes(currentSoftware as typeof EARLY_ACCESS_SOFTWARE[number])||input.consent!==true)return null;
+ const contactName=value(input.contactName,120),businessName=value(input.businessName,160),email=value(input.email,254).toLowerCase(),businessCity=value(input.businessCity,120)||null,businessState=value(input.businessState,80)||null,currentSoftware=value(input.currentSoftware,64);
+ if(!contactName||!businessName||!emailPattern.test(email)||!EARLY_ACCESS_SOFTWARE.includes(currentSoftware as typeof EARLY_ACCESS_SOFTWARE[number])||input.consent!==true)return null;
  const inventorySize=value(input.inventorySize,32);
  if(inventorySize&&!EARLY_ACCESS_INVENTORY.includes(inventorySize as typeof EARLY_ACCESS_INVENTORY[number]))return null;
  const websiteUrl=value(input.websiteUrl,500);
