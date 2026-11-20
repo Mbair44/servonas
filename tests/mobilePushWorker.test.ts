@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
 import {sendExpoIncomingMessagePush} from "../lib/mobilePush/expoPush.ts";
-const valid="ExponentPushToken[unit-test-token]",input={token:valid,businessId:"00000000-0000-0000-0000-000000000001",messageId:"00000000-0000-0000-0000-000000000002",title:"Acme"};
+const valid="ExponentPushToken[unit-test-token]",input={token:valid,businessId:"00000000-0000-0000-0000-000000000001",messageId:"00000000-0000-0000-0000-000000000002",conversationKey:"customer:00000000-0000-0000-0000-000000000003",title:"Acme"};
 test("Expo adapter is mockable and classifies provider outcomes without live calls",async()=>{
  const ok=await sendExpoIncomingMessagePush(input,async()=>new Response(JSON.stringify({data:[{status:"ok"}]}),{status:200}));assert.equal(ok.kind,"accepted");
  const invalid=await sendExpoIncomingMessagePush(input,async()=>new Response(JSON.stringify({data:[{status:"error",details:{error:"DeviceNotRegistered"}}]}),{status:200}));assert.equal(invalid.kind,"invalid_token");

@@ -18,7 +18,7 @@ export async function GET(request:Request){
  let accepted=0,skipped=0,retrying=0,uncertain=0;
  for(const item of claimed??[]){
   const [{data:message},{data:device},{data:business}]=await Promise.all([
-   db.from("customer_messages").select("id,business_id,direction").eq("id",item.message_id).eq("business_id",item.business_id).maybeSingle(),
+   db.from("customer_messages").select("id,business_id,direction,customer_id").eq("id",item.message_id).eq("business_id",item.business_id).maybeSingle(),
    db.from("mobile_device_registrations").select("id,user_id,expo_push_token,is_active").eq("id",item.device_registration_id).eq("business_id",item.business_id).maybeSingle(),
    db.from("businesses").select("name").eq("id",item.business_id).maybeSingle(),
   ]);
@@ -29,7 +29,7 @@ export async function GET(request:Request){
   ]);
   const {data:pref}=employee?await db.from("employee_mobile_notification_preferences").select("receive_incoming_text_notifications").eq("business_id",item.business_id).eq("employee_id",employee.id).maybeSingle():{data:null};
   if(!employee||!membership||!pref?.receive_incoming_text_notifications){await finish(db,item.id,"terminal_failure",{provider_outcome:{reason:"authorization_revoked"}});skipped++;continue;}
-  const result=await sendExpoIncomingMessagePush({token:device.expo_push_token,businessId:item.business_id,messageId:item.message_id,title:business.name});
+  const result=await sendExpoIncomingMessagePush({token:device.expo_push_token,businessId:item.business_id,messageId:item.message_id,conversationKey:message.customer_id?`customer:${message.customer_id}`:null,title:business.name});
   if(result.kind==="accepted"){await finish(db,item.id,"delivered",{delivered_at:new Date().toISOString(),provider_outcome:{accepted:true}});accepted++;continue;}
   if(result.kind==="invalid_token"){await db.from("mobile_device_registrations").update({is_active:false,deactivated_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",device.id).eq("business_id",item.business_id);await finish(db,item.id,"terminal_failure",{provider_outcome:{reason:"invalid_token"}});skipped++;continue;}
   if(result.kind==="uncertain"){await finish(db,item.id,"uncertain",{provider_outcome:{reason:"provider_outcome_uncertain"}});uncertain++;continue;}

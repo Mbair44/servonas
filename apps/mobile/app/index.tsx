@@ -7,7 +7,7 @@ import { mobileMe } from "../lib/api";
 import { preferences, type Experience } from "../lib/preferences";
 import { allowedExperiences, selectedExperience, selectedWorkspace } from "../lib/navigation";
 import { clearForAccountChange, clearForExperienceChange, clearForWorkspaceChange, mobileMeQueryKey, refreshAuthorizedWorkspaces } from "../lib/queryState";
-import { deactivateIncomingMessageNotifications, enableIncomingMessageNotifications } from "../lib/deviceNotifications";
+import { deactivateIncomingMessageNotifications, enableIncomingMessageNotifications, watchIncomingMessagePushToken } from "../lib/deviceNotifications";
 
 export default function FoundationScreen() {
   const [session, setSession] = useState<any>();
@@ -62,6 +62,7 @@ export default function FoundationScreen() {
       void (experience ? preferences.setExperience(experience) : preferences.clearExperience());
     }
   }, [experience, me.isError, me.isLoading, savedExperience, savedWorkspace, session, workspace]);
+  useEffect(()=>{if(!session||!workspace)return;const subscription=watchIncomingMessagePushToken(workspace.id);return()=>subscription.remove();},[session?.user.id,workspace?.id]);
 
   if (!ready) return <Center text="Restoring secure session…" />;
   if (!session) return <Login email={email} password={password} error={error} onEmail={setEmail} onPassword={setPassword} onError={setError} />;
@@ -73,6 +74,7 @@ export default function FoundationScreen() {
   const switchWorkspace = async (id: string) => {
     if (id === workspace.id || !workspaces.some((item) => item.id === id)) return;
     // All future tenant-scoped query keys must start with "tenant".
+    await deactivateIncomingMessageNotifications([workspace.id]);
     clearForWorkspaceChange(client);
     setSavedWorkspace(id);
     setSavedExperience(null);

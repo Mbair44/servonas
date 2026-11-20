@@ -27,3 +27,6 @@ export async function enableIncomingMessageNotifications(businessId:string):Prom
 export async function deactivateIncomingMessageNotifications(businessIds:string[]){
  await Promise.allSettled(businessIds.map((businessId)=>api(businessId,"DELETE")));
 }
+export function watchIncomingMessagePushToken(businessId:string){
+ return Notifications.addPushTokenListener((token)=>{void api(businessId,"POST",token.data).catch(()=>undefined);});
+}
