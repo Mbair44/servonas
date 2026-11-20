@@ -1,118 +1,24 @@
+import Image from "next/image";
 import Link from "next/link";
-import type { Metadata } from "next";
+import type {Metadata} from "next";
 import {MarketingContentAttribution} from "@/components/MarketingContentAttribution";
 import {ServerMarketingLandingAttribution} from "@/components/ServerMarketingLandingAttribution";
 
-export const metadata: Metadata = {
- title: "Service Business Management Software | Servonas",
- description: "Run customers, estimates, scheduling, dispatch, field teams, online booking, invoicing, payments, websites, and marketing from one service business platform.",
-};
+export const metadata:Metadata={title:"Party Rental Software for Bounce House Businesses | Servonas",description:"Manage your party rental business with Servonas. Handle online bookings, rental inventory, deposits, deliveries, and customer communication in one platform.",alternates:{canonical:"/"},openGraph:{title:"Party Rental Software for Bounce House Businesses | Servonas",description:"Online bookings, rental inventory, deposits, deliveries, and customer communication for party rental operators.",images:[{url:"/images/event-party-rentals-bounce-house-setup.png",width:1536,height:1024,alt:"Bounce house prepared for a party rental event"}]},twitter:{card:"summary_large_image",title:"Party Rental Software for Bounce House Businesses | Servonas",description:"One platform for party rental bookings, inventory, deposits, deliveries, and customer communication.",images:["/images/event-party-rentals-bounce-house-setup.png"]}};
 
-type CapabilityIconName="customers"|"recurring"|"dispatch"|"schedule"|"booking"|"payments";
-const capabilityIconPaths:Record<CapabilityIconName,React.ReactNode>={
- customers:<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
- recurring:<><path d="M20 7h-9a4 4 0 0 0-4 4v1"/><path d="m17 4 3 3-3 3M4 17h9a4 4 0 0 0 4-4v-1"/><path d="m7 20-3-3 3-3"/></>,
- dispatch:<><path d="M21 10c0 5-9 12-9 12S3 15 3 10a9 9 0 1 1 18 0Z"/><circle cx="12" cy="10" r="3"/><path d="M8.5 3.7 6 1M15.5 3.7 18 1"/></>,
- schedule:<><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/><path d="m9 16 2 2 4-4"/></>,
- booking:<><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M8 12h3M8 16h5"/><path d="m16 14 1.5 1.5L21 12"/></>,
- payments:<><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/><path d="M17 3v4M15 5h4"/></>,
-};
-function CapabilityIcon({name}:{name:CapabilityIconName}){
- return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{capabilityIconPaths[name]}</svg>;
-}
-
-const capabilities=[
- {icon:"customers" as const,title:"Customer CRM",description:"Keep contacts, service locations, access notes, service history, balances, and recurring plans together."},
- {icon:"recurring" as const,title:"Recurring service",description:"Build repeatable service plans, generate upcoming work, and keep routine customers from falling through the cracks."},
- {icon:"dispatch" as const,title:"Smart dispatch",description:"Assign technicians, visualize the day, calculate road routes, and reduce unnecessary drive time."},
- {icon:"schedule" as const,title:"Jobs & scheduling",description:"Schedule one-time or recurring work and follow every job from intake through completion."},
- {icon:"booking" as const,title:"Online booking",description:"Give customers a branded booking experience with live availability, confirmations, email, and text updates."},
- {icon:"payments" as const,title:"Invoices & payments",description:"Turn completed work into an invoice, collect or record payments, and maintain an accurate customer balance."},
-];
-
-const workflow=[
- ["01","Customer requests service"],
- ["02","Servonas schedules the work"],
- ["03","Dispatch optimizes the route"],
- ["04","Technician completes the job"],
- ["05","Invoice and payment follow"],
-];
+const capabilities=[["Online bookings","Give customers a clear way to browse rentals, choose an event date, and begin a reservation without back-and-forth calls."],["Rental inventory and availability","Keep bounce houses, slides, tables, chairs, and add-ons organized around the dates they are available."],["Deposits and payments","Set payment terms for your rental business and keep deposit and remaining-balance information connected to each booking."],["Delivery and pickup management","Turn bookings into scheduled work your team can use for delivery, pickup, addresses, and event notes."],["Customer communication","Keep customer details, booking history, confirmations, and operational notes in one shared workspace."],["Rental websites","Publish a branded rental catalog that helps customers discover inventory and start their booking online."]] as const;
+const workflow=["Browse Rentals","Choose Date","Pay Deposit","Booking Confirmation","Delivery & Pickup","Remaining Balance"];
 
 export default async function HomePage({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
  const params=await searchParams,content=params.utm_content?.trim()??"",validContent=/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(content)?content:"";
- return <main className="marketing-home">
-  <ServerMarketingLandingAttribution source="servonas.com" path="/" searchParams={params} trackSignup />
-  {validContent&&<MarketingContentAttribution content={validContent}/>} 
-  <section className="home-hero">
-   <div className="home-hero-glow one"/><div className="home-hero-glow two"/>
-   <div className="sv-container home-hero-grid">
-    <div className="home-hero-copy">
-     <span className="sv-kicker">Service business management software</span>
-     <h1>Run your entire service business from <span>first call to final payment.</span></h1>
-     <p>For owner-led HVAC, plumbing, lawn, and cleaning crews: one system for customers, work orders, scheduling, routes, online booking, invoices, and payments—without double entry.</p>
-     <div className="sv-actions"><Link className="sv-button home-primary-cta" data-acquisition-signup data-acquisition-primary-cta data-acquisition-location="home_hero_primary" href="/signup?source=servonas.com">Start Free <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" data-acquisition-demo data-acquisition-secondary-cta data-acquisition-location="home_hero_demo" href="/demo">See Servonas in action</Link></div>
-     <div className="home-proof"><span>✓ One flat price, everything included</span><span>✓ Route optimization that plans the day</span><span>✓ Works on any phone—no special hardware</span></div>
-    </div>
-
-    <div className="home-product-preview" aria-label="Example Servonas dispatch workspace">
-     <header><div><i/><i/><i/></div><span>Today’s field operations</span><b>Live</b></header>
-     <div className="home-preview-body">
-      <aside>
-       <strong>Tuesday route</strong><small>5 scheduled stops</small>
-       {["Seasonal Maintenance","Customer Installation","Property Service","Scheduled Repair"].map((job,index)=><div className="home-route-stop" key={job}><em>{index+1}</em><span><b>{job}</b><small>{["9:00 AM · Gilbert","10:20 AM · Gilbert","12:05 PM · Mesa","2:15 PM · Chandler"][index]}</small></span></div>)}
-      </aside>
-      <div className="home-route-map">
-       <span className="map-road road-one"/><span className="map-road road-two"/>
-       <span className="route-line line-one"/><span className="route-line line-two"/><span className="route-line line-three"/>
-       <b className="map-pin pin-one"><span>1</span></b><b className="map-pin pin-two"><span>2</span></b><b className="map-pin pin-three"><span>3</span></b><b className="map-pin pin-four"><span>4</span></b>
-       <div className="route-summary"><small>Optimized day</small><strong>4 stops ready</strong><span>Route and drive time calculated</span></div>
-      </div>
-     </div>
-    </div>
-   </div>
-  </section>
-
-  <section className="home-workflow" aria-labelledby="workflow-title"><div className="sv-container">
-   <div><span className="sv-kicker">One continuous workflow</span><h2 id="workflow-title">The work moves forward without the busywork.</h2></div>
-   <ol>{workflow.map(([number,label])=><li key={number}><span>{number}</span><strong>{label}</strong></li>)}</ol>
-  </div></section>
-
-  <section className="sv-section home-capabilities"><div className="sv-container">
-   <div className="sv-heading"><span className="sv-kicker">Your operation in one place</span><h2>Everything your office and field team need to stay in sync.</h2><p>Each part of Servonas shares the same customer, location, work order, employee, and billing information—so your team can act without double entry or manual spreadsheets.</p></div>
-   <div className="home-capability-grid">{capabilities.map(item=><article key={item.title}><i><CapabilityIcon name={item.icon}/></i><div><h3>{item.title}</h3><p>{item.description}</p></div></article>)}</div>
-  </div></section>
-
-  <section className="home-objections"><div className="sv-container">
-   <div className="sv-heading"><span className="sv-kicker">Built around the questions small crews ask</span><h2>No surprise add-ons. No new hardware. No pressure to pay before you&apos;re ready.</h2></div>
-   <div><article><h3>One flat price, everything included</h3><p>Core office and field tools live in one plan instead of being sold back to you feature by feature.</p></article><article><h3>Works on any phone</h3><p>Your team can use Servonas in the field without buying special devices or iPad minis.</p></article><article><h3>Free while we build</h3><p>Early access is free. You&apos;ll get advance notice and a choice before any billing begins.</p></article></div>
-  </div></section>
-
-  <section className="home-operations"><div className="sv-container home-operations-grid">
-   <div>
-    <span className="sv-kicker">Built for modern service operations</span>
-    <h2>Know who needs service, who is working, and what needs attention.</h2>
-    <p>Servonas gives owners and dispatchers a live operating picture—not a collection of disconnected appointments.</p>
-    <ul><li><b>Recurring plans</b><span>Generate and manage repeat visits with preserved pricing.</span></li><li><b>Territories and technicians</b><span>Match service locations to the right operating team.</span></li><li><b>Route-aware scheduling</b><span>Sequence flexible service calls around the day’s real geography.</span></li><li><b>Operational alerts</b><span>Surface unassigned work, address problems, conflicts, and failed actions.</span></li></ul>
-   </div>
-   <div className="home-attention-card">
-    <header><div><small>Daily workspace</small><strong>Needs attention</strong></div><span>Today</span></header>
-    <article><i className="blue">3</i><div><strong>Unassigned jobs</strong><small>Ready for a technician</small></div><b>Assign →</b></article>
-    <article><i className="orange">2</i><div><strong>Pending bookings</strong><small>Waiting for office review</small></div><b>Review →</b></article>
-    <article><i className="green">8</i><div><strong>Scheduled today</strong><small>Routes prepared for the field</small></div><b>Dispatch →</b></article>
-    <footer><span>Recent activity</span><strong>Job completed · Customer notified</strong><small>Just now</small></footer>
-   </div>
-  </div></section>
-
-  <section className="sv-section home-audience"><div className="sv-container">
-   <div className="sv-heading"><span className="sv-kicker">Made for businesses on the move</span><h2>Designed around real service days.</h2><p>Ideal for teams that visit customer locations, manage recurring work, and need the office and field to operate as one.</p></div>
-   <div>{["HVAC","Plumbing","Electrical","Pest control","Lawn & landscape","Cleaning services","Pool service","Party rentals","Equipment rentals","Mobile service teams"].map(name=><span key={name}>{name}</span>)}</div>
-  </div></section>
-
-  <section className="home-fit"><div className="sv-container"><strong>Best fit for owner-led service crews that dispatch work in the field.</strong><p>Not designed for enterprise teams that need a sales-led rollout, custom procurement, or a complex multi-system implementation.</p></div></section>
-
-  <section className="home-final-cta"><div className="sv-container">
-   <div><span className="sv-kicker">Ready to run a clearer operation?</span><h2>Build your service business on Servonas.</h2><p>Create your workspace, add your team, and start organizing customers and field work in one place.</p></div>
-   <div className="sv-actions"><Link className="sv-button sv-light" data-acquisition-signup data-acquisition-primary-cta data-acquisition-location="home_final_primary" href="/signup?source=servonas.com">Start Free</Link><Link className="home-contact-link" data-acquisition-secondary-cta data-acquisition-location="home_final_contact" href="/contact">Talk to us →</Link></div>
-  </div></section>
+ return <main className="marketing-home party-rental-home">
+  <ServerMarketingLandingAttribution source="servonas.com" path="/" searchParams={params} trackSignup />{validContent&&<MarketingContentAttribution content={validContent}/>}
+  <section className="home-hero party-rental-hero"><div className="home-hero-glow one"/><div className="home-hero-glow two"/><div className="sv-container party-rental-hero-grid"><div className="home-hero-copy"><span className="sv-kicker">Party rental software</span><h1>More Bookings.<br/><span>Less Busywork.</span></h1><p>Servonas helps bounce house and party rental companies manage bookings, inventory, deposits, deliveries, and customer communication from one place.</p><div className="sv-actions"><Link className="sv-button home-primary-cta" data-acquisition-primary-cta data-acquisition-location="home_hero_early_access" href="/contact?interest=early-access">Join Early Access <span aria-hidden="true">→</span></Link><Link className="sv-button sv-secondary" data-acquisition-secondary-cta data-acquisition-location="home_hero_demo" href="/demo">See How It Works</Link></div><div className="home-proof"><span>✓ Built by rental operators, for rental operators</span><span>✓ Designed for delivery-based rental days</span></div></div><div className="party-rental-hero-image"><Image src="/images/event-party-rentals-bounce-house-setup.png" alt="Inflatable bounce house prepared for a party rental event" fill priority sizes="(max-width: 1000px) 100vw, 52vw"/></div></div></section>
+  <section className="party-rental-operator-proof"><div className="sv-container"><span className="sv-kicker">Built from the rental floor up</span><h2>Built by rental operators, for rental operators.</h2><p>Servonas is developed by the team behind Copper State Bounce, an Arizona-based inflatable rental business. We built the tools we wanted for our own operations—and now we&apos;re bringing them to other rental companies.</p></div></section>
+  <section className="sv-section home-capabilities"><div className="sv-container"><div className="sv-heading"><span className="sv-kicker">One place for the moving parts</span><h2>Built for the work behind every party rental.</h2><p>From the first availability question to the final pickup, keep the operational details connected.</p></div><div className="home-capability-grid party-rental-capability-grid">{capabilities.map(([title,description],index)=><article key={title}><i>{String(index+1).padStart(2,"0")}</i><div><h3>{title}</h3><p>{description}</p></div></article>)}</div></div></section>
+  <section className="home-workflow party-rental-workflow" aria-labelledby="rental-workflow-title"><div className="sv-container"><div><span className="sv-kicker">One booking, one workflow</span><h2 id="rental-workflow-title">Follow the rental from browsing to the remaining balance.</h2></div><ol>{workflow.map((label,index)=><li key={label}><span>{String(index+1).padStart(2,"0")}</span><strong>{label}</strong></li>)}</ol><p className="party-rental-workflow-note">Payment collection and communications depend on each rental business&apos;s configuration and connected providers.</p></div></section>
+  <section className="sv-section party-rental-preview"><div className="sv-container party-rental-preview-grid"><div><span className="sv-kicker">See the workflow in context</span><h2>Explore a rental experience built around real equipment and event dates.</h2><p>See a Servonas-powered rental workflow with a customer-facing catalog, date selection, and a connected operational workspace. The demo is product proof—not a fabricated screenshot.</p><div className="sv-actions"><Link className="sv-button" href="/demo">See How It Works</Link><Link className="sv-button sv-secondary" href="/industries/event-party-rentals">Explore party rental software</Link></div></div><Image src="/images/event-party-rentals-team-setting-up-tent.png" alt="Party rental team preparing an event setup" width={1728} height={910}/></div></section>
+  <section className="home-final-cta"><div className="sv-container"><div><span className="sv-kicker">Early access for rental operators</span><h2>Ready to spend less time managing rentals?</h2><p>Join our early-access list and help shape software built specifically for party rental businesses.</p></div><div className="sv-actions"><Link className="sv-button sv-light" data-acquisition-primary-cta data-acquisition-location="home_final_early_access" href="/contact?interest=early-access">Join Early Access</Link><Link className="home-contact-link" href="/party-rental-software">Learn more →</Link></div></div></section>
+  <section className="party-rental-future"><div className="sv-container"><p>Built first for party rentals, with a flexible platform designed to support other service businesses over time.</p></div></section>
  </main>;
 }
