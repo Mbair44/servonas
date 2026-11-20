@@ -1,0 +1,5 @@
+import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
+import test from "node:test";
+const read=(file:string)=>readFile(new URL(`../${file}`,import.meta.url),"utf8");
+for(const [route,title,canonical,peer] of [["bounce-house-rental-software","Bounce House Rental Software | Servonas","/bounce-house-rental-software","inflatable-rental-software"],["inflatable-rental-software","Inflatable Rental Software | Servonas","/inflatable-rental-software","bounce-house-rental-software"]] as const){test(`${route} has crawlable metadata, schemas, internal links, and conversion CTA`,async()=>{const page=await read(`app/${route}/page.tsx`);assert.match(page,new RegExp(title.replace(/[|]/g,"\\|")));assert.match(page,new RegExp(`canonical:\"${canonical}`));assert.match(page,/BreadcrumbList/);assert.match(page,/FAQPage/);assert.match(page,new RegExp(peer));assert.match(page,/href=\"\/early-access\"/);assert.doesNotMatch(page,/noindex|aggregateRating|reviewCount|priceCurrency/);});}
