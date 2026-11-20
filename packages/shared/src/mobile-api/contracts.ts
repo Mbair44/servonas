@@ -175,6 +175,14 @@ export const mobileConversationListResponseSchema=mobileSuccessEnvelopeSchema(mo
 export const mobileConversationMessageSchema=z.object({id:uuidSchema,direction:mobileMessageDirectionSchema,body:z.string().max(1600),status:z.string().trim().min(1).max(100),occurredAt:isoDateTimeSchema,attachments:z.array(mobileAttachmentSchema).max(10)}).strict();
 export const mobileConversationMessagesDataSchema=z.object({workspace:workspaceSchema,key:mobileConversationKeySchema,items:z.array(mobileConversationMessageSchema).max(100),nextCursor:mobileCursorSchema.nullable()}).strict();
 export const mobileConversationMessagesResponseSchema=mobileSuccessEnvelopeSchema(mobileConversationMessagesDataSchema);
+export const sendConversationMessageRequestSchema=z.object({body:z.string().trim().max(1600),idempotencyKey:uuidSchema,attachmentIds:z.array(uuidSchema).max(10).default([])}).strict().superRefine((value,ctx)=>{if(!value.body&&value.attachmentIds.length===0)ctx.addIssue({code:"custom",message:"Message text or an attachment is required."});});
+export const sendConversationMessageDataSchema=z.object({messageId:uuidSchema,status:z.string().trim().min(1).max(100),submitted:z.boolean(),uncertain:z.boolean()}).strict();
+export const sendConversationMessageResponseSchema=mobileSuccessEnvelopeSchema(sendConversationMessageDataSchema);
+export const prepareConversationAttachmentRequestSchema=z.object({name:z.string().trim().min(1).max(255),contentType:z.enum(["image/jpeg","image/png","image/gif","video/mp4","video/3gpp"]),fileSizeBytes:z.number().int().positive().max(5*1024*1024),ordinal:z.number().int().min(0).max(9)}).strict();
+export const prepareConversationAttachmentDataSchema=z.object({attachmentId:uuidSchema,bucket:z.literal("customer-message-media"),path:z.string().min(1).max(500),uploadToken:z.string().min(1).max(4000)}).strict();
+export const prepareConversationAttachmentResponseSchema=mobileSuccessEnvelopeSchema(prepareConversationAttachmentDataSchema);
+export const markConversationReadDataSchema=z.object({markedCount:z.number().int().min(0).max(1000)}).strict();
+export const markConversationReadResponseSchema=mobileSuccessEnvelopeSchema(markConversationReadDataSchema);
 
 export const foregroundLocationRequestSchema = z.object({
   latitude: z.number().finite().min(-90).max(90),
@@ -211,4 +219,6 @@ export type MobileConversationSummary=z.infer<typeof mobileConversationSummarySc
 export type MobileConversationListData=z.infer<typeof mobileConversationListDataSchema>;
 export type MobileConversationMessage=z.infer<typeof mobileConversationMessageSchema>;
 export type MobileConversationMessagesData=z.infer<typeof mobileConversationMessagesDataSchema>;
+export type SendConversationMessageRequest=z.infer<typeof sendConversationMessageRequestSchema>;
+export type PrepareConversationAttachmentRequest=z.infer<typeof prepareConversationAttachmentRequestSchema>;
 export type ForegroundLocationRequest = z.infer<typeof foregroundLocationRequestSchema>;
