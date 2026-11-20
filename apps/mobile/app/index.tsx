@@ -7,6 +7,7 @@ import { mobileMe } from "../lib/api";
 import { preferences, type Experience } from "../lib/preferences";
 import { allowedExperiences, selectedExperience, selectedWorkspace } from "../lib/navigation";
 import { clearForAccountChange, clearForExperienceChange, clearForWorkspaceChange, mobileMeQueryKey, refreshAuthorizedWorkspaces } from "../lib/queryState";
+import { deactivateIncomingMessageNotifications, enableIncomingMessageNotifications } from "../lib/deviceNotifications";
 
 export default function FoundationScreen() {
   const [session, setSession] = useState<any>();
@@ -16,6 +17,7 @@ export default function FoundationScreen() {
   const [error, setError] = useState<string>();
   const [savedWorkspace, setSavedWorkspace] = useState<string | null>(null);
   const [savedExperience, setSavedExperience] = useState<string | null>(null);
+  const [notificationMessage,setNotificationMessage]=useState<string>();
   const client = useQueryClient();
   const router = useRouter();
 
@@ -114,7 +116,9 @@ export default function FoundationScreen() {
       <Text style={styles.body}>Connection verified: {workspaces.length} workspace(s)</Text>
       {experience && <Pressable accessibilityRole="button" onPress={openExperience} style={styles.openDashboard}><Text style={styles.openDashboardText}>Open {experience} home</Text></Pressable>}
       <Button title="Refresh" onPress={() => me.refetch()} />
-      <Button title="Sign out" onPress={async () => { clearForAccountChange(client); await preferences.clear(); await supabase.auth.signOut(); }} />
+      <Button title="Enable incoming text notifications" onPress={async()=>{const result=await enableIncomingMessageNotifications(workspace.id);setNotificationMessage(result.kind==="registered"?"Incoming-text notifications enabled for this device.":result.message);}} />
+      {notificationMessage&&<Text style={styles.body}>{notificationMessage}</Text>}
+      <Button title="Sign out" onPress={async () => { await deactivateIncomingMessageNotifications(workspaces.map(item=>item.id)); clearForAccountChange(client); await preferences.clear(); await supabase.auth.signOut(); }} />
     </ScrollView>
   </SafeAreaView>;
 }
