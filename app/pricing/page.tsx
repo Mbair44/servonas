@@ -20,7 +20,7 @@ export default function Pricing() {
             businesses while we finalize plans and pricing.
           </p>
           <div className="sv-actions">
-            <Link className="sv-button" href="/contact?interest=early-access">
+            <Link className="sv-button" href="/early-access">
               Join Early Access
             </Link>
             <Link className="sv-button sv-secondary" href="/party-rental-software">
@@ -71,7 +71,7 @@ export default function Pricing() {
             <h2>Want to help shape Servonas?</h2>
             <p>Join early access to tell us how your rental operation works.</p>
           </div>
-          <Link className="sv-button" href="/contact?interest=early-access">
+          <Link className="sv-button" href="/early-access">
             Join Early Access
           </Link>
         </div>
