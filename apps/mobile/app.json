@@ -11,7 +11,8 @@
       ["expo-image-picker", {
         "photosPermission": "Allow Servonas to attach a customer message photo.",
         "cameraPermission": "Allow Servonas to take a customer message photo."
-      }]
+      }],
+      ["expo-notifications", {"color":"#2563EB"}]
     ],
     "experiments": {
       "typedRoutes": true

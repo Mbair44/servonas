@@ -53,3 +53,81 @@ end;
 $$;
 revoke all on function public.set_employee_mobile_notification_preference(uuid,uuid,boolean) from public;
 grant execute on function public.set_employee_mobile_notification_preference(uuid,uuid,boolean) to authenticated;
+
+create or replace function public.register_mobile_device(p_business_id uuid,p_expo_push_token text)
+returns uuid language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_id uuid;
+begin
+ if auth.uid() is null or not public.is_business_member(p_business_id) then raise exception 'Permission denied' using errcode='42501'; end if;
+ if exists(select 1 from public.mobile_device_registrations where expo_push_token=p_expo_push_token and user_id<>auth.uid()) then raise exception 'Device token belongs to another account' using errcode='42501'; end if;
+ insert into public.mobile_device_registrations(business_id,user_id,expo_push_token,is_active,updated_at,deactivated_at)
+ values(p_business_id,auth.uid(),p_expo_push_token,true,now(),null)
+ on conflict(business_id,user_id,expo_push_token) do update set is_active=true,updated_at=now(),deactivated_at=null
+ returning id into v_id;
+ return v_id;
+end;$$;
+create or replace function public.deactivate_mobile_devices(p_business_id uuid,p_expo_push_token text default null)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+ if auth.uid() is null or not public.is_business_member(p_business_id) then raise exception 'Permission denied' using errcode='42501'; end if;
+ update public.mobile_device_registrations set is_active=false,deactivated_at=now(),updated_at=now()
+ where business_id=p_business_id and user_id=auth.uid() and is_active and (p_expo_push_token is null or expo_push_token=p_expo_push_token);
+end;$$;
+revoke all on function public.register_mobile_device(uuid,text),public.deactivate_mobile_devices(uuid,text) from public;
+grant execute on function public.register_mobile_device(uuid,text),public.deactivate_mobile_devices(uuid,text) to authenticated;
+
+-- Called only by trusted server infrastructure after inbound message persistence.
+-- The unique key makes this safe to replay when Twilio retries a webhook.
+create or replace function public.enqueue_inbound_message_push_intents(p_business_id uuid,p_message_id uuid)
+returns integer language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_count integer;
+begin
+ if not exists(select 1 from public.customer_messages m where m.business_id=p_business_id and m.id=p_message_id and m.direction='inbound') then
+  raise exception 'Inbound message not found' using errcode='P0002';
+ end if;
+ insert into public.inbound_message_push_outbox(business_id,message_id,device_registration_id)
+ select p_business_id,p_message_id,d.id
+ from public.mobile_device_registrations d
+ join public.employees e on e.business_id=d.business_id and e.auth_user_id=d.user_id and e.is_active
+ join public.employee_mobile_notification_preferences p on p.business_id=e.business_id and p.employee_id=e.id and p.receive_incoming_text_notifications
+ join public.business_members bm on bm.business_id=d.business_id and bm.user_id=d.user_id and bm.role in ('owner','admin','manager')
+ where d.business_id=p_business_id and d.is_active
+ on conflict(business_id,message_id,device_registration_id) do nothing;
+ get diagnostics v_count=row_count;
+ return v_count;
+end;$$;
+revoke all on function public.enqueue_inbound_message_push_intents(uuid,uuid) from public;
+grant execute on function public.enqueue_inbound_message_push_intents(uuid,uuid) to service_role;
+
+create or replace function public.claim_inbound_message_push_outbox(p_limit integer,p_lease_owner text)
+returns setof public.inbound_message_push_outbox language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+ if p_limit<1 or p_limit>100 or length(trim(p_lease_owner))<8 then raise exception 'Invalid claim request' using errcode='22023'; end if;
+ return query with candidates as (
+  select id from public.inbound_message_push_outbox
+  where (status in ('pending','retryable_failure') and next_attempt_at<=now())
+     or (status='processing' and lease_expires_at<now())
+  order by next_attempt_at,created_at for update skip locked limit p_limit
+ ) update public.inbound_message_push_outbox o
+ set status='processing',lease_owner=p_lease_owner,lease_expires_at=now()+interval '5 minutes',updated_at=now()
+ from candidates where o.id=candidates.id returning o.*;
+end;$$;
+revoke all on function public.claim_inbound_message_push_outbox(integer,text) from public;
+grant execute on function public.claim_inbound_message_push_outbox(integer,text) to service_role;
+
+create or replace function public.reconcile_recent_inbound_message_push_intents(p_limit integer)
+returns integer language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_count integer;
+begin
+ if p_limit<1 or p_limit>100 then raise exception 'Invalid reconciliation limit' using errcode='22023'; end if;
+ with recent as (select m.business_id,m.id from public.customer_messages m where m.direction='inbound' and m.provider='twilio' and m.created_at>=now()-interval '10 minutes' order by m.created_at limit p_limit)
+ insert into public.inbound_message_push_outbox(business_id,message_id,device_registration_id)
+ select r.business_id,r.id,d.id from recent r join public.mobile_device_registrations d on d.business_id=r.business_id and d.is_active
+ join public.employees e on e.business_id=d.business_id and e.auth_user_id=d.user_id and e.is_active
+ join public.employee_mobile_notification_preferences p on p.business_id=e.business_id and p.employee_id=e.id and p.receive_incoming_text_notifications
+ join public.business_members bm on bm.business_id=d.business_id and bm.user_id=d.user_id and bm.role in ('owner','admin','manager')
+ on conflict(business_id,message_id,device_registration_id) do nothing;
+ get diagnostics v_count=row_count;return v_count;
+end;$$;
+revoke all on function public.reconcile_recent_inbound_message_push_intents(integer) from public;
+grant execute on function public.reconcile_recent_inbound_message_push_intents(integer) to service_role;
