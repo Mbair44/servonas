@@ -95,8 +95,10 @@ export const technicianHomeDataSchema = z.object({
 export const technicianHomeResponseSchema = mobileSuccessEnvelopeSchema(technicianHomeDataSchema);
 
 export const mobileJobsRangeSchema = z.enum(["today", "upcoming", "past"]);
+export const mobileJobsScopeSchema = z.enum(["all", "assigned"]);
 export const mobileJobsQuerySchema = z.object({
   range: mobileJobsRangeSchema.default("today"),
+  scope: mobileJobsScopeSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 }).strict();
 export const mobileJobsListDataSchema = z.object({
