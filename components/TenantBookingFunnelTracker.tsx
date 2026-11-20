@@ -5,8 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { resolveBookingSession, validSessionId, type AttributionValues, type BookingFunnelEvent, type BookingSessionState } from "@/lib/bookingFunnel";
 import { publicBookingFunnelEnabled } from "@/lib/optionalAnalytics";
 
-declare global { interface Window { __servonasBookingFunnelDefaultMeasurementEnabled?: boolean; } }
-
 const key = (slug: string) => `servonas.booking-attribution.${slug}`;
 const dedupeKey = (slug: string) => `servonas.booking-funnel-dedupe.${slug}`;
 const debugKey = "servonas.booking-funnel-debug";
@@ -26,12 +24,10 @@ const formStartKey = (slug: string) => `servonas.booking-funnel-form-start.${slu
 const inMemorySessions = new Map<string, Stored>();
 const analyticsConsent=():"granted"|"denied"|"unset"|"unavailable"=>{try{const value=window.localStorage.getItem(analyticsConsentKey);return value==="granted"||value==="denied"?value:"unset";}catch{return "unavailable";}};
 const analyticsAllowed=()=>analyticsConsent()==="granted";
-/** Anonymous per-session reporting may be enabled per site. An explicit
- * opt-out always wins; only explicit consent creates a cross-session ID. */
-const funnelMeasurementAllowed=()=>{
- const consent=analyticsConsent();
- return consent==="granted"||(consent==="unset"&&window.__servonasBookingFunnelDefaultMeasurementEnabled===true);
-};
+// Booking-funnel measurement is first-party, session-scoped telemetry. It is
+// intentionally independent of the optional analytics preference; only an
+// explicit opt-in creates a cross-session visitor identifier.
+const funnelMeasurementAllowed=()=>true;
 const readSession = (slug: string) => { try { return window.sessionStorage.getItem(key(slug)); } catch { return inMemorySessions.get(slug) ? JSON.stringify(inMemorySessions.get(slug)) : null; } };
 const writeSession = (slug: string, value: Stored) => { inMemorySessions.set(slug,value); try { window.sessionStorage.setItem(key(slug),JSON.stringify(value)); } catch { /* memory keeps this page's attribution when storage is blocked */ } };
 
@@ -64,7 +60,7 @@ const clientDiagnosticContext = (state: Stored) => ({
  utm: { source: state.attribution.utm_source ?? null, medium: state.attribution.utm_medium ?? null, campaign: state.attribution.utm_campaign ?? null, content: state.attribution.utm_content ?? null, term: state.attribution.utm_term ?? null },
  referrerHostname: safeReferrerHostname(),
  analyticsConsent: analyticsConsent(),
- firstPartyFunnelIndependentOfConsent: window.__servonasBookingFunnelDefaultMeasurementEnabled===true,
+ firstPartyFunnelIndependentOfConsent: true,
 });
 const deviceMetadata = (): Record<string, unknown> => { if (typeof window === "undefined") return {}; const ua = window.navigator.userAgent || ""; return { browser: /Chrome\//.test(ua) ? "chrome" : /Safari\//.test(ua) && !/Chrome\//.test(ua) ? "safari" : /Firefox\//.test(ua) ? "firefox" : /Edg\//.test(ua) ? "edge" : "other", operating_system: /iPhone|iPad|iPod/.test(ua) ? "ios" : /Android/.test(ua) ? "android" : /Mac OS X/.test(ua) ? "macos" : /Windows/.test(ua) ? "windows" : /Linux/.test(ua) ? "linux" : "other", device_type: /Mobile|Android|iPhone|iPad|iPod/.test(ua) ? "mobile" : "desktop" }; };
 const sanitizeLabel = (value: string | null | undefined, max = 80) => value?.replace(/\s+/g, " ").trim().slice(0, max) ?? "";
@@ -103,7 +99,6 @@ export function bookingAttributionValues(slug: string): AttributionValues { retu
 export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, options: TrackBookingFunnelOptions = {}) {
  if (typeof window === "undefined") return;
  if (!analyticsEnabled) { logDebug(slug, event, "dispatch_skipped", { reason: "funnel_disabled" }); return; }
- if (!funnelMeasurementAllowed()) { logDebug(slug,event,"dispatch_skipped",{reason:"analytics_consent_not_granted_or_default_measurement_disabled"}); return; }
  if (shouldSkipEvent(slug, event, options)) { logDebug(slug, event, "dispatch_skipped", { reason: "client_deduped" }); return; }
  const state = stored(slug), now = Date.now(), touchSession = event === "landing_page_view" || !state.lastSessionSyncAt || now - state.lastSessionSyncAt >= sessionTouchIntervalMs || Boolean(options.touchOnly);
  if (touchSession) writeSession(slug,{ ...state, lastSessionSyncAt: now });
@@ -115,7 +110,6 @@ export function trackBookingFunnel(slug: string, event: BookingFunnelEvent, opti
 
 type TenantBookingFunnelTrackerProps = {
  businessSlug: string;
- defaultMeasurementEnabled?: boolean;
  initialSessionId?: string;
  landingType?: "website" | "promotion" | "location" | "category" | "inventory_item" | "campaign";
  landingId?: string;
@@ -123,13 +117,12 @@ type TenantBookingFunnelTrackerProps = {
  inventoryItemId?: string;
 };
 
-export function TenantBookingFunnelTracker({ businessSlug, defaultMeasurementEnabled = false, initialSessionId, landingType = "website", landingId, landingLabel, inventoryItemId }: TenantBookingFunnelTrackerProps) {
+export function TenantBookingFunnelTracker({ businessSlug, initialSessionId, landingType = "website", landingId, landingLabel, inventoryItemId }: TenantBookingFunnelTrackerProps) {
  const pathname = usePathname();
  const searchParams = useSearchParams();
  const routeKey = `${pathname || "/"}?${searchParams?.toString() || ""}`;
  const sent = useRef(false);
  const sessionStartedAt = useRef<number>(Date.now());
- useEffect(()=>{window.__servonasBookingFunnelDefaultMeasurementEnabled=defaultMeasurementEnabled;},[defaultMeasurementEnabled]);
  useEffect(()=>{
   const report=(status:"accepted"|"rejected"|"not_selected"|"unavailable",kind:"decision"|"status_observed")=>{void fetch(`/api/public-booking/${encodeURIComponent(businessSlug)}/consent`,{method:"POST",headers:{"content-type":"application/json"},keepalive:true,credentials:"same-origin",body:JSON.stringify({analyticsStatus:status,kind})}).catch(()=>undefined);};
   const current=analyticsConsent();
@@ -146,7 +139,6 @@ export function TenantBookingFunnelTracker({ businessSlug, defaultMeasurementEna
  },[businessSlug,routeKey]);
  useEffect(() => {
   if (!analyticsEnabled) return;
-  if (!funnelMeasurementAllowed()) return;
   const current = stored(businessSlug, initialSessionId);
   if (!sent.current) {
    sent.current = true;

@@ -109,12 +109,6 @@ const eventKeyFor=(body:{sessionId:string;event:string;interactionId?:string;pat
  return parts.join(":").slice(0,500);
 };
 const businessIdForBookingSlug=unstable_cache(async(businessSlug:string)=>{const db=getSupabaseAdmin();if(!db)return null;const {data:bookingSettings}=await db.from("booking_settings").select("business_id").ilike("public_slug",businessSlug).eq("enabled",true).maybeSingle();if(bookingSettings?.business_id)return bookingSettings.business_id;const {data:websiteSettings}=await db.from("business_website_settings").select("business_id").ilike("public_slug",businessSlug).eq("status","published").maybeSingle();if(websiteSettings?.business_id)return websiteSettings.business_id;const {data:business}=await db.from("businesses").select("id").ilike("slug",businessSlug).maybeSingle();return business?.id??null;},["booking-funnel-business-id"],{revalidate:300});
-const defaultMeasurementEnabledForBusiness=unstable_cache(async(businessId:string)=>{
- const db=getSupabaseAdmin();if(!db)return false;
- const {data}=await db.from("business_website_settings").select("meta_pixel_default_measurement_enabled").eq("business_id",businessId).maybeSingle();
- return data?.meta_pixel_default_measurement_enabled===true;
-},["booking-funnel-default-measurement"],{revalidate:300});
-
 export async function POST(request:Request,{params}:{params:Promise<{businessSlug:string}>}){
  if(!bookingFunnelEnabled())return diagnosticResponse("funnel_disabled");
  const purpose=request.headers.get("purpose")||request.headers.get("x-middleware-prefetch")||"",ua=request.headers.get("user-agent")||"";
@@ -130,12 +124,8 @@ export async function POST(request:Request,{params}:{params:Promise<{businessSlu
  const db=getSupabaseAdmin();if(!db){diagnosticRequest(body,businessSlug,"rejected",{reason:"admin_client_unavailable"});return diagnosticResponse("admin_client_unavailable");}
  const businessId=await businessIdForBookingSlug(businessSlug);
  if(!businessId){diagnosticRequest(body,businessSlug,"rejected",{reason:"business_slug_unresolved"});return diagnosticResponse("business_slug_unresolved");}
- // Default measurement is deliberately tenant-scoped. A denied or storage-
- // unavailable browser is never accepted; fresh sessions may be recorded only
- // for a site that has explicitly enabled default measurement.
- const defaultMeasurementEnabled=await defaultMeasurementEnabledForBusiness(businessId);
- const measurementAllowed=body.analyticsConsent==="granted"||(body.analyticsConsent==="unset"&&defaultMeasurementEnabled);
- if(!measurementAllowed){diagnosticRequest(body,businessSlug,"rejected",{reason:"analytics_consent_not_granted_or_default_measurement_disabled",defaultMeasurementEnabled});return diagnosticResponse("analytics_consent_not_granted_or_default_measurement_disabled");}
+ // Funnel records are first-party and session-scoped. Consent only controls
+ // whether this request can use the optional cross-session visitor identifier.
  const visitorId=body.analyticsConsent==="granted"&&validSessionId(body.visitorId)?body.visitorId:null;
  const metadata=safeMetadata(body.metadata);
  const automation=automationClassification({userAgent:ua,purpose,referrer:clean(body.referrer,2000),event,metadata});
