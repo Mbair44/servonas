@@ -11,6 +11,8 @@ test("mobile note route uses bearer authorization, assignment scope, and the har
   assert.match(route, /append_assigned_job_note_v2/);
   assert.match(route, /p_request_id:parsed\.data\.idempotencyKey/);
   assert.match(route, /error\.code==="23505"/);
+  assert.match(route, /mobile_note_rpc_failed/);
+  assert.match(route, /\{requestId,code:error\.code\?\?null,businessId,jobId,userId:context\.user\.id\}/);
   assert.doesNotMatch(route, /getSupabaseAdmin|service.role|processCompletedJobBilling|stripe|twilio|transition_assigned_job_status/i);
 });
 
@@ -25,10 +27,20 @@ test("job detail resolves a verified dual-role assignment without granting offic
 
 test("native note composer keeps a request UUID through an explicit retry and invalidates only the current job", async () => {
   const screen = await read("apps/mobile/app/(protected)/jobs/[businessId]/[jobId].tsx");
+  assert.match(screen, /import \* as Crypto from "expo-crypto"/);
+  assert.match(screen, /return Crypto\.randomUUID\(\)/);
   assert.match(screen, /noteRequestId\.current\?\?=noteRequestUuid\(\)/);
   assert.match(screen, /retry:false/);
   assert.match(screen, /invalidateQueries\(\{queryKey:detailKey\}\)/);
   assert.match(screen, /noteMutation\.reset\(\)/);
   assert.match(screen, /allowedActions\.includes\("add_note"\)/);
   assert.doesNotMatch(screen, /transition_status|processCompletedJobBilling|stripe|twilio/i);
+});
+
+test("mobile API contract errors expose only a safe field path and request reference", async () => {
+  const api = await read("apps/mobile/lib/api.ts");
+  assert.match(api, /function invalidResponseMessage/);
+  assert.match(api, /issue\.path\.join\("\."\)/);
+  assert.match(api, /Reference: \$\{reference\}/);
+  assert.doesNotMatch(api, /console\.(?:log|warn|error)\([^)]*(?:access_token|refresh_token|body)/);
 });
