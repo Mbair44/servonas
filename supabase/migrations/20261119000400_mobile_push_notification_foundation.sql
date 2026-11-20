@@ -75,3 +75,26 @@ begin
 end;$$;
 revoke all on function public.register_mobile_device(uuid,text),public.deactivate_mobile_devices(uuid,text) from public;
 grant execute on function public.register_mobile_device(uuid,text),public.deactivate_mobile_devices(uuid,text) to authenticated;
+
+-- Called only by trusted server infrastructure after inbound message persistence.
+-- The unique key makes this safe to replay when Twilio retries a webhook.
+create or replace function public.enqueue_inbound_message_push_intents(p_business_id uuid,p_message_id uuid)
+returns integer language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_count integer;
+begin
+ if not exists(select 1 from public.customer_messages m where m.business_id=p_business_id and m.id=p_message_id and m.direction='inbound') then
+  raise exception 'Inbound message not found' using errcode='P0002';
+ end if;
+ insert into public.inbound_message_push_outbox(business_id,message_id,device_registration_id)
+ select p_business_id,p_message_id,d.id
+ from public.mobile_device_registrations d
+ join public.employees e on e.business_id=d.business_id and e.auth_user_id=d.user_id and e.is_active
+ join public.employee_mobile_notification_preferences p on p.business_id=e.business_id and p.employee_id=e.id and p.receive_incoming_text_notifications
+ join public.business_members bm on bm.business_id=d.business_id and bm.user_id=d.user_id and bm.role in ('owner','admin','manager')
+ where d.business_id=p_business_id and d.is_active
+ on conflict(business_id,message_id,device_registration_id) do nothing;
+ get diagnostics v_count=row_count;
+ return v_count;
+end;$$;
+revoke all on function public.enqueue_inbound_message_push_intents(uuid,uuid) from public;
+grant execute on function public.enqueue_inbound_message_push_intents(uuid,uuid) to service_role;
