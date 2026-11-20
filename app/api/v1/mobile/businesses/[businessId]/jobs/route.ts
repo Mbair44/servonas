@@ -12,9 +12,10 @@ export async function GET(request:Request,{params}:{params:Promise<{businessId:s
   try{
     const {businessId}=await params,query=mobileJobsQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
     if(!query.success)throw new MobileApiError("VALIDATION_FAILED","Use a valid job range and limit.",400);
-    const context=await createMobileAuthorizationContext(request),workspace=requireMobileWorkspace(context,businessId),technician=context.techniciansByBusinessId.get(businessId),business=await mobileBusiness(context,businessId),bounds=mobileJobRangeBounds(business.timezone,query.data.range);
+    const context=await createMobileAuthorizationContext(request),workspace=requireMobileWorkspace(context,businessId),technician=context.techniciansByBusinessId.get(businessId),business=await mobileBusiness(context,businessId),bounds=mobileJobRangeBounds(business.timezone,query.data.range),scope=query.data.scope??(workspace.membershipRole==="owner"?"all":"assigned");
     let rows:any[]|null=null,error:any=null;
-    if(technician){
+    if(scope==="assigned"){
+      if(!technician)throw new MobileApiError("FORBIDDEN","Technician access is required for assigned jobs.",403);
       const result=await context.supabase.from("jobs").select(`${jobSelect},job_assignments!inner(assignment_role)`).eq("business_id",businessId).eq("is_deleted",false).eq("job_assignments.technician_id",technician.id).eq("job_assignments.is_active",true).gte("starts_at",bounds.start).lt("starts_at",bounds.end).order("starts_at",{ascending:bounds.ascending}).order("id",{ascending:bounds.ascending}).limit(query.data.limit+1);
       rows=result.data;error=result.error;
     }else{
