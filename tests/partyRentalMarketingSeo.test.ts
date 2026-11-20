@@ -13,7 +13,7 @@ test("party-rental homepage has accurate metadata and temporary early-access CTA
  assert.match(page,/More Bookings/);
  assert.match(page,/Less Busywork/);
  assert.match(page,/Copper State Bounce/);
- assert.match(page,/href="\/contact\?interest=early-access"/);
+ assert.match(page,/href="\/early-access"/);
  assert.match(page,/href="\/party-rental-software"/);
 });
 
@@ -28,7 +28,7 @@ test("party-rental software landing has distinct metadata, visible FAQs, canonic
  assert.match(page,/Party rental software FAQs/);
  assert.match(page,/industries\/event-party-rentals/);
  assert.match(page,/event-party-rentals-website/);
- assert.match(page,/href="\/contact\?interest=early-access"/);
+ assert.match(page,/href="\/early-access"/);
  assert.doesNotMatch(page,/aggregateRating|reviewCount|priceCurrency/);
 });
 
@@ -53,7 +53,7 @@ test("robots keeps private paths out of search while allowing public marketing r
 test("global marketing CTA changes do not alter signup implementation or tenant public routing",async()=>{
  const [header,auth,tenantSitemap]=await Promise.all([read("components/HeaderSignupLink.tsx"),read("app/auth/actions.ts"),read("app/sites/[siteSlug]/sitemap.xml/route.ts")]);
  assert.match(header,/Join Early Access/);
- assert.match(header,/\/contact\?/);
+ assert.match(header,/\/early-access/);
  assert.match(auth,/export async function signUp/);
  assert.match(auth,/supabase\.auth\.signUp/);
  assert.match(tenantSitemap,/business_website_settings/);
@@ -63,7 +63,7 @@ test("pricing page presents early access without public price, offer, or trial p
  const page=await read("app/pricing/page.tsx");
  assert.match(page,/Simple pricing is coming/);
  assert.match(page,/limited number of party rental/);
- assert.match(page,/href="\/contact\?interest=early-access"/);
+ assert.match(page,/href="\/early-access"/);
  assert.match(page,/Party Rental Software Early Access/);
  assert.doesNotMatch(page,/\$40|\$75|\$125|\$29|\$59|50%|free trial|no credit card|Product|Offer|priceCurrency/i);
 });

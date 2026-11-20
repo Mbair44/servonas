@@ -10,11 +10,11 @@ const websiteFirstPaths=new Map<string,WebsiteFirstSource>(websiteFirstSources.m
 export function HeaderSignupLink(){
  const pathname=usePathname(),searchParams=useSearchParams();
  const source=pathname?websiteFirstPaths.get(pathname):undefined;
- if(!source)return <Link className="sv-button sv-small" href="/contact?interest=early-access">Join Early Access</Link>;
- const query=new URLSearchParams({interest:"early-access",source});
+ if(!source)return <Link className="sv-button sv-small" href="/early-access">Join Early Access</Link>;
+ const query=new URLSearchParams({source});
  for(const key of attributionKeys){
   const value=searchParams.get(key);
   if(value)query.set(key,value.slice(0,500));
  }
- return <Link className="sv-button sv-small" href={`/contact?${query.toString()}`}>Join Early Access</Link>;
+ return <Link className="sv-button sv-small" href={`/early-access?${query.toString()}`}>Join Early Access</Link>;
 }
