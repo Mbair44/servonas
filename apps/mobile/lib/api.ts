@@ -9,11 +9,12 @@ import {
   type OwnerManagerDashboardData,
   type TechnicianHomeData,
   type AddJobNoteRequest,
+  type TransitionJobStatusRequest,type TransitionJobStatusData,
   type MobileJobsListData,
   type MobileJobsRange,
   mobileJobsListResponseSchema,
   mobileConversationListResponseSchema,mobileConversationMessagesResponseSchema,
-  sendConversationMessageResponseSchema,prepareConversationAttachmentResponseSchema,markConversationReadResponseSchema,type SendConversationMessageRequest,type PrepareConversationAttachmentRequest,
+  sendConversationMessageResponseSchema,prepareConversationAttachmentResponseSchema,markConversationReadResponseSchema,transitionJobStatusResponseSchema,type SendConversationMessageRequest,type PrepareConversationAttachmentRequest,
   type MobileConversationListData,type MobileConversationMessagesData,
 } from "@servonas/shared";
 import { supabase } from "./supabase";
@@ -76,4 +77,7 @@ export async function addJobNote(businessId:string,jobId:string,input:AddJobNote
   if(!response.ok)throw new MobileApiError(response.status,(body as any)?.error?.message||"Unable to add note.");
   try{return addJobNoteResponseSchema.parse(body).data;}
   catch(error){throw new MobileApiError(0,invalidResponseMessage(body,error,"note"));}
+}
+export async function transitionJobStatus(businessId:string,jobId:string,input:TransitionJobStatusRequest):Promise<TransitionJobStatusData>{
+  return mobilePost(`/api/v1/mobile/businesses/${encodeURIComponent(businessId)}/jobs/${encodeURIComponent(jobId)}/status`,input,transitionJobStatusResponseSchema);
 }

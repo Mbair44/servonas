@@ -136,6 +136,8 @@ export const jobDetailDataSchema = z.object({
     role: assignmentRoleSchema.nullable(),
     allowedActions: z.array(technicianJobActionSchema).max(10),
   }).strict(),
+  // Projected by the server for office users; this is UX information only.
+  permittedStatusTransitions: z.array(jobStatusSchema).max(20),
   notes: z.array(z.object({
     id: uuidSchema,
     body: z.string().trim().min(1).max(4000),
@@ -154,10 +156,20 @@ export const jobDetailDataSchema = z.object({
 export const jobDetailResponseSchema = mobileSuccessEnvelopeSchema(jobDetailDataSchema);
 
 export const transitionJobStatusRequestSchema = z.object({
-  status: z.enum(["en_route", "arrived", "in_progress", "completed"]),
+  // Office users follow the same status graph as the web workflow. The API
+  // determines whether the caller may perform a requested transition.
+  status: jobStatusSchema,
   idempotencyKey: uuidSchema,
   expectedCurrentStatus: jobStatusSchema.optional(),
 }).strict();
+export const transitionJobStatusDataSchema = z.object({
+  jobId: uuidSchema,
+  status: jobStatusSchema,
+  changed: z.boolean(),
+  completionMessage: z.string().trim().min(1).max(500),
+  billingRequiresAttention: z.boolean(),
+}).strict();
+export const transitionJobStatusResponseSchema = mobileSuccessEnvelopeSchema(transitionJobStatusDataSchema);
 
 export const addJobNoteRequestSchema = z.object({
   body: z.string().trim().min(1).max(4000),
@@ -214,6 +226,8 @@ export type MobileJobsListData = z.infer<typeof mobileJobsListDataSchema>;
 export type JobDetailData = z.infer<typeof jobDetailDataSchema>;
 export type JobDetailResponse = z.infer<typeof jobDetailResponseSchema>;
 export type TransitionJobStatusRequest = z.infer<typeof transitionJobStatusRequestSchema>;
+export type TransitionJobStatusData = z.infer<typeof transitionJobStatusDataSchema>;
+export type TransitionJobStatusResponse = z.infer<typeof transitionJobStatusResponseSchema>;
 export type AddJobNoteRequest = z.infer<typeof addJobNoteRequestSchema>;
 export type AddJobNoteData = z.infer<typeof addJobNoteDataSchema>;
 export type AddJobNoteResponse = z.infer<typeof addJobNoteResponseSchema>;

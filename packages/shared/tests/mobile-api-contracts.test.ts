@@ -96,9 +96,9 @@ test("allows primary but not helper lifecycle actions", () => {
     },
     notes: [],
   };
-  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: "primary", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, true);
-  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: "helper", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, false);
-  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: null, allowedActions: [] } }, requestId: ids.request }).success, true);
+  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, permittedStatusTransitions: [], assignment: { role: "primary", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, true);
+  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, permittedStatusTransitions: [], assignment: { role: "helper", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, false);
+  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, permittedStatusTransitions: ["en_route"], assignment: { role: null, allowedActions: [] } }, requestId: ids.request }).success, true);
 });
 
 test("validates mutation inputs, timestamps, and foreground consent", () => {
