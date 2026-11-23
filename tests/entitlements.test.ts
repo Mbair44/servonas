@@ -4,7 +4,14 @@ const now=new Date("2026-07-28T12:00:00Z");
 test("pilot grants current capabilities without billing",()=>{assert.deepEqual(entitlementCatalog.pilot.capabilities,[...capabilityCodes]);assert.equal(entitlementCatalog.pilot.isBillingEnabled,false);assert.equal(entitlementCatalog.pilot.isPubliclySelectable,false);});
 test("dates are authoritative without cron reconciliation",()=>{assert.equal(effectiveStatus({...base,starts_at:"2026-08-01T00:00:00Z"},now),"scheduled");assert.equal(effectiveStatus({...base,ends_at:"2026-07-01T00:00:00Z"},now),"expired");assert.equal(effectiveStatus({...base,ends_at:"2026-07-01T00:00:00Z",grace_period_ends_at:"2026-08-01T00:00:00Z"},now),"grace_period");});
 test("suspension and cancellation override dates",()=>{assert.equal(effectiveStatus({...base,status:"suspended"},now),"suspended");assert.equal(effectiveStatus({...base,status:"canceled"},now),"canceled");});
-test("capability results explain every denial",()=>{assert.equal(evaluateCapability(null,"dispatch",now).reason,"no_entitlement");assert.equal(evaluateCapability({...base,status:"suspended"},"dispatch",now).reason,"suspended");assert.equal(evaluateCapability({...base,entitlement_key:"starter"},"dispatch",now).reason,"capability_not_included");assert.equal(evaluateCapability(base,"dispatch",now).allowed,true);});
+test("capability results explain every denial",()=>{assert.equal(evaluateCapability(null,"dispatch",now).reason,"no_entitlement");assert.equal(evaluateCapability({...base,status:"suspended"},"dispatch",now).reason,"suspended");assert.equal(evaluateCapability({...base,entitlement_key:"starter"},"territory_management",now).reason,"capability_not_included");assert.equal(evaluateCapability(base,"dispatch",now).allowed,true);});
 test("lifecycle transitions reject destructive reversals",()=>{assert.equal(canTransitionEntitlement("active","suspended"),true);assert.equal(canTransitionEntitlement("suspended","active"),true);assert.equal(canTransitionEntitlement("canceled","active"),false);assert.equal(canTransitionEntitlement("superseded","active"),false);});
 test("stored scheduled access becomes active at request time",()=>{assert.equal(effectiveStatus({...base,status:"scheduled",starts_at:"2026-07-01T00:00:00Z"},now),"active");});
-test("paid-plan placeholders cannot accidentally grant capabilities",()=>{for(const code of["starter","growth","business","enterprise"]as const)assert.equal(evaluateCapability({...base,entitlement_key:code},"dispatch",now).allowed,false);});
+test("three-tier plans grant only their published capabilities",()=>{
+ assert.equal(evaluateCapability({...base,entitlement_key:"starter"},"online_booking",now).allowed,true);
+ assert.equal(evaluateCapability({...base,entitlement_key:"starter"},"sms_messaging",now).allowed,false);
+ assert.equal(evaluateCapability({...base,entitlement_key:"growth"},"smart_upsells",now).allowed,true);
+ assert.equal(evaluateCapability({...base,entitlement_key:"growth"},"multi_location",now).allowed,false);
+ assert.equal(evaluateCapability({...base,entitlement_key:"scale"},"advanced_reporting",now).allowed,true);
+ assert.equal(evaluateCapability({...base,entitlement_key:"business"},"dispatch",now).allowed,false);
+});

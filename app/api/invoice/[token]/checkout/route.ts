@@ -4,6 +4,9 @@ import { publicDocumentTokenHash,validPublicDocumentToken } from "@/lib/publicDo
 import { allowPublicInvoiceAccess } from "@/lib/publicInvoiceRateLimit";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripeClient,stripeConnectBaseUrl,stripePaymentsReady,stripeProviderError } from "@/lib/stripeConnect";
+import {persistPaymentAllocation,associatePaymentAllocationCheckout} from "@/lib/pricing/persistPaymentAllocation";
+import {combinedEligibleAllocation} from "@/lib/pricing/paymentAllocation";
+import {preparePlatformFee} from "@/lib/pricing/platformFeeEngine";
 
 export const runtime="nodejs";
 
@@ -92,6 +95,8 @@ export async function POST(request:Request,{params}:{params:Promise<{token:strin
     }
   }
   try{
+    const allocation=await persistPaymentAllocation(supabase,{businessId:invoice.business_id,paymentKey:`invoice:${paymentId}`,sourceReference:`invoice:${invoice.id}`,allocation:combinedEligibleAllocation("invoice",amount,invoice.currency)});
+    const fee=await preparePlatformFee(supabase,{businessId:invoice.business_id,idempotencyKey:`invoice:${paymentId}`,allocation:{eligibleAmountCents:amount,excludedAmountCents:0,reason:"allocation_v1"},expiresAt:new Date(Date.now()+30*60_000).toISOString()});
     const session=await stripe.checkout.sessions.create({
       mode:"payment",
       customer_email:customer.email,
@@ -102,9 +107,10 @@ export async function POST(request:Request,{params}:{params:Promise<{token:strin
       }}],
       success_url:portal(base,token,"submitted").toString(),
       cancel_url:portal(base,token,"cancelled").toString(),
-      metadata:{servonas_kind:"invoice_payment",payment_id:paymentId,invoice_id:invoice.id},
-      payment_intent_data:{receipt_email:customer.email,metadata:{servonas_kind:"invoice_payment",payment_id:paymentId,invoice_id:invoice.id}},
+      metadata:{servonas_kind:"invoice_payment",payment_id:paymentId,invoice_id:invoice.id,...(fee.reservationId?{servonas_fee_reservation_id:fee.reservationId}: {})},
+      payment_intent_data:{receipt_email:customer.email,metadata:{servonas_kind:"invoice_payment",payment_id:paymentId,invoice_id:invoice.id,...(fee.applicationFeeCents?{servonas_fee_reservation_id:fee.reservationId!}:{})},...(fee.applicationFeeCents?{application_fee_amount:fee.applicationFeeCents}:{})},
     },{stripeAccount:account.provider_account_id,idempotencyKey:`servonas-invoice-${invoice.business_id}-${requestKey}`});
+    await associatePaymentAllocationCheckout(supabase,{allocationId:allocation?.id??null,businessId:invoice.business_id,checkoutSessionId:session.id});
     const intentId=typeof session.payment_intent==="string"?session.payment_intent:session.payment_intent?.id??null;
     const {error:updateError}=await supabase.from("payments").update({
       provider_checkout_session_id:session.id,provider_payment_intent_id:intentId,

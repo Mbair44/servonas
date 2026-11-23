@@ -14,6 +14,8 @@ import {fulfillPaidRentalBooking} from "@/lib/rentalPaymentFulfillment";
 import {applyPaidBookingItemAmendment} from "@/lib/bookingManage/stagedAmendments";
 import {fulfillCustomerBalanceCheckoutPayment} from "@/lib/financial/customerBalancePaymentFulfillment";
 import {sendSmartUpsellBusinessNotification} from "@/lib/communications/smartUpsellEmailService";
+import {captureReservedPlatformFee,releaseReservedPlatformFee,queuePlatformFeeReconciliation} from "@/lib/pricing/feeLifecycle";
+import {refundCapturedPlatformFee} from "@/lib/pricing/applicationFeeRefunds";
 
 export const runtime = "nodejs";
 
@@ -41,6 +43,33 @@ function requireDatabaseSuccess(error:DatabaseError|null|undefined,operation:str
 async function payloadHash(rawBody:string){
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(rawBody));
   return Buffer.from(digest).toString("hex");
+}
+
+async function reconcilePlatformFeeRefundEvent(event:Stripe.Event,stripe:Stripe,supabase:AdminClient){
+ const charge=event.data.object as Stripe.Charge;
+ const accountId=typeof event.account==="string"?event.account:null;
+ if(!accountId||!charge.id)return;
+ const {data:reservation,error}=await supabase.from("platform_fee_reservations").select("id,business_id,provider_charge_id").eq("provider_charge_id",charge.id).maybeSingle();
+ if(error||!reservation)return;
+ const refunds=(charge.refunds?.data??[]).filter(refund=>refund.status==="succeeded");
+ for(const refund of refunds){
+  try{await refundCapturedPlatformFee(supabase,stripe,{reservationId:reservation.id,businessId:reservation.business_id,providerRefundId:refund.id,customerRefundCents:refund.amount,eventId:`${event.id}:${refund.id}`,connectedAccountId:accountId});}
+  catch(error){console.error("Platform fee refund requires reconciliation",{eventId:event.id,reservationId:reservation.id,message:error instanceof Error?error.message:"unknown"});}
+ }
+}
+
+async function recordPlatformFeeDispute(event:Stripe.Event,supabase:AdminClient){
+ const dispute=event.data.object as Stripe.Dispute;
+ const accountId=typeof event.account==="string"?event.account:null;
+ if(!accountId||!dispute.id||typeof dispute.charge!=="string")return;
+ const {data:reservation,error}=await supabase.from("platform_fee_reservations").select("id,business_id").eq("provider_charge_id",dispute.charge).maybeSingle();
+ if(error||!reservation)return;
+ const finalOutcome=dispute.status==="won"||dispute.status==="lost"?dispute.status:null;
+ const {error:upsertError}=await supabase.from("platform_fee_disputes").upsert({business_id:reservation.business_id,reservation_id:reservation.id,provider_dispute_id:dispute.id,status:dispute.status,final_outcome:finalOutcome,metadata:{charge_id:dispute.charge,amount:dispute.amount,event_id:event.id,connected_account_id:accountId},updated_at:new Date().toISOString()},{onConflict:"provider_dispute_id"});
+ if(upsertError)throw new Error(`Dispute persistence failed (${upsertError.code}).`);
+ // Stripe does not guarantee an application-fee reversal from dispute status alone.
+ // Queue final outcomes for reconciliation instead of creating a financial adjustment.
+ if(finalOutcome)await queuePlatformFeeReconciliation(supabase,{businessId:reservation.business_id,reservationId:reservation.id,connectedAccountId:accountId,type:"dispute_final",error:`Dispute ${dispute.id} closed ${finalOutcome}; verify application-fee financial objects.`});
 }
 
 function invoicePaymentReference(event:Stripe.Event){
@@ -254,6 +283,34 @@ export async function POST(request: Request) {
   if(!event){
     console.error("Invalid Stripe webhook signature:", signatureError);
     return NextResponse.json({ error: "Invalid webhook signature." }, { status: 400 });
+  }
+
+  // Fee lifecycle is independent of booking fulfillment. It is driven only by a
+  // verified Connect webhook and the actual application-fee object on the charge.
+  if(["payment_intent.succeeded","payment_intent.payment_failed","payment_intent.canceled"].includes(event.type)){
+    const intent=event.data.object as Stripe.PaymentIntent;
+    const reservationId=intent.metadata?.servonas_fee_reservation_id,accountId=typeof event.account==="string"?event.account:null;
+    if(reservationId&&accountId){
+      try{
+        if(event.type==="payment_intent.succeeded"){
+          const verified=await stripe.paymentIntents.retrieve(intent.id,{expand:["latest_charge.application_fee"]},{stripeAccount:accountId});
+          const charge=typeof verified.latest_charge==="object"?verified.latest_charge as Stripe.Charge:null;
+          const applicationFee=charge&&typeof charge.application_fee==="object"?charge.application_fee:null;
+          if(!charge?.id||!applicationFee?.id)throw new Error("Application fee could not be verified.");
+          await captureReservedPlatformFee(supabase,{reservationId,paymentIntentId:verified.id,chargeId:charge.id,applicationFeeId:applicationFee.id,applicationFeeCents:applicationFee.amount,eventId:event.id});
+        }else await releaseReservedPlatformFee(supabase,{reservationId,eventId:event.id,reason:event.type});
+      }catch(error){const message=error instanceof Error?error.message:"unknown";const businessId=intent.metadata?.business_id;if(businessId)await queuePlatformFeeReconciliation(supabase,{businessId,reservationId,connectedAccountId:accountId,paymentIntentId:intent.id,type:"missing_application_fee",error:message}).catch(()=>undefined);console.error("Platform fee lifecycle requires reconciliation",{eventId:event.id,reservationId,message});return NextResponse.json({error:"Platform fee reconciliation required."},{status:500});}
+    }
+  }
+  if(event.type==="checkout.session.expired"){
+    const expired=event.data.object as Stripe.Checkout.Session,reservationId=expired.metadata?.servonas_fee_reservation_id,accountId=typeof event.account==="string"?event.account:null,businessId=expired.metadata?.business_id;
+    if(reservationId&&accountId&&businessId){try{const session=await stripe.checkout.sessions.retrieve(expired.id,{expand:["payment_intent"]},{stripeAccount:accountId});const intent=typeof session.payment_intent==="object"?session.payment_intent:null;if(session.status!=="expired"||["succeeded","processing"].includes(intent?.status??""))await queuePlatformFeeReconciliation(supabase,{businessId,reservationId,connectedAccountId:accountId,paymentIntentId:intent?.id??null,checkoutSessionId:session.id,type:"checkout_expiration_uncertain",error:"Expired event did not prove terminal payment state."});else await releaseReservedPlatformFee(supabase,{reservationId,eventId:event.id,reason:"checkout.session.expired"});}catch(error){await queuePlatformFeeReconciliation(supabase,{businessId,reservationId,connectedAccountId:accountId,checkoutSessionId:expired.id,type:"checkout_expiration_uncertain",error:error instanceof Error?error.message:"unknown"}).catch(()=>undefined);}}
+  }
+  if(event.type==="charge.refunded"){
+    try{await reconcilePlatformFeeRefundEvent(event,stripe,supabase);}catch(error){console.error("Platform fee refund webhook failed",{eventId:event.id,message:error instanceof Error?error.message:"unknown"});return NextResponse.json({error:"Platform fee refund reconciliation required."},{status:500});}
+  }
+  if(["charge.dispute.created","charge.dispute.updated","charge.dispute.closed"].includes(event.type)){
+    try{await recordPlatformFeeDispute(event,supabase);}catch(error){console.error("Platform fee dispute webhook failed",{eventId:event.id,message:error instanceof Error?error.message:"unknown"});return NextResponse.json({error:"Platform fee dispute reconciliation required."},{status:500});}
   }
 
   if (event.type === "account.updated") {

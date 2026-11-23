@@ -44,6 +44,8 @@ test("the service accepts selectors only and recalculates an existing promotion 
  assert.match(service,/applyRentalDatePrice/);
  assert.match(service,/resolveRentalDatePrice/);
  assert.match(service,/p_discount_snapshot:discountSnapshot/);
- assert.match(service,/p_items:input\.items/);
+ assert.match(service,/const requestedItems=input\.amendmentId/);
+ assert.match(service,/p_items:requestedItems/);
+ assert.match(service,/expectedRentalUnitPriceCents:additions\.find/);
  assert.doesNotMatch(service,/priceCents:/);
 });

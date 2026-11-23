@@ -29,19 +29,27 @@ export async function POST(request:Request){
   if(!businessId)return NextResponse.json({received:true,ignored:true});
   const periodEnd=(subscription as Stripe.Subscription&{current_period_end?:number}).current_period_end;
   const status=event.type==="customer.subscription.deleted"?"canceled":subscription.status;
+  const stripePriceId=subscription.items.data[0]?.price.id??null;
+  const [{data:profile},{data:priceMapping}]=await Promise.all([
+   db.from("business_pricing_profiles").select("plan_key,rollout_enabled").eq("business_id",businessId).maybeSingle(),
+   stripePriceId?db.from("servonas_subscription_plan_prices").select("plan_key").eq("stripe_price_id",stripePriceId).eq("active",true).maybeSingle():Promise.resolve({data:null}),
+  ]);
   const {error}=await db.from("business_platform_subscriptions").upsert({
    business_id:businessId,stripe_customer_id:typeof subscription.customer==="string"?subscription.customer:subscription.customer.id,
-   stripe_subscription_id:subscription.id,stripe_price_id:subscription.items.data[0]?.price.id??null,status,
+   stripe_subscription_id:subscription.id,stripe_price_id:stripePriceId,plan_key:priceMapping?.plan_key??null,status,
    trial_ends_at:unixDate(subscription.trial_end),current_period_ends_at:unixDate(periodEnd),
    cancel_at_period_end:subscription.cancel_at_period_end,updated_at:new Date().toISOString(),
   },{onConflict:"business_id"});
   if(error)return NextResponse.json({error:"Subscription state could not be saved."},{status:500});
 
+  // Legacy profiles deliberately retain their historical entitlement. A subscription
+  // event alone is never a migration authorization.
+  if(profile?.plan_key==="legacy"||profile?.rollout_enabled!==true||!priceMapping?.plan_key)return NextResponse.json({received:true,legacy:true});
   const active=status==="active"||status==="trialing",grace=status==="past_due";
   const endsAt=active?null:new Date().toISOString();
   const graceEndsAt=grace?new Date(Date.now()+7*86_400_000).toISOString():null;
   const {error:entitlementError}=await db.from("business_entitlements").update({
-   entitlement_key:active||grace?"starter":"pilot",status:active?"active":grace?"grace_period":"expired",
+   entitlement_key:active||grace?priceMapping.plan_key:"pilot",status:active?"active":grace?"grace_period":"expired",
    source:"billing_sync",ends_at:endsAt,grace_period_ends_at:graceEndsAt,
    metadata:{stripe_subscription_id:subscription.id,stripe_subscription_status:status},updated_at:new Date().toISOString(),
   }).eq("business_id",businessId).in("status",["active","grace_period","expired"]);
