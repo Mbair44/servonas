@@ -7,9 +7,10 @@ import {createRentalDepositPaymentRequest} from "@/lib/communications/rentalPaym
 import {sendRentalBookingConfirmationSms} from "@/lib/communications/rentalBookingConfirmationSms";
 import {STAFF_BOOKING_SMS_CONSENT_VERSION,webBookingSmsConsentDisclosure} from "@/lib/smsConsent";
 import {assistedMoneyCents,assistedRentalTotals,normalizeAssistedRentalLines,type AssistedRentalLine} from "@/lib/assistedRentalItems";
+import {claimManualBookingAllowance,finalizeManualBookingAllowance} from "@/lib/pricing/manualBookings";
 const text=(f:FormData,k:string)=>String(f.get(k)??"").trim();
 export async function createEmergencyAssistedBooking(slug:string,form:FormData):Promise<{error?:string;url?:string}>{
- const {supabase,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ const {supabase,business,role,user}=await requireWorkspaceCapability(slug,"job_management");
  if(!canManageCustomers(role)||business.industry_profile!=="party_rental")return {error:"Not authorized."};
  // Elevated RPC is used only after workspace authorization and explicit tenant validation.
  const db=getSupabaseAdmin();if(!db)return {error:"Booking service is unavailable."};
@@ -38,10 +39,13 @@ export async function createEmergencyAssistedBooking(slug:string,form:FormData):
   // It is never exposed or used for email delivery.
   const emailWasOmitted=!email;
   const reservationEmail=email||`assisted-${requestKey}@no-email.servonas.invalid`;
+  const allowance=await claimManualBookingAllowance(db,{businessId:business.id,requestKey,actorUserId:user.id});
+  if(!allowance.allowed)throw new Error("The Starter plan’s monthly manual booking allowance has been reached. Upgrade to continue creating staff bookings.");
   const {data,error}=await db.rpc("create_assisted_rental_booking",{p_business_id:business.id,p_request_key:requestKey,p_items:lines,p_details:{rentalDate:date,firstName:first,lastName:last,email:reservationEmail,phone,address,city,zip,...amounts,smsConsent:text(form,"smsConsent")==="true",smsDisclosure:webBookingSmsConsentDisclosure(business.name),smsDisclosureVersion:STAFF_BOOKING_SMS_CONSENT_VERSION}});
-  if(error)throw new Error(error.message);
+  if(error){await finalizeManualBookingAllowance(db,{usageId:allowance.usageId,failed:true});throw new Error(error.message);}
   created=Array.isArray(data)?data[0]:data;
-  if(!created?.booking_id)throw new Error("Booking could not be created.");
+  if(!created?.booking_id){await finalizeManualBookingAllowance(db,{usageId:allowance.usageId,failed:true});throw new Error("Booking could not be created.");}
+  await finalizeManualBookingAllowance(db,{usageId:allowance.usageId,bookingId:created.booking_id});
   if(emailWasOmitted){
    const {data:createdBooking,error:bookingError}=await db.from("bookings").select("customer_id").eq("id",created.booking_id).eq("business_id",business.id).maybeSingle();
    if(bookingError||!createdBooking)throw new Error("Booking customer could not be updated.");

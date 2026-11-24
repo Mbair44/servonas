@@ -27,6 +27,8 @@ import {eligibleCustomerAddons} from "@/lib/customerAddonEligibility";
 import {qualifiesForThanksgivingRentalOffer,thanksgivingOfferPricingRules,thanksgivingPricingDate} from "@/lib/thanksgivingRentalOffer";
 import {rentalPowerRequirement} from "@/lib/rentalPower";
 import {rentalPublicPaymentPolicy} from "@/lib/rentalPaymentPolicy";
+import {persistPaymentAllocation,associatePaymentAllocationCheckout} from "@/lib/pricing/persistPaymentAllocation";
+import {preparePlatformFee} from "@/lib/pricing/platformFeeEngine";
 
 type RequestedItem = { inventoryItemId?: string; quantity?: number };
 type RequestedOperator = { inventoryItemId?: string; selected?: boolean };
@@ -421,6 +423,13 @@ export async function POST(request: Request) {
     const cancelUrl=checkoutReturnOrigin.usesTenantDomain
       ?`${checkoutReturnOrigin.origin}/cancel`
       :business?`${siteUrl}/book/${encodeURIComponent(body.businessSlug!.trim())}`:`${siteUrl}/book?cart=${orderedItems.map((item) => `${item.id}:${item.quantity}`).join(",")}&cancelled=1`;
+    // The payment amount is the finalized deposit; tax is allocated only from
+    // the finalized booking total and tax snapshot, never browser values.
+    const checkoutPaymentKey=`public-rental-checkout:${booking.booking_id}`;
+    const allocatedTaxCents=totalCents>0?Math.floor((depositCents*taxCents+Math.floor(totalCents/2))/totalCents):0;
+    const allocationContract={version:1 as const,flow:"public_rental_checkout" as const,currency:"USD",expectedPaymentCents:depositCents,eligibleChargeCents:depositCents-allocatedTaxCents,eligibleTaxCents:allocatedTaxCents,taxSplitStatus:"available" as const,prohibitedTipsCents:0 as const,prohibitedRefundableSecurityDepositCents:0 as const,prohibitedOverpaymentCents:0 as const};
+    const allocation=business?await persistPaymentAllocation(supabase,{businessId:business.id,paymentKey:checkoutPaymentKey,sourceReference:`booking:${booking.booking_id}`,allocation:allocationContract}):null;
+    const fee=business?await preparePlatformFee(supabase,{businessId:business.id,idempotencyKey:checkoutPaymentKey,allocation:{eligibleAmountCents:depositCents,excludedAmountCents:0,reason:"allocation_v1"},expiresAt:new Date(Date.now()+30*60_000).toISOString()}):null;
     let session: Stripe.Checkout.Session;
     try {
       session = await stripe.checkout.sessions.create({
@@ -452,11 +461,13 @@ export async function POST(request: Request) {
           customer_addon_count:String(addonPayload.reduce((sum,addon)=>sum+addon.quantity,0)),
           subtotal_cents:String(subtotalCents),tax_cents:String(taxCents),total_cents:String(totalCents),discount_cents:String(discountCents),delivery_fee_cents:String(deliveryFeeCents),...(promo?.ok?{discount_id:promo.discountId,discount_code:promo.code,discount_name:promo.name,...(promo.snapshot.tier?{discount_tier_id:promo.snapshot.tier.id}:{})}:{}),
           deposit_cents: String(depositCents),
+          ...(fee?.reservationId?{servonas_fee_reservation_id:fee.reservationId}:{}),
           final_payment_authorized:String(depositCents<totalCents),
           ...(validSessionId(body.attributionSessionId)?{attribution_session_id:body.attributionSessionId}:{}),
         },
-        payment_intent_data:{setup_future_usage:"off_session"},
-      },business?{stripeAccount:paymentAccount!.provider_account_id!}:undefined);
+        payment_intent_data:{setup_future_usage:"off_session",...(fee?.applicationFeeCents?{application_fee_amount:fee.applicationFeeCents,metadata:{servonas_fee_reservation_id:fee.reservationId!}}:{})},
+      },business?{stripeAccount:paymentAccount!.provider_account_id!,idempotencyKey:checkoutPaymentKey}:undefined);
+      await associatePaymentAllocationCheckout(supabase,{allocationId:allocation?.id??null,businessId:business?.id??"",checkoutSessionId:session.id});
     } catch (stripeError) {
       await supabase.from("bookings").update({ status: "expired" }).eq("id", booking.booking_id);
       await supabase.from("booking_items").update({ status: "expired" }).eq("booking_id", booking.booking_id);

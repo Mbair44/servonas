@@ -4,6 +4,9 @@ import {sendInvoiceFinancialEmail} from "@/lib/communications/invoiceEmailServic
 import {stripeClient,stripeProviderError} from "@/lib/stripeConnect";
 import {rentalCompletionBalance,authoritativeBookingBalance} from "@/lib/financial/rentalCompletionBalance";
 import {sendRentalLifecycleSms} from "@/lib/communications/rentalLifecycleSms";
+import {persistPaymentAllocation,associatePaymentAllocationIntent} from "@/lib/pricing/persistPaymentAllocation";
+import {combinedEligibleAllocation} from "@/lib/pricing/paymentAllocation";
+import {preparePlatformFee} from "@/lib/pricing/platformFeeEngine";
 
 type CompletionResult={
   ok:boolean;
@@ -189,12 +192,15 @@ export async function processCompletedJobBilling(jobId:string,options:{force?:bo
   return{ok:false,invoiceId,error:paymentError?.code??"payment_ledger_failed"};
  }
  try{
+  const allocation=await persistPaymentAllocation(db,{businessId:invoice.business_id,paymentKey:`recurring:${attemptKey}`,sourceReference:`invoice:${invoiceId}`,allocation:combinedEligibleAllocation("recurring_off_session",Number(invoice.balance_due_cents),invoice.currency)});
+  const fee=await preparePlatformFee(db,{businessId:invoice.business_id,idempotencyKey:`recurring:${attemptKey}`,allocation:{eligibleAmountCents:Number(invoice.balance_due_cents),excludedAmountCents:0,reason:"allocation_v1"},expiresAt:new Date(Date.now()+60*60_000).toISOString()});
   const intent=await stripeClient().paymentIntents.create({
    amount:Number(invoice.balance_due_cents),currency:invoice.currency.toLowerCase(),
    customer:providerCustomerId,payment_method:providerPaymentMethodId,
    confirm:true,off_session:true,
-   metadata:{servonas_kind:rentalBooking?"rental_completion_autopay":"recurring_visit_autopay",business_id:invoice.business_id,invoice_id:invoiceId,payment_id:payment.id,job_id:jobId},
+   metadata:{servonas_kind:rentalBooking?"rental_completion_autopay":"recurring_visit_autopay",business_id:invoice.business_id,invoice_id:invoiceId,payment_id:payment.id,job_id:jobId,...(fee.applicationFeeCents?{servonas_fee_reservation_id:fee.reservationId!}:{})},...(fee.applicationFeeCents?{application_fee_amount:fee.applicationFeeCents}:{}),
   },{stripeAccount:account.provider_account_id,idempotencyKey:attemptKey});
+  await associatePaymentAllocationIntent(db,{allocationId:allocation?.id??null,businessId:invoice.business_id,paymentIntentId:intent.id});
   const status=intent.status==="succeeded"?"succeeded":intent.status==="canceled"?"canceled":intent.status==="processing"?"processing":"requires_action";
   await db.rpc("reconcile_invoice_online_payment",{
    p_business_id:invoice.business_id,p_payment_id:payment.id,p_status:status,

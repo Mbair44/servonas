@@ -1,5 +1,8 @@
 import {addRentalItemsToBooking,type RentalItemAddition} from "@/lib/bookingManage/addRentalItems";
 import {stripeClient} from "@/lib/stripeConnect";
+import {persistPaymentAllocation,associatePaymentAllocationCheckout} from "@/lib/pricing/persistPaymentAllocation";
+import {combinedEligibleAllocation} from "@/lib/pricing/paymentAllocation";
+import {preparePlatformFee} from "@/lib/pricing/platformFeeEngine";
 
 type AdminDb=any;
 
@@ -24,7 +27,11 @@ export async function stageBookingItemAmendment(db:AdminDb,input:{businessId:str
   const connected=await stripe.accounts.retrieve(account.provider_account_id);
   if(("deleted" in connected&&connected.deleted)||Boolean((connected as {livemode?:boolean}).livemode))throw new Error("Restricted test checkout requires a Stripe test-mode connected account.");
  }
- const session=await stripe.checkout.sessions.create({mode:"payment",line_items:[{quantity:1,price_data:{currency:"usd",unit_amount:requiredPaymentCents,product_data:{name:"Required deposit for booking update"}}}],success_url:input.successUrl,cancel_url:input.cancelUrl,expires_at:Math.floor(input.expiresAt.getTime()/1000),metadata:{booking_id:input.bookingId,business_id:input.businessId,amendment_id:String(amendmentId),payment_kind:"booking_item_amendment",...(input.stripeMetadata??{})}},{stripeAccount:account.provider_account_id,idempotencyKey:`booking-amendment:${amendmentId}`});
+ const flow=input.stripeMetadata?.smart_upsell_offer_id?"smart_upsell":"booking_amendment" as const;
+ const allocation=await persistPaymentAllocation(db,{businessId:input.businessId,paymentKey:`booking-amendment:${amendmentId}`,sourceReference:`amendment:${amendmentId}`,allocation:combinedEligibleAllocation(flow,requiredPaymentCents,"USD")});
+ const fee=await preparePlatformFee(db,{businessId:input.businessId,idempotencyKey:`booking-amendment:${amendmentId}`,allocation:{eligibleAmountCents:requiredPaymentCents,excludedAmountCents:0,reason:"allocation_v1"},expiresAt:input.expiresAt.toISOString()});
+ const session=await stripe.checkout.sessions.create({mode:"payment",line_items:[{quantity:1,price_data:{currency:"usd",unit_amount:requiredPaymentCents,product_data:{name:"Required deposit for booking update"}}}],success_url:input.successUrl,cancel_url:input.cancelUrl,expires_at:Math.floor(input.expiresAt.getTime()/1000),metadata:{booking_id:input.bookingId,business_id:input.businessId,amendment_id:String(amendmentId),payment_kind:"booking_item_amendment",...(fee.reservationId?{servonas_fee_reservation_id:fee.reservationId}:{}),...(input.stripeMetadata??{})},payment_intent_data:fee.applicationFeeCents?{application_fee_amount:fee.applicationFeeCents,metadata:{servonas_fee_reservation_id:fee.reservationId!}}:undefined},{stripeAccount:account.provider_account_id,idempotencyKey:`booking-amendment:${amendmentId}`});
+ await associatePaymentAllocationCheckout(db,{allocationId:allocation?.id??null,businessId:input.businessId,checkoutSessionId:session.id});
  const {error:sessionError}=await db.from("booking_amendments").update({stripe_checkout_session_id:session.id}).eq("id",amendmentId).eq("business_id",input.businessId);
  if(sessionError||!session.url)throw new Error("Checkout could not be started; the inventory hold will expire.");
  return {amendmentId,requiredPaymentCents,checkoutUrl:session.url,checkoutSessionId:session.id};

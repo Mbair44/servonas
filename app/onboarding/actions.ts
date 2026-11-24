@@ -11,6 +11,7 @@ import {normalizeSkills,validateOnboardingService,type OnboardingServiceInput} f
 import {verifyGooglePlace} from "@/lib/googleAddress";
 import {sendBusinessSetupNotification} from "@/lib/communications/businessSetupEmailService";
 import {platformBillingEnabled,servonasTrialDays} from "@/lib/platformBilling";
+import {configuredSubscriptionPriceId,isPaidSubscriptionPlan,type PaidSubscriptionPlan} from "@/lib/pricing/subscriptionPlans";
 import {stripeClient,stripeConnectBaseUrl} from "@/lib/stripeConnect";
 import {getWebsiteFirstConfig} from "@/lib/websiteFirstConfig";
 import {normalizeWebsiteDomain} from "@/lib/website";
@@ -195,13 +196,14 @@ export async function completeOnboarding(slug:string){
  redirect(`/app/${slug}?onboarding=complete`);
 }
 
-export async function startServonasSubscription(slug:string,source:"onboarding"|"settings"="onboarding"){
+export async function startServonasSubscription(slug:string,source:"onboarding"|"settings"="onboarding",plan:PaidSubscriptionPlan="growth"){
  const {supabase,business,role}=await requireWorkspace(slug);
  const returnPath=source==="settings"?`/app/${slug}/settings`:`/onboarding?business=${encodeURIComponent(slug)}`;
  const withError=(message:string)=>`${returnPath}${returnPath.includes("?")?"&":"?"}error=${encodeURIComponent(message)}`;
  if(!canManageBusiness(role))redirect(withError("Only owners and administrators can manage subscription billing."));
  if(!platformBillingEnabled())redirect(returnPath);
- const priceId=process.env.STRIPE_SERVONAS_PRICE_ID;
+ if(!isPaidSubscriptionPlan(plan))redirect(withError("Choose Growth or Scale for subscription billing."));
+ const priceId=configuredSubscriptionPriceId(plan);
  if(!priceId)redirect(withError("Servonas subscription billing is not configured."));
  let destination:string;
  try{
@@ -215,8 +217,8 @@ export async function startServonasSubscription(slug:string,source:"onboarding"|
   const session=await stripe.checkout.sessions.create({
    mode:"subscription",customer:customerId,line_items:[{price:priceId,quantity:1}],
    payment_method_collection:"always",
-   subscription_data:{trial_period_days:trialDays,metadata:{business_id:business.id,platform:"servonas"}},
-   metadata:{business_id:business.id,business_slug:slug,purpose:"servonas_subscription",return_source:source},
+   subscription_data:{trial_period_days:trialDays,metadata:{business_id:business.id,platform:"servonas",plan_key:plan}},
+   metadata:{business_id:business.id,business_slug:slug,purpose:"servonas_subscription",return_source:source,plan_key:plan},
    success_url:`${base}/api/stripe/subscription-return?session_id={CHECKOUT_SESSION_ID}`,
    cancel_url:source==="settings"?`${base}/app/${encodeURIComponent(slug)}/settings?error=${encodeURIComponent("Subscription setup was canceled.")}`:`${base}/onboarding?business=${encodeURIComponent(slug)}&billing=1&error=${encodeURIComponent("Subscription setup was canceled. You can skip it and add billing later.")}`,
   });

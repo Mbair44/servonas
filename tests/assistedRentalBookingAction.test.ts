@@ -11,12 +11,13 @@ function fixture(fail=false){
  const query:any={select:()=>query,eq:()=>query,then:(resolve:any)=>resolve({data:items,error:null})};
  const db={from:()=>query,rpc:async(name:string,args:any)=>{calls.push({name,args});return fail?{error:{message:'Castle is already reserved for that rental period.'}}:{data:{booking_id:'booking',booking_number:123}};}};
  const modules:Record<string,any>={
-  '@/lib/workspace':{requireWorkspaceCapability:async()=>({supabase:db,business:{id:'tenant',name:'Business',industry_profile:'party_rental'},role:'owner'})},
+  '@/lib/workspace':{requireWorkspaceCapability:async()=>({supabase:db,business:{id:'tenant',name:'Business',industry_profile:'party_rental'},role:'owner',user:{id:'staff'}})},
   '@/lib/access':{canManageCustomers:()=>true},'@/lib/supabaseAdmin':{getSupabaseAdmin:()=>db},
   '@/lib/rentalBookingJob':{ensureRentalBookingJob:async(_:unknown,id:string)=>jobs.push(id)},
   '@/lib/communications/rentalPaymentRequest':{createRentalDepositPaymentRequest:async(id:string)=>{payments.push(id);return {expiresAt:'2035-01-01',smsSent:true};}},
   '@/lib/smsConsent':{STAFF_BOOKING_SMS_CONSENT_VERSION:'version',webBookingSmsConsentDisclosure:()=> 'disclosure'},
   '@/lib/assistedRentalItems':pricing,
+  '@/lib/pricing/manualBookings':{claimManualBookingAllowance:async()=>({allowed:true,usageId:null,remaining:null}),finalizeManualBookingAllowance:async()=>undefined},
  };
  const exports:any={};runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(id:string)=>modules[id]});
  const form=new FormData();for(const [k,v] of Object.entries({rentalItems:JSON.stringify([{inventoryItemId:'a',quantity:1,unitPriceCents:22500},{inventoryItemId:'b',quantity:1,unitPriceCents:18500}]),discount:'50',delivery:'50',tax:'0',deposit:'205',rentalDate:'2035-01-01',requestKey:'request',firstName:'Test',lastName:'Customer',email:'test@example.com',phone:'555',address:'123 Main',city:'Mesa',zip:'85201',smsConsent:'true'}))form.set(k,v);

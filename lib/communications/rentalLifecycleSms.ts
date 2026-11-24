@@ -19,7 +19,7 @@ export function rentalLifecycleSmsBody(type: LifecycleType, businessName: string
  return `${prefix}Payment received! We received your ${money(payment?.amountCents ?? 0)} payment for your ${items} rental.${payment?.balanceDueCents ? ` Remaining balance: ${money(payment.balanceDueCents)}.` : " Your rental is paid in full."}${payment?.receiptUrl ? ` View your receipt and full charges: ${payment.receiptUrl}` : ""} Thanks! Reply STOP to opt out.`;
 }
 
-export async function sendRentalLifecycleSms(input: { type: LifecycleType; bookingId?: string; jobId?: string; paymentId?: string; forceResend?: boolean }) {
+export async function sendRentalLifecycleSms(input: { type: LifecycleType; bookingId?: string; jobId?: string; paymentId?: string; paymentReference?: string; forceResend?: boolean }) {
  const db = getSupabaseAdmin();
  if (!db) return { ok: false, error: "Supabase is unavailable." };
  let jobId = input.jobId, payment: { id: string; amount_cents: number; invoice_id: string | null } | null = null;
@@ -45,7 +45,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
   reviewUrl = website?.google_review_url?.trim() || undefined;
   if (!reviewUrl) return { ok: true, skipped: true, reason: "google_review_url_missing" };
  }
- const receiptKey = payment?.id ? `payment:${payment.id}` : `booking:${booking.id}`;
+ const receiptKey = payment?.id ? `payment:${payment.id}` : input.paymentReference ? `booking:${booking.id}:payment:${input.paymentReference}` : `booking:${booking.id}`;
  const eventKey = input.type === "payment_receipt" ? `${receiptKey}${input.forceResend ? `:resend:${crypto.randomUUID()}` : ""}` : `booking:${booking.id}`;
  const event=input.type==="review_request"
   ?await db.rpc("claim_review_request_event",{p_job_id:booking.job_id,p_phone:customer.phone_normalized,p_event_key:eventKey}).maybeSingle()
