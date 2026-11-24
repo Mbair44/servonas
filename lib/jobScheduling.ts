@@ -1,5 +1,5 @@
 import { addDays, dateInTimeZone, zonedDateTimeToUtc } from "@/lib/bookingTime";
-import { conflictingJobNumbers, effectiveJobWindow, intervalsOverlap, technicianWorksDuring, type ScheduleWindow, type WorkingHours } from "@/lib/schedulingRules";
+import { conflictingJobNumbers, effectiveJobWindow, enforcesTechnicianScheduleConflicts, intervalsOverlap, technicianWorksDuring, type ScheduleWindow, type WorkingHours } from "@/lib/schedulingRules";
 
 type SupabaseClient = Awaited<ReturnType<typeof import("@/lib/workspace").requireWorkspace>>["supabase"];
 
@@ -43,12 +43,13 @@ export async function checkJobSchedule({
   const startTime = timeFormatter.format(candidateStart);
   const endTime = timeFormatter.format(candidateEnd);
 
-  const [hoursResult, blackoutResult, settingsResult, technicianResult, timeOffResult] = await Promise.all([
+  const [hoursResult, blackoutResult, settingsResult, routingPolicyResult, technicianResult, timeOffResult] = await Promise.all([
     supabase.from("booking_availability").select("id").eq("business_id", businessId).eq("weekday", weekday)
       .eq("active", true).lte("start_time", startTime).gte("end_time", endTime).limit(1),
     supabase.from("booking_blackouts").select("starts_at,ends_at").eq("business_id", businessId)
       .lt("starts_at", candidateEnd.toISOString()).gt("ends_at", candidateStart.toISOString()),
     supabase.from("booking_settings").select("minimum_notice_hours,maximum_days_ahead,enforce_minimum_notice_for_staff_job_updates").eq("business_id", businessId).maybeSingle(),
+    supabase.from("business_routing_policies").select("enforce_technician_schedule_conflicts").eq("business_id", businessId).maybeSingle(),
     technicianId
       ? supabase.from("technician_profiles").select("default_working_hours,technician_status,employee_id").eq("id", technicianId).eq("business_id", businessId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -58,12 +59,13 @@ export async function checkJobSchedule({
       : Promise.resolve({ data: [] as ScheduleWindow[], error: null }),
   ]);
 
-  if (hoursResult.error || blackoutResult.error || settingsResult.error || technicianResult.error || timeOffResult.error) {
+  if (hoursResult.error || blackoutResult.error || settingsResult.error || routingPolicyResult.error || technicianResult.error || timeOffResult.error) {
     console.error("Schedule rule lookup failed", {
       businessId,
       hoursCode: hoursResult.error?.code,
       blackoutCode: blackoutResult.error?.code,
       settingsCode: settingsResult.error?.code,
+      routingPolicyCode: routingPolicyResult.error?.code,
       technicianCode: technicianResult.error?.code,
       timeOffCode: timeOffResult.error?.code,
     });
@@ -169,7 +171,7 @@ export async function checkJobSchedule({
     return {available:false,code:"TECHNICIAN_HOURS",message:"The job exceeds the employee’s maximum daily hours."};
   }
 
-  if(!assignedJobIds.length)return {available:true};
+  if(!assignedJobIds.length || !enforcesTechnicianScheduleConflicts(routingPolicyResult.data))return {available:true};
   let query = supabase.from("jobs")
     .select("job_number,starts_at,ends_at,arrival_window_start,arrival_window_end")
     .eq("business_id", businessId).in("id",assignedJobIds)

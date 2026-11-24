@@ -54,3 +54,8 @@ export function conflictingJobNumbers(
     return window ? intervalsOverlap(candidateStart, candidateEnd, window) : false;
   }).map((job) => job.job_number);
 }
+
+/** Missing policies retain the safe, historical behavior. */
+export function enforcesTechnicianScheduleConflicts(policy: { enforce_technician_schedule_conflicts?: boolean | null } | null | undefined) {
+  return policy?.enforce_technician_schedule_conflicts !== false;
+}

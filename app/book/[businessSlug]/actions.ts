@@ -128,8 +128,7 @@ export async function submitPublicBooking(
     const enteredAddress = text(formData, "address");
     const placeId = text(formData, "addressPlaceId");
     if (!enteredAddress) return fail("Enter the service address.", { address: "Address is required." });
-    if (process.env.GOOGLE_MAPS_API_KEY) {
-      if (!placeId) return fail("Select an address from Google’s suggestions.", { address: "Choose a verified address." });
+    if (process.env.GOOGLE_MAPS_API_KEY && placeId) {
       const structured = {
         line1: text(formData, "addressLine1"),
         line2: text(formData, "addressLine2") || null,
@@ -138,22 +137,27 @@ export async function submitPublicBooking(
         postalCode: text(formData, "addressPostalCode") || null,
         countryCode: text(formData, "addressCountryCode") || "US",
       };
-      if (!structured.line1 || !structured.city || !structured.region) {
-        return fail("Choose the address again.", { address: "The selected address was incomplete." });
+      if (structured.line1 && structured.city && structured.region) {
+        try {
+          addressResolution = await resolveGoogleAddress(structured, placeId);
+          const normalized = addressResolution.status === "verified" ? addressResolution.normalizedAddress : null;
+          verifiedAddress = addressResolution.formattedAddress || enteredAddress;
+          addressPlaceId = placeId;
+          if (normalized?.line1) {
+            formData.set("addressLine1", normalized.line1);
+            formData.set("addressLine2", normalized.line2 ?? "");
+            formData.set("addressCity", normalized.city ?? structured.city);
+            formData.set("addressRegion", normalized.region ?? structured.region);
+            formData.set("addressPostalCode", normalized.postalCode ?? structured.postalCode ?? "");
+            formData.set("addressCountryCode", normalized.countryCode ?? structured.countryCode);
+          }
+        } catch (error) {
+          console.warn("Public booking address verification failed; continuing with entered address", { reason: error instanceof Error ? error.message : "unknown" });
+          verifiedAddress = enteredAddress;
+        }
       }
-      addressResolution = await resolveGoogleAddress(structured, placeId);
-      const normalized = addressResolution.status === "verified" ? addressResolution.normalizedAddress : null;
-      verifiedAddress = addressResolution.formattedAddress || enteredAddress;
-      addressPlaceId = placeId;
-      if (normalized?.line1) {
-        formData.set("addressLine1", normalized.line1);
-        formData.set("addressLine2", normalized.line2 ?? "");
-        formData.set("addressCity", normalized.city ?? structured.city);
-        formData.set("addressRegion", normalized.region ?? structured.region);
-        formData.set("addressPostalCode", normalized.postalCode ?? structured.postalCode ?? "");
-        formData.set("addressCountryCode", normalized.countryCode ?? structured.countryCode);
-      }
-    } else verifiedAddress = enteredAddress;
+    }
+    verifiedAddress ??= enteredAddress;
   }
 
   const { data: submission, error: reservationError } = await supabase
