@@ -357,6 +357,24 @@ export async function updateJobMarketingSource(slug:string,jobId:string,formData
  redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Marketing source saved.")}`);
 }
 
+/** Saves per-job exceptions for rental lifecycle SMS without changing customer consent. */
+export async function updateRentalJobSmsPreferences(slug:string,jobId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const {data:job,error:lookupError}=await supabase.from("jobs").select("id").eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+ if(lookupError||!job)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Job not found.")}`);
+ const {data:booking,error:bookingError}=await supabase.from("bookings").select("id").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
+ if(bookingError||!booking)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Rental SMS settings are only available for a linked booking.")}`);
+ const {error}=await supabase.from("jobs").update({
+  suppress_rental_reminder_sms:formData.get("suppressRentalReminderSms")==="on",
+  suppress_technician_en_route_sms:formData.get("suppressTechnicianEnRouteSms")==="on",
+  updated_by:user.id,
+ }).eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false);
+ if(error)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Rental SMS settings could not be saved.")}`);
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);
+ redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Rental SMS settings saved.")}`);
+}
+
 export async function changeJobStatus(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
