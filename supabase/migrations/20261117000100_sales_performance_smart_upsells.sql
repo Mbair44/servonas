@@ -50,10 +50,10 @@ begin
      and upsell.applied_at>=(p_from::timestamp at time zone v_timezone) and upsell.applied_at<((p_through+1)::timestamp at time zone v_timezone)
    group by 1
  )
- select booking_date,booking_value_cents,booking_count from base_bookings
+ select base_booking.booking_date,base_booking.booking_value_cents,base_booking.booking_count from base_bookings base_booking
  union all
- select booking_date,booking_value_cents,booking_count from smart_upsell_sales
- order by booking_date;
+ select smart_upsell.booking_date,smart_upsell.booking_value_cents,smart_upsell.booking_count from smart_upsell_sales smart_upsell
+ order by 1;
 end;$$;
 
 revoke all on function public.sales_performance_booking_values(uuid,date,date) from public;

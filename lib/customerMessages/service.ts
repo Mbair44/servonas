@@ -18,7 +18,7 @@ export async function markConversationRead(db:SupabaseClient,businessId:string,k
  for(let offset=0;offset<ids.length;offset+=100){const {error}=await db.from("customer_messages").update({read_at:now,updated_at:now}).eq("business_id",businessId).eq("direction","inbound").is("read_at",null).in("id",ids.slice(offset,offset+100));if(error)throw new Error("Could not mark messages read.");}
  return ids;
 }
-type Send=(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string;customerId?:string;attachmentIds?:string[]})=>Promise<{sid:string}>;
+type Send=(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string;customerId?:string;attachmentIds?:string[];attachmentOwnerId?:string})=>Promise<{sid:string}>;
 type ReplyTarget={customerId:string;phone:string};
 const validPhone=(phone:string)=>/^\+[1-9]\d{7,14}$/.test(normalizePhone(phone));
 async function conversationTarget(db:SupabaseClient,businessId:string,input:{key:string;target?:ReplyTarget}){
@@ -32,7 +32,7 @@ async function conversationTarget(db:SupabaseClient,businessId:string,input:{key
  if(!phones.includes(phone))throw new Error("That phone number does not belong to this customer.");
  return{phone,customerId:customer.id};
 }
-export async function replyToConversation(db:SupabaseClient,businessId:string,input:{key:string;body:string;requestId:string;attachmentIds?:string[];target?:ReplyTarget},send:Send){
+export async function replyToConversation(db:SupabaseClient,businessId:string,input:{key:string;body:string;requestId:string;attachmentIds?:string[];target?:ReplyTarget;attachmentOwnerId?:string},send:Send){
  const body=input.body.trim(),attachmentIds=[...new Set(input.attachmentIds??[])];if((!body&&!attachmentIds.length)||body.length>1600||attachmentIds.length>10)throw new Error("Enter a message or up to 10 attachments.");
  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.requestId))throw new Error("Invalid send request.");
  const thread=await conversationTarget(db,businessId,input),to=normalizePhone(thread.phone);if(!/^\+[1-9]\d{7,14}$/.test(to))throw new Error("This conversation does not have a valid reply number.");
@@ -45,7 +45,7 @@ export async function replyToConversation(db:SupabaseClient,businessId:string,in
   if(!existing.provider_message_id)throw new Error("This send is pending or its delivery is uncertain. Refresh before sending another message; this request will not be sent twice.");
   sid=existing.provider_message_id;
  }else{
-  const result=await send({businessId,to,body,sourceType:"manual_reply",sourceId:input.requestId,customerId:thread.customerId??undefined,attachmentIds});sid=result.sid;
+  const result=await send({businessId,to,body,sourceType:"manual_reply",sourceId:input.requestId,customerId:thread.customerId??undefined,attachmentIds,attachmentOwnerId:input.attachmentOwnerId});sid=result.sid;
   const {error}=await db.from("customer_message_send_requests").update({provider_message_id:sid}).eq("business_id",businessId).eq("request_id",input.requestId);
   if(error)throw new Error("Message accepted, but confirmation could not be saved. Refresh the inbox; do not resend.");
  }

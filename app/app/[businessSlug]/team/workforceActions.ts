@@ -390,3 +390,21 @@ export async function saveEmployeePreferences(slug:string,employeeId:string,form
  revalidatePath(`/app/${slug}/team/${employeeId}`);
  redirect(employeePath(slug,employeeId,"success","Work preferences saved."));
 }
+
+/** This preference only controls eligibility for future push dispatch; it never grants inbox access. */
+export async function setEmployeeIncomingTextNotifications(slug:string,employeeId:string,formData:FormData){
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"team_management");
+ if(!canManageBusiness(role))redirect(employeePath(slug,employeeId,"error","Only owners and administrators can change incoming-text notifications."));
+ const enabled=formData.get("receiveIncomingTextNotifications")==="on";
+ const {data:employee,error:employeeError}=await supabase.from("employees").select("id,is_active,auth_user_id").eq("business_id",business.id).eq("id",employeeId).maybeSingle();
+ if(employeeError||!employee)redirect(employeePath(slug,employeeId,"error","Employee not found."));
+ if(!employee.is_active)redirect(employeePath(slug,employeeId,"error","Inactive employees cannot receive incoming-text notifications."));
+ if(enabled&&!employee.auth_user_id)redirect(employeePath(slug,employeeId,"error","Give this employee login access before enabling incoming-text notifications."));
+ const {error}=await supabase.rpc("set_employee_mobile_notification_preference",{p_business_id:business.id,p_employee_id:employeeId,p_receive_incoming_text_notifications:enabled});
+ if(error){
+  console.error("Employee mobile notification preference save failed",{businessId:business.id,employeeId,code:error.code});
+  redirect(employeePath(slug,employeeId,"error","Incoming-text notification preference could not be saved."));
+ }
+ revalidatePath(`/app/${slug}/team/${employeeId}`);
+ redirect(employeePath(slug,employeeId,"success",enabled?"Incoming-text notifications enabled.":"Incoming-text notifications disabled."));
+}

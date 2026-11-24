@@ -22,34 +22,28 @@ test("booking funnel route persists service_id and structured diagnostics",async
  assert.match(route,/rpc\("upsert_booking_attribution_session"/);
 });
 
-test("promotion landing views use the lifecycle-safe sender and default-enabled sites can report anonymous funnel sessions",async()=>{
+test("promotion landing views use the lifecycle-safe sender and report anonymous funnel sessions",async()=>{
  const [tracker,route]=await Promise.all([read("components/TenantBookingFunnelTracker.tsx"),read("app/api/public-booking/[businessSlug]/funnel/route.ts")]);
  assert.match(tracker,/beacon: landingType === "promotion"/);
  assert.match(tracker,/const funnelMeasurementAllowed=\(\)=>/);
- assert.match(tracker,/consent==="unset"&&window\.__servonasBookingFunnelDefaultMeasurementEnabled===true/);
- assert.match(tracker,/firstPartyFunnelIndependentOfConsent: window\.__servonasBookingFunnelDefaultMeasurementEnabled===true/);
+ assert.match(tracker,/const funnelMeasurementAllowed=\(\)=>true/);
+ assert.match(tracker,/firstPartyFunnelIndependentOfConsent: true/);
  assert.match(tracker,/reason: "client_deduped"/);
  assert.match(tracker,/x-servonas-funnel-result/);
  assert.match(route,/\["promotion_landing_view","landing_page_view","landing_view"\]\.includes\(event\)/);
 });
 
-test("default funnel measurement remains tenant-scoped and an explicit opt-out is rejected",async()=>{
- const [tracker,route,website,booking,thanksgiving]=await Promise.all([
+test("first-party funnel measurement is not gated by the analytics preference",async()=>{
+ const [tracker,route]=await Promise.all([
   read("components/TenantBookingFunnelTracker.tsx"),
   read("app/api/public-booking/[businessSlug]/funnel/route.ts"),
-  read("components/BusinessWebsite.tsx"),
-  read("app/book/[businessSlug]/page.tsx"),
-  read("app/sites/domain/[domain]/[promotionSlug]/page.tsx"),
  ]);
- assert.match(tracker,/defaultMeasurementEnabled\?: boolean/);
  assert.match(tracker,/normalized==="accepted"&&!sent\.current/);
- assert.match(tracker,/analytics_consent_not_granted_or_default_measurement_disabled/);
- assert.match(route,/defaultMeasurementEnabledForBusiness/);
- assert.match(route,/body\.analyticsConsent==="unset"&&defaultMeasurementEnabled/);
+ assert.doesNotMatch(tracker,/analytics_consent_not_granted_or_default_measurement_disabled/);
+ assert.doesNotMatch(route,/defaultMeasurementEnabledForBusiness/);
+ assert.doesNotMatch(route,/analytics_consent_not_granted_or_default_measurement_disabled/);
  assert.match(route,/body\.analyticsConsent==="granted"&&validSessionId\(body\.visitorId\)/);
- assert.match(website,/defaultMeasurementEnabled=\{Boolean\(site\.metaPixelDefaultMeasurementEnabled\)\}/);
- assert.match(booking,/defaultMeasurementEnabled=\{metaPixelDefaultMeasurementEnabled\}/);
- assert.match(thanksgiving,/promotionSlug==="thanksgiving"[\s\S]*defaultMeasurementEnabled=\{Boolean\(site\.metaPixelDefaultMeasurementEnabled\)\}/);
+ assert.doesNotMatch(tracker,/defaultMeasurementEnabled/);
 });
 
 test("first-party booking funnel has an independent operational feature flag",async()=>{

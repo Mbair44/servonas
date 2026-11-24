@@ -6,10 +6,16 @@ export const mobileApiPaths = {
   me: "/api/v1/mobile/me",
   ownerManagerDashboard: "/api/v1/mobile/businesses/:businessId/owner-home",
   technicianHome: "/api/v1/mobile/businesses/:businessId/employee-home",
+  jobsList: "/api/v1/mobile/businesses/:businessId/jobs",
   jobDetail: "/api/v1/mobile/businesses/:businessId/jobs/:jobId",
   transitionJobStatus: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/status",
   addJobNote: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/notes",
   foregroundLocation: "/api/v1/mobile/businesses/:businessId/jobs/:jobId/location",
+  conversations: "/api/v1/mobile/businesses/:businessId/conversations",
+  conversationMessages: "/api/v1/mobile/businesses/:businessId/conversations/:conversationKey/messages",
+  conversationMedia: "/api/v1/mobile/businesses/:businessId/conversation-media/:attachmentId",
+  conversationAttachmentUpload: "/api/v1/mobile/businesses/:businessId/conversation-attachments",
+  markConversationRead: "/api/v1/mobile/businesses/:businessId/conversations/:conversationKey/read",
 } as const;
 
 export const uuidSchema = z.uuid();
