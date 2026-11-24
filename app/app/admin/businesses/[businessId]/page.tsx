@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { businessAdminStatus, ownerAccessLabel, requirePlatformAdminSession } from "@/lib/adminBusinessSetup";
 import { sendOwnerInvitation, updateAdminBusinessDetails } from "../actions";
 import { INDUSTRY_PROFILES } from "@/lib/onboardingProfile";
+import {AdminPricingMigrationPanel} from "@/components/AdminPricingMigrationPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -94,5 +95,6 @@ export default async function AdminBusinessDetailPage({
       <div className="platform-admin-grid-row"><span><strong>Website</strong><small>Reuse the existing website builder and settings.</small></span><span><Link className="sv-button sv-secondary" href={`/app/${business.slug}/settings/website`}>Open website</Link></span></div>
       <div className="platform-admin-grid-row"><span><strong>Booking settings</strong><small>Configure hours, availability, and booking behavior in the tenant workspace.</small></span><span><Link className="sv-button sv-secondary" href={`/app/${business.slug}/settings`}>Open settings</Link></span></div>
     </section>
+    <AdminPricingMigrationPanel businessId={business.id} businessName={business.name}/>
   </main>;
 }

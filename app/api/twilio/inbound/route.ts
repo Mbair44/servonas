@@ -7,6 +7,7 @@ import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebho
 import {recordTenantMessageUsage} from "@/lib/twilio/messageUsage";
 import {sendInboundSmsEmailAlert} from "@/lib/communications/inboundSmsEmailService";
 import {maxCustomerMediaAttachments,processCustomerMessageMedia,supportedCustomerMedia} from "@/lib/customerMessages/media";
+import {isBusinessTwilioEnabled} from "@/lib/twilio/access";
 
 export const runtime="nodejs";
 
@@ -18,6 +19,7 @@ export async function POST(request:Request){
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
  const security=await resolveConfiguredInboundWebhookSecurity(accountSid,to);
  if(!security)return NextResponse.json({error:"Webhook account is not securely configured"},{status:403});
+ if(security.mode==="tenant"&&security.businessId&&!(await isBusinessTwilioEnabled(security.businessId)))return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>',{headers:{"Content-Type":"text/xml"}});
  const token=security.token;
  const webhookUrl=twilioWebhookUrl(request,"TWILIO_INBOUND_WEBHOOK_URL");
  if(!token||!validTwilioSignature(webhookUrl,params,signature,token))return NextResponse.json({error:"Invalid signature"},{status:403});

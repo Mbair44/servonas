@@ -30,7 +30,7 @@ test('action carries selected staff add-ons into the atomic booking request befo
  const f=fixture();f.form.set('staffAddons',JSON.stringify([{catalogId:'00000000-0000-4000-8000-000000000001',quantity:1}]));const result=await f.run();assert.ok(result.url);assert.equal(JSON.stringify(f.calls[0].args.p_details.staffAddons),JSON.stringify([{catalogId:'00000000-0000-4000-8000-000000000001',quantity:1}]));assert.deepEqual(f.payments,['booking']);
 });
 test('zero-total assisted bookings skip the payment link and use booking confirmation',async()=>{
- assert.match(source,/totals\.total===0&&totals\.deposit!==0/);assert.match(source,/if\(totals\.total===0\)/);assert.match(source,/sendRentalBookingConfirmationSms/);assert.doesNotMatch(source,/createRentalDepositPaymentRequest\(created\.booking_id\);\n  if/);
+ assert.match(source,/zeroTotal=totals\.total===0/);assert.match(source,/zeroTotal&&totals\.deposit!==0/);assert.match(source,/if\(zeroTotal\)/);assert.match(source,/sendRentalBookingConfirmationSms/);assert.doesNotMatch(source,/createRentalDepositPaymentRequest\(created\.booking_id\);\n  if/);
 });
 test('availability failure returns item name without redirect or payment and preserves submitted data',async()=>{const f=fixture(true);const before=Array.from(f.form.entries());const result=await f.run();assert.match(result.error,/Castle/);assert.equal(result.url,undefined);assert.deepEqual(f.jobs,[]);assert.deepEqual(f.payments,[]);assert.deepEqual(Array.from(f.form.entries()),before);});
 test('foreign item and malformed amount fail before any reservation',async()=>{const f=fixture();f.form.set('rentalItems',JSON.stringify([{inventoryItemId:'foreign',quantity:1,unitPriceCents:1}]));assert.ok((await f.run()).error);assert.equal(f.calls.length,0);});

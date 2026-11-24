@@ -1,0 +1,1 @@
+export function shouldApplySubscriptionEvent(lastEventCreatedAt:string|null,eventCreatedAt:string){return !lastEventCreatedAt||new Date(eventCreatedAt).getTime()>=new Date(lastEventCreatedAt).getTime();}

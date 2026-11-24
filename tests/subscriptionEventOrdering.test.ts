@@ -1,0 +1,6 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {shouldApplySubscriptionEvent} from "../lib/pricing/subscriptionEventOrdering.ts";
+import {readFileSync} from "node:fs";
+test("subscription event ordering accepts first/newer events and rejects delayed ones",()=>{assert.equal(shouldApplySubscriptionEvent(null,"2026-11-24T10:00:00Z"),true);assert.equal(shouldApplySubscriptionEvent("2026-11-24T10:00:00Z","2026-11-24T10:00:01Z"),true);assert.equal(shouldApplySubscriptionEvent("2026-11-24T10:00:01Z","2026-11-24T10:00:00Z"),false);});
+test("webhook has durable receipt, retries failures, and retrieves Stripe authority",()=>{const route=readFileSync(new URL("../app/api/stripe/subscription-webhook/route.ts",import.meta.url),"utf8"),migration=readFileSync(new URL("../supabase/migrations/20261123000500_subscription_webhook_receipts.sql",import.meta.url),"utf8");assert.match(route,/claim_stripe_subscription_event/);assert.match(route,/stripeClient\(\)\.subscriptions\.retrieve/);assert.match(route,/complete_stripe_subscription_event/);assert.match(route,/Stripe subscription ownership mismatch/);assert.match(migration,/event_id text primary key/);assert.match(migration,/processing_state/);});
