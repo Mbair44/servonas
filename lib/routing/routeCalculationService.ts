@@ -12,6 +12,7 @@ import {
 import { resolveRouteEndpoints } from "./endpoints";
 import { resolveServiceDuration, technicianMeetsRoutingRequirements } from "./serviceDuration";
 import { canReuseCalculatedRoute } from "./cacheValidity";
+import { shouldOptimizePartyRentalStopOrder, shortestFlexibleRoute } from "./flexibleRouteOrder";
 
 type RouteJob = {
   id: string;
@@ -102,8 +103,9 @@ export async function calculateDailyRoutes({
   const jobs = (rows ?? []) as unknown as RouteJob[];
   const serviceIds = [...new Set(jobs.map((job) => job.service_id).filter((value): value is string => Boolean(value)))];
   const technicianIds = [...new Set(jobs.map((job) => job.assigned_technician_id))];
-  const [{ data: routingPolicy }, { data: priceDurations }, { data: technicianCapabilities }] = await Promise.all([
+  const [{ data: routingPolicy }, { data: businessProfile }, { data: priceDurations }, { data: technicianCapabilities }] = await Promise.all([
     admin.from("business_routing_policies").select("default_service_duration_minutes").eq("business_id", businessId).maybeSingle(),
+    admin.from("businesses").select("industry_profile").eq("id", businessId).maybeSingle(),
     serviceIds.length
       ? admin.from("price_book_items").select("service_id,estimated_duration_minutes").eq("business_id", businessId).in("service_id", serviceIds).eq("is_active", true).eq("is_deleted", false).not("estimated_duration_minutes", "is", null)
       : Promise.resolve({ data: [] as Array<{ service_id: string; estimated_duration_minutes: number }> }),
@@ -193,7 +195,7 @@ export async function calculateDailyRoutes({
       summary.skipped += 1;
       continue;
     }
-    const routable = technicianJobs.flatMap((job) => {
+    let routable = technicianJobs.flatMap((job) => {
       const location = relation(job.service_locations);
       if (!location || !["verified", "manual"].includes(location.geocoding_status)) return [];
       const latitude = Number(location.latitude), longitude = Number(location.longitude);
@@ -216,6 +218,27 @@ export async function calculateDailyRoutes({
       }).eq("business_id", businessId).eq("route_plan_id", plan.id).eq("technician_id", technicianId);
       summary.skipped += 1;
       continue;
+    }
+    if (shouldOptimizePartyRentalStopOrder({
+      industryProfile: businessProfile?.industry_profile,
+      startsAt: routable.map((item) => item.job.starts_at),
+    })) {
+      try {
+        const matrix = await provider.computeRouteMatrix({
+          origins: routable.map((item) => item.waypoint),
+          destinations: routable.map((item) => item.waypoint),
+          departureAt: routable[0].job.starts_at,
+        });
+        const orderedIds = shortestFlexibleRoute(routable.map((item) => item.job.id), matrix);
+        if (orderedIds) {
+          const byJobId = new Map(routable.map((item) => [item.job.id, item]));
+          routable = orderedIds.map((id) => byJobId.get(id)!).filter(Boolean);
+        }
+      } catch (error) {
+        console.warn("Party-rental stop ordering failed; retaining scheduled order", {
+          businessId, technicianId, reason: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     const first = routable[0], last = routable.at(-1)!;
     const endpoints = await resolveRouteEndpoints({

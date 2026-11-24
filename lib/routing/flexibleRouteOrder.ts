@@ -1,5 +1,11 @@
 import type { RouteMatrixCell } from "./domain";
 
+export function shouldOptimizePartyRentalStopOrder(input: { industryProfile: string | null | undefined; startsAt: string[] }) {
+  return input.industryProfile === "party_rental"
+    && input.startsAt.length > 1
+    && input.startsAt.every((startsAt) => startsAt === input.startsAt[0]);
+}
+
 /**
  * Finds the minimum-duration open route (no fixed depot/start/end) through all
  * supplied stops. Exact dynamic programming is intentionally bounded to small

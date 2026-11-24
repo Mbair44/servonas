@@ -29,22 +29,24 @@ type Technician = { id: string; preferred_name: string; phone: string | null; te
 const relation = <T,>(value: Relation<T>) => Array.isArray(value) ? value[0] ?? null : value;
 const validDate = (value: string | undefined, fallback: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
 
-function DispatchCard({ job, slug, date, technicians, conflict, canEdit, timeZone, routePlanId, planVersion }: {
+function DispatchCard({ job, slug, date, technicians, conflict, canEdit, timeZone, routePlanId, planVersion, plannedArrivalAt, sequence }: {
   job: DispatchJob; slug: string; date: string; technicians: Technician[]; conflict: boolean; canEdit: boolean; timeZone: string;
-  routePlanId: string | null; planVersion: number | null;
+  routePlanId: string | null; planVersion: number | null; plannedArrivalAt?: string | null; sequence?: number | null;
 }) {
   const customer = relation(job.customers), location = relation(job.service_locations), service = relation(job.services);
   const time = job.starts_at ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(new Date(job.starts_at)) : "Unscheduled";
   const arrival = job.arrival_window_start ? `${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(new Date(job.arrival_window_start))}–${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(new Date(job.arrival_window_end!))}` : null;
+  const routeEta = plannedArrivalAt ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(new Date(plannedArrivalAt)) : null;
   const address = location ? [location.street_address, location.unit, location.city, location.state, location.postal_code].filter(Boolean).join(", ") : job.service_address;
   const late = Boolean(job.starts_at && new Date(job.starts_at).getTime() < Date.now() && !["arrived", "in_progress", "completed", "canceled"].includes(job.status));
   const transitions = availableJobTransitions(job.status);
   return <article className={`dispatch-card priority-${job.priority} ${late ? "late" : ""} ${conflict ? "conflict" : ""}`}>
-    <div className="dispatch-card-head"><span>{time}</span><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span></div>
+    <div className="dispatch-card-head"><span>{sequence ? `Stop ${sequence} · ` : ""}{time}</span><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span></div>
     <Link href={`/app/${slug}/jobs/${job.id}`}><strong>#{job.job_number} · {job.title}</strong></Link>
     <p>{customer?.company_name || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || "No customer"}</p>
     <small>{service?.name || "Custom work"} · {job.priority} priority</small>
     {arrival && <small>Arrival window: {arrival}</small>}
+    {routeEta && <small>Route ETA: {routeEta}</small>}
     {address && <small className="dispatch-address">{address}</small>}
     <div className="dispatch-flags">{late && <b>Late</b>}{conflict && <b>Schedule conflict</b>}</div>
     <div className="dispatch-contact">{customer?.phone && <a href={`tel:${customer.phone}`}>Call customer</a>}{address && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`} target="_blank" rel="noreferrer">Directions</a>}</div>
@@ -270,7 +272,7 @@ export default async function DispatchPage({ params, searchParams }: { params: P
         const assigned = jobs.filter((job) => job.assigned_technician_id === technician.id);
         const state = dispatchTechnicianState(technician.technician_status, assigned.map((job) => job.status));
         const live=liveLocationByTechnician.get(technician.id);
-        return <section className="dispatch-column" key={technician.id}><header style={{ borderTopColor: technician.schedule_color }}><div><span className="dispatch-avatar" style={{ background: technician.schedule_color }}>{technician.preferred_name.slice(0, 1)}</span><div><h2>{technician.preferred_name}</h2><small>{assigned.length} jobs</small>{live&&<a className="dispatch-live-location" href={`https://www.google.com/maps/search/?api=1&query=${live.latitude},${live.longitude}`} target="_blank" rel="noreferrer">● Live location · {Math.round(Number(live.accuracy_meters))} m accuracy · {new Intl.DateTimeFormat("en-US",{timeZone:business.timezone,hour:"numeric",minute:"2-digit"}).format(new Date(live.captured_at))}</a>}</div></div><span className={`technician-state ${state}`}>{state.replaceAll("_", " ")}</span></header><div className="dispatch-card-list">{assigned.length ? assigned.map((job) => <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone} routePlanId={routePlan?.id ?? null} planVersion={routePlan?.version ?? null}/>) : <div className="dispatch-empty">No jobs assigned.</div>}</div></section>;
+        return <section className="dispatch-column" key={technician.id}><header style={{ borderTopColor: technician.schedule_color }}><div><span className="dispatch-avatar" style={{ background: technician.schedule_color }}>{technician.preferred_name.slice(0, 1)}</span><div><h2>{technician.preferred_name}</h2><small>{assigned.length} jobs</small>{live&&<a className="dispatch-live-location" href={`https://www.google.com/maps/search/?api=1&query=${live.latitude},${live.longitude}`} target="_blank" rel="noreferrer">● Live location · {Math.round(Number(live.accuracy_meters))} m accuracy · {new Intl.DateTimeFormat("en-US",{timeZone:business.timezone,hour:"numeric",minute:"2-digit"}).format(new Date(live.captured_at))}</a>}</div></div><span className={`technician-state ${state}`}>{state.replaceAll("_", " ")}</span></header><div className="dispatch-card-list">{assigned.length ? assigned.map((job) => {const stop=stopByJob.get(job.id);return <DispatchCard key={job.id} job={job} slug={businessSlug} date={date} technicians={technicians} conflict={conflicts.has(job.id)} canEdit={canEdit} timeZone={business.timezone} routePlanId={routePlan?.id ?? null} planVersion={routePlan?.version ?? null} plannedArrivalAt={stop?.planned_arrival_at} sequence={stop?.sequence}/>;}) : <div className="dispatch-empty">No jobs assigned.</div>}</div></section>;
       })}
     </div>
   </section></main>;
