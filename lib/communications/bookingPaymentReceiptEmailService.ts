@@ -5,7 +5,7 @@ import { renderPaymentReceipt } from "./paymentReceipt";
 const first = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
 
 /** Sends a receipt for a paid direct rental booking, which does not use an invoice ledger. */
-export async function sendBookingPaymentReceiptEmail(bookingId: string, jobId: string, options: { forceResend?: boolean } = {}) {
+export async function sendBookingPaymentReceiptEmail(bookingId: string, jobId: string, options: { forceResend?: boolean; paymentReference?: string } = {}) {
   const db = getSupabaseAdmin();
   if (!db) return { ok: false, error: "Supabase is unavailable." };
   const { data: booking, error } = await db.from("bookings")
@@ -17,7 +17,11 @@ export async function sendBookingPaymentReceiptEmail(bookingId: string, jobId: s
   if (!customer?.email) return { ok: true, skipped: true, reason: "customer_email_missing" };
   if (amountCents <= 0) return { ok: true, skipped: true, reason: "no_payment_recorded" };
 
-  const eventKey = options.forceResend ? `booking:${booking.id}:resend:${crypto.randomUUID()}` : `booking:${booking.id}`;
+  // A direct rental's initial payment and its later balance payment are
+  // distinct receipts. Keep their delivery keys distinct while retaining a
+  // stable key for webhook/manual-reconciliation retries.
+  const receiptKey = options.paymentReference ? `booking:${booking.id}:payment:${options.paymentReference}` : `booking:${booking.id}`;
+  const eventKey = options.forceResend ? `${receiptKey}:resend:${crypto.randomUUID()}` : receiptKey;
   const { data: existing } = options.forceResend ? { data: null } : await db.from("job_communication_events")
     .select("id,status").eq("job_id", jobId).eq("channel", "email").eq("template_key", "payment_receipt").eq("event_key", eventKey).maybeSingle();
   if (existing && ["queued", "sent"].includes(existing.status)) return { ok: true, duplicate: true };
