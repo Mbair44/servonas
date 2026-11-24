@@ -76,9 +76,11 @@ export async function processCustomerMessageMedia(limit=25){
  const legacy=await backfillLegacyVideoPlayback(limit);return{processed:processed+legacy.processed,failed:failed+legacy.failed};
 }
 
-export async function signedOutboundMediaUrls(businessId:string,attachmentIds:string[],body=""){
+export async function signedOutboundMediaUrls(businessId:string,attachmentIds:string[],body="",attachmentOwnerId?:string){
  const db=getSupabaseAdmin();if(!db)throw new Error("MMS storage is unavailable.");
- const {data,error}=await db.from("customer_message_attachments").select("id,storage_path,content_type,file_size_bytes,processing_status,business_id,direction").eq("business_id",businessId).in("id",attachmentIds).eq("direction","outbound").eq("processing_status","uploaded");
+ let query=db.from("customer_message_attachments").select("id,storage_path,content_type,file_size_bytes,processing_status,business_id,direction").eq("business_id",businessId).in("id",attachmentIds).eq("direction","outbound").eq("processing_status","uploaded");
+ if(attachmentOwnerId)query=query.eq("uploaded_by_user_id",attachmentOwnerId).is("message_id",null);
+ const {data,error}=await query;
  if(error||(data??[]).length!==attachmentIds.length)throw new Error("One or more attachments are unavailable.");
  const files=data??[];if(files.reduce((sum,file)=>sum+Number(file.file_size_bytes??0),Buffer.byteLength(body,"utf8"))>maxCustomerMediaBytes)throw new Error("Message text and attachments together must be 5 MB or smaller.");for(const file of files)if(!file.storage_path||!allowedCustomerMedia(file.content_type,Number(file.file_size_bytes)))throw new Error("One or more attachments are invalid.");
  // Twilio validates with HEAD and GET and may retry retrieval. Keep the

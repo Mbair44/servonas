@@ -34,18 +34,28 @@ export async function POST(request:Request){
  }
  const result=data as IntakeResult;
  if(security.mode==="tenant"&&result.business_id!==security.businessId)return NextResponse.json({error:"Tenant mismatch"},{status:403});
+ let timelineMessageId:string|null=null;
  if(!result.duplicate){
   const receivedAt=new Date().toISOString();
   const {data:timeline,error:timelineError}=await db.from("customer_messages").upsert({business_id:result.business_id,customer_id:result.customer_id,counterparty_phone_e164:from,direction:"inbound",provider:"twilio",provider_message_id:sid,body,status:"received",source_type:"inbound_sms",received_at:receivedAt,created_at:receivedAt,updated_at:receivedAt},{onConflict:"provider,provider_message_id"}).select("id").single();
   if(timelineError) console.error("Inbound SMS timeline persistence failed",{businessId:result.business_id,messageSid:sid,code:timelineError.code});
-  else if(timeline&&numMedia){
+  else if(timeline){
+   timelineMessageId=timeline.id;
+   if(numMedia){
    const attachments=Array.from({length:numMedia},(_,ordinal)=>{const contentType=(params.get(`MediaContentType${ordinal}`)??"application/octet-stream").split(";")[0].toLowerCase();return{business_id:result.business_id,message_id:timeline.id,ordinal,direction:"inbound",content_type:supportedCustomerMedia.has(contentType)?contentType:"application/octet-stream",provider_media_url:params.get(`MediaUrl${ordinal}`),processing_status:"queued"};}).filter(row=>Boolean(row.provider_media_url));
    if(attachments.length){const {error:mediaError}=await db.from("customer_message_attachments").upsert(attachments,{onConflict:"message_id,ordinal",ignoreDuplicates:true});if(mediaError)console.error("Inbound MMS queue persistence failed",{businessId:result.business_id,messageSid:sid,code:mediaError.code});}
    // `after` is a tracked Next/Vercel post-response task, not an unobserved
    // promise. The durable queue remains the source of truth if it is delayed.
    if(attachments.length)after(async()=>{try{await processCustomerMessageMedia(Math.min(attachments.length,10));}catch(error){console.error("Inbound MMS fast worker failed",{messageSid:sid,name:error instanceof Error?error.name:"unknown"});}});
+   }
   }
  }
+ // The timeline insert and this idempotent outbox enqueue are replayable as a
+ // pair. If either postgrest call failed before acknowledgement, Twilio retry
+ // resolves the same message row and fills any missing per-device intents.
+ if(!timelineMessageId){const {data:existing,error:existingError}=await db.from("customer_messages").select("id").eq("business_id",result.business_id).eq("provider","twilio").eq("provider_message_id",sid).maybeSingle();if(existingError||!existing)return NextResponse.json({error:"Timeline persistence failed"},{status:503});timelineMessageId=existing.id;}
+ const {error:pushIntentError}=await db.rpc("enqueue_inbound_message_push_intents",{p_business_id:result.business_id,p_message_id:timelineMessageId});
+ if(pushIntentError){console.error("Inbound push intent enqueue failed",{businessId:result.business_id,messageId:timelineMessageId,code:pushIntentError.code});return NextResponse.json({error:"Notification persistence failed"},{status:503});}
  if(!result.duplicate)console.info("Twilio inbound SMS received",{messageSid:sid,from,to,businessId:result.business_id,customerId:result.customer_id});
  if(!result.duplicate){
   const {data:alertSettings,error:alertSettingsError}=await db.from("business_inbound_sms_settings").select("email_alerts_enabled").eq("business_id",result.business_id).maybeSingle();
