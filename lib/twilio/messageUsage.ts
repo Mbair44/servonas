@@ -5,6 +5,7 @@ import {getSubaccountWebhookSecretResolver} from "./subaccountWebhookSecrets.ts"
 import {resolveTenantOutboundSender} from "./tenantOutboundSender.ts";
 import {calculateMessagingPeriod,nextMonth,shouldAdvanceMessageStatus,usageCanFinalize,utcBillingPeriod,type BillableUsage} from "./usageMath.ts";
 import {signedOutboundMediaUrls} from "../customerMessages/media.ts";
+import {requireBusinessTwilioEnabled} from "./access.ts";
 
 type UsageCapture={businessId:string;accountSid:string;messageSid:string;direction:string;status:string;from?:string|null;to?:string|null;numSegments?:number|null;numMedia?:number|null;price?:number|string|null;priceUnit?:string|null;errorCode?:string|null;errorMessage?:string|null;callbackAt?:string;messagingServiceSid?:string|null;phoneNumberSid?:string|null;occurredAt?:string;sourceType?:string|null;sourceId?:string|null;providerDateCreated?:string|null;providerDateSent?:string|null;providerDateUpdated?:string|null;providerSyncedAt?:string|null};
 type TwilioMessage={sid:string;account_sid:string;direction:string;status:string;from:string|null;to:string|null;num_segments:string|null;num_media:string|null;price:string|null;price_unit:string|null;error_code:number|string|null;messaging_service_sid:string|null;date_created:string|null;date_sent:string|null;date_updated:string|null};
@@ -35,6 +36,7 @@ export async function recordTenantStatusCallback(input:{businessId:string;accoun
 
 export class TenantSmsError extends Error {code:string|null;messageSid:string|null;constructor(message:string,code:string|null=null,messageSid:string|null=null){super(message);this.name="TenantSmsError";this.code=code;this.messageSid=messageSid;}}
 export async function sendTenantTwilioMessage(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string;customerFacing?:boolean;customerId?:string;attachmentIds?:string[];attachmentOwnerId?:string}){
+ await requireBusinessTwilioEnabled(input.businessId);
  const sender=await resolveTenantOutboundSender(input.businessId);if(!sender.configured||sender.mode!=="messaging_service"||!sender.accountSid||!sender.username||!sender.password||!sender.messagingServiceSid)throw new Error("Tenant Twilio sender is not active.");
  const db=getSupabaseAdmin();if(!db)throw new Error("Tenant message storage is unavailable.");
  const [consent,customers]=await Promise.all([

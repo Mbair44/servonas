@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { conflictingJobNumbers, effectiveJobWindow, intervalsOverlap, technicianWorksDuring } from "../lib/schedulingRules.ts";
+import { conflictingJobNumbers, effectiveJobWindow, enforcesTechnicianScheduleConflicts, intervalsOverlap, technicianWorksDuring } from "../lib/schedulingRules.ts";
 
 test("detects overlap using scheduled and arrival windows", () => {
   const window = effectiveJobWindow({
@@ -41,4 +41,11 @@ test("technician hours support inherited, numeric, and named-day schedules", () 
   assert.equal(technicianWorksDuring({ "1": { start: "08:00", end: "17:00" } }, 1, "09:00", "10:00"), true);
   assert.equal(technicianWorksDuring({ monday: { start_time: "08:00", end_time: "17:00" } }, 1, "07:30", "10:00"), false);
   assert.equal(technicianWorksDuring({ monday: { active: false, start: "08:00", end: "17:00" } }, 1, "09:00", "10:00"), false);
+});
+
+test("technician overlap enforcement defaults on but can be disabled per business", () => {
+  assert.equal(enforcesTechnicianScheduleConflicts(null), true);
+  assert.equal(enforcesTechnicianScheduleConflicts({}), true);
+  assert.equal(enforcesTechnicianScheduleConflicts({ enforce_technician_schedule_conflicts: true }), true);
+  assert.equal(enforcesTechnicianScheduleConflicts({ enforce_technician_schedule_conflicts: false }), false);
 });

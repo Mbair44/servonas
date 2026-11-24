@@ -1,5 +1,7 @@
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {zonedDateTimeToUtc} from "@/lib/bookingTime";
+import {GoogleGeocodingProvider} from "@/lib/geocoding/googleProvider";
+import {resolveServiceLocationAddress} from "@/lib/geocoding/service";
 
 type RentalJobDatabaseError={code?:string;message?:string;details?:string;hint?:string};
 
@@ -29,6 +31,10 @@ export async function ensureRentalBookingJob(db:SupabaseClient,bookingId:string)
  const address=[booking.delivery_address,booking.delivery_city,booking.delivery_state,booking.delivery_zip].filter(Boolean).join(", ");
  let {data:location}=await db.from("service_locations").select("id").eq("business_id",booking.business_id).eq("customer_id",booking.customer_id).eq("street_address",booking.delivery_address).eq("is_deleted",false).limit(1).maybeSingle();
  if(!location){const {count}=await db.from("service_locations").select("id",{count:"exact",head:true}).eq("business_id",booking.business_id).eq("customer_id",booking.customer_id).eq("is_deleted",false);const created=await db.from("service_locations").insert({business_id:booking.business_id,customer_id:booking.customer_id,location_name:(count??0)===0?"Primary location":"Event location",street_address:booking.delivery_address,city:booking.delivery_city,state:booking.delivery_state||"N/A",postal_code:booking.delivery_zip,country:"US",is_primary:(count??0)===0,is_active:true}).select("id").single();if(created.error)throw new RentalBookingJobPersistenceError("create_rental_service_location","service_locations",created.error);location=created.data;}
+ if(process.env.GOOGLE_MAPS_API_KEY){
+  const result=await resolveServiceLocationAddress({supabase:db,businessId:booking.business_id,serviceLocationId:location.id,provider:new GoogleGeocodingProvider()});
+  if(!result.ok)console.warn("Rental delivery address needs staff verification",{bookingId,businessId:booking.business_id,serviceLocationId:location.id,status:result.status});
+ }
  const timeZone=business?.timezone||"America/Phoenix",start=zonedDateTimeToUtc(rentalDate,String(booking.event_start_time).slice(0,5),timeZone),end=zonedDateTimeToUtc(rentalDate,String(booking.event_end_time).slice(0,5),timeZone);
  const itemSummary=items.flatMap(row=>{const item=Array.isArray(row.inventory_items)?row.inventory_items[0]:row.inventory_items,lines=[`${row.item_name_snapshot??item?.name??"Rental item"} × ${row.quantity}`];if(row.operator_selected)lines.push(`Professional Operator: ${row.operator_billable_hours} hour${row.operator_billable_hours===1?"":"s"} × $${(Number(row.operator_hourly_rate_cents??0)/100).toFixed(2)}/hour — $${(Number(row.operator_charge_cents??0)/100).toFixed(2)}`);return lines;});
  const firstItem=items[0]&&(Array.isArray(items[0].inventory_items)?items[0].inventory_items[0]:items[0].inventory_items);

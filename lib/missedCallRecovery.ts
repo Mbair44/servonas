@@ -1,5 +1,6 @@
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {sendTwilioMessage} from "@/lib/communications/twilioMessage";
+import {isBusinessTwilioEnabled} from "@/lib/twilio/access";
 
 type Lead={id:string;business_id:string;customer_id:string|null;job_id:string|null;from_phone_e164:string;to_phone_e164:string;lead_status:string;conversation_status:string;customer_name:string|null;service_address:string|null;issue_summary:string|null;urgency:string;requested_start_at:string|null;extracted_data:Record<string,unknown>;alerted_at:string|null};
 type Settings={ai_enabled:boolean;ai_instructions:string;booking_enabled:boolean;alert_phone_e164:string|null};
@@ -42,6 +43,7 @@ async function tryBook(db:SupabaseClient,lead:Lead,decision:AiDecision,timeZone:
 }
 
 export async function advanceMissedCallConversation(db:SupabaseClient,{businessId,customerId,providerMessageId,body}:{businessId:string;customerId:string;providerMessageId:string;body:string}){
+ if(!(await isBusinessTwilioEnabled(businessId)))return {suppressed:true,reason:"twilio_not_entitled"};
  const {data:lead}=await db.from("missed_call_recovery_leads").select("*").eq("business_id",businessId).eq("customer_id",customerId).in("conversation_status",["active","staff_review"]).order("created_at",{ascending:false}).limit(1).maybeSingle() as {data:Lead|null};if(!lead)return null;
  const duplicate=await db.from("missed_call_recovery_messages").select("id").eq("provider","twilio").eq("provider_message_id",providerMessageId).maybeSingle();if(duplicate.data)return {duplicate:true};
  await db.from("missed_call_recovery_messages").insert({business_id:businessId,lead_id:lead.id,customer_id:customerId,job_id:lead.job_id,direction:"inbound",provider_message_id:providerMessageId,body,delivery_status:"received"});

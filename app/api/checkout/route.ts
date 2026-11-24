@@ -111,13 +111,17 @@ export async function POST(request: Request) {
 
     let verifiedDestination:VerifiedGoogleAddress|null=null;
     if(process.env.GOOGLE_MAPS_API_KEY&&process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY){
-      if(!hasText(body.googlePlaceId))return NextResponse.json({error:"Select the delivery address from Google’s suggestions so it can be verified."},{status:400});
-      const verified=await verifyGooglePlace(body.googlePlaceId.trim());
-      if(!verified?.streetAddress||!verified.city||!verified.postalCode)return NextResponse.json({error:"The selected delivery address could not be verified. Search for it again and choose a Google suggestion."},{status:400});
-      body.address=verified.streetAddress;
-      body.city=verified.city;
-      body.zipCode=verified.postalCode;
-      verifiedDestination=verified;
+      try{
+        const verified=hasText(body.googlePlaceId)?await verifyGooglePlace(body.googlePlaceId.trim()):null;
+        if(verified?.streetAddress&&verified.city&&verified.postalCode){
+          body.address=verified.streetAddress;
+          body.city=verified.city;
+          body.zipCode=verified.postalCode;
+          verifiedDestination=verified;
+        }
+      }catch(error){
+        console.warn("Checkout delivery address verification failed; continuing with customer-entered address",{reason:error instanceof Error?error.message:"unknown"});
+      }
     }
     body.city=body.city!.trim().replace(/\s+/g," ").slice(0,120);
     const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -158,8 +162,7 @@ export async function POST(request: Request) {
     if(business){
       const {data:deliveryConfig,error:deliveryConfigError}=await supabase.from("delivery_fee_settings").select("enabled").eq("business_id",business.id).maybeSingle();
       if(deliveryConfigError)return NextResponse.json({error:"Delivery settings could not be verified. Please try again."},{status:503});
-      if(deliveryConfig?.enabled){
-        if(!verifiedDestination)return NextResponse.json({error:"Choose a verified delivery address so we can calculate delivery before payment."},{status:400});
+      if(deliveryConfig?.enabled&&verifiedDestination){
         try{deliveryQuote=await quoteBusinessDelivery(supabase,business.id,verifiedDestination);}catch(error){console.error("Checkout delivery calculation failed",{businessId:business.id,operation:"authoritative_delivery_quote",errorCode:error instanceof Error?error.message:"unknown"});return NextResponse.json({error:deliveryQuoteMessage(error),code:"delivery_quote_unavailable"},{status:503});}
         if(deliveryQuote&&!deliveryQuote.eligible)return NextResponse.json({error:deliveryQuote.requiresQuote?"This address is outside our normal service area. Send us a request and we'll let you know if we can accommodate it.":"This address is outside the area available for online booking.",code:deliveryQuote.requiresQuote?"delivery_quote_required":"outside_service_area",delivery:deliveryQuote},{status:422});
       }
@@ -327,7 +330,7 @@ export async function POST(request: Request) {
     const powerRequirement=rentalPowerRequirement(orderedItems,requestedItems);
     const powerSelection=(body.powerNeed==="electricity"||body.powerNeed==="generator_request"||body.powerNeed==="unsure")?body.powerNeed:null;
     const powerRequestNote=(powerRequirement.totalOutlets>0||powerRequirement.hasUnconfiguredItems)?(powerSelection==="generator_request"?"Power request: Generator requested. Capacity requires staff confirmation and is not charged automatically.":powerSelection==="unsure"?"Power follow-up required: customer is unsure whether electricity is available.":powerRequirement.hasUnconfiguredItems?"Power review required: one or more selected rental items have no configured outlet requirement.":`Power requirement: ${powerRequirement.totalOutlets} electrical outlet${powerRequirement.totalOutlets===1?"":"s"} required.`):"";
-    const bookingNotes=[body.notes?.trim(),powerRequestNote].filter(Boolean).join("\n");
+    const bookingNotes=[body.notes?.trim(),powerRequestNote,!verifiedDestination?"Address verification required — confirm delivery address and fee before fulfillment.":null].filter(Boolean).join("\n");
     const reservationDetails={
       p_items: requestedItems,
       p_rental_date: body.rentalDate,

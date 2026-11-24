@@ -2,6 +2,7 @@ import {NextResponse} from "next/server";
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {sendTwilioMessage} from "@/lib/communications/twilioMessage";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
+import {isBusinessTwilioEnabled} from "@/lib/twilio/access";
 
 export const runtime="nodejs";
 const missedStatuses=new Set(["no-answer","busy","failed","canceled"]);
@@ -13,7 +14,7 @@ export async function POST(request:Request){
  const callId=params.get("CallSid")??"",status=(params.get("CallStatus")??params.get("DialCallStatus")??"").toLowerCase();if(!missedStatuses.has(status))return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  const from=normalize(params.get("From")??""),to=normalize(params.get("To")??"");if(!callId||!from||!to)return NextResponse.json({error:"Invalid call data"},{status:400});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
- const {data:settings}=await db.from("business_missed_call_settings").select("business_id,initial_sms_body,recovery_number_e164").eq("enabled",true).eq("recovery_number_e164",to).maybeSingle();if(!settings)return NextResponse.json({error:"Number not configured"},{status:404});
+ const {data:settings}=await db.from("business_missed_call_settings").select("business_id,initial_sms_body,recovery_number_e164").eq("enabled",true).eq("recovery_number_e164",to).maybeSingle();if(!settings)return NextResponse.json({error:"Number not configured"},{status:404});if(!(await isBusinessTwilioEnabled(settings.business_id)))return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  const existing=await db.from("missed_call_recovery_leads").select("id").eq("provider","twilio").eq("provider_call_id",callId).maybeSingle();if(existing.data)return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>",{headers:{"Content-Type":"text/xml"}});
  let {data:customer}=await db.from("customers").select("id,sms_consent_status").eq("business_id",settings.business_id).eq("phone_normalized",from).eq("is_deleted",false).order("created_at").limit(1).maybeSingle();
  if(!customer){const created=await db.from("customers").insert({business_id:settings.business_id,first_name:"Missed Call",last_name:from.slice(-4),phone:from,phone_normalized:from,preferred_contact_method:"sms",tags:["missed-call-lead"],lead_source:"Missed inbound call",notes:"Created automatically from a missed inbound business call.",is_active:true,sms_consent_status:"inbound_contact",sms_consent_recorded_at:new Date().toISOString(),intake_data:{source:"missed_call",verification:"unconfirmed"},intake_data_verified:false}).select("id,sms_consent_status").single();customer=created.data;}

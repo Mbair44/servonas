@@ -3,6 +3,7 @@ import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {resolveConfiguredInboundWebhookSecurity} from "@/lib/twilio/inboundWebhookSecurity";
 import {twilioWebhookUrl,validTwilioSignature} from "@/lib/twilioWebhook";
 import {inboundVoiceTwiml,normalizeVoicePhone,voiceXml} from "@/lib/twilio/voice";
+import {isBusinessTwilioEnabled} from "@/lib/twilio/access";
 
 export const runtime="nodejs";
 const origin=(request:Request)=>(process.env.NEXT_PUBLIC_SITE_URL||new URL(request.url).origin).replace(/\/$/,"");
@@ -17,6 +18,7 @@ export async function POST(request:Request){
  }
  if(security.mode!=="tenant"||!security.businessId||!from||!to||!sid)return NextResponse.json({error:"Voice number is not configured"},{status:404});
  const businessId=security.businessId;
+ if(!(await isBusinessTwilioEnabled(businessId)))return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>",{headers:{"Content-Type":"text/xml"}});
  const db=getSupabaseAdmin();if(!db)return NextResponse.json({error:"Unavailable"},{status:503});
  const [{data:settings},{data:customer}]=await Promise.all([
   db.from("business_voice_settings").select("routing_mode,on_call_employee_id,fallback_employee_id,ring_timeout_seconds,recording_mode,enabled").eq("business_id",businessId).maybeSingle(),
