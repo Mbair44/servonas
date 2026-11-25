@@ -2,7 +2,7 @@ import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import TechnicianRouteMap from "@/components/TechnicianRouteMap";
-import { dateInTimeZone } from "@/lib/bookingTime";
+import { addDays, dateInTimeZone } from "@/lib/bookingTime";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { transitionTechnicianJob } from "../actions";
 
@@ -13,8 +13,9 @@ const nextAction: Record<string, { status: string; label: string }> = {
 };
 const miles = (meters: number | null) => meters === null ? "Drive pending" : `${(meters / 1609.344).toFixed(1)} miles`;
 const minutes = (seconds: number | null) => seconds === null ? "Time pending" : `${Math.max(1, Math.round(seconds / 60))} min`;
+const validDate = (value: string | undefined, fallback: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
 
-export default async function TechnicianRoutePage({ searchParams }: { searchParams: Promise<{ business?: string; error?: string; success?: string }> }) {
+export default async function TechnicianRoutePage({ searchParams }: { searchParams: Promise<{ business?: string; date?: string; error?: string; success?: string }> }) {
   const query = await searchParams;
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -28,7 +29,8 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
   if (!business) redirect("/tech?error=Workspace+not+found");
   const timezone = business?.timezone ?? "UTC";
   const today = dateInTimeZone(new Date(), timezone);
-  const { data: plan, error: planError } = await supabase.from("route_plans").select("id,version,updated_at,calculation_status").eq("business_id", profile.business_id).eq("service_date", today).maybeSingle();
+  const date = validDate(query.date, today);
+  const { data: plan, error: planError } = await supabase.from("route_plans").select("id,version,updated_at,calculation_status").eq("business_id", profile.business_id).eq("service_date", date).maybeSingle();
   const { data: route, error: routeError } = plan ? await supabase.from("technician_routes").select("id,encoded_polyline,calculation_status,origin_label,origin_is_private,destination_label,destination_is_private,driving_distance_meters,driving_duration_seconds").eq("business_id", profile.business_id).eq("route_plan_id", plan.id).eq("technician_id", profile.id).maybeSingle() : { data: null, error: null };
   const { data: stopRows, error: stopError } = route ? await supabase.from("route_stops").select("id,job_id,sequence,planned_arrival_at,appointment_window_start,appointment_window_end,latitude,longitude,calculation_status").eq("business_id", profile.business_id).eq("technician_route_id", route.id).order("sequence") : { data: null, error: null };
   const stopIds = (stopRows ?? []).map((stop) => stop.id);
@@ -53,7 +55,8 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
   const currentIndex = activeIndex >= 0 ? activeIndex : stops.findIndex((stop) => stop.job.status !== "completed");
   const current = currentIndex >= 0 ? stops[currentIndex] : null;
   const next = currentIndex >= 0 ? stops.slice(currentIndex + 1).find((stop) => stop.job.status !== "completed") ?? null : null;
-  const routeQuery = `?business=${encodeURIComponent(profile.business_id)}`;
+  const routeQuery = `?business=${encodeURIComponent(profile.business_id)}&date=${date}`;
+  const hrefFor = (nextDate: string) => `/tech/route?business=${encodeURIComponent(profile.business_id)}&date=${nextDate}`;
   const StopCard = ({ stop, prominent = false }: { stop: typeof stops[number]; prominent?: boolean }) => {
     const action = nextAction[stop.job.status];
     const mapsQuery = encodeURIComponent(stop.address);
@@ -69,8 +72,8 @@ export default async function TechnicianRoutePage({ searchParams }: { searchPara
   const mapStops = stops.filter((stop) => stop.latitude !== null && stop.longitude !== null).map((stop) => ({ id: stop.id, sequence: stop.sequence, latitude: Number(stop.latitude), longitude: Number(stop.longitude), title: stop.job.title, completed: stop.job.status === "completed" }));
   return <main className="tech-shell tech-route-shell"><header className="tech-detail-header"><Link href="/tech">← Technician home</Link><div className="tech-header-actions"><Link href="/app">Main app</Link><Link href={`/tech/route${routeQuery}`}>Refresh route</Link></div></header>
     {query.error && <div className="workspace-notice error">{query.error}</div>}{query.success && <div className="workspace-notice success">{query.success}</div>}
-    <section className="tech-route-heading"><span className="sv-kicker">Today’s planned route</span><h1>{new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long", month: "long", day: "numeric" }).format(new Date())}</h1><p>{business?.name} · {profile.preferred_name}</p>{plan && <small>Plan v{plan.version} · updated {new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(plan.updated_at))}. This is a planned route, not live GPS tracking.</small>}</section>
-    {!plan || !route ? <section className="tech-empty-inline"><strong>No calculated route for today.</strong><p>Your assigned jobs remain available on the technician home screen.</p></section> : <>
+    <section className="tech-route-heading"><span className="sv-kicker">{date === today ? "Today’s planned route" : "Planned route"}</span><h1>{new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${date}T12:00:00Z`))}</h1><p>{business?.name} · {profile.preferred_name}</p><div className="dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date,-1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date,1))}>›</Link></div><form><input type="hidden" name="business" value={profile.business_id}/><label>Date<input key={date} name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form></div>{plan && <small>Plan v{plan.version} · updated {new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(new Date(plan.updated_at))}. This is a planned route, not live GPS tracking.</small>}</section>
+    {!plan || !route ? <section className="tech-empty-inline"><strong>No calculated route for {date === today ? "today" : "this day"}.</strong><p>Your assigned jobs remain available on the technician home screen.</p></section> : <>
       <TechnicianRouteMap apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY} encodedPolyline={route.encoded_polyline} stops={mapStops}/>
       {current && <section className="tech-section current"><span className="sv-kicker">Current stop</span><StopCard stop={current} prominent/></section>}
       {next && <section className="tech-section"><span className="sv-kicker">Next stop</span><StopCard stop={next}/></section>}
