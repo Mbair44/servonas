@@ -2,6 +2,10 @@
 -- services are called here: this is a database-only preview/confirm engine.
 begin;
 
+-- The request/preview fingerprints use pgcrypto. Do not rely on an earlier
+-- baseline migration having installed it in a fresh Supabase project.
+create extension if not exists "pgcrypto";
+
 create or replace function public.customer_merge_request_fingerprint(
   p_primary_customer_id uuid,p_duplicate_customer_id uuid,p_resolutions jsonb
 ) returns text language sql immutable set search_path=public as $$
