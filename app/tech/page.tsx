@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
-import { dateInTimeZone } from "@/lib/bookingTime";
+import { addDays, dateInTimeZone } from "@/lib/bookingTime";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 type TechJob = {
@@ -13,8 +13,9 @@ type TechJob = {
   service_locations: { city: string; state: string } | { city: string; state: string }[] | null;
 };
 const relation = <T,>(value: T | T[] | null) => Array.isArray(value) ? value[0] ?? null : value;
+const validDate = (value: string | undefined, fallback: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
 
-export default async function TechnicianHome({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function TechnicianHome({ searchParams }: { searchParams: Promise<{ error?: string; date?: string }> }) {
   const query = await searchParams;
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -39,17 +40,21 @@ export default async function TechnicianHome({ searchParams }: { searchParams: P
     const business = businessById.get(profile.business_id);
     return [profile.business_id, { name: business?.name ?? "Business", timezone: business?.timezone ?? "America/Phoenix", displayName: profile.preferred_name }];
   }));
-  const isToday = (job: TechJob) => job.starts_at && dateInTimeZone(new Date(job.starts_at), businessMap.get(job.business_id)?.timezone ?? "UTC") === dateInTimeZone(new Date(), businessMap.get(job.business_id)?.timezone ?? "UTC");
-  const todayJobs = jobs.filter(isToday);
-  const upcomingJobs = jobs.filter((job) => !isToday(job));
-  const currentJob = todayJobs.find((job) => ["en_route", "arrived", "in_progress"].includes(job.status));
+  const primaryTimezone = businessMap.get(activeProfiles[0].business_id)?.timezone ?? "UTC";
+  const today = dateInTimeZone(new Date(), primaryTimezone);
+  const date = validDate(query.date, today);
+  const isSelectedDate = (job: TechJob) => job.starts_at && dateInTimeZone(new Date(job.starts_at), businessMap.get(job.business_id)?.timezone ?? "UTC") === date;
+  const selectedDateJobs = jobs.filter(isSelectedDate);
+  const upcomingJobs = jobs.filter((job) => job.starts_at && dateInTimeZone(new Date(job.starts_at), businessMap.get(job.business_id)?.timezone ?? "UTC") > date);
+  const currentJob = date === today ? selectedDateJobs.find((job) => ["en_route", "arrived", "in_progress"].includes(job.status)) : null;
+  const hrefFor = (nextDate: string) => `/tech?date=${nextDate}`;
   const JobCard = ({ job }: { job: TechJob }) => {
     const business = businessMap.get(job.business_id), customer = relation(job.customers), service = relation(job.services), location = relation(job.service_locations);
     return <Link className={`tech-job-card ${job.status}`} href={`/tech/jobs/${job.id}`}><div><span className={`job-status ${job.status}`}>{job.status.replaceAll("_", " ")}</span><b>#{job.job_number} · {job.title}</b><strong>{customer?.company_name || [customer?.first_name, customer?.last_name].filter(Boolean).join(" ")}</strong><small>{service?.name || "Custom work"} · {location ? `${location.city}, ${location.state}` : job.service_address || "No address"}</small></div><time>{job.starts_at ? new Intl.DateTimeFormat("en-US", { timeZone: business?.timezone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(job.starts_at)) : "Unscheduled"}</time></Link>;
   };
   return <main className="tech-shell"><header className="tech-header"><div><span className="sv-kicker">Servonas Technician</span><h1>Hello, {activeProfiles[0].preferred_name}</h1><p>{activeProfiles.map((profile) => businessById.get(profile.business_id)?.name).filter(Boolean).join(" · ")}</p><Link className="sv-button sv-secondary" href={`/tech/route?business=${activeProfiles[0].business_id}`}>View today’s route</Link></div><div className="tech-header-actions"><Link href="/app">Back to main app</Link><form action={signOut}><button className="text-button">Log out</button></form></div></header>{query.error&&<div className="workspace-notice error">{query.error}</div>}
     {currentJob&&<section className="tech-section current"><span className="sv-kicker">Current job</span><JobCard job={currentJob}/></section>}
-    <section className="tech-section"><div className="tech-section-heading"><h2>Today’s jobs</h2><span>{todayJobs.length}</span></div><div className="tech-job-list">{todayJobs.length?todayJobs.map((job)=><JobCard key={job.id} job={job}/>):<div className="tech-empty-inline">No jobs scheduled today.</div>}</div></section>
+    <section className="tech-section"><div className="tech-section-heading"><h2>Your jobs</h2><span>{selectedDateJobs.length}</span></div><div className="dispatch-toolbar"><div><Link aria-label="Previous day" href={hrefFor(addDays(date,-1))}>‹</Link><Link className="sv-button sv-secondary" href={hrefFor(today)}>Today</Link><Link aria-label="Next day" href={hrefFor(addDays(date,1))}>›</Link></div><form><label>Date<input key={date} name="date" type="date" defaultValue={date}/></label><button className="sv-button">Go</button></form><strong>{new Intl.DateTimeFormat("en-US",{timeZone:"UTC",weekday:"long",month:"long",day:"numeric"}).format(new Date(`${date}T12:00:00Z`))}</strong></div><div className="tech-job-list">{selectedDateJobs.length?selectedDateJobs.map((job)=><JobCard key={job.id} job={job}/>):<div className="tech-empty-inline">No jobs scheduled for this day.</div>}</div></section>
     <section className="tech-section"><div className="tech-section-heading"><h2>Upcoming</h2><span>{upcomingJobs.length}</span></div><div className="tech-job-list">{upcomingJobs.length?upcomingJobs.map((job)=><JobCard key={job.id} job={job}/>):<div className="tech-empty-inline">No upcoming assigned jobs.</div>}</div></section>
   </main>;
 }
