@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { canManageCustomers } from "@/lib/access";
+import { canManageBusiness,canManageCustomers } from "@/lib/access";
 import {
   isPotentialCustomerDuplicate,
   isValidCrmEmail,
@@ -25,6 +25,48 @@ export type CrmActionState = {
   fieldErrors?: Record<string, string>;
   values?: Record<string, string>;
 };
+
+type MergeActionResult={error?:string;preview?:any;customers?:any[];result?:any};
+const mergeError=(message?:string)=>{
+ if(!message)return "The customer merge could not be completed.";
+ if(message.includes("FORBIDDEN"))return "Only workspace owners and administrators can merge customers.";
+ if(message.includes("STALE_PREVIEW"))return "This customer changed while you were reviewing the merge. Refresh the preview and review it again.";
+ if(message.includes("IDEMPOTENCY_CONFLICT"))return "This confirmation key was already used for a different merge request.";
+ if(message.includes("BLOCKED"))return "This merge is blocked by an active billing or payment dependency. No records were changed.";
+ if(message.includes("NOT_FOUND")||message.includes("ALREADY_MERGED"))return "One of these customers is no longer available for merging.";
+ return "The customer merge could not be completed. Please try again.";
+};
+
+export async function searchMergeCustomers(slug:string,primaryCustomerId:string,term:string):Promise<MergeActionResult>{
+ const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management");
+ if(!canManageBusiness(role))return {error:"Only workspace owners and administrators can merge customers."};
+ const needle=term.trim();if(!needle)return {customers:[]};
+ const safe=needle.replace(/[%_,()]/g," ");
+ const [{data:direct},{data:channels}]=await Promise.all([
+  supabase.from("customers").select("id,merged_into_customer_id,first_name,last_name,company_name,email,phone,created_at").eq("business_id",business.id).eq("is_deleted",false).neq("id",primaryCustomerId).or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,company_name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%`).limit(20),
+  supabase.from("customer_contact_channels").select("customer_id").eq("business_id",business.id).eq("is_active",true).ilike("normalized_value",`%${safe}%`).limit(20),
+ ]);
+ const ids=[...new Set([...(direct??[]).map(row=>row.merged_into_customer_id??row.id),...(channels??[]).map(row=>row.customer_id)])].filter(id=>id!==primaryCustomerId);
+ if(!ids.length)return {customers:[]};
+ const {data,error}=await supabase.from("customers").select("id,first_name,last_name,company_name,email,phone,created_at").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).is("merged_into_customer_id",null).in("id",ids);
+ return error?{error:"Customer search is temporarily unavailable."}:{customers:data??[]};
+}
+
+export async function previewCustomerMerge(slug:string,primaryCustomerId:string,duplicateCustomerId:string,resolutions:Record<string,string>):Promise<MergeActionResult>{
+ const {supabase,role}=await requireWorkspaceCapability(slug,"customer_management");
+ if(!canManageBusiness(role))return {error:"Only workspace owners and administrators can merge customers."};
+ const {data,error}=await supabase.rpc("customer_merge_preview",{p_primary_customer_id:primaryCustomerId,p_duplicate_customer_id:duplicateCustomerId,p_resolutions:resolutions});
+ return error?{error:mergeError(error.message)}:{preview:data};
+}
+
+export async function confirmCustomerMerge(slug:string,primaryCustomerId:string,duplicateCustomerId:string,resolutions:Record<string,string>,previewFingerprint:string,idempotencyKey:string):Promise<MergeActionResult>{
+ const {supabase,role}=await requireWorkspaceCapability(slug,"customer_management");
+ if(!canManageBusiness(role))return {error:"Only workspace owners and administrators can merge customers."};
+ const {data,error}=await supabase.rpc("confirm_customer_merge",{p_primary_customer_id:primaryCustomerId,p_duplicate_customer_id:duplicateCustomerId,p_resolutions:resolutions,p_preview_fingerprint:previewFingerprint,p_idempotency_key:idempotencyKey});
+ if(error)return {error:mergeError(error.message)};
+ revalidatePath(`/app/${slug}/customers`);revalidatePath(`/app/${slug}/customers/${primaryCustomerId}`);
+ return {result:data};
+}
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 const valuesFrom = (formData: FormData) =>
