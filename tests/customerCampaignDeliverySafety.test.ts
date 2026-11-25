@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFileSync} from "node:fs";
+import {exactChannelConsent} from "../lib/communications/exactChannelConsent.ts";
 
 const read=(path:string)=>readFileSync(new URL(path,import.meta.url),"utf8");
 const delivery=read("../lib/communications/customerCampaignDelivery.ts");
@@ -38,4 +39,13 @@ test("retries stay tenant scoped and cannot retry an accepted recipient",()=>{
  assert.match(action,/\.eq\("business_id",business\.id\)/);
  assert.match(action,/\.is\("provider_message_id",null\)/);
  assert.match(action,/Campaign recipients could not be loaded\. No messages were sent/);
+});
+
+test("duplicate merged channel records fail closed without a single-row query error",async()=>{
+ const rows=[{consent_status:"express"},{consent_status:"express"}];
+ const query:any={eq:()=>query,then:(resolve:(value:unknown)=>unknown)=>Promise.resolve({data:rows,error:null}).then(resolve)};
+ const db={from:()=>({select:()=>query})};
+ assert.equal(await exactChannelConsent(db,{businessId:"tenant",channel:"phone",value:"+14805550123"}),"express");
+ rows[1].consent_status="opted_out";
+ assert.equal(await exactChannelConsent(db,{businessId:"tenant",channel:"phone",value:"+14805550123"}),"opted_out");
 });
