@@ -363,8 +363,6 @@ export async function updateRentalJobSmsPreferences(slug:string,jobId:string,for
  if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
  const {data:job,error:lookupError}=await supabase.from("jobs").select("id").eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
  if(lookupError||!job)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Job not found.")}`);
- const {data:booking,error:bookingError}=await supabase.from("bookings").select("id").eq("business_id",business.id).eq("job_id",jobId).maybeSingle();
- if(bookingError||!booking)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Rental SMS settings are only available for a linked booking.")}`);
  const {error}=await supabase.from("jobs").update({
   suppress_rental_reminder_sms:formData.get("suppressRentalReminderSms")==="on",
   suppress_technician_en_route_sms:formData.get("suppressTechnicianEnRouteSms")==="on",
