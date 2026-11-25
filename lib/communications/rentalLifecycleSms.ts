@@ -33,6 +33,7 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
  bookingQuery = input.bookingId ? bookingQuery.eq("id", input.bookingId) : bookingQuery.eq("job_id", jobId ?? "");
  const { data: booking, error: bookingError } = await bookingQuery.maybeSingle();
  if (bookingError || !booking || !booking.job_id || !["paid", "confirmed", "completed"].includes(booking.status)) return { ok: true, skipped: true, reason: "rental_booking_not_confirmed" };
+ if (!booking.sms_consent) return { ok: true, skipped: true, reason: "sms_consent_not_granted" };
  if (input.type === "reminder" || input.type === "technician_en_route") {
   const {data:job,error:jobError}=await db.from("jobs").select("suppress_rental_reminder_sms,suppress_technician_en_route_sms").eq("id",booking.job_id).eq("business_id",booking.business_id).maybeSingle();
   if (jobError || !job) return { ok: false, error: "Job SMS preferences could not be loaded." };

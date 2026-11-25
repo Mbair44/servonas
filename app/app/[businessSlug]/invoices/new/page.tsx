@@ -10,7 +10,7 @@ export default async function NewInvoice({params,searchParams}:{params:Promise<{
   const {businessSlug}=await params,{jobId}=await searchParams,{supabase,business,role}=await requireWorkspace(businessSlug);
   if(!canManageCustomers(role))return <main className="epic3-shell"><WorkspaceNav slug={businessSlug} name={business.name} industry={business.industry_profile}/><section className="epic3-content"><div className="workspace-notice error">Permission denied.</div></section></main>;
   const [{data:customers},{data:locations},{data:jobs},{data:priceItems},{data:billingSettings},{data:paymentAccount},{data:sourceJob},{data:sourceBooking}]=await Promise.all([
-    supabase.from("customers").select("id,first_name,last_name,company_name,tax_exempt,tax_exemption_reference").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).order("last_name"),
+    supabase.from("customers").select("id,first_name,last_name,company_name,tax_exempt,tax_exemption_reference").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).is("merged_into_customer_id",null).order("last_name"),
     supabase.from("service_locations").select("id,customer_id,location_name,street_address").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true),
     supabase.from("jobs").select("id,customer_id,job_number,title").eq("business_id",business.id).eq("is_deleted",false).order("created_at",{ascending:false}),
     supabase.from("price_book_items").select("id,name,description,unit_type,default_unit_price_cents,internal_cost_cents,is_taxable,service_id,tax_code").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).order("sort_order").order("name"),

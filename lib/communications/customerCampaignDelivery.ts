@@ -1,5 +1,6 @@
 import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
 import {getTwilioCredentials} from "@/lib/communications/twilioCredentials";
+import {canSendExactChannel} from "@/lib/communications/exactChannelConsent";
 
 const esc=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[char]!));
 const personalize=(body:string,customer:{first_name:string|null;last_name:string|null;company_name:string|null},businessName:string)=>body
@@ -19,7 +20,7 @@ export async function deliverCampaignRecipient(recipientId:string){
  const body=personalize(String(campaign.body),customer,businessName),now=new Date().toISOString();
  if(campaign.channel==="email"){
   if(!customer.email){await db.from("customer_campaign_recipients").update({status:"skipped",error_message:"Customer has no email address.",updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};}
-  if(customer.marketing_email_status==="unsubscribed"){await db.from("customer_campaign_recipients").update({status:"skipped",error_message:"Customer unsubscribed from campaign emails.",updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};}
+  if(!(await canSendExactChannel(db,{businessId:recipient.business_id,channel:"email",value:customer.email,purpose:"marketing"}))){await db.from("customer_campaign_recipients").update({status:"skipped",error_message:"This email address is not eligible for campaign emails.",updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};}
   const key=process.env.RESEND_API_KEY?.trim(),configuredFrom=process.env.EMAIL_FROM?.trim();
   if(!key||!configuredFrom){await db.from("customer_campaign_recipients").update({status:"failed",error_message:"Resend is not configured.",updated_at:now}).eq("id",recipient.id);return{ok:false,error:"Resend is not configured."};}
   const origin=(process.env.NEXT_PUBLIC_SITE_URL||process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com").replace(/\/$/,""),unsubscribeUrl=`${origin}/unsubscribe/${recipient.tracking_token}`;
@@ -31,11 +32,11 @@ export async function deliverCampaignRecipient(recipientId:string){
   const plainText=`${body}\n\nSent by ${businessName} using Servonas.\nUnsubscribe: ${unsubscribeUrl}`;
   try{const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({from,to:[customer.email],...(replyTo?{reply_to:replyTo}:{}),subject:String(campaign.subject),text:plainText,html,headers:{"List-Unsubscribe":`<${unsubscribeUrl}>`}})});const result=await response.json() as {id?:string;message?:string};if(!response.ok||!result.id)throw new Error(result.message||`Resend HTTP ${response.status}`);await db.from("customer_campaign_recipients").update({status:"sent",provider:"resend",provider_message_id:result.id,recipient_address:customer.email,tracked_url:firstUrl,sent_at:now,error_message:null,updated_at:now}).eq("id",recipient.id).eq("status","queued");return{ok:true};}catch(caught){const message=caught instanceof Error?caught.message:"Email delivery failed.";await db.from("customer_campaign_recipients").update({status:"failed",error_message:message.slice(0,1000),updated_at:now}).eq("id",recipient.id);return{ok:false,error:message};}
  }
- if(customer.sms_consent_status!=="express"){
-  const reason=customer.sms_consent_status==="opted_out"?"Customer opted out of SMS.":"Explicit marketing SMS consent is not recorded.";
+ const phone=customer.phone_normalized||customer.phone;if(!phone){await db.from("customer_campaign_recipients").update({status:"skipped",error_message:"Customer has no valid phone number.",updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};}
+ if(!(await canSendExactChannel(db,{businessId:recipient.business_id,channel:"phone",value:phone,purpose:"marketing"}))){
+  const reason="Explicit marketing SMS consent is not recorded for this phone number.";
   await db.from("customer_campaign_recipients").update({status:"skipped",error_message:reason,updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};
  }
- const phone=customer.phone_normalized||customer.phone;if(!phone){await db.from("customer_campaign_recipients").update({status:"skipped",error_message:"Customer has no valid phone number.",updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};}
  const twilio=getTwilioCredentials();if(!twilio.configured){await db.from("customer_campaign_recipients").update({status:"failed",error_message:"Twilio is not configured.",updated_at:now}).eq("id",recipient.id);return{ok:false,error:"Twilio is not configured."};}
  if(process.env.SMS_DELIVERY_MODE!=="live"){await db.from("customer_campaign_recipients").update({status:"skipped",error_message:"SMS delivery is in stub mode; no message was sent.",updated_at:now}).eq("id",recipient.id);return{ok:true,skipped:true};}
  const origin=(process.env.NEXT_PUBLIC_SITE_URL||process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com").replace(/\/$/,"");const firstUrl=body.match(/https?:\/\/[^\s]+/)?.[0]??null;

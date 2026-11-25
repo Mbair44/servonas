@@ -6,6 +6,7 @@ import {resolveTenantOutboundSender} from "./tenantOutboundSender.ts";
 import {calculateMessagingPeriod,nextMonth,shouldAdvanceMessageStatus,usageCanFinalize,utcBillingPeriod,type BillableUsage} from "./usageMath.ts";
 import {signedOutboundMediaUrls} from "../customerMessages/media.ts";
 import {requireBusinessTwilioEnabled} from "./access.ts";
+import {canSendExactChannel} from "../communications/exactChannelConsent.ts";
 
 type UsageCapture={businessId:string;accountSid:string;messageSid:string;direction:string;status:string;from?:string|null;to?:string|null;numSegments?:number|null;numMedia?:number|null;price?:number|string|null;priceUnit?:string|null;errorCode?:string|null;errorMessage?:string|null;callbackAt?:string;messagingServiceSid?:string|null;phoneNumberSid?:string|null;occurredAt?:string;sourceType?:string|null;sourceId?:string|null;providerDateCreated?:string|null;providerDateSent?:string|null;providerDateUpdated?:string|null;providerSyncedAt?:string|null};
 type TwilioMessage={sid:string;account_sid:string;direction:string;status:string;from:string|null;to:string|null;num_segments:string|null;num_media:string|null;price:string|null;price_unit:string|null;error_code:number|string|null;messaging_service_sid:string|null;date_created:string|null;date_sent:string|null;date_updated:string|null};
@@ -35,16 +36,13 @@ export async function recordTenantStatusCallback(input:{businessId:string;accoun
 }
 
 export class TenantSmsError extends Error {code:string|null;messageSid:string|null;constructor(message:string,code:string|null=null,messageSid:string|null=null){super(message);this.name="TenantSmsError";this.code=code;this.messageSid=messageSid;}}
-export async function sendTenantTwilioMessage(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string;customerFacing?:boolean;customerId?:string;attachmentIds?:string[];attachmentOwnerId?:string}){
+export async function sendTenantTwilioMessage(input:{businessId:string;to:string;body:string;sourceType:string;sourceId:string;purpose?:"marketing"|"transactional";customerFacing?:boolean;customerId?:string;attachmentIds?:string[];attachmentOwnerId?:string}){
  await requireBusinessTwilioEnabled(input.businessId);
  const sender=await resolveTenantOutboundSender(input.businessId);if(!sender.configured||sender.mode!=="messaging_service"||!sender.accountSid||!sender.username||!sender.password||!sender.messagingServiceSid)throw new Error("Tenant Twilio sender is not active.");
  const db=getSupabaseAdmin();if(!db)throw new Error("Tenant message storage is unavailable.");
- const [consent,customers]=await Promise.all([
-  db.from("customer_sms_consents").select("status").eq("business_id",input.businessId).eq("phone_e164",input.to).maybeSingle(),
-  db.from("customers").select("sms_consent_status").eq("business_id",input.businessId).eq("phone_normalized",input.to).eq("is_deleted",false)
- ]);
- if(consent.error||customers.error)throw new Error("SMS consent could not be checked.");
- if(consent.data?.status==="opted_out"||customers.data?.some(c=>c.sms_consent_status==="opted_out"))throw new TenantSmsError("This recipient has opted out. They must reply START before another test.","21610");
+ // This is the last common gateway before customer-facing SMS delivery. It
+ // rechecks the exact destination so a merged profile cannot revive a STOP.
+ if(!(await canSendExactChannel(db,{businessId:input.businessId,channel:"phone",value:input.to,purpose:input.purpose??"transactional"})))throw new TenantSmsError(input.purpose==="marketing"?"This recipient has not provided explicit marketing SMS consent.":"This recipient has opted out. They must reply START before another test.","21610");
  const mediaUrls=input.attachmentIds?.length?await signedOutboundMediaUrls(input.businessId,input.attachmentIds,input.body,input.attachmentOwnerId):[];if(!input.body.trim()&&!mediaUrls.length)throw new TenantSmsError("Enter a message or add an attachment.");
  const {statusUrl}=tenantWebhookUrls(),form=new URLSearchParams({To:input.to,MessagingServiceSid:sender.messagingServiceSid,...(sender.from?{From:sender.from}:{}),Body:input.body,StatusCallback:statusUrl});for(const mediaUrl of mediaUrls)form.append("MediaUrl",mediaUrl);
  const response=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sender.accountSid}/Messages.json`,{method:"POST",headers:{Authorization:`Basic ${Buffer.from(`${sender.username}:${sender.password}`).toString("base64")}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});

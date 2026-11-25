@@ -10,6 +10,7 @@ import {ServicePlanDrawer} from "@/components/ServicePlanDrawer";
 import {archiveCustomer,createServicePlan,updateCustomer} from "./actions";
 import {createJob} from "../jobs/actions";
 import {CustomerCampaignSelector,type CampaignCustomerHeader} from "@/components/CustomerCampaignSelector";
+import {activeCanonicalCustomerIds} from "@/lib/customerCanonical";
 
 const pageSize=25;
 const clean=(value:string)=>value.toLowerCase().trim();
@@ -23,15 +24,17 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  type CustomerSort=typeof sortKeys[number];
  const sort=(sortKeys as readonly string[]).includes(q.sort??"")?q.sort as CustomerSort:"customer";
  const direction=q.direction==="desc"?"desc":"asc";
- const {data:customers,error}=await supabase.from("customers").select("id,first_name,last_name,company_name,email,phone,secondary_phone,preferred_contact_method,notes,tags,lead_source,is_active,created_at").eq("business_id",business.id).eq("is_deleted",false).limit(1000);
+ const {data:customers,error}=await supabase.from("customers").select("id,first_name,last_name,company_name,email,phone,secondary_phone,preferred_contact_method,notes,tags,lead_source,is_active,created_at,is_deleted,merged_into_customer_id").eq("business_id",business.id).eq("is_deleted",false).limit(1000);
  if(error) console.error("Customer directory could not be loaded",{businessId:business.id,code:error.code});
- const ids=(customers??[]).map(customer=>customer.id);
+ const ids=activeCanonicalCustomerIds(customers??[]);
+ const {data:alternateChannelMatches}=search?await supabase.from("customer_contact_channels").select("customer_id").eq("business_id",business.id).eq("is_active",true).ilike("normalized_value",`%${search.replace(/[%_]/g," ")}%`):{data:[]};
+ const alternateMatchIds=new Set((alternateChannelMatches??[]).map(match=>match.customer_id));
  const [locationsResult,jobsResult]=ids.length?await Promise.all([
   supabase.from("service_locations").select("id,customer_id,location_name,street_address,unit,city,state,postal_code,is_primary,default_technician_id").eq("business_id",business.id).eq("is_deleted",false).in("customer_id",ids),
   supabase.from("jobs").select("id,customer_id,starts_at,status,work_completed_at").eq("business_id",business.id).eq("is_deleted",false).in("customer_id",ids).order("starts_at",{ascending:false,nullsFirst:false}),
  ]):[{data:[]},{data:[]}];
  const locations=locationsResult.data??[],jobs=jobsResult.data??[],now=Date.now();
- const directory=(customers??[]).map(customer=>{
+ const directory=(customers??[]).filter(customer=>ids.includes(customer.id)).map(customer=>{
   const customerLocations=locations.filter(location=>location.customer_id===customer.id),customerJobs=jobs.filter(job=>job.customer_id===customer.id);
   const primary=customerLocations.find(location=>location.is_primary)??customerLocations[0]??null;
   const completedServices=customerJobs.filter(job=>job.status==="completed"&&(job.work_completed_at||job.starts_at)&&new Date(job.work_completed_at??job.starts_at!).getTime()<=now)
@@ -43,7 +46,7 @@ export default async function Customers({params,searchParams}:{params:Promise<{b
  const rows=directory.filter(customer=>(status==="all"||(status==="active"&&customer.is_active)||(status==="inactive"&&!customer.is_active)||(status==="no_history"&&!customer.jobCount))
   &&(type==="all"||customer.customerType===type)
   &&(leadFilter==="all"||(customer.tags??[]).includes("website-discount-lead"))
-  &&(!search||[customer.displayName,customer.first_name,customer.last_name,customer.email,customer.phone,customer.primary?.street_address,customer.primary?.city,customer.primary?.state].some(value=>String(value??"").toLowerCase().includes(search))))
+  &&(!search||alternateMatchIds.has(customer.id)||[customer.displayName,customer.first_name,customer.last_name,customer.email,customer.phone,customer.primary?.street_address,customer.primary?.city,customer.primary?.state].some(value=>String(value??"").toLowerCase().includes(search))))
   .sort((a,b)=>{
    const value=(customer:typeof a):string|number=>{
     if(sort==="contact")return customer.email||customer.phone||"";

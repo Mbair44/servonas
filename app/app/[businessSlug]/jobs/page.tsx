@@ -34,7 +34,7 @@ export default async function Jobs({params,searchParams}:{params:Promise<{busine
  const [{data:jobs,error},{data:summaryRows},{data:customers},{data:technicians},{data:services}]=await Promise.all([
   jobsQuery,
   supabase.from("jobs").select("id,status,assigned_technician_id,is_return_visit").eq("business_id",business.id).eq("is_deleted",false),
-  supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id",business.id).eq("is_deleted",false).order("last_name"),
+  supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).is("merged_into_customer_id",null).order("last_name"),
   supabase.from("technician_directory").select("id,preferred_name").eq("business_id",business.id).eq("is_active",true).eq("is_technician",true).order("preferred_name"),
   supabase.from("services").select("id,name").eq("business_id",business.id).eq("is_deleted",false).order("name"),
  ]);

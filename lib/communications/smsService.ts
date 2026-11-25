@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { getTwilioCredentials } from "@/lib/communications/twilioCredentials";
+import {canSendExactChannel} from "@/lib/communications/exactChannelConsent";
 
 type SmsTemplate = "booking_confirmation" | "reminder" | "review_request";
 
@@ -32,7 +33,7 @@ async function customerBookingConfirmation(jobId: string, consent: boolean) {
   if (!supabase) return { ok: false, error: "Supabase is unavailable." };
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("job_number,starts_at,status,service_address,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,phone,sms_consent_status)")
+    .select("business_id,job_number,starts_at,status,service_address,businesses(name,timezone),services!jobs_service_tenant_fk(name),customers!jobs_customer_tenant_fk(first_name,phone,sms_consent_status)")
     .eq("id", jobId)
     .maybeSingle();
   if (jobError || !job) {
@@ -59,6 +60,7 @@ async function customerBookingConfirmation(jobId: string, consent: boolean) {
     "Reply STOP to opt out.",
   ].join(" ");
   const to = normalizePhone(customer.phone);
+  if(!(await canSendExactChannel(supabase,{businessId:job.business_id,channel:"phone",value:to,purpose:"transactional"})))return {ok:true,skipped:true,reason:"sms_opted_out"};
   const live = process.env.SMS_DELIVERY_MODE === "live";
   const eventPayload = {
     job_id: jobId,
