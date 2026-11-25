@@ -9,7 +9,7 @@ test("merge engine exposes authenticated preview and atomic confirmation contrac
 
 test("merge fingerprint migration installs its pgcrypto dependency",()=>{
  assert.match(sql,/create extension if not exists "pgcrypto"/);
- assert.match(sql,/digest\(jsonb_build_object/);
+ assert.match(sql,/extensions\.digest\(jsonb_build_object/);
 });
 test("billing and consent fail closed",()=>{
  for(const code of ["BILLING_DISTINCT_STRIPE_CUSTOMERS","BILLING_SAVED_PAYMENT_METHOD","BILLING_AUTOPAY_ENABLED","BILLING_RECURRING_AUTO_CHARGE","BILLING_IN_FLIGHT_ATTEMPT"])assert.match(sql,new RegExp(code));

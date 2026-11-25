@@ -9,7 +9,7 @@ create extension if not exists "pgcrypto";
 create or replace function public.customer_merge_request_fingerprint(
   p_primary_customer_id uuid,p_duplicate_customer_id uuid,p_resolutions jsonb
 ) returns text language sql immutable set search_path=public as $$
- select encode(digest(jsonb_build_object(
+ select encode(extensions.digest(jsonb_build_object(
    'primaryCustomerId',p_primary_customer_id,'duplicateCustomerId',p_duplicate_customer_id,
    'resolutions',coalesce(p_resolutions,'{}'::jsonb)
  )::text,'sha256'),'hex')
@@ -90,7 +90,7 @@ begin
   'billingBlockers',blockers
  );
  request_fp:=public.customer_merge_request_fingerprint(p.id,d.id,p_resolutions);
- preview_fp:=encode(digest(state::text,'sha256'),'hex');
+ preview_fp:=encode(extensions.digest(state::text,'sha256'),'hex');
  return jsonb_build_object('primaryCustomer',to_jsonb(p),'duplicateCustomer',to_jsonb(d),
   'proposedProfile',jsonb_build_object('first_name',coalesce(p_resolutions->>'firstName',p.first_name),'last_name',coalesce(p_resolutions->>'lastName',p.last_name),'email',coalesce(p_resolutions->>'email',p.email),'phone',coalesce(p_resolutions->>'phone',p.phone)),
   'alternateChannels',state->'channels','addressCandidates',state->'addresses','dependencyCounts',state->'counts',
