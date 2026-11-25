@@ -41,6 +41,12 @@ test("retries stay tenant scoped and cannot retry an accepted recipient",()=>{
  assert.match(action,/Campaign recipients could not be loaded\. No messages were sent/);
 });
 
+test("campaign SMS preserves the authored URL and does not duplicate STOP language",()=>{
+ assert.match(delivery,/const smsBody=`\$\{body\}\$\{stopNotice\}`/);
+ assert.match(delivery,/reply\\s\+stop\\s\+to\\s\+opt\\s\+out/);
+ assert.doesNotMatch(delivery,/body\.replace\(firstUrl/);
+});
+
 test("duplicate merged channel records fail closed without a single-row query error",async()=>{
  const rows=[{consent_status:"express"},{consent_status:"express"}];
  const query:any={eq:()=>query,then:(resolve:(value:unknown)=>unknown)=>Promise.resolve({data:rows,error:null}).then(resolve)};

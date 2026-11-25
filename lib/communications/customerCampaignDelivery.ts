@@ -47,7 +47,11 @@ export async function deliverCampaignRecipient(recipientId:string):Promise<Resul
   if(!phone){await save(db,recipient.id,{status:"skipped",error_message:"Customer has no valid phone number."});return{ok:true,skipped:true};}
   if(!await canSendExactChannel(db,{businessId:recipient.business_id,channel:"phone",value:phone,purpose:"marketing"})){await save(db,recipient.id,{status:"skipped",error_message:"Explicit marketing SMS consent is not recorded for this phone number."});return{ok:true,skipped:true};}
   if(process.env.SMS_DELIVERY_MODE!=="live"){await save(db,recipient.id,{status:"skipped",error_message:"SMS delivery is in stub mode; no message was sent."});return{ok:true,skipped:true};}
-  const origin=(process.env.NEXT_PUBLIC_SITE_URL||process.env.NEXT_PUBLIC_APP_URL||"https://servonas.com").replace(/\/$/,""),firstUrl=body.match(/https?:\/\/[^\s]+/)?.[0]??null,trackedBody=firstUrl?body.replace(firstUrl,`${origin}/c/${recipient.tracking_token}`):body,smsBody=`${trackedBody}\n\n${businessName}. Reply STOP to opt out.`.slice(0,1600);
+  const firstUrl=body.match(/https?:\/\/[^\s]+/)?.[0]??null;
+  // Keep the business's authored URL visible; a generic Servonas tracking URL
+  // is confusing in an SMS and can look unlike the campaign preview.
+  const stopNotice=/\breply\s+stop\s+to\s+opt\s+out\b/i.test(body)?"":`\n\n${businessName}. Reply STOP to opt out.`;
+  const smsBody=`${body}${stopNotice}`.slice(0,1600);
   const sent=await sendTenantTwilioMessage({businessId:recipient.business_id,to:phone,body:smsBody,sourceType:"customer_campaign",sourceId:recipient.id,customerId:recipient.customer_id,purpose:"marketing"});
   await save(db,recipient.id,{status:"sent",provider:"twilio",provider_message_id:sent.sid,recipient_address:phone,tracked_url:firstUrl,sent_at:now,error_message:null});
   console.info("Campaign recipient accepted",{campaignId:recipient.campaign_id,recipientId:recipient.id,businessId:recipient.business_id,provider:"twilio"});
