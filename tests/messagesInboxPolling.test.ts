@@ -33,7 +33,7 @@ test("message threads link known customers and support keyboard sending",async()
  assert.match(inbox,/event\.key!=="Enter"\|\|event\.shiftKey\|\|event\.nativeEvent\.isComposing/);
  assert.match(inbox,/composer\.current\?\.requestSubmit\(\)/);
  assert.match(inbox,/Emoji keyboard supported/);
- assert.match(page,/epic3-header epic3-header-compact/);
+ assert.match(page,/epic3-header epic3-header-compact \$\{styles\.pageHeader\}/);
 });
 
 test("conversation sidebar fills a bounded inbox panel and scrolls independently",async()=>{
@@ -49,6 +49,6 @@ test("messaging header and composer use compact horizontal space",async()=>{
  ]);
  assert.match(page,/<h1>Message inbox<\/h1><p>Customer texts and replies/);
  assert.doesNotMatch(page,/<small>Messages<\/small>/);
- assert.match(css,/:global\(\.messagesPageHeader\)\{align-items:center;margin-bottom:12px/);
+ assert.match(css,/\.pageHeader\{align-items:center;margin-bottom:12px/);
  assert.match(css,/\.composer>button\{grid-column:2;grid-row:3;align-self:center/);
 });
