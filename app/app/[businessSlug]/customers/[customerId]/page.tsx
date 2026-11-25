@@ -21,6 +21,7 @@ import {createJob} from "../../jobs/actions";
 import {setCustomerReviewedOverride} from "../../reviews/actions";
 import {canonicalCustomerScope} from "@/lib/customerCanonical";
 import {CustomerMergeDrawer} from "@/components/CustomerMergeDrawer";
+import {CustomerMergeActivity} from "@/components/CustomerMergeActivity";
 
 const planCadenceLabel=(plan:{cadence_interval:number;cadence_unit:string;first_recurring_date:string})=>{
  if(plan.cadence_unit!=="month_weekday")return plan.cadence_interval===1?`${plan.cadence_unit}ly`:`Every ${plan.cadence_interval} ${plan.cadence_unit}s`;
@@ -208,5 +209,6 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
     </article>)}</div>:<div className="dashboard-empty"><strong>No active service plans</strong><p>Add a recurring plan for this customer.</p></div>}
    </section>
   </aside></div>
+ <CustomerMergeActivity businessSlug={businessSlug} customerId={customerId}/>
  </section></main>;
 }
