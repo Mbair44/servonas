@@ -9,8 +9,10 @@ test("party-rental time selection reserves whole calendar days and keeps pricing
  assert.match(source,/setEndDate\(rangeEndOverride&&rangeEndOverride>=baseDate\?rangeEndOverride:baseDate\)/);
  assert.match(source,/setEndTime\(fullDayEndTime\)/);
  assert.match(source,/!Number\.isNaN\(prettyDate\.getTime\(\)\)/);
- assert.match(source,/try\{const days=calculateRentalCalendarDays\(date,endDate\)/);
- assert.match(source,/catch\{return \{\.\.\.fallback,error:"Choose a valid rental date\."\};\}/);
+ assert.match(source,/function requestRentalPeriod\(\)\{if\(!date\|\|!startTime\|\|!endDate\|\|endDate<date\|\|startTime>=fullDayEndTime\)return null;/);
+ assert.match(source,/rentalEndDate:endDate/);
+ assert.match(source,/\/rental-prices/);
+ assert.match(source,/datePriceStatus!=="ready"/);
  assert.match(source,/const pricingError=bookingItems\.map\(priced\)\.map\(price=>"error" in price\?price\.error:null\)/);
  assert.match(source,/if\(!date\|\|!startTime\)\{setBookingError\("Choose your event date and arrival time first\."\)/);
  assert.match(source,/onInput=\{event=>\{const value=event\.currentTarget\.value;if\(value!==startTime\)chooseStart\(value,date\);\}\}/);

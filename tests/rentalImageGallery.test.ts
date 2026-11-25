@@ -10,16 +10,16 @@ test("rental gallery protects tenant ownership, ordering, and legacy compatibili
  assert.match(migration,/unique\(inventory_item_id,sort_order\)/);
  assert.match(migration,/sync_rental_item_image_compatibility/);
  assert.match(migration,/drop policy if exists "members view rental image metadata"/);
- assert.match(actions,/values\.length>10/);
- assert.match(actions,/new URL\(value\)/);
- assert.match(actions,/verifyRentalImageObjects/);
- assert.match(actions,/image_url:resolvedImages\[0\]\?\?null,image_urls:resolvedImages/);
+ assert.match(actions,/urls\.length>10/);
+ assert.match(actions,/storagePathFromGalleryUrl/);
+ assert.match(actions,/assertGalleryObjectsExist/);
+ assert.match(actions,/replace_rental_item_images/);
 });
 test("rental gallery supports existing images and accessible touch navigation",async()=>{
  const [uploader,gallery]=await Promise.all([read("components/RentalInventoryFileFields.tsx"),read("components/RentalImageGallery.tsx")]);
- assert.match(uploader,/image_urls,image_url/);
+ assert.match(uploader,/name="rentalImageUrls"/);
  assert.match(uploader,/draggable/);
- assert.match(uploader,/A rental can have up to 10 photos/);
+ assert.match(uploader,/10-photo and 8 MB limits/);
  assert.match(gallery,/onTouchStart/);
  assert.match(gallery,/onTouchEnd/);
  assert.match(gallery,/aria-modal="true"/);

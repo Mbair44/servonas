@@ -82,7 +82,7 @@ test("completion billing uses the post-discount total only once and surfaces fai
   assert.match(billing,/authoritativeBookingBalance/);
  assert.match(migration,/stripe_payment_method_id text/);
  assert.match(bookingClient,/name="finalPaymentAccepted" value=\{checkoutAgreementAccepted\?"true":"false"\}/);
- assert.match(bookingClient,/Book & pay \$\{money\(deposit\)\}/);
+ assert.match(bookingClient,/Reserve for \$\{money\(deposit\)\}/);
 });
 
 test("payment ledger reconciliation clears a paid booking schedule",async()=>{

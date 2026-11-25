@@ -22,5 +22,5 @@ test('shared public delivery summary and mobile notice omit travel details',()=>
  const source=readFileSync('components/PartyRentalBookingClient.tsx','utf8');
  assert.doesNotMatch(source,/min estimated drive|deliveryDistanceBand|Math.ceil\(deliveryQuote.driveMinutes/);
  assert.match(source,/<span>Delivery<\/span>/);assert.match(source,/This delivery fee is included in your total and deposit/);
- const route=readFileSync('app/api/public-booking/[businessSlug]/rental-prices/route.ts','utf8');assert.match(route,/baseUnitPriceCents:price.dateAdjustedBasePriceCents/);
+ const route=readFileSync('app/api/public-booking/[businessSlug]/rental-prices/route.ts','utf8');assert.match(route,/baseUnitPriceCents:offerPrice.dateAdjustedBasePriceCents/);
 });

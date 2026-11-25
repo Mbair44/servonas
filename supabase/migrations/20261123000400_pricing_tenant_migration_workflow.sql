@@ -30,14 +30,23 @@ begin
 end $$;
 create or replace function public.admin_rollback_tenant_pricing(p_business_id uuid,p_confirmation text,p_idempotency_key uuid,p_reason text default null)
 returns jsonb language plpgsql security definer set search_path=public as $$
-declare v_profile public.business_pricing_profiles; v_business_name text; v_cycles integer; v_prior jsonb;
+declare v_profile public.business_pricing_profiles; v_business_name text; v_cycles integer; v_prior jsonb; v_existing public.pricing_tenant_migration_audit;
 begin
  if not public.is_servonas_platform_admin() then raise exception 'Platform administrator access is required' using errcode='42501'; end if;
  if p_confirmation<>'ROLLBACK' then raise exception 'Invalid rollback confirmation'; end if;
+ select * into v_existing from public.pricing_tenant_migration_audit where idempotency_key=p_idempotency_key;
+ if found then return jsonb_build_object('idempotent',true,'action',v_existing.action,'recovery_required',v_existing.action='recovery_required'); end if;
  select name into v_business_name from public.businesses where id=p_business_id and is_deleted=false for update;if not found then raise exception 'Business not found'; end if;
  select * into v_profile from public.business_pricing_profiles where business_id=p_business_id for update;if not found then raise exception 'Pricing profile not found'; end if;
  select count(*) into v_cycles from public.platform_fee_cycles where business_id=p_business_id and (captured_cents>0 or reserved_cents>0);
- if v_cycles>0 then insert into public.pricing_tenant_migration_audit(business_id,idempotency_key,actor_user_id,action,previous_profile,next_profile,activation_mode,reason) values(p_business_id,p_idempotency_key,auth.uid(),'recovery_required',jsonb_build_object('plan_key',v_profile.plan_key),jsonb_build_object('plan_key','legacy'),'production',coalesce(p_reason,'Fee activity requires compensating recovery')); raise exception 'Pricing rollback requires fee recovery review'; end if;
+ -- A recovery-required decision must be durable. Raising an exception here would
+ -- roll back the audit row in the same transaction and leave administrators with
+ -- neither a rollback nor an auditable recovery instruction.
+ if v_cycles>0 then
+  insert into public.pricing_tenant_migration_audit(business_id,idempotency_key,actor_user_id,action,previous_profile,next_profile,activation_mode,reason)
+  values(p_business_id,p_idempotency_key,auth.uid(),'recovery_required',jsonb_build_object('plan_key',v_profile.plan_key),jsonb_build_object('plan_key','legacy'),'production',coalesce(p_reason,'Fee activity requires compensating recovery'));
+  return jsonb_build_object('recovery_required',true,'plan_key',v_profile.plan_key,'reason','Pricing rollback requires fee recovery review');
+ end if;
  v_prior:=jsonb_build_object('plan_key',v_profile.plan_key,'rollout_enabled',v_profile.rollout_enabled);
  update public.business_pricing_profiles set plan_key='legacy',rollout_enabled=false,legacy_pricing_preserved=true,migrated_at=null,migrated_by=null,updated_at=now() where business_id=p_business_id;
  insert into public.pricing_tenant_migration_audit(business_id,idempotency_key,actor_user_id,action,previous_profile,next_profile,activation_mode,reason) values(p_business_id,p_idempotency_key,auth.uid(),'rolled_back',v_prior,jsonb_build_object('plan_key','legacy','rollout_enabled',false),'production',p_reason);

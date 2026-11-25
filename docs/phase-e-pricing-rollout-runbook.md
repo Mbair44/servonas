@@ -18,10 +18,31 @@ This runbook is for a controlled **Stripe test-mode** validation. It does not au
 
 ## Local preflight
 
+The pricing harness supports a Docker-free, temporary native PostgreSQL 16
+cluster. It creates a new data directory and random high port under the system
+temporary directory, then stops and removes only that cluster on completion.
+It never reads Supabase connection settings or connects to an existing local
+database.
+
+If the local PostgreSQL 16 tools are not installed, install them explicitly:
+
+```bash
+brew install postgresql@16
+```
+
+Run the native harness (Docker remains an optional fallback):
+
+```bash
+PRICING_DB_MODE=native bash scripts/test-pricing-migrations.sh
+```
+
+`PRICING_DB_MODE=auto` prefers native PostgreSQL and uses Docker only when it
+is available. `PRICING_DB_MODE=docker` retains the original container path.
+
 Run the migration harness and the focused suite before touching Stripe:
 
 ```bash
-bash scripts/test-pricing-migrations.sh
+PRICING_DB_MODE=native bash scripts/test-pricing-migrations.sh
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \
   tests/pricingFoundation.test.ts tests/platformFeeEngine.test.ts \
   tests/paymentAllocation.test.ts tests/applicationFeeRefunds.test.ts \
