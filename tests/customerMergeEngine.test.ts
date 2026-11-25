@@ -5,6 +5,7 @@ import {readFileSync} from "node:fs";
 const sql=readFileSync(new URL("../supabase/migrations/20261124000200_customer_merge_engine.sql",import.meta.url),"utf8");
 test("merge engine exposes authenticated preview and atomic confirmation contracts",()=>{
  assert.match(sql,/customer_merge_preview/);assert.match(sql,/confirm_customer_merge/);assert.match(sql,/CUSTOMER_MERGE_STALE_PREVIEW/);assert.match(sql,/CUSTOMER_MERGE_IDEMPOTENCY_CONFLICT/);assert.match(sql,/for update/);assert.match(sql,/pg_advisory_xact_lock/);
+ assert.doesNotMatch(sql,/into b,p,d/);assert.match(sql,/\(x\.primary_customer\)\.\* into p/);
 });
 
 test("merge fingerprint migration installs its pgcrypto dependency",()=>{

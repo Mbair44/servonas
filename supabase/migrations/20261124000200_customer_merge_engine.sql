@@ -69,7 +69,9 @@ create or replace function public.customer_merge_preview(
 ) returns jsonb language plpgsql security definer set search_path=public as $$
 declare b uuid; p public.customers%rowtype; d public.customers%rowtype; blockers jsonb; state jsonb; request_fp text; preview_fp text;
 begin
- select business_id,primary_customer,duplicate_customer into b,p,d from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id);
+ select x.business_id into b from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id) x;
+ select (x.primary_customer).* into p from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id) x;
+ select (x.duplicate_customer).* into d from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id) x;
  if jsonb_typeof(coalesce(p_resolutions,'{}'::jsonb))<>'object' then raise exception 'CUSTOMER_MERGE_INVALID_RESOLUTIONS' using errcode='22023'; end if;
  blockers:=public.customer_merge_billing_blockers(b,p.id,d.id);
  state:=jsonb_build_object(
@@ -136,7 +138,9 @@ begin
  perform pg_advisory_xact_lock(hashtextextended(least(p_primary_customer_id,p_duplicate_customer_id)::text||':'||greatest(p_primary_customer_id,p_duplicate_customer_id)::text,481516));
  select * into p from public.customers where id=p_primary_customer_id for update;
  select * into d from public.customers where id=p_duplicate_customer_id for update;
- select business_id,primary_customer,duplicate_customer into b,p,d from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id);
+ select x.business_id into b from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id) x;
+ select (x.primary_customer).* into p from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id) x;
+ select (x.duplicate_customer).* into d from public.customer_merge_assert_authorized_pair(p_primary_customer_id,p_duplicate_customer_id) x;
  preview:=public.customer_merge_preview(p.id,d.id,coalesce(p_resolutions,'{}'::jsonb));
  if preview->>'previewFingerprint'<>p_preview_fingerprint then raise exception 'CUSTOMER_MERGE_STALE_PREVIEW' using errcode='40001'; end if;
  blockers:=preview->'blockers'; if jsonb_array_length(blockers)>0 then raise exception 'CUSTOMER_MERGE_BLOCKED: %',blockers using errcode='55000'; end if;
