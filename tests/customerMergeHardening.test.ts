@@ -29,3 +29,19 @@ test("customer profile displays durable merge activity",()=>{
  assert.match(activity,/customer_merged/);
  assert.match(activity,/Merge history/);
 });
+
+test("merge remains disabled until a database feature row is explicitly enabled",()=>{
+ const sql=read("../supabase/migrations/20261124000500_customer_merge_feature_flag.sql"),actions=read("../app/app/[businessSlug]/customers/actions.ts"),profile=read("../app/app/[businessSlug]/customers/[customerId]/page.tsx");
+ assert.match(sql,/customer_merge_feature_enabled/);
+ assert.match(sql,/coalesce\(\(select enabled/);
+ assert.match(sql,/CUSTOMER_MERGE_FEATURE_DISABLED/);
+ assert.match(actions,/customer_merge_feature_enabled/);
+ assert.match(profile,/Boolean\(mergeFeatureEnabled\)/);
+});
+
+test("all remaining customer-facing SMS senders recheck exact destinations",()=>{
+ const gateway=read("../lib/twilio/messageUsage.ts"),smartUpsell=read("../lib/smartUpsellSms.ts"),legacy=read("../lib/communications/smsService.ts");
+ assert.match(gateway,/purpose\?:"marketing"\|"transactional"/);
+ assert.match(smartUpsell,/purpose:"marketing"/);
+ assert.match(legacy,/canSendExactChannel/);
+});

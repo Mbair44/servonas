@@ -32,6 +32,7 @@ const mergeError=(message?:string)=>{
  if(message.includes("FORBIDDEN"))return "Only workspace owners and administrators can merge customers.";
  if(message.includes("STALE_PREVIEW"))return "This customer changed while you were reviewing the merge. Refresh the preview and review it again.";
  if(message.includes("IDEMPOTENCY_CONFLICT"))return "This confirmation key was already used for a different merge request.";
+ if(message.includes("FEATURE_DISABLED"))return "Customer merging is not enabled for this workspace yet.";
  if(message.includes("BLOCKED"))return "This merge is blocked by an active billing or payment dependency. No records were changed.";
  if(message.includes("NOT_FOUND")||message.includes("ALREADY_MERGED"))return "One of these customers is no longer available for merging.";
  return "The customer merge could not be completed. Please try again.";
@@ -40,6 +41,8 @@ const mergeError=(message?:string)=>{
 export async function searchMergeCustomers(slug:string,primaryCustomerId:string,term:string):Promise<MergeActionResult>{
  const {supabase,business,role}=await requireWorkspaceCapability(slug,"customer_management");
  if(!canManageBusiness(role))return {error:"Only workspace owners and administrators can merge customers."};
+ const {data:enabled}=await supabase.rpc("customer_merge_feature_enabled",{p_business_id:business.id});
+ if(!enabled)return {error:"Customer merging is not enabled for this workspace yet."};
  const needle=term.trim();if(!needle)return {customers:[]};
  const safe=needle.replace(/[%_,()]/g," ");
  const [{data:direct},{data:channels}]=await Promise.all([

@@ -28,6 +28,6 @@ test("merge UI requires an explicit confirmation and retains a retry key",()=>{
 
 test("only an active canonical profile exposes the merge UI",()=>{
  const profile=read("../app/app/[businessSlug]/customers/[customerId]/page.tsx");
- assert.match(profile,/canMerge=canManageBusiness\(role\)&&customer\.is_active&&!customer\.merged_into_customer_id/);
+ assert.match(profile,/canMerge=canManageBusiness\(role\)&&Boolean\(mergeFeatureEnabled\)&&customer\.is_active&&!customer\.merged_into_customer_id/);
  assert.match(profile,/CustomerMergeDrawer/);
 });

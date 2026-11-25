@@ -53,6 +53,7 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
   supabase.from("missed_call_recovery_messages").select("id,direction,body,ai_generated,delivery_status,created_at").eq("business_id",business.id).eq("customer_id",customerId).order("created_at"),
  ]);
  if(!customer)notFound();
+ const {data:mergeFeatureEnabled}=await supabase.rpc("customer_merge_feature_enabled",{p_business_id:business.id});
  const [{data:confirmedReviews},{data:reviewOverrides},{data:reviewRequestHistory}]=await Promise.all([
   supabase.from("google_review_customer_matches").select("id,google_reviews(reviewer_display_name,review_created_at,google_location_id)").eq("business_id",business.id).eq("customer_id",customerId).eq("status","confirmed"),
   supabase.from("customer_review_overrides").select("id,status,active,created_at").eq("business_id",business.id).eq("customer_id",customerId).eq("active",true),
@@ -68,7 +69,7 @@ export default async function CustomerDetail({params,searchParams}:{params:Promi
   poolJobIds.length?supabase.from("job_photos").select("job_id,storage_path,photo_type,caption").eq("business_id",business.id).in("job_id",poolJobIds):Promise.resolve({data:[]}),
  ]):[{data:[]},{data:[]},{data:[]},{data:[]}];
  const poolPhotos=await Promise.all((poolPhotoRows??[]).map(async photo=>{const {data}=await supabase.storage.from("job-photos").createSignedUrl(photo.storage_path,3600);return {...photo,url:data?.signedUrl??null}}));
- const canEdit=canManageCustomers(role),canMerge=canManageBusiness(role)&&customer.is_active&&!customer.merged_into_customer_id,now=Date.now();
+ const canEdit=canManageCustomers(role),canMerge=canManageBusiness(role)&&Boolean(mergeFeatureEnabled)&&customer.is_active&&!customer.merged_into_customer_id,now=Date.now();
  const upcoming=(jobs??[]).filter(job=>job.starts_at&&new Date(job.starts_at).getTime()>=now&&!["completed","canceled","declined"].includes(job.status)).sort((a,b)=>new Date(a.starts_at!).getTime()-new Date(b.starts_at!).getTime());
  const history=(jobs??[]).filter(job=>job.status==="completed"&&(job.work_completed_at||job.starts_at)&&new Date(job.work_completed_at??job.starts_at!).getTime()<=now).sort((a,b)=>new Date(b.work_completed_at??b.starts_at!).getTime()-new Date(a.work_completed_at??a.starts_at!).getTime());
  const activePlans=(plans??[]).filter(plan=>plan.status==="active"),lastService=history[0],nextService=upcoming[0];
