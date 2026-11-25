@@ -35,3 +35,8 @@ test("legacy SMS duplicate merge cannot bypass the forthcoming audited engine",(
  assert.match(migration,/create or replace function public\.merge_duplicate_customer_contact/);
  assert.match(migration,/Legacy duplicate-contact merge is retired/);
 });
+
+test("contact-channel phone constraint accepts normalized E.164 values",()=>{
+ assert.match(migration,/normalized_value ~ '\^\\\+\[1-9\]\[0-9\]\{7,14\}\$'/);
+ assert.doesNotMatch(migration,/normalized_value ~ '\^\\\\\+\[1-9\]/);
+});

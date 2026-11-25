@@ -45,7 +45,7 @@ create table if not exists public.customer_contact_channels (
   foreign key(business_id,customer_id) references public.customers(business_id,id) on delete restrict,
   check(
     (channel_type = 'email' and normalized_value = lower(btrim(normalized_value)))
-    or (channel_type = 'phone' and normalized_value ~ '^\\+[1-9][0-9]{7,14}$')
+    or (channel_type = 'phone' and normalized_value ~ '^\+[1-9][0-9]{7,14}$')
   )
 );
 create unique index if not exists customer_contact_channels_one_primary_idx
