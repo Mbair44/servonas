@@ -36,7 +36,8 @@ test("message threads link known customers and support keyboard sending",async()
  assert.match(page,/epic3-header epic3-header-compact/);
 });
 
-test("conversation sidebar fills the inbox panel and scrolls independently",async()=>{
+test("conversation sidebar fills a bounded inbox panel and scrolls independently",async()=>{
  const css=await readFile("app/app/[businessSlug]/customers/messages/messages.module.css","utf8");
- assert.match(css,/\.list\{align-self:stretch;height:100%;max-height:none;/);
+ assert.match(css,/\.layout\{[^}]*height:75vh;min-height:520px/);
+ assert.match(css,/\.list\{align-self:stretch;height:100%;min-height:0;max-height:none;[^}]*overflow:auto/);
 });
