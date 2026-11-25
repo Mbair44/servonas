@@ -29,8 +29,15 @@ export async function sendCustomerCampaign(slug:string,campaignId:string,data:Fo
  if(data.get("confirm")!=="on")redirect(`${base(slug)}/${campaignId}?error=${encodeURIComponent("Confirm that you are ready to send this campaign.")}`);
  const {data:campaign}=await supabase.from("customer_campaigns").select("id,status").eq("id",campaignId).eq("business_id",business.id).maybeSingle();
  if(!campaign||!['draft','partially_failed','failed'].includes(campaign.status))redirect(`${base(slug)}/${campaignId}?error=${encodeURIComponent("This campaign cannot be sent again.")}`);
- await supabase.from("customer_campaigns").update({status:"sending",started_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",campaignId).eq("business_id",business.id);
- const {data:recipients}=await supabase.from("customer_campaign_recipients").select("id").eq("campaign_id",campaignId).eq("business_id",business.id).in("status",["queued","failed"]).limit(500);
- for(const recipient of recipients??[]){if(campaign.status!=="draft")await supabase.from("customer_campaign_recipients").update({status:"queued",error_message:null}).eq("id",recipient.id).eq("status","failed");await deliverCampaignRecipient(recipient.id);}
+ const started=await supabase.from("customer_campaigns").update({status:"sending",started_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",campaignId).eq("business_id",business.id);
+ if(started.error){console.error("Campaign send could not start",{campaignId,businessId:business.id,code:started.error.code});redirect(`${base(slug)}/${campaignId}?error=${encodeURIComponent("Campaign sending could not start. Please try again.")}`);}
+ const {data:recipients,error:recipientError}=await supabase.from("customer_campaign_recipients").select("id,status,provider_message_id").eq("campaign_id",campaignId).eq("business_id",business.id).in("status",["queued","failed"]).limit(500);
+ if(recipientError){console.error("Campaign recipients could not be loaded",{campaignId,businessId:business.id,code:recipientError.code});await refreshCampaignCounts(campaignId);redirect(`${base(slug)}/${campaignId}?error=${encodeURIComponent("Campaign recipients could not be loaded. No messages were sent.")}`);}
+ for(const recipient of recipients??[]){
+  // A provider SID means acceptance was already recorded; retrying could duplicate it.
+  if(recipient.status==="failed"&&recipient.provider_message_id)continue;
+  if(recipient.status==="failed"){const reset=await supabase.from("customer_campaign_recipients").update({status:"queued",error_message:null,send_claimed_at:null,send_attempt_token:null,updated_at:new Date().toISOString()}).eq("id",recipient.id).eq("business_id",business.id).eq("status","failed").is("provider_message_id",null);if(reset.error){console.error("Campaign recipient could not be retried",{campaignId,recipientId:recipient.id,code:reset.error.code});continue;}}
+  await deliverCampaignRecipient(recipient.id);
+ }
  await refreshCampaignCounts(campaignId);revalidatePath(`${base(slug)}/${campaignId}`);redirect(`${base(slug)}/${campaignId}?success=${encodeURIComponent("Campaign processing completed. Review the delivery results below.")}`);
 }
