@@ -17,6 +17,9 @@ test("merge action is server-authorized and delegates authoritative work to merg
 test("merge UI requires an explicit confirmation and retains a retry key",()=>{
  const drawer=read("../components/CustomerMergeDrawer.tsx");
  assert.match(drawer,/Merge customer/);
+ assert.match(drawer,/CustomerActionIcon name="users"/);
+ assert.match(drawer,/Merge customers/);
+ assert.match(drawer,/Combine duplicate customer records/);
  assert.match(drawer,/Swap primary and duplicate/);
  assert.match(drawer,/Profile values to retain/);
  assert.match(drawer,/crypto\.randomUUID\(\)/);
