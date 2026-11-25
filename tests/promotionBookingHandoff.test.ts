@@ -14,7 +14,8 @@ test("promotion code is carried from tenant booking routes through canonical che
  assert.match(client,/promoCode:appliedPromo\?\.code\?\?""/);
  assert.match(client,/const \[promoCode,setPromoCode\]=useState\(""\)/);
  assert.match(client,/\[activePromoCode,setActivePromoCode\]=useState\(initialPromotionCode\?\?""\)/);
- assert.match(client,/appliedPromo\.automatic\?"Landing-page offer applied automatically\. ":""/);
+ assert.match(client,/appliedPromo\.automatic\?appliedPromo\.name/);
+ assert.match(client,/promo-code-box-applied/);
  assert.match(api,/validateRentalPromo\(supabase/);
  assert.match(api,/discount_cents:discountCents/);
 });
@@ -23,7 +24,7 @@ test("cart changes discard stale promo quotes and revalidate the active code",as
  const client=await read("components/PartyRentalBookingClient.tsx");
  assert.match(client,/promoQuote\?\.quoteKey===promoQuoteKey\?promoQuote:null/);
  assert.match(client,/selected\.map\(item=>\[item\.id,quantities\[item\.id\],priced\(item\)\.totalUnitPriceCents,operatorPricing\(item\)\.chargeCents\]\)/);
- assert.match(client,/\[promoQuoteKey,promoAttempt,dateStateHydrated\]/);
+ assert.match(client,/\[promoQuoteKey,promoAttempt,dateStateHydrated/);
  assert.match(client,/current=false;controller\.abort\(\)/);
- assert.match(client,/disabled=\{submitting\|\|promoPending/);
+ assert.match(client,/submitting\|\|promoPending\|\|\(date&&datePriceStatus!=="ready"\)/);
 });

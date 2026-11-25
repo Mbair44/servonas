@@ -1,40 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
-name="servonas-pricing-migration-$RANDOM"
-dir="$(mktemp -d)"
-cleanup(){ docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$dir"; }
-trap cleanup EXIT
-cat >"$dir/bootstrap.sql" <<'SQL'
-create extension if not exists pgcrypto;
-create schema auth; create table auth.users(id uuid primary key);
-create role anon; create role authenticated; create role service_role;
-create table public.businesses(id uuid primary key default gen_random_uuid(),name text not null default 'Test business',is_deleted boolean not null default false);
-create table public.bookings(id uuid primary key default gen_random_uuid());
+# This harness creates and destroys its own cluster; it never reads Supabase URLs.
+mode="${PRICING_DB_MODE:-auto}"; root="$(mktemp -d "${TMPDIR:-/tmp}/servonas-pricing.XXXXXX")"; data="$root/data"; socket="$root/socket"; backend=""; port=""
+cleanup(){ [[ "$backend" == native ]] && "$pgctl" -D "$data" -m immediate stop >/dev/null 2>&1 || true; [[ "$backend" == docker ]] && docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$root"; }; trap cleanup EXIT
+for prefix in "$(brew --prefix postgresql@16 2>/dev/null || true)" /opt/homebrew/opt/postgresql@16 /usr/local/opt/postgresql@16; do [[ -x "$prefix/bin/psql" && -x "$prefix/bin/initdb" && -x "$prefix/bin/pg_ctl" ]] && pg="$prefix/bin" && break || true; done
+native(){
+ [[ -n "${pg:-}" ]] || return 1; backend=native; pgctl="$pg/pg_ctl"; mkdir -p "$socket"; "$pg/initdb" -D "$data" --no-locale --encoding=UTF8 --auth=trust >/dev/null
+ for n in $(seq 1 20); do port="$((20000+RANDOM%20000))"; "$pgctl" -D "$data" -o "-h 127.0.0.1 -k '$socket' -p $port" -w start >/dev/null 2>&1 && break; done
+ "$pgctl" status -D "$data" >/dev/null 2>&1 || return 1
+ PSQL=("$pg/psql" -X -v ON_ERROR_STOP=1 -h "$socket" -p "$port" -d postgres); "${PSQL[@]}" -c 'create database pricing_harness' >/dev/null; PSQL=("$pg/psql" -X -v ON_ERROR_STOP=1 -h "$socket" -p "$port" -d pricing_harness)
+}
+docker_mode(){ command -v docker >/dev/null && docker info >/dev/null 2>&1 || return 1; backend=docker; name="servonas-pricing-$RANDOM"; docker run -d --name "$name" -e POSTGRES_PASSWORD=postgres postgres:16-alpine >/dev/null; for n in $(seq 1 30); do docker exec "$name" pg_isready -U postgres >/dev/null && break; sleep 1; done; docker exec "$name" psql -X -v ON_ERROR_STOP=1 -U postgres -c 'create database pricing_harness' >/dev/null; }
+sql(){ if [[ "$backend" == native ]]; then "${PSQL[@]}" "$@"; else docker exec -i "$name" psql -X -v ON_ERROR_STOP=1 -U postgres -d pricing_harness "$@"; fi; }; q(){ sql -Atqc "$1"; }; eq(){ [[ "$1" == "$2" ]] || { echo "assertion failed: $3 ($1 != $2)" >&2; exit 1; }; }
+case "$mode" in native) native || { echo 'Install native PostgreSQL 16: brew install postgresql@16' >&2; exit 2; };; docker) docker_mode;; auto) native || docker_mode || { echo 'No isolated runner. Install native PostgreSQL 16: brew install postgresql@16' >&2; exit 2; };; *) exit 2;; esac
+cat >"$root/bootstrap.sql" <<'SQL'
+create extension if not exists pgcrypto; create schema auth; create table auth.users(id uuid primary key); create role anon; create role authenticated; create role service_role;
+create table public.businesses(id uuid primary key default gen_random_uuid(),name text not null default 'Test',is_deleted boolean not null default false); create table public.bookings(id uuid primary key default gen_random_uuid());
 create table public.business_entitlements(id uuid primary key default gen_random_uuid(),business_id uuid not null references public.businesses(id),entitlement_key text not null,status text not null,starts_at timestamptz not null default now(),ends_at timestamptz,grace_period_ends_at timestamptz,source text not null default 'migration',version integer not null default 1,metadata jsonb not null default '{}'::jsonb,created_at timestamptz not null default now(),updated_at timestamptz not null default now());
 create table public.business_platform_subscriptions(business_id uuid primary key references public.businesses(id),stripe_customer_id text,stripe_subscription_id text,stripe_price_id text,status text not null default 'trialing',trial_ends_at timestamptz,current_period_ends_at timestamptz,cancel_at_period_end boolean not null default false,created_at timestamptz not null default now(),updated_at timestamptz not null default now());
-create function public.has_business_role(uuid,text[]) returns boolean language sql stable as $$select true$$;
-create function public.is_servonas_platform_admin() returns boolean language sql stable as $$select true$$;
-create function auth.uid() returns uuid language sql stable as $$select '00000000-0000-0000-0000-000000000099'::uuid$$;
-create table public.platform_business_admin_events(id uuid primary key default gen_random_uuid(),business_id uuid,business_name text,event_type text,actor_user_id uuid,metadata jsonb not null default '{}'::jsonb);
-create table public.twilio_phone_numbers(id uuid primary key default gen_random_uuid(),business_id uuid not null,twilio_phone_number_sid text, status text not null default 'active',provisioning_status text not null default 'active');
-create table public.business_twilio_accounts(business_id uuid primary key,twilio_subaccount_sid text,provisioning_status text);
-create table public.business_inbound_sms_settings(business_id uuid primary key,enabled boolean not null default true);
-create table public.business_voice_settings(business_id uuid primary key,enabled boolean not null default true,missed_call_sms_enabled boolean not null default true);
-create table public.business_missed_call_settings(business_id uuid primary key,enabled boolean not null default true);
-create table public.jobs(id uuid primary key default gen_random_uuid(),business_id uuid not null);
-create table public.job_communication_events(id uuid primary key default gen_random_uuid(),job_id uuid not null,channel text,status text,suppression_reason text,error_message text);
+create table public.test_workspace_roles(user_id uuid,business_id uuid,role text,primary key(user_id,business_id)); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('app.test_user_id',true),'')::uuid$$; create function public.is_servonas_platform_admin() returns boolean language sql stable as $$select current_setting('app.test_platform_admin',true)='true'$$; create function public.has_business_role(b uuid,r text[]) returns boolean language sql security definer stable as $$select exists(select 1 from public.test_workspace_roles where user_id=auth.uid() and business_id=b and role=any(r))$$;
+create table public.platform_business_admin_events(id uuid primary key default gen_random_uuid(),business_id uuid,business_name text,event_type text,actor_user_id uuid,metadata jsonb not null default '{}'::jsonb); create table public.twilio_phone_numbers(id uuid primary key default gen_random_uuid(),business_id uuid not null,twilio_phone_number_sid text,status text not null default 'active',provisioning_status text not null default 'active'); create table public.business_twilio_accounts(business_id uuid primary key,twilio_subaccount_sid text,provisioning_status text); create table public.business_inbound_sms_settings(business_id uuid primary key,enabled boolean not null default true); create table public.business_voice_settings(business_id uuid primary key,enabled boolean not null default true,missed_call_sms_enabled boolean not null default true); create table public.business_missed_call_settings(business_id uuid primary key,enabled boolean not null default true); create table public.jobs(id uuid primary key default gen_random_uuid(),business_id uuid not null); create table public.job_communication_events(id uuid primary key default gen_random_uuid(),job_id uuid not null,channel text,status text,suppression_reason text,error_message text);
 SQL
-docker run -d --name "$name" -e POSTGRES_PASSWORD=postgres -v "$dir":/work postgres:16-alpine >/dev/null
-for i in $(seq 1 30); do docker exec "$name" pg_isready -U postgres >/dev/null && break; sleep 1; done
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <"$dir/bootstrap.sql"
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261122000100_three_tier_pricing_phase_b.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261122000200_three_tier_platform_fee_lifecycle.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261122000300_platform_fee_reconciliation.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261122000400_platform_fee_refunds_disputes.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261123000100_platform_fee_application_fee_identity.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261123000200_platform_fee_dispute_adjustments.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261123000300_tenant_billing_dashboard_access.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261123000400_pricing_tenant_migration_workflow.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261123000500_subscription_webhook_receipts.sql
-docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U postgres <supabase/migrations/20261123000600_starter_twilio_resource_resolution.sql
-docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -c "insert into public.businesses(id) values('00000000-0000-0000-0000-000000000001'); select plan_key,rollout_enabled from public.business_pricing_profiles;"
+sql <"$root/bootstrap.sql"
+for f in 20261122000100_three_tier_pricing_phase_b.sql 20261122000200_three_tier_platform_fee_lifecycle.sql 20261122000300_platform_fee_reconciliation.sql 20261122000400_platform_fee_refunds_disputes.sql 20261123000100_platform_fee_application_fee_identity.sql 20261123000200_platform_fee_dispute_adjustments.sql 20261123000300_tenant_billing_dashboard_access.sql 20261123000400_pricing_tenant_migration_workflow.sql 20261123000500_subscription_webhook_receipts.sql 20261123000600_starter_twilio_resource_resolution.sql; do sql <"supabase/migrations/$f"; done
+sql <<'SQL'
+insert into auth.users values('00000000-0000-0000-0000-000000000011'),('00000000-0000-0000-0000-000000000012'),('00000000-0000-0000-0000-000000000099');
+insert into public.businesses(id,name) values('00000000-0000-0000-0000-000000000001','A'),('00000000-0000-0000-0000-000000000002','B'),('00000000-0000-0000-0000-000000000003','Legacy');
+insert into public.business_pricing_profiles(business_id,plan_key,rollout_enabled,legacy_pricing_preserved,billing_anchor_at) values('00000000-0000-0000-0000-000000000001','starter',true,false,now()),('00000000-0000-0000-0000-000000000002','starter',true,false,now()),('00000000-0000-0000-0000-000000000003','legacy',false,true,now());
+insert into public.test_workspace_roles values('00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000001','owner'),('00000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-000000000002','owner');
+grant usage on schema public to authenticated; grant select on public.business_pricing_profiles to authenticated;
+SQL
+eq "$(q "set role authenticated;set app.test_user_id='00000000-0000-0000-0000-000000000011';set app.test_platform_admin='false';select count(*) from public.business_pricing_profiles")" 1 'tenant RLS'
+if sql -c "set role authenticated;set app.test_platform_admin='false';select public.admin_migrate_tenant_pricing('00000000-0000-0000-0000-000000000001','starter','MIGRATE','10000000-0000-0000-0000-000000000001','test','bad')" >/dev/null 2>&1; then echo unauthorized migration accepted >&2; exit 1; fi
+for i in $(seq 1 12); do sql -Atqc "select allowed from public.claim_manual_booking_allowance('00000000-0000-0000-0000-000000000001','manual-$i','00000000-0000-0000-0000-000000000011')" >"$root/m$i" & done; wait
+eq "$(q "select count(*) from public.manual_booking_usage_ledger where business_id='00000000-0000-0000-0000-000000000001' and state='reserved'")" 10 'concurrent manual limit'
+u="$(q "select id from public.manual_booking_usage_ledger limit 1")"; sql -c "select public.finalize_manual_booking_allowance('$u',null,true)" >/dev/null; eq "$(q "select allowed from public.claim_manual_booking_allowance('00000000-0000-0000-0000-000000000001','retry','00000000-0000-0000-0000-000000000011')")" t 'release retry'
+for i in $(seq 1 12); do sql -Atqc "select fee_cents from public.reserve_platform_fee('00000000-0000-0000-0000-000000000002',(select cycle_starts_at from public.pricing_billing_cycle_bounds(now(),now())),(select cycle_ends_at from public.pricing_billing_cycle_bounds(now(),now())),'fee-$i',330000,now()+interval '1 hour')" >"$root/f$i" & done; wait
+eq "$(q "select reserved_cents from public.platform_fee_cycles where business_id='00000000-0000-0000-0000-000000000002'")" 9900 'concurrent $99 cap'
+r="$(q "select reservation_id from public.reserve_platform_fee('00000000-0000-0000-0000-000000000001',(select cycle_starts_at from public.pricing_billing_cycle_bounds(now(),now())),(select cycle_ends_at from public.pricing_billing_cycle_bounds(now(),now())),'release',10000,now()+interval '1 hour')")"; sql -c "select public.release_platform_fee_reservation('$r','release-event','test')" >/dev/null; eq "$(q "select state from public.platform_fee_reservations where id='$r'")" released 'reservation release'
+eq "$(q "select public.claim_stripe_subscription_event('evt','customer.subscription.updated','00000000-0000-0000-0000-000000000001','sub',now())")" t 'receipt claim'; sql -c "select public.complete_stripe_subscription_event('evt','applied',null)" >/dev/null; eq "$(q "select public.claim_stripe_subscription_event('evt','customer.subscription.updated','00000000-0000-0000-0000-000000000001','sub',now())")" f 'receipt duplicate'
+eq "$(q "select fee_cents from public.reserve_platform_fee('00000000-0000-0000-0000-000000000003',now(),now()+interval '1 month','legacy',10000,now()+interval '1 hour')")" 0 'legacy protection'
+sql -c "insert into public.twilio_phone_numbers(business_id,twilio_phone_number_sid) values('00000000-0000-0000-0000-000000000003','PN');select set_config('app.test_platform_admin','true',false)" >/dev/null
+if sql -c "select public.admin_migrate_tenant_pricing('00000000-0000-0000-0000-000000000003','starter','MIGRATE','10000000-0000-0000-0000-000000000003','test','blocked')" >/dev/null 2>&1; then echo starter with active Twilio number accepted >&2; exit 1; fi
+sql -c "select set_config('app.test_platform_admin','true',false);select public.admin_prepare_starter_communication_downgrade('00000000-0000-0000-0000-000000000003','DISABLE_COMMUNICATION_WORKFLOWS');update public.twilio_phone_numbers set status='released',provisioning_status='released' where business_id='00000000-0000-0000-0000-000000000003'" >/dev/null
+eq "$(q "select resolution_state from public.business_communication_downgrade_resolutions where business_id='00000000-0000-0000-0000-000000000003'")" workflows_disabled 'Twilio resolution'
+eq "$(q "set app.test_platform_admin='true';select (public.admin_migrate_tenant_pricing('00000000-0000-0000-0000-000000000003','starter','MIGRATE','10000000-0000-0000-0000-000000000004','test','test')->>'plan_key')")" starter 'migration audit'
+eq "$(q "select count(*) from public.pricing_tenant_migration_audit where business_id='00000000-0000-0000-0000-000000000003' and action='migrated'")" 1 'migration audit row'
+captured="$(q "select reservation_id from public.reserve_platform_fee('00000000-0000-0000-0000-000000000003',(select cycle_starts_at from public.pricing_billing_cycle_bounds(now(),now())),(select cycle_ends_at from public.pricing_billing_cycle_bounds(now(),now())),'captured',10000,now()+interval '1 hour')")"; sql -c "select public.finalize_platform_fee_reservation('$captured','pi_test','ch_test','capture:test')" >/dev/null
+eq "$(q "set app.test_platform_admin='true';select public.admin_rollback_tenant_pricing('00000000-0000-0000-0000-000000000003','ROLLBACK','10000000-0000-0000-0000-000000000005','recovery')->>'recovery_required'")" true 'recovery-required rollback'
+eq "$(q "select action from public.pricing_tenant_migration_audit where idempotency_key='10000000-0000-0000-0000-000000000005'")" recovery_required 'durable recovery audit'
+eq "$(q "set app.test_platform_admin='true';select public.admin_rollback_tenant_pricing('00000000-0000-0000-0000-000000000003','ROLLBACK','10000000-0000-0000-0000-000000000005','recovery retry')->>'idempotent'")" true 'recovery retry idempotency'
+echo "Pricing migration behavioral harness passed using $backend."
