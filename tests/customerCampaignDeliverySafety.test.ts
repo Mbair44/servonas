@@ -10,10 +10,10 @@ const migration=read("../supabase/migrations/20261125000100_campaign_delivery_sa
 
 test("campaign SMS uses the tenant gateway and exact marketing consent",()=>{
  assert.match(delivery,/canSendExactChannel/);
- assert.match(delivery,/marketing:true/);
+ assert.match(delivery,/purpose:"marketing"/);
  assert.match(delivery,/sendTenantTwilioMessage/);
  assert.doesNotMatch(delivery,/getTwilioCredentials|Messages\.json/);
- assert.match(gateway,/input\.marketing/);
+ assert.match(gateway,/input\.purpose/);
 });
 
 test("consent and provider failures become per-recipient results",()=>{

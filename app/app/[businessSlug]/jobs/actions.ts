@@ -19,6 +19,7 @@ import { canTransitionJob, type JobStatus } from "@/lib/jobStatusTransitions";
 import { requireWorkspaceCapability } from "@/lib/workspace";
 import {applyAssistedBookingAttribution} from "@/lib/assistedBookingAttribution";
 import {jobMarketingSource} from "@/lib/jobMarketingSource";
+import { changeJobStatusWorkflow, JobStatusWorkflowError } from "@/lib/jobs/changeJobStatus";
 
 export type JobActionState = { error?: string; warning?: string; fieldErrors?: Record<string, string>; values?: Record<string, string>; technicianIds?: string[] };
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
@@ -356,36 +357,36 @@ export async function updateJobMarketingSource(slug:string,jobId:string,formData
  redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Marketing source saved.")}`);
 }
 
+/** Saves per-job exceptions for rental lifecycle SMS without changing customer consent. */
+export async function updateRentalJobSmsPreferences(slug:string,jobId:string,formData:FormData){
+ const {supabase,user,business,role}=await requireWorkspaceCapability(slug,"job_management");
+ if(!canManageCustomers(role))redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
+ const {data:job,error:lookupError}=await supabase.from("jobs").select("id").eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false).maybeSingle();
+ if(lookupError||!job)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Job not found.")}`);
+ const {error}=await supabase.from("jobs").update({
+  suppress_rental_reminder_sms:formData.get("suppressRentalReminderSms")==="on",
+  suppress_technician_en_route_sms:formData.get("suppressTechnicianEnRouteSms")==="on",
+  updated_by:user.id,
+ }).eq("id",jobId).eq("business_id",business.id).eq("is_deleted",false);
+ if(error)redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("Rental SMS settings could not be saved.")}`);
+ revalidatePath(`/app/${slug}/jobs/${jobId}`);
+ redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent("Rental SMS settings saved.")}`);
+}
+
 export async function changeJobStatus(slug: string, jobId: string, formData: FormData) {
   const { supabase, user, business, role } = await requireWorkspaceCapability(slug,"job_management");
   if (!canManageCustomers(role)) redirect(`/app/${slug}/jobs/${jobId}?error=Permission+denied`);
   const status = text(formData, "status");
-  if (!jobStatuses.includes(status as typeof jobStatuses[number])) redirect(`/app/${slug}/jobs/${jobId}?error=Invalid+status`);
-  const { data: currentJob } = await supabase.from("jobs").select("status").eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false).maybeSingle();
-  if (!currentJob || !canTransitionJob(currentJob.status as JobStatus, status as JobStatus)) {
-    redirect(`/app/${slug}/jobs/${jobId}?error=That+status+transition+is+not+allowed`);
+  let result;
+  try {
+    result = await changeJobStatusWorkflow({ supabase, businessId: business.id, actorUserId: user.id, jobId, status });
+  } catch (error) {
+    const message = error instanceof JobStatusWorkflowError ? error.message : "Status could not be updated.";
+    redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(message)}`);
   }
-  const timestamps: Record<string, string> = {};
-  let completionMessage="Status updated";
-  const now = new Date().toISOString();
-  if (status === "arrived") timestamps.actual_arrival_at = now;
-  if (status === "in_progress") timestamps.work_started_at = now;
-  if (status === "completed") timestamps.work_completed_at = now;
-  const { error } = await supabase.from("jobs").update({ status, ...timestamps, updated_by: user.id }).eq("id", jobId).eq("business_id", business.id).eq("is_deleted", false);
-  if (error) redirect(`/app/${slug}/jobs/${jobId}?error=Status+could+not+be+updated`);
-  if (status === "confirmed") await JobNotificationService.jobConfirmed(jobId);
-  if (status === "en_route") { await JobNotificationService.technicianEnRoute(jobId); await sendRentalLifecycleSms({ jobId, type: "technician_en_route" }).catch(() => console.error("Rental on-the-way SMS failed", { businessId: business.id, jobId })); }
-  if (status === "completed") {
-    await Promise.allSettled([JobNotificationService.jobCompleted(jobId),JobNotificationService.reviewRequest(jobId)]);
-    const billing=await processCompletedJobBilling(jobId);
-    if(!billing.ok||billing.action==="payment_failed"){
-      console.error("Completed job requires billing attention",{businessId:business.id,jobId,reason:billing.error});
-      revalidatePath(`/app/${slug}/jobs/${jobId}`);
-      redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent("The job is complete, but the remaining-balance invoice could not be finalized. Please contact support before closing this order.")}`);
-    }
-    completionMessage=billing.action==="paid"?"Job completed and the remaining balance was paid.":"Job completed and the remaining-balance invoice was sent.";
-  }
-  revalidatePath(`/app/${slug}/jobs/${jobId}`); redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(completionMessage)}`);
+  revalidatePath(`/app/${slug}/jobs/${jobId}`);
+  if (result!.billingRequiresAttention) redirect(`/app/${slug}/jobs/${jobId}?error=${encodeURIComponent(`${result!.completionMessage} Please contact support before closing this order.`)}`);
+  redirect(`/app/${slug}/jobs/${jobId}?success=${encodeURIComponent(result!.completionMessage)}`);
 }
 
 export async function saveJobAddon(slug:string,jobId:string,formData:FormData){

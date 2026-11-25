@@ -3,8 +3,9 @@ import { sendTenantTwilioMessage } from "@/lib/twilio/messageUsage";
 import {claimGoogleReviewRequestEligibility} from "@/lib/googleReviewEligibility";
 import {authoritativeBookingBalance} from "@/lib/financial/rentalCompletionBalance";
 import {powerReminder} from "@/lib/rentalPower";
+import {isRentalLifecycleSmsSuppressed, type RentalLifecycleSmsType} from "@/lib/communications/rentalLifecycleSmsPreferences";
 
-type LifecycleType = "reminder" | "technician_en_route" | "review_request" | "payment_receipt";
+type LifecycleType = RentalLifecycleSmsType;
 type First<T> = T | T[] | null;
 const first = <T,>(value: First<T>) => Array.isArray(value) ? value[0] ?? null : value;
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -32,6 +33,12 @@ export async function sendRentalLifecycleSms(input: { type: LifecycleType; booki
  bookingQuery = input.bookingId ? bookingQuery.eq("id", input.bookingId) : bookingQuery.eq("job_id", jobId ?? "");
  const { data: booking, error: bookingError } = await bookingQuery.maybeSingle();
  if (bookingError || !booking || !booking.job_id || !["paid", "confirmed", "completed"].includes(booking.status)) return { ok: true, skipped: true, reason: "rental_booking_not_confirmed" };
+ if (!booking.sms_consent) return { ok: true, skipped: true, reason: "sms_consent_not_granted" };
+ if (input.type === "reminder" || input.type === "technician_en_route") {
+  const {data:job,error:jobError}=await db.from("jobs").select("suppress_rental_reminder_sms,suppress_technician_en_route_sms").eq("id",booking.job_id).eq("business_id",booking.business_id).maybeSingle();
+  if (jobError || !job) return { ok: false, error: "Job SMS preferences could not be loaded." };
+  if (isRentalLifecycleSmsSuppressed(input.type,job)) return { ok: true, skipped: true, reason: "job_sms_suppressed" };
+ }
  const customer = first(booking.customers), business = first(booking.businesses);
  if (!customer?.phone_normalized || customer.sms_consent_status !== "express") return { ok: true, skipped: true, reason: "sms_consent_not_current" };
  const { data: phoneConsent, error: consentError } = await db.from("customer_sms_consents").select("status").eq("business_id", booking.business_id).eq("phone_e164", customer.phone_normalized).maybeSingle();

@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   addJobNoteRequestSchema,
+  addJobNoteResponseSchema,
   foregroundLocationRequestSchema,
   jobDetailResponseSchema,
   meResponseSchema,
   mobileErrorEnvelopeSchema,
+  mobileJobsListResponseSchema,
+  mobileConversationListResponseSchema,
+  mobileConversationMessagesResponseSchema,
   ownerManagerDashboardResponseSchema,
   paginationQuerySchema,
   transitionJobStatusRequestSchema,
@@ -90,20 +94,38 @@ test("allows primary but not helper lifecycle actions", () => {
       customer: { id: ids.customer, displayName: "Jordan Customer", phone: "+15551234567" },
       service: { id: ids.service, name: "Filter service" }, serviceAddress: "1 Main St",
     },
+    notes: [],
   };
-  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: "primary", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, true);
-  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, assignment: { role: "helper", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, false);
+  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, permittedStatusTransitions: [], assignment: { role: "primary", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, true);
+  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, permittedStatusTransitions: [], assignment: { role: "helper", allowedActions: ["transition_status", "add_note"] } }, requestId: ids.request }).success, false);
+  assert.equal(jobDetailResponseSchema.safeParse({ data: { ...base, permittedStatusTransitions: ["en_route"], assignment: { role: null, allowedActions: [] } }, requestId: ids.request }).success, true);
 });
 
 test("validates mutation inputs, timestamps, and foreground consent", () => {
   assert.equal(transitionJobStatusRequestSchema.safeParse({ status: "completed", idempotencyKey: ids.request, expectedCurrentStatus: "in_progress" }).success, true);
   assert.equal(addJobNoteRequestSchema.safeParse({ body: "", idempotencyKey: ids.request }).success, false);
+  assert.equal(addJobNoteResponseSchema.safeParse({ data: { jobId: ids.job, noteId: ids.request }, requestId: ids.request }).success, true);
   assert.equal(foregroundLocationRequestSchema.safeParse({ latitude: 33.4, longitude: -111.8, accuracyMeters: 12, capturedAt: "2026-11-16T18:45:00Z", foregroundConsent: true, idempotencyKey: ids.request }).success, true);
   assert.equal(foregroundLocationRequestSchema.safeParse({ latitude: 33.4, longitude: -111.8, accuracyMeters: 12, capturedAt: "not-a-date", foregroundConsent: false, idempotencyKey: ids.request }).success, false);
+});
+
+test("validates bounded, timezone-aware mobile job-list responses", () => {
+  assert.equal(mobileJobsListResponseSchema.safeParse({
+    data: { workspace: { ...primaryWorkspace, membershipRole: "staff", technicianEligible: true, availableCapabilities: ["assigned_jobs_read"] }, timezone: "America/Phoenix", range: "upcoming", items: [], truncated: false },
+    requestId: ids.request,
+  }).success, true);
+  assert.equal(mobileJobsListResponseSchema.safeParse({ data: { workspace: primaryWorkspace, timezone: "", range: "future", items: [] }, requestId: ids.request }).success, false);
 });
 
 test("keeps error and pagination conventions strict for future-compatible clients", () => {
   assert.equal(mobileErrorEnvelopeSchema.safeParse({ error: { code: "RATE_LIMITED", message: "Slow down.", requestId: ids.request, retryable: true, unexpected: "no" } }).success, false);
   assert.deepEqual(paginationQuerySchema.parse({ limit: "25" }), { limit: 25 });
   assert.equal(paginationQuerySchema.safeParse({ limit: 101 }).success, false);
+});
+
+test("validates read-only office conversation contracts and rejects malformed keys",()=>{
+ const conversation={key:`customer:${ids.customer}`,displayName:"Jordan Customer",phoneNumber:"+15551234567",latestPreview:"Hello",latestAt:"2026-11-19T22:00:00Z",latestDirection:"inbound",unreadCount:1};
+ assert.equal(mobileConversationListResponseSchema.safeParse({data:{workspace:primaryWorkspace,items:[conversation],nextCursor:null},requestId:ids.request}).success,true);
+ assert.equal(mobileConversationListResponseSchema.safeParse({data:{workspace:primaryWorkspace,items:[{...conversation,key:"customer:not-a-uuid"}],nextCursor:null},requestId:ids.request}).success,false);
+ assert.equal(mobileConversationMessagesResponseSchema.safeParse({data:{workspace:primaryWorkspace,key:conversation.key,items:[{id:ids.request,direction:"outbound",body:"Reply",status:"sent",occurredAt:"2026-11-19T22:00:00Z",attachments:[]}],nextCursor:null},requestId:ids.request}).success,true);
 });

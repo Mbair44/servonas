@@ -7,6 +7,7 @@ import { mobileMe } from "../lib/api";
 import { preferences, type Experience } from "../lib/preferences";
 import { allowedExperiences, selectedExperience, selectedWorkspace } from "../lib/navigation";
 import { clearForAccountChange, clearForExperienceChange, clearForWorkspaceChange, mobileMeQueryKey, refreshAuthorizedWorkspaces } from "../lib/queryState";
+import { deactivateIncomingMessageNotifications, enableIncomingMessageNotifications, watchIncomingMessagePushToken } from "../lib/deviceNotifications";
 
 export default function FoundationScreen() {
   const [session, setSession] = useState<any>();
@@ -16,6 +17,7 @@ export default function FoundationScreen() {
   const [error, setError] = useState<string>();
   const [savedWorkspace, setSavedWorkspace] = useState<string | null>(null);
   const [savedExperience, setSavedExperience] = useState<string | null>(null);
+  const [notificationMessage,setNotificationMessage]=useState<string>();
   const client = useQueryClient();
   const router = useRouter();
 
@@ -60,6 +62,7 @@ export default function FoundationScreen() {
       void (experience ? preferences.setExperience(experience) : preferences.clearExperience());
     }
   }, [experience, me.isError, me.isLoading, savedExperience, savedWorkspace, session, workspace]);
+  useEffect(()=>{if(!session||!workspace)return;const subscription=watchIncomingMessagePushToken(workspace.id);return()=>subscription.remove();},[session?.user.id,workspace?.id]);
 
   if (!ready) return <Center text="Restoring secure session…" />;
   if (!session) return <Login email={email} password={password} error={error} onEmail={setEmail} onPassword={setPassword} onError={setError} />;
@@ -71,6 +74,7 @@ export default function FoundationScreen() {
   const switchWorkspace = async (id: string) => {
     if (id === workspace.id || !workspaces.some((item) => item.id === id)) return;
     // All future tenant-scoped query keys must start with "tenant".
+    await deactivateIncomingMessageNotifications([workspace.id]);
     clearForWorkspaceChange(client);
     setSavedWorkspace(id);
     setSavedExperience(null);
@@ -114,7 +118,9 @@ export default function FoundationScreen() {
       <Text style={styles.body}>Connection verified: {workspaces.length} workspace(s)</Text>
       {experience && <Pressable accessibilityRole="button" onPress={openExperience} style={styles.openDashboard}><Text style={styles.openDashboardText}>Open {experience} home</Text></Pressable>}
       <Button title="Refresh" onPress={() => me.refetch()} />
-      <Button title="Sign out" onPress={async () => { clearForAccountChange(client); await preferences.clear(); await supabase.auth.signOut(); }} />
+      <Button title="Enable incoming text notifications" onPress={async()=>{const result=await enableIncomingMessageNotifications(workspace.id);setNotificationMessage(result.kind==="registered"?"Incoming-text notifications enabled for this device.":result.message);}} />
+      {notificationMessage&&<Text style={styles.body}>{notificationMessage}</Text>}
+      <Button title="Sign out" onPress={async () => { await deactivateIncomingMessageNotifications(workspaces.map(item=>item.id)); clearForAccountChange(client); await preferences.clear(); await supabase.auth.signOut(); }} />
     </ScrollView>
   </SafeAreaView>;
 }

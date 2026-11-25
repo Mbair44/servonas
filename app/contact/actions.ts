@@ -8,10 +8,16 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const text = (formData: FormData, key: string) =>
   String(formData.get(key) ?? "").trim();
 
-const contactResult = (kind: "sent" | "error", message?: string) =>
-  kind === "sent"
-    ? "/contact?sent=1"
-    : `/contact?error=${encodeURIComponent(message ?? "Your message could not be sent. Please try again.")}`;
+const contactResult = (
+  kind: "sent" | "error",
+  message?: string,
+  interest?: "early-access",
+) => {
+  const interestParam = interest ? `&interest=${interest}` : "";
+  return kind === "sent"
+    ? `/contact?sent=1${interestParam}`
+    : `/contact?error=${encodeURIComponent(message ?? "Your message could not be sent. Please try again.")}${interestParam}`;
+};
 
 const escapeHtml = (value: string) =>
   value.replace(
@@ -32,10 +38,12 @@ export async function sendContactInquiry(formData: FormData) {
   const company = text(formData, "company");
   const phone = text(formData, "phone");
   const message = text(formData, "message");
+  const earlyAccess = text(formData, "interest") === "early-access";
+  const interest = earlyAccess ? "early-access" : undefined;
 
   // Bots commonly populate fields hidden from people. Return the normal
   // confirmation so the form cannot be used to probe the spam filter.
-  if (text(formData, "website")) redirect(contactResult("sent"));
+  if (text(formData, "website")) redirect(contactResult("sent", undefined, interest));
 
   if (
     !name ||
@@ -51,6 +59,7 @@ export async function sendContactInquiry(formData: FormData) {
       contactResult(
         "error",
         "Enter your name, a valid email address, and a message.",
+        interest,
       ),
     );
   }
@@ -68,16 +77,20 @@ export async function sendContactInquiry(formData: FormData) {
       contactResult(
         "error",
         "Email delivery is temporarily unavailable. Please try again shortly.",
+        interest,
       ),
     );
   }
 
-  const subject = `Servonas contact inquiry from ${name}`;
+  const subject = earlyAccess
+    ? `Servonas early-access interest from ${name}`
+    : `Servonas contact inquiry from ${name}`;
   const lines = [
     `Name: ${name}`,
     `Email: ${email}`,
     `Company: ${company || "Not provided"}`,
     `Phone: ${phone || "Not provided"}`,
+    ...(earlyAccess ? ["Interest: Early access"] : []),
     "",
     "Message:",
     message,
@@ -89,6 +102,7 @@ export async function sendContactInquiry(formData: FormData) {
       <p><strong>Email:</strong> ${escapeHtml(email)}</p>
       <p><strong>Company:</strong> ${escapeHtml(company || "Not provided")}</p>
       <p><strong>Phone:</strong> ${escapeHtml(phone || "Not provided")}</p>
+      ${earlyAccess ? "<p><strong>Interest:</strong> Early access</p>" : ""}
       <h3>Message</h3>
       <p style="white-space:pre-wrap">${escapeHtml(message)}</p>
     </div>`;
@@ -123,6 +137,7 @@ export async function sendContactInquiry(formData: FormData) {
         contactResult(
           "error",
           "Your message could not be sent. Please try again.",
+          interest,
         ),
       );
     }
@@ -144,9 +159,10 @@ export async function sendContactInquiry(formData: FormData) {
       contactResult(
         "error",
         "Your message could not be sent. Please try again.",
+        interest,
       ),
     );
   }
 
-  redirect(contactResult("sent"));
+  redirect(contactResult("sent", undefined, interest));
 }

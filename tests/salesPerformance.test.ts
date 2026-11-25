@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {readFile} from "node:fs/promises";
-import {allocateCategoryRevenue,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,monthlyAverageComparisons,normalizeSalesReceipts,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
+import {allocateCategoryRevenue,bookedAttributionMetrics,bookingValueMetrics,customerCategoryMetrics,type SalesReceipt,comparisonRanges,monthlyAverage,monthlyAverageComparisons,normalizeSalesReceipts,revenueChange,revenueInRange,revenueTrend,salesPerformanceOptions,salesRange,shiftMonth,validSalesDate,type RevenueDay} from "../lib/financial/salesPerformance.ts";
 import {dateInTimeZone} from "../lib/bookingTime.ts";
 const today="2026-09-14";
 test("normalizes nested JSONB weights returned as arrays or JSON text",()=>{
@@ -153,6 +153,10 @@ test("booked sales records accepted Smart Upsells on their applied date without 
  assert.match(sql,/booking\.total_cents-coalesce\(upsells\.value_cents,0\)/);assert.match(sql,/union all/);assert.match(sql,/0::bigint as booking_count/);
  assert.match(sql,/job\.is_deleted or job\.status='canceled'/);assert.doesNotMatch(sql,/public\.payments|public\.invoices/);
 });
+test("the forward-only Smart Upsell sales repair qualifies output columns",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20261117000200_fix_sales_performance_smart_upsells.sql",import.meta.url),"utf8");
+ assert.match(sql,/from base_bookings base_booking/);assert.match(sql,/select base_booking\.booking_date/);assert.match(sql,/from smart_upsell_sales smart_upsell/);assert.match(sql,/order by 1/);
+});
 test("booked sales handles deposits, discounts, and events in another month through canonical booking totals",()=>{
  const rows=[{booking_date:"2026-09-02",booking_value_cents:17500,booking_count:1},{booking_date:"2026-10-01",booking_value_cents:30000,booking_count:1}];
  assert.deepEqual(bookingValueMetrics(rows,{start:"2026-09-01",end:"2026-09-30"}),{bookingValueCents:17500,bookingCount:1,averageCents:17500});
@@ -160,6 +164,14 @@ test("booked sales handles deposits, discounts, and events in another month thro
 test("smart upsell rows raise booked sales without changing average booking value",()=>{
  const metrics=bookingValueMetrics([{booking_date:"2026-09-10",booking_value_cents:22500,booking_count:1},{booking_date:"2026-09-12",booking_value_cents:11250,booking_count:0}],selected);
  assert.deepEqual(metrics,{bookingValueCents:33750,bookingCount:1,averageCents:22500});
+});
+test("November attribution separates new bookings from Smart Upsells",()=>{
+ const november={start:"2026-11-01",end:"2026-11-30"},rows=[{booking_date:"2026-11-05",new_booked_cents:187000,smart_upsell_cents:0,booking_count:6,incomplete_booking_count:0},{booking_date:"2026-11-13",new_booked_cents:0,smart_upsell_cents:21000,booking_count:0,incomplete_booking_count:0}];
+ assert.deepEqual(bookedAttributionMetrics(rows,november),{newBookedCents:187000,smartUpsellCents:21000,totalBookedSalesCents:208000,bookingCount:6,incompleteBookingCount:0,averageNewBookingCents:31166.666666666668});
+});
+test("revenue attribution ledger is append-only and reconciles outside payment flows",async()=>{
+ const sql=await readFile(new URL("../supabase/migrations/20261117000300_revenue_attribution_ledger.sql",import.meta.url),"utf8");
+ assert.match(sql,/create table if not exists public\.revenue_events/);assert.match(sql,/unique\(business_id,source_kind,source_reference\)/);assert.match(sql,/reconcile_revenue_events/);assert.match(sql,/on conflict\(business_id,source_kind,source_reference\) do nothing/);assert.match(sql,/refund_unattributed/);assert.match(sql,/revenue_event_attribution_issues/);
 });
 test("sales and revenue trend exposes persisted legend toggles, markers, and accessible tooltips",async()=>{
  const chart=await readFile(new URL("../components/SalesRevenueTrend.tsx",import.meta.url),"utf8"),dashboard=await readFile(new URL("../components/SalesPerformance.tsx",import.meta.url),"utf8");

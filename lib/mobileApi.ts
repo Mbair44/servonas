@@ -167,6 +167,13 @@ export function requireMobileWorkspace(context: MobileAuthorizationContext, busi
   return workspace;
 }
 
+/** Customer conversations are office communications, never technician data. */
+export function requireMobileMessagingWorkspace(context: MobileAuthorizationContext,businessId:string):Workspace{
+  const workspace=requireMobileWorkspace(context,businessId);
+  if(!["owner","admin","manager"].includes(workspace.membershipRole))throw new MobileApiError("FORBIDDEN","Office messaging access is required.",403);
+  return workspace;
+}
+
 /** Future job routes must call this in addition to requireMobileWorkspace(). */
 export async function requireMobileJobAssignment(context: MobileAuthorizationContext, businessId: string, jobId: string) {
   requireMobileWorkspace(context, businessId);

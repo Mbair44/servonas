@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { conflictingJobNumbers, effectiveJobWindow, enforcesTechnicianScheduleConflicts, intervalsOverlap, technicianWorksDuring } from "../lib/schedulingRules.ts";
+import { shouldOptimizePartyRentalStopOrder } from "../lib/routing/flexibleRouteOrder.ts";
 
 test("detects overlap using scheduled and arrival windows", () => {
   const window = effectiveJobWindow({
@@ -48,4 +49,10 @@ test("technician overlap enforcement defaults on but can be disabled per busines
   assert.equal(enforcesTechnicianScheduleConflicts({}), true);
   assert.equal(enforcesTechnicianScheduleConflicts({ enforce_technician_schedule_conflicts: true }), true);
   assert.equal(enforcesTechnicianScheduleConflicts({ enforce_technician_schedule_conflicts: false }), false);
+});
+
+test("party-rental same-time bookings can use geographical stop ordering without changing customer event times", () => {
+  assert.equal(shouldOptimizePartyRentalStopOrder({ industryProfile: "party_rental", startsAt: ["2026-11-24T16:00:00Z", "2026-11-24T16:00:00Z"] }), true);
+  assert.equal(shouldOptimizePartyRentalStopOrder({ industryProfile: "party_rental", startsAt: ["2026-11-24T16:00:00Z", "2026-11-24T17:00:00Z"] }), false);
+  assert.equal(shouldOptimizePartyRentalStopOrder({ industryProfile: "hvac", startsAt: ["2026-11-24T16:00:00Z", "2026-11-24T16:00:00Z"] }), false);
 });

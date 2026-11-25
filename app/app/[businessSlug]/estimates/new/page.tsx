@@ -15,7 +15,7 @@ export default async function NewEstimate({ params, searchParams }: { params: Pr
     ? supabase.from("landscaping_property_measurements").select("id,name,customer_id,service_location_id,shapes").eq("business_id", business.id).eq("id", measurementId).maybeSingle()
     : Promise.resolve({ data: null });
   const [{data:customers},{data:locations},{data:jobs},{data:priceItems},{data:taxRates},{data:measurement}] = await Promise.all([
-    supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).order("last_name"),
+    supabase.from("customers").select("id,first_name,last_name,company_name").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).is("merged_into_customer_id",null).order("last_name"),
     supabase.from("service_locations").select("id,customer_id,location_name,street_address").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true),
     supabase.from("jobs").select("id,customer_id,job_number,title").eq("business_id",business.id).eq("is_deleted",false).order("created_at",{ascending:false}),
     supabase.from("price_book_items").select("id,name,description,unit_type,default_unit_price_cents,internal_cost_cents,is_taxable,service_id").eq("business_id",business.id).eq("is_deleted",false).eq("is_active",true).order("sort_order").order("name"),

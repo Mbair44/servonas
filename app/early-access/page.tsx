@@ -1,0 +1,6 @@
+import type { Metadata } from "next";
+import { EarlyAccessForm } from "./EarlyAccessForm";
+
+export const metadata: Metadata = {title:"Servonas Early Access",description:"Join the early-access list for party rental software from Servonas.",alternates:{canonical:"/early-access"},robots:{index:false,follow:true}};
+
+export default function EarlyAccessPage(){return <main><section className="sv-page-hero contact-hero"><div className="sv-container contact-layout"><div className="contact-intro"><span className="sv-kicker">Early access</span><h1>Less busywork. More bookings.</h1><p>Servonas brings online bookings, inventory management, payments, delivery scheduling, and customer communication together in one place.</p><p>Built specifically for party rental businesses, so you can spend less time managing the details and more time growing your business.</p><p>Join our early-access list to be among the first rental operators to hear when spots become available.</p><div className="home-proof"><span>✓ Built by rental operators</span><span>✓ Designed for party rentals</span><span>✓ No commitment to join</span></div><p><small>Created by people who understand the day-to-day challenges of running a rental business.</small></p></div><div className="contact-card"><EarlyAccessForm/></div></div></section></main>;}
