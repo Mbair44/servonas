@@ -39,7 +39,16 @@ test("message threads link known customers and support keyboard sending",async()
 test("conversation sidebar fills a bounded inbox panel and scrolls independently",async()=>{
  const css=await readFile("app/app/[businessSlug]/customers/messages/messages.module.css","utf8");
  assert.match(css,/\.layout\{[^}]*height:75vh;min-height:520px/);
- assert.match(css,/\.list\{align-self:stretch;height:100%;min-height:0;max-height:none;[^}]*overflow:auto/);
+ assert.match(css,/\.conversationScroll\{min-height:0;flex:1;overflow:auto/);
+});
+
+test("conversation search filters all loaded customer threads without changing the active conversation",async()=>{
+ const inbox=await readFile("app/app/[businessSlug]/customers/messages/MessagesInbox.tsx","utf8");
+ assert.match(inbox,/placeholder="Search customers\.\.\."/);
+ assert.match(inbox,/conversation\.name\.toLowerCase\(\)/);
+ assert.match(inbox,/conversation\.phone\.replace\(\/\\D\/g,""\)/);
+ assert.match(inbox,/No matching conversations/);
+ assert.match(inbox,/visibleInbox\.map\(c=>/);
 });
 
 test("messaging header and composer use compact horizontal space",async()=>{
