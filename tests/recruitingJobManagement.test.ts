@@ -38,13 +38,16 @@ test("dashboard uses actual tenant-scoped application records and withholds publ
  assert.match(source,/Copy link unavailable/);
 });
 
-test("Careers settings persist future controls without creating public routes",async()=>{
+test("Careers settings are tenant-scoped and make public careers immediately available",async()=>{
  const [settings,actions]=await Promise.all([read("app/app/[businessSlug]/recruiting/settings/page.tsx"),read("app/app/[businessSlug]/recruiting/actions.ts")]);
- assert.match(settings,/Public Careers is not live yet/);
- assert.match(settings,/Enable public Careers page when routes are released/);
+ assert.match(settings,/Enable public Careers page/);
+ assert.match(settings,/website&apos;s <code>\/careers<\/code> address/);
  assert.match(actions,/business_recruiting_settings/);
+ assert.match(actions,/\.update\(settings\)\.eq\("business_id",business\.id\)\.select\("business_id"\)\.maybeSingle\(\)/);
+ assert.match(actions,/\.insert\(\{business_id:business\.id,\.\.\.settings\}\)/);
  assert.match(actions,/careers_enabled:checked/);
  assert.match(actions,/applicant_retention_days:retention/);
+ assert.match(actions,/revalidatePath\("\/sites\/domain\/\[domain\]\/careers","page"\)/);
 });
 
 test("edit and close screens protect application history and require confirmation",async()=>{
