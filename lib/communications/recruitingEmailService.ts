@@ -1,0 +1,25 @@
+import {getSupabaseAdmin} from "@/lib/supabaseAdmin";
+
+type DeliveryType="applicant_confirmation"|"business_notification";
+const esc=(value:string)=>value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]!));
+
+export async function queueRecruitingEmails(applicationId:string){
+ const db=getSupabaseAdmin();if(!db)return;
+ const {data:application}=await db.from("job_applications").select("id,business_id,email,first_name,job_postings(title),businesses(name,email,owner_user_id),business_recruiting_settings(notification_email)").eq("id",applicationId).maybeSingle();
+ if(!application)return;const business=Array.isArray(application.businesses)?application.businesses[0]:application.businesses,settings=Array.isArray(application.business_recruiting_settings)?application.business_recruiting_settings[0]:application.business_recruiting_settings,job=Array.isArray(application.job_postings)?application.job_postings[0]:application.job_postings;
+ const owner=business?.owner_user_id?(await db.from("profiles").select("email").eq("id",business.owner_user_id).maybeSingle()).data:null;
+ const businessRecipient=settings?.notification_email||business?.email||owner?.email||null;
+ const rows=[{business_id:application.business_id,application_id:application.id,delivery_type:"applicant_confirmation" as DeliveryType,recipient:application.email},{business_id:application.business_id,application_id:application.id,delivery_type:"business_notification" as DeliveryType,recipient:businessRecipient}].filter(row=>row.recipient);
+ if(rows.length)await db.from("recruiting_email_deliveries").upsert(rows,{onConflict:"application_id,delivery_type",ignoreDuplicates:true});
+ await dispatchRecruitingEmails(10);
+}
+
+export async function dispatchRecruitingEmails(limit=50){
+ const db=getSupabaseAdmin();if(!db)return{sent:0,failed:0,skipped:0};const {data:deliveries}=await db.from("recruiting_email_deliveries").select("id,business_id,application_id,delivery_type,recipient,attempt_count,job_applications(first_name,last_name,email,job_postings(title),businesses(name,email,slug))").in("status",["pending","failed"]).order("created_at").limit(limit);let sent=0,failed=0,skipped=0;
+ for(const delivery of deliveries??[]){const app=Array.isArray(delivery.job_applications)?delivery.job_applications[0]:delivery.job_applications,job=Array.isArray(app?.job_postings)?app?.job_postings[0]:app?.job_postings,business=Array.isArray(app?.businesses)?app?.businesses[0]:app?.businesses;if(!app||!job||!business)continue;const title=job.title,name=business.name,applicant=`${app.first_name} ${app.last_name}`.trim(),isApplicant=delivery.delivery_type==="applicant_confirmation",subject=isApplicant?`Application received — ${title}`:`New job application — ${title}`,workspace=`${(process.env.NEXT_PUBLIC_SITE_URL||"https://servonas.com").replace(/\/$/,"")}/app/${business.slug}/recruiting`,text=isApplicant?`Hi ${app.first_name},\n\nThank you for applying for the ${title} position at ${name}.\n\nWe have received your application and appreciate your interest in joining our team. We will contact you if we would like to move forward with the hiring process.\n\nThank you,\n${name}`:`${applicant} submitted an application for ${title}.\n\nReview recruiting: ${workspace}`;
+  if(process.env.EMAIL_DELIVERY_MODE!=="live"){await db.from("recruiting_email_deliveries").update({status:"sent",sent_at:new Date().toISOString(),updated_at:new Date().toISOString(),provider_message_id:"development-stub",attempt_count:Number(delivery.attempt_count)+1}).eq("id",delivery.id);skipped++;continue;}
+  const key=process.env.RESEND_API_KEY?.trim(),from=process.env.EMAIL_FROM?.trim();if(!key||!from){await db.from("recruiting_email_deliveries").update({status:"failed",error_message:"Email delivery is not configured.",attempt_count:Number(delivery.attempt_count)+1,updated_at:new Date().toISOString()}).eq("id",delivery.id);failed++;continue;}
+  try{const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json","Idempotency-Key":`recruiting/${delivery.id}`},body:JSON.stringify({from:`${name.replace(/[\r\n<>"\\]/g,"").trim()} <${from.match(/<([^>]+)>/)?.[1]??from}>`,to:[delivery.recipient],...(isApplicant&&business.email?{reply_to:business.email}:{}),subject,text,html:`<div style="font-family:Arial,sans-serif;line-height:1.6">${text.split("\n\n").map(line=>`<p>${esc(line)}</p>`).join("")}</div>`})}),result=await response.json() as {id?:string};if(!response.ok||!result.id)throw new Error("provider_rejected");await db.from("recruiting_email_deliveries").update({status:"sent",provider_message_id:result.id,sent_at:new Date().toISOString(),error_message:null,attempt_count:Number(delivery.attempt_count)+1,updated_at:new Date().toISOString()}).eq("id",delivery.id);sent++;}catch{await db.from("recruiting_email_deliveries").update({status:"failed",error_message:"Email delivery failed.",attempt_count:Number(delivery.attempt_count)+1,updated_at:new Date().toISOString()}).eq("id",delivery.id);failed++;}
+ }
+ return{sent,failed,skipped};
+}

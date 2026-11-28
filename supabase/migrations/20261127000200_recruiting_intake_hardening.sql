@@ -1,9 +1,12 @@
 -- Public submissions use the service role, so enforce Careers visibility and job status again in PostgreSQL.
 create or replace function public.guard_job_application_submission()
 returns trigger language plpgsql security definer set search_path=public as $$
+declare v_careers boolean;v_status text;
 begin
- if not exists(select 1 from public.business_recruiting_settings where business_id=new.business_id and careers_enabled=true) then raise exception 'CAREERS_DISABLED' using errcode='42501'; end if;
- if not exists(select 1 from public.job_postings where id=new.job_posting_id and business_id=new.business_id and status='published') then raise exception 'JOB_NOT_PUBLISHED' using errcode='42501'; end if;
+ select careers_enabled into v_careers from public.business_recruiting_settings where business_id=new.business_id for key share;
+ if v_careers is distinct from true then raise exception 'CAREERS_DISABLED' using errcode='42501'; end if;
+ select status into v_status from public.job_postings where id=new.job_posting_id and business_id=new.business_id for key share;
+ if v_status is distinct from 'published' then raise exception 'JOB_NOT_PUBLISHED' using errcode='42501'; end if;
  return new;
 end;
 $$;
