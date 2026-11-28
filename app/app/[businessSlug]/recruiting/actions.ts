@@ -82,9 +82,14 @@ export async function saveRecruitingSettings(slug:string,form:FormData){
  const {supabase,business,user}=await recruitingWorkspace(slug),retention=Number(text(form,"applicantRetentionDays")||defaultApplicantRetentionDays),email=text(form,"notificationEmail").toLowerCase()||null;
  if(!Number.isInteger(retention)||retention<30||retention>3650)return redirect(destination(slug,"/settings","error","Retention must be between 30 and 3,650 days."));
  if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return redirect(destination(slug,"/settings","error","Enter a valid notification email."));
- const {error}=await supabase.from("business_recruiting_settings").upsert({business_id:business.id,careers_enabled:checked(form,"careersEnabled"),show_careers_nav_link:checked(form,"showCareersNavLink"),show_careers_footer_link:checked(form,"showCareersFooterLink"),notification_email:email,applicant_retention_days:retention,privacy_notice_version:defaultRecruitingPrivacyNoticeVersion,updated_by:user.id},{onConflict:"business_id"});
- if(error)return redirect(destination(slug,"/settings","error","Careers settings could not be saved."));
- revalidatePath(`/app/${slug}/recruiting/settings`);redirect(destination(slug,"/settings","success","Careers settings saved. Public routes are not live yet."));
+ const settings={careers_enabled:checked(form,"careersEnabled"),show_careers_nav_link:checked(form,"showCareersNavLink"),show_careers_footer_link:checked(form,"showCareersFooterLink"),notification_email:email,applicant_retention_days:retention,privacy_notice_version:defaultRecruitingPrivacyNoticeVersion,updated_by:user.id};
+ // Each business receives this row from the foundation migration. Update it
+ // directly so a routine settings save does not depend on upsert conflict
+ // handling; retain a narrowly scoped create fallback for older tenants.
+ const {data:updated,error:updateError}=await supabase.from("business_recruiting_settings").update(settings).eq("business_id",business.id).select("business_id").maybeSingle();
+ if(updateError){console.error("Recruiting settings update failed",{businessId:business.id,code:updateError.code,details:updateError.details,hint:updateError.hint});return redirect(destination(slug,"/settings","error","Careers settings could not be saved. Please try again."));}
+ if(!updated){const {error:createError}=await supabase.from("business_recruiting_settings").insert({business_id:business.id,...settings});if(createError){console.error("Recruiting settings creation failed",{businessId:business.id,code:createError.code,details:createError.details,hint:createError.hint});return redirect(destination(slug,"/settings","error","Careers settings could not be saved. Please try again."));}}
+ revalidatePath(`/app/${slug}/recruiting/settings`);revalidatePath(`/app/${slug}/recruiting`);revalidatePath("/sites/[siteSlug]/careers","page");revalidatePath("/sites/domain/[domain]/careers","page");redirect(destination(slug,"/settings","success","Careers settings saved."));
 }
 
 export async function updateApplicationStatus(slug:string,jobId:string,applicationId:string,form:FormData){
