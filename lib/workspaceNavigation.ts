@@ -13,7 +13,7 @@ export type WorkspaceNavigationItem={
 
 export const SIDEBAR_GROUPS_STORAGE_KEY="servonas.sidebar.groups.v1";
 
-export function workspaceNavigation(slug:string,options:{poolService?:boolean;partyRental?:boolean}={}):WorkspaceNavigationItem[]{
+export function workspaceNavigation(slug:string,options:{poolService?:boolean;partyRental?:boolean;recruiting?:boolean}={}):WorkspaceNavigationItem[]{
  const base=`/app/${slug}`;
  return [
   {id:"dashboard",label:"Dashboard",href:base,routePatterns:[base],exact:true},
@@ -49,6 +49,7 @@ export function workspaceNavigation(slug:string,options:{poolService?:boolean;pa
   ]},
   {id:"workforce",label:"Workforce",children:[
    {id:"team",label:"Team",href:`${base}/team`},
+   {id:"recruiting",label:"Recruiting",href:`${base}/recruiting`,visible:options.recruiting===true},
    {id:"field-app",label:"Field App",href:"/tech",routePatterns:["/tech"]},
   ]},
   {id:"planning",label:"Planning",children:[
