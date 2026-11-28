@@ -12,6 +12,7 @@ export type ResumeMimeType=(typeof resumeMimeTypes)[number];
 export const maxResumeBytes=5*1024*1024;
 export const defaultApplicantRetentionDays=365;
 export const defaultRecruitingPrivacyNoticeVersion="recruiting-privacy-v1";
+export const careerLabel=(value:string)=>value.replaceAll("_"," ").replace(/\b\w/g,char=>char.toUpperCase());
 
 export type RecruitingSettings={
  businessId:string;

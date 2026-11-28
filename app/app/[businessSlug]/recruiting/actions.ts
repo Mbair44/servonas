@@ -3,7 +3,7 @@
 import {revalidatePath} from "next/cache";
 import {redirect} from "next/navigation";
 import {canManageRecruiting} from "@/lib/access";
-import {defaultApplicantRetentionDays,defaultRecruitingPrivacyNoticeVersion,isEmploymentType,normalizeJobSlug} from "@/lib/recruiting";
+import {defaultApplicantRetentionDays,defaultRecruitingPrivacyNoticeVersion,isEmploymentType,isJobApplicationStatus,normalizeJobSlug} from "@/lib/recruiting";
 import {requireWorkspace} from "@/lib/workspace";
 
 const text=(form:FormData,key:string)=>String(form.get(key)??"").trim();
@@ -82,4 +82,17 @@ export async function saveRecruitingSettings(slug:string,form:FormData){
  const {error}=await supabase.from("business_recruiting_settings").upsert({business_id:business.id,careers_enabled:checked(form,"careersEnabled"),show_careers_nav_link:checked(form,"showCareersNavLink"),show_careers_footer_link:checked(form,"showCareersFooterLink"),notification_email:email,applicant_retention_days:retention,privacy_notice_version:defaultRecruitingPrivacyNoticeVersion,updated_by:user.id},{onConflict:"business_id"});
  if(error)return redirect(destination(slug,"/settings","error","Careers settings could not be saved."));
  revalidatePath(`/app/${slug}/recruiting/settings`);redirect(destination(slug,"/settings","success","Careers settings saved. Public routes are not live yet."));
+}
+
+export async function updateApplicationStatus(slug:string,jobId:string,applicationId:string,form:FormData){
+ const {supabase,business,user}=await recruitingWorkspace(slug),status=text(form,"status");
+ if(!isJobApplicationStatus(status))redirect(destination(slug,`/jobs/${jobId}/applications/${applicationId}`,"error","Choose a valid application status."));
+ const {error}=await supabase.from("job_applications").update({status,status_updated_by:user.id}).eq("business_id",business.id).eq("job_posting_id",jobId).eq("id",applicationId);
+ if(error)redirect(destination(slug,`/jobs/${jobId}/applications/${applicationId}`,"error","Application status could not be updated."));
+ revalidatePath(`/app/${slug}/recruiting`);revalidatePath(`/app/${slug}/recruiting/jobs/${jobId}/applications/${applicationId}`);redirect(destination(slug,`/jobs/${jobId}/applications/${applicationId}`,"success","Application status updated."));
+}
+export async function addApplicationNote(slug:string,jobId:string,applicationId:string,form:FormData){
+ const {supabase,business,user}=await recruitingWorkspace(slug),body=text(form,"body");if(!body||body.length>12000)redirect(destination(slug,`/jobs/${jobId}/applications/${applicationId}`,"error","Enter an internal note."));
+ const {error}=await supabase.from("job_application_notes").insert({business_id:business.id,application_id:applicationId,body,created_by:user.id});if(error)redirect(destination(slug,`/jobs/${jobId}/applications/${applicationId}`,"error","Note could not be saved."));
+ revalidatePath(`/app/${slug}/recruiting/jobs/${jobId}/applications/${applicationId}`);redirect(destination(slug,`/jobs/${jobId}/applications/${applicationId}`,"success","Internal note added."));
 }
