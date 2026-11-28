@@ -25,6 +25,9 @@ test("job management actions remain server-authorized and tenant-scoped",async()
  assert.match(source,/existing\.status!=="draft"&&existing\.slug!==value\.slug/);
  assert.match(source,/publishError\(value\)/);
  assert.match(source,/unique job URL is already in use|job URL is already in use/);
+ assert.match(source,/employment_type:value\.employmentType/);
+ assert.match(source,/compensation_text:value\.compensation\|\|null/);
+ assert.doesNotMatch(source,/\.\.\.value,status/);
 });
 
 test("dashboard uses actual tenant-scoped application records and withholds public links",async()=>{

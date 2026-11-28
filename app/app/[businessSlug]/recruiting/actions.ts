@@ -40,7 +40,10 @@ export async function saveJobPosting(slug:string,jobId:string|undefined,form:For
  const error=intent==="publish"?publishError(value):draftError(value);
  if(error)return redirect(destination(slug,target,"error",error));
  const now=new Date().toISOString(),status=intent==="publish"?"published":existing?.status==="published"?"published":existing?.status==="closed"?"closed":"draft";
- const payload={business_id:business.id,...value,status,published_at:status==="published"?(existing?.status==="published"?undefined:now):null,closed_at:status==="closed"?undefined:null,updated_at:now,updated_by:user.id,...(!editing?{created_by:user.id}: {})};
+ // The form uses camelCase names, while PostgREST accepts only the database
+ // column names. Keep this mapping explicit so an invalid form key can never
+ // be forwarded as an unknown column on create or edit.
+ const payload={business_id:business.id,title:value.title,slug:value.slug,location:value.location,employment_type:value.employmentType,compensation_text:value.compensation||null,description:value.description,qualifications:value.qualifications,status,published_at:status==="published"?(existing?.status==="published"?undefined:now):null,closed_at:status==="closed"?undefined:null,updated_at:now,updated_by:user.id,...(!editing?{created_by:user.id}: {})};
  if(editing){
   const {error:writeError}=await supabase.from("job_postings").update(payload).eq("business_id",business.id).eq("id",jobId!);
   if(writeError)return redirect(destination(slug,target,"error",writeError.code==="23505"?"That job URL is already in use.":"Job posting could not be saved."));
