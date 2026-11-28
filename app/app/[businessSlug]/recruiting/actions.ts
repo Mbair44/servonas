@@ -87,8 +87,8 @@ export async function saveRecruitingSettings(slug:string,form:FormData){
  // directly so a routine settings save does not depend on upsert conflict
  // handling; retain a narrowly scoped create fallback for older tenants.
  const {data:updated,error:updateError}=await supabase.from("business_recruiting_settings").update(settings).eq("business_id",business.id).select("business_id").maybeSingle();
- if(updateError){console.error("Recruiting settings update failed",{businessId:business.id,code:updateError.code,details:updateError.details,hint:updateError.hint});return redirect(destination(slug,"/settings","error","Careers settings could not be saved. Please try again."));}
- if(!updated){const {error:createError}=await supabase.from("business_recruiting_settings").insert({business_id:business.id,...settings});if(createError){console.error("Recruiting settings creation failed",{businessId:business.id,code:createError.code,details:createError.details,hint:createError.hint});return redirect(destination(slug,"/settings","error","Careers settings could not be saved. Please try again."));}}
+ if(updateError){console.error("Recruiting settings update failed",{businessId:business.id,code:updateError.code,message:updateError.message,details:updateError.details,hint:updateError.hint});return redirect(destination(slug,"/settings","error","Careers settings could not be saved. Please try again."));}
+ if(!updated){const {error:createError}=await supabase.from("business_recruiting_settings").insert({business_id:business.id,...settings});if(createError){console.error("Recruiting settings creation failed",{businessId:business.id,code:createError.code,message:createError.message,details:createError.details,hint:createError.hint});return redirect(destination(slug,"/settings","error","Careers settings could not be saved. Please try again."));}}
  revalidatePath(`/app/${slug}/recruiting/settings`);revalidatePath(`/app/${slug}/recruiting`);revalidatePath("/sites/[siteSlug]/careers","page");revalidatePath("/sites/domain/[domain]/careers","page");redirect(destination(slug,"/settings","success","Careers settings saved."));
 }
 
