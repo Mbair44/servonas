@@ -7,6 +7,7 @@ import {defaultRecruitingSettings,isJobApplicationStatus,isJobPostingStatus,norm
 
 const migration=()=>readFile(join(process.cwd(),"supabase/migrations/20261127000100_recruiting_foundation.sql"),"utf8");
 const triggerFixMigration=()=>readFile(join(process.cwd(),"supabase/migrations/20261128000100_recruiting_settings_trigger_fix.sql"),"utf8");
+const notificationEmailFixMigration=()=>readFile(join(process.cwd(),"supabase/migrations/20261128000200_recruiting_notification_email_constraint_fix.sql"),"utf8");
 
 test("recruiting defaults careers to disabled for each tenant",()=>{
  const settings=defaultRecruitingSettings("11111111-1111-1111-1111-111111111111");
@@ -56,4 +57,11 @@ test("recruiting settings updates do not invoke application status fields",async
  assert.match(sql,/create or replace function public\.recruiting_set_application_updated_at\(\)[\s\S]*new\.status is distinct from old\.status/);
  assert.match(sql,/drop trigger if exists job_applications_updated_at on public\.job_applications/);
  assert.match(sql,/execute function public\.recruiting_set_application_updated_at\(\)/);
+});
+
+test("recruiting notification email constraint repair accepts ordinary email addresses",async()=>{
+ const fix=await notificationEmailFixMigration();
+ const expected="^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$";
+ assert.equal(fix.includes(expected),true);
+ assert.match(fix,/drop constraint if exists business_recruiting_settings_notification_email_check/);
 });
