@@ -45,6 +45,7 @@ test("Careers settings are tenant-scoped and make public careers immediately ava
  assert.match(actions,/business_recruiting_settings/);
  assert.match(actions,/\.update\(settings\)\.eq\("business_id",business\.id\)\.select\("business_id"\)\.maybeSingle\(\)/);
  assert.match(actions,/\.insert\(\{business_id:business\.id,\.\.\.settings\}\)/);
+ assert.match(actions,/message:updateError\.message/);
  assert.match(actions,/careers_enabled:checked/);
  assert.match(actions,/applicant_retention_days:retention/);
  assert.match(actions,/revalidatePath\("\/sites\/domain\/\[domain\]\/careers","page"\)/);
