@@ -7,7 +7,7 @@ import {activeNavigationGroup,parseExpandedGroups,routeIsActive,SIDEBAR_GROUPS_S
 
 export function WorkspaceNav({slug,name,poolService=false,industry}:{slug:string;name:string;poolService?:boolean;industry?:string|null}){
  const base=`/app/${slug}`;
- const pathname=usePathname(),items=useMemo(()=>visibleNavigation(workspaceNavigation(slug,{poolService,partyRental:industry==="party_rental"})),[industry,poolService,slug]);
+ const pathname=usePathname(),[recruitingAllowed,setRecruitingAllowed]=useState(false),items=useMemo(()=>visibleNavigation(workspaceNavigation(slug,{poolService,partyRental:industry==="party_rental",recruiting:recruitingAllowed})),[industry,poolService,recruitingAllowed,slug]);
  const groupIds=useMemo(()=>items.filter(item=>item.children).map(item=>item.id),[items]);
  const activeGroup=activeNavigationGroup(pathname,items);
  const [expanded,setExpanded]=useState<string|null>(()=>activeGroup??null);
@@ -17,6 +17,7 @@ export function WorkspaceNav({slug,name,poolService=false,industry}:{slug:string
   setExpanded(activeGroup??stored[0]??null);
   setCollapsed(window.localStorage.getItem("servonas.sidebar.collapsed.v1")==="true");
  },[activeGroup,groupIds]);
+ useEffect(()=>{let active=true;void fetch(`/api/recruiting/${encodeURIComponent(slug)}/access`,{cache:"no-store"}).then(response=>response.ok?response.json():{allowed:false}).then(data=>{if(active)setRecruitingAllowed(data?.allowed===true);}).catch(()=>{if(active)setRecruitingAllowed(false);});return()=>{active=false;};},[slug]);
  const toggle=(id:string)=>{
   setExpanded(current=>{
    const next=current===id?null:id;
