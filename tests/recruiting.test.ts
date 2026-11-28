@@ -6,6 +6,7 @@ import {canManageRecruiting} from "../lib/access.ts";
 import {defaultRecruitingSettings,isJobApplicationStatus,isJobPostingStatus,normalizeJobSlug,validateResumeMetadata} from "../lib/recruiting.ts";
 
 const migration=()=>readFile(join(process.cwd(),"supabase/migrations/20261127000100_recruiting_foundation.sql"),"utf8");
+const triggerFixMigration=()=>readFile(join(process.cwd(),"supabase/migrations/20261128000100_recruiting_settings_trigger_fix.sql"),"utf8");
 
 test("recruiting defaults careers to disabled for each tenant",()=>{
  const settings=defaultRecruitingSettings("11111111-1111-1111-1111-111111111111");
@@ -47,4 +48,12 @@ test("recruiting migration enforces tenant isolation, append-only status history
  assert.match(sql,/bucket_id='application-resumes' and public\.has_business_role\(\(\(storage\.foldername\(name\)\)\[1\]\)::uuid,array\['owner','admin'\]\)/);
  assert.match(sql,/submitted_ip_hash text/);
  assert.doesNotMatch(sql,/raw_ip/);
+});
+
+test("recruiting settings updates do not invoke application status fields",async()=>{
+ const sql=await triggerFixMigration();
+ assert.match(sql,/create or replace function public\.recruiting_set_updated_at\(\)\nreturns trigger language plpgsql as \$\$\nbegin\n  new\.updated_at=now\(\);\n  return new;\nend;\n\$\$;/);
+ assert.match(sql,/create or replace function public\.recruiting_set_application_updated_at\(\)[\s\S]*new\.status is distinct from old\.status/);
+ assert.match(sql,/drop trigger if exists job_applications_updated_at on public\.job_applications/);
+ assert.match(sql,/execute function public\.recruiting_set_application_updated_at\(\)/);
 });
